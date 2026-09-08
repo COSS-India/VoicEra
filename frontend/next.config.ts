@@ -1,12 +1,12 @@
 import type { NextConfig } from "next";
 
 /**
- * Where the Next server proxies /api/v1 → FastAPI.
- * Same machine (npm on host): http://127.0.0.1:8000
- * Docker Compose frontend service: http://api:8000
+ * Where the Next server proxies upstream services.
+ * Same machine (npm on host): API http://127.0.0.1:8000, runtime http://127.0.0.1:7860
+ * Docker Compose frontend service: API http://api:8000, runtime http://runtime:7860
  *
- * The browser always calls same-origin /api/v1, so the public hostname that
- * forwards port 3000 needs no API URL — only this internal target matters.
+ * The browser always calls same-origin /api/v1 and ws(s)://…/agent/…, so the
+ * public hostname that forwards port 3000 needs no separate API or runtime URL.
  */
 const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS ?? "")
   .split(",")
@@ -26,6 +26,9 @@ const nextConfig: NextConfig = {
     const apiProxyTarget = (
       process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000"
     ).replace(/\/$/, "");
+    const runtimeProxyTarget = (
+      process.env.RUNTIME_PROXY_TARGET ?? "http://127.0.0.1:7860"
+    ).replace(/\/$/, "");
     return [
       {
         source: "/api/v1/campaign/",
@@ -34,6 +37,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/v1/:path*",
         destination: `${apiProxyTarget}/api/v1/:path*`,
+      },
+      {
+        source: "/agent/:orgId/:agentId",
+        destination: `${runtimeProxyTarget}/agent/:orgId/:agentId`,
       },
     ];
   },

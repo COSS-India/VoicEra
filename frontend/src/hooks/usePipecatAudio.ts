@@ -61,11 +61,9 @@ export interface TranscriptMessage {
 }
 
 function getBrowserWsUrl(orgId: string, agentId: string, callId?: string): string {
-  // Get the base WebSocket URL from the environment; strip trailing slash if present.
-  // This is used to build the runtime connection URI for audio/voice agent interactions.
-  const base = (process.env.NEXT_PUBLIC_RUNTIME_WS_URL ?? "").replace(/\/$/, "");
-  // Same route as telephony — the runtime dispatches by the agent's agent_category.
-  const path = `${base}/agent/${orgId}/${agentId}`;
+  // Same-origin WebSocket — Next rewrites /agent/* → runtime:7860 (RUNTIME_PROXY_TARGET).
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const path = `${protocol}//${window.location.host}/agent/${orgId}/${agentId}`;
   return callId ? `${path}?call_id=${encodeURIComponent(callId)}` : path;
 }
 
@@ -360,6 +358,7 @@ export function usePipecatAudio(orgId: string, agentId: string) {
     }, 80);
 
     const ws = new WebSocket(getBrowserWsUrl(orgId, agentId, callId));
+    console.log("ws", ws);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
