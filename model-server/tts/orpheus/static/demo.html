@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live TTS · model-server</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e8eaed; --dim: #9aa3b2;
+    --accent: #6ea8fe; --ok: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 24px 18px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 18px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  label {
+    display: block; font-size: 12px; color: var(--dim); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  select, button, textarea {
+    font: inherit; color: var(--ink); background: #11141a;
+    border: 1px solid var(--line); border-radius: 7px; padding: 9px 12px;
+  }
+  select { width: 100%; }
+  textarea { width: 100%; min-height: 88px; resize: vertical; line-height: 1.6; }
+  button { cursor: pointer; font-weight: 600; }
+  button.go { background: var(--accent); color: #0b0d11; border-color: transparent; }
+  button.stop { background: var(--bad); color: #1a0b0b; border-color: transparent; }
+  button.ghost { background: #11141a; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--dim); margin-right: 7px; vertical-align: middle;
+  }
+  .dot.on { background: var(--ok); animation: pulse 1.2s infinite; }
+  .dot.err { background: var(--bad); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 10px; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
+  .metric .k { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+  .metric .v { font-size: 22px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .metric .v.pending { color: var(--dim); }
+  .metric .u { font-size: 12px; color: var(--dim); margin-left: 2px; }
+  .bar { height: 6px; background: #11141a; border-radius: 3px; overflow: hidden; margin-top: 12px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- Filled in from the server at load. This page is meant to be copyable into
+       any TTS model folder, so it must not name a model: whichever one is
+       deployed says who it is. -->
+  <h1 id="modelName">Live TTS<span style="color:var(--dim);font-weight:400"> · model-server</span></h1>
+  <div class="sub">WebSocket streaming · audio starts before generation finishes</div>
+
+  <div class="panel">
+    <div class="grid">
+      <div>
+        <label for="lang">Language</label>
+        <select id="lang"><option>loading…</option></select>
+      </div>
+      <div>
+        <label for="voice">Voice</label>
+        <select id="voice"><option>loading…</option></select>
+      </div>
+      <div>
+        <label for="style">Style</label>
+        <select id="style"><option>default</option></select>
+      </div>
+    </div>
+
+    <div style="margin-top:14px">
+      <label for="text">Text</label>
+      <textarea id="text" placeholder="Type something in the selected language…"></textarea>
+    </div>
+
+    <div class="row">
+      <button class="go" id="speak">Speak</button>
+      <button class="stop" id="stop" disabled>Stop</button>
+      <button class="ghost" id="tag" title="The same synthesis through GET /v1/tts/stream">&lt;audio&gt; instead</button>
+      <span id="status"><span class="dot"></span>idle</span>
+    </div>
+    <div class="bar"><i id="progress"></i></div>
+    <p class="hint" id="hint">Audio plays as it is generated. The first number below is the one you hear as lag.</p>
+  </div>
+
+  <div class="panel">
+    <label>This utterance</label>
+    <div class="metrics">
+      <div class="metric">
+        <div class="k">First audio</div>
+        <div class="v pending" id="m_ttfa">—<span class="u">ms</span></div>
+      </div>
+      <div class="metric">
+        <div class="k">Real-time factor</div>
+        <div class="v pending" id="m_rtf">—</div>
+      </div>
+      <div class="metric">
+        <div class="k">Audio</div>
+        <div class="v pending" id="m_audio">—<span class="u">s</span></div>
+      </div>
+      <div class="metric">
+        <div class="k">Tokens/s</div>
+        <div class="v pending" id="m_tps">—</div>
+      </div>
+      <div class="metric">
+        <div class="k">Jitter p99</div>
+        <div class="v pending" id="m_jit">—<span class="u">ms</span></div>
+      </div>
+    </div>
+    <p class="hint">
+      First audio is measured twice: in this page, from pressing Speak to the first
+      frame arriving, and by the server from its own clock. They differ by the
+      network, and on a remote host that difference is real latency you would
+      also see in a call.
+    </p>
+  </div>
+
+  <audio id="player" style="display:none"></audio>
+</div>
+
+<script>
+// Served two ways, and the page has to work identically both times: directly
+// from the model on its own port at /demo, and through the gateway at
+// /demo/tts. Under the gateway every route is slot-prefixed, because STT and
+// TTS both publish /v1/languages and the same path cannot mean two things.
+// The prefix is read off the URL rather than configured, so the file stays
+// copyable into any model folder.
+const SLOT = (location.pathname.match(/\/demo\/(stt|tts|llm)\/?$/) || [])[1] || '';
+const API = SLOT ? '/' + SLOT : '';
+const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://')
+  + location.host + API + '/v1/tts/ws';
+
+const $ = id => document.getElementById(id);
+let ws = null, ctx = null, cursor = 0, sources = [];
+let roster = [], styles = [], sentAt = 0, firstFrameAt = 0, audioMs = 0;
+
+function setStatus(text, cls = '') {
+  $('status').innerHTML = `<span class="dot ${cls}"></span>${text}`;
+}
+
+function setMetric(id, value, digits = 0) {
+  const el = $(id);
+  if (value === null || value === undefined) { el.classList.add('pending'); return; }
+  el.classList.remove('pending');
+  const unit = el.querySelector('.u');
+  el.textContent = Number(value).toFixed(digits);
+  if (unit) el.appendChild(unit);
+}
+
+// ---------------------------------------------------------------- catalogue
+
+async function loadCatalogue() {
+  try {
+    const r = await fetch(API + '/health');
+    if (r.ok) {
+      const h = await r.json();
+      const name = h.model || h.engine || h.checkpoint;
+      if (name) {
+        $('modelName').innerHTML =
+          name + '<span style="color:var(--dim);font-weight:400"> · live TTS</span>';
+        document.title = name + ' · Live TTS';
+      }
+    }
+  } catch (e) { /* keep the generic title */ }
+
+  try {
+    const r = await fetch(API + '/v1/languages');
+    if (!r.ok) throw new Error('no roster');
+    roster = await r.json();
+    if (!Array.isArray(roster) || !roster.length) throw new Error('empty roster');
+  } catch (e) {
+    setStatus('cannot read the voice roster', 'err');
+    $('hint').textContent =
+      'GET ' + API + '/v1/languages did not answer. Served through the gateway, '
+      + 'that route has to be forwarded for this slot.';
+    return;
+  }
+
+  const langSel = $('lang');
+  langSel.innerHTML = '';
+  for (const entry of roster) {
+    const o = document.createElement('option');
+    o.value = entry.code;
+    o.textContent = `${entry.name} (${entry.code}) · ${entry.n_voices} voices`;
+    langSel.appendChild(o);
+  }
+  langSel.onchange = onLanguage;
+
+  try {
+    const r = await fetch(API + '/v1/styles');
+    if (r.ok) {
+      const body = await r.json();
+      styles = body.styles || [];
+      const sel = $('style');
+      sel.innerHTML = '';
+      for (const s of styles) {
+        const o = document.createElement('option');
+        o.value = s; o.textContent = s;
+        if (s === body.default) o.selected = true;
+        sel.appendChild(o);
+      }
+    }
+  } catch (e) { /* the server picks its own default */ }
+
+  onLanguage();
+}
+
+function onLanguage() {
+  const entry = roster.find(l => l.code === $('lang').value);
+  if (!entry) return;
+  const sel = $('voice');
+  sel.innerHTML = '';
+  for (const v of entry.voices) {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = v;
+    sel.appendChild(o);
+  }
+  // The roster ships a sample line per language. Better than a placeholder in
+  // one script for 20-odd languages, and it is the model's own idea of what it
+  // handles well.
+  if (entry.sample && !$('text').dataset.edited) $('text').value = entry.sample;
+}
+$('text').addEventListener('input', () => { $('text').dataset.edited = '1'; });
+
+// ------------------------------------------------------------------ playback
+
+function ensureCtx() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+function playFrame(bytes, sampleRate) {
+  const pcm = new Int16Array(bytes);
+  if (!pcm.length) return;
+  const buf = ensureCtx().createBuffer(1, pcm.length, sampleRate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  // Schedule back to back. Starting each frame "now" would leave a gap the
+  // length of whatever the network just did, which is audible as a stutter and
+  // would make the model sound worse than it is.
+  const now = ctx.currentTime;
+  if (cursor < now) cursor = now + 0.06;
+  src.start(cursor);
+  cursor += buf.duration;
+  sources.push(src);
+  audioMs += buf.duration * 1000;
+  setMetric('m_audio', audioMs / 1000, 1);
+}
+
+function stopPlayback() {
+  for (const s of sources) { try { s.stop(); } catch (e) { /* already ended */ } }
+  sources = [];
+  cursor = 0;
+  $('player').pause();
+}
+
+// --------------------------------------------------------------- synthesis
+
+function speak() {
+  const text = $('text').value.trim();
+  if (!text) return;
+  stopPlayback();
+  ensureCtx();
+  audioMs = 0; firstFrameAt = 0;
+  for (const id of ['m_ttfa', 'm_rtf', 'm_audio', 'm_tps', 'm_jit']) {
+    $(id).classList.add('pending');
+  }
+  $('progress').style.width = '0';
+  setStatus('connecting', '');
+  $('speak').disabled = true; $('stop').disabled = false;
+
+  let sampleRate = 24000;
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    sentAt = performance.now();
+    ws.send(JSON.stringify({
+      text,
+      voice: $('voice').value,
+      language: $('lang').value,
+      style: $('style').value || undefined,
+    }));
+    setStatus('generating', 'on');
+  };
+
+  ws.onmessage = ev => {
+    if (typeof ev.data !== 'string') {
+      if (!firstFrameAt) {
+        firstFrameAt = performance.now();
+        setMetric('m_ttfa', firstFrameAt - sentAt, 0);
+        setStatus('playing', 'on');
+      }
+      playFrame(ev.data, sampleRate);
+      return;
+    }
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type === 'start') {
+      sampleRate = msg.sample_rate || sampleRate;
+    } else if (msg.type === 'done') {
+      const m = msg.metrics || {};
+      // The server's own clock, which excludes the network. Shown next to the
+      // page's number rather than instead of it.
+      if (m.ttfa_ms != null) setMetric('m_ttfa', m.ttfa_ms, 0);
+      if (m.rtf != null) setMetric('m_rtf', m.rtf, 3);
+      if (m.tokens_per_s != null) setMetric('m_tps', m.tokens_per_s, 0);
+      if (m.jitter_p99_ms != null) setMetric('m_jit', m.jitter_p99_ms, 1);
+      $('progress').style.width = '100%';
+      setStatus('done', '');
+    } else if (msg.type === 'error') {
+      setStatus(msg.message || 'error', 'err');
+    }
+  };
+
+  ws.onerror = () => setStatus('websocket error', 'err');
+  ws.onclose = () => {
+    $('speak').disabled = false; $('stop').disabled = true;
+    ws = null;
+  };
+}
+
+// The other path the server offers: a plain GET that streams a WAV, meant to be
+// dropped into an <audio src>. Kept here because it is the honest comparison --
+// no Web Audio, no framing, and you can hear what the extra buffering costs.
+function speakViaTag() {
+  const text = $('text').value.trim();
+  if (!text) return;
+  stopPlayback();
+  const q = new URLSearchParams({ text, voice: $('voice').value, language: $('lang').value });
+  if ($('style').value) q.set('style', $('style').value);
+  const started = performance.now();
+  const el = $('player');
+  el.src = API + '/v1/tts/stream?' + q.toString();
+  el.onplaying = () => {
+    setMetric('m_ttfa', performance.now() - started, 0);
+    setStatus('playing · <audio>', 'on');
+  };
+  el.onended = () => setStatus('done', '');
+  el.onerror = () => setStatus('audio element could not play the stream', 'err');
+  setStatus('requesting', '');
+  el.play().catch(() => setStatus('autoplay blocked — press Speak once first', 'err'));
+}
+
+$('speak').onclick = speak;
+$('tag').onclick = speakViaTag;
+$('stop').onclick = () => {
+  if (ws) { try { ws.close(); } catch (e) { /* already closing */ } }
+  stopPlayback();
+  setStatus('stopped', '');
+  $('speak').disabled = false; $('stop').disabled = true;
+};
+
+loadCatalogue();
+</script>
+</body>
+</html>

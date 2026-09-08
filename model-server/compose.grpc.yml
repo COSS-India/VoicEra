@@ -1,0 +1,68 @@
+# A gRPC front door for the STT slot. OPT-IN, and inert unless asked for.
+#
+# NVIDIA Cloud Functions forwards HTTP paths to a container unchanged, so
+# POST /v1/audio/transcriptions already works there. What it has no invocation
+# path for is WebSocket -- and a telephony leg needs audio flowing in while
+# transcripts flow back. This overlay adds a proxy that speaks gRPC bidi
+# streaming on one side and the model's own /v1/asr/ws on the other.
+#
+# WHY THIS IS A SEPARATE FILE, attached only when USE_STT_GRPC is set:
+# an adopter who does not need gRPC must get a deployment identical to one from
+# before this existed. So this file adds a service and CHANGES NOTHING ELSE --
+# it does not touch `stt`, `gateway`, `models.yaml` or any published port. With
+# the flag unset, compose-files.sh never names it and `docker compose config`
+# resolves exactly as it did before. tests/test_grpc_facade.py pins that.
+#
+# The folder is stt/_grpc/, and the leading underscore is load-bearing: both
+# setup.sh's model menu (setup.sh:45) and the catalogue test
+# (test_catalogue.py:76) skip `_*`, so a non-model folder under stt/ does not
+# appear as something an operator can select or something models.yaml must list.
+
+services:
+
+  stt-grpc:
+    # Follows the STT slot: pointless without a model behind it, and it must
+    # not linger when the slot is off.
+    profiles: ["stt"]
+    build:
+      context: ./stt/_grpc
+    image: voicera/model-stt-grpc:latest
+    container_name: voicera_model_stt_grpc
+    restart: unless-stopped
+    environment:
+      # The model's own WebSocket. 8000, not the slot's 8001, because
+      # indic-nemotron is vendored code that hardcodes 8000 and ignores PORT --
+      # the same reason the gateway is pointed at 8000 by its overlay.
+      STT_GRPC_UPSTREAM_WS: ${STT_GRPC_UPSTREAM_WS:-ws://stt:8000/v1/asr/ws}
+      # Readiness is read from the model's /health rather than by opening a
+      # WebSocket: a WS probe every few seconds would create a real ASR session,
+      # inflating active_streams and taking a batch slot for nothing.
+      STT_GRPC_UPSTREAM_HEALTH: ${STT_GRPC_UPSTREAM_HEALTH:-http://stt:8000/health}
+      STT_GRPC_LISTEN: ${STT_GRPC_LISTEN:-0.0.0.0:8004}
+      STT_GRPC_SAMPLE_RATE: ${STT_GRPC_SAMPLE_RATE:-16000}
+      STT_GRPC_MAX_MESSAGE_BYTES: ${STT_GRPC_MAX_MESSAGE_BYTES:-4194304}
+      STT_GRPC_OPEN_TIMEOUT_S: ${STT_GRPC_OPEN_TIMEOUT_S:-30}
+      STT_GRPC_PROBE_INTERVAL_S: ${STT_GRPC_PROBE_INTERVAL_S:-5}
+      # How many messages to swallow from a caller whose stream has already been
+      # refused. A server that stops reading mid-stream makes the client's
+      # pending writes fail, and a failed write surfaces as INTERNAL on the
+      # client whatever status the server set -- so a rejection has to outlast
+      # the caller's in-flight buffer to be reported as the rejection it is.
+      STT_GRPC_DRAIN_LIMIT: ${STT_GRPC_DRAIN_LIMIT:-256}
+    ports:
+      # LOCALHOST ONLY by default. The gateway binds 0.0.0.0 and has no auth,
+      # which the code review flagged; a second unauthenticated port on every
+      # interface would repeat that mistake rather than inherit it. Set
+      # STT_GRPC_BIND=0.0.0.0 deliberately, behind a firewall, or let a platform
+      # like NVCF provide the ingress and leave this alone.
+      - "${STT_GRPC_BIND:-127.0.0.1}:${STT_GRPC_PORT:-8104}:8004"
+    networks: [model_net]
+    healthcheck:
+      # The standard grpc.health.v1 service, which is what NVCF and most gRPC
+      # load balancers probe. NOT_SERVING until the model answers its own
+      # /health, so a container is never sent a live call it cannot serve.
+      test: ["CMD-SHELL", "python -c \"import grpc; from grpc_health.v1 import health_pb2, health_pb2_grpc; import sys; c=grpc.insecure_channel('localhost:8004'); r=health_pb2_grpc.HealthStub(c).Check(health_pb2.HealthCheckRequest(), timeout=5); sys.exit(0 if r.status==health_pb2.HealthCheckResponse.SERVING else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 600s

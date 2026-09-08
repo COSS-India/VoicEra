@@ -1,0 +1,1 @@
+"""Bhashini / adapter providers."""

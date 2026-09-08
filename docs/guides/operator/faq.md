@@ -1,95 +1,134 @@
 ---
-description: Answers to common operator questions about telephony, deployment, agents, and getting help.
+title: FAQ
+description: Common questions about running VoicEra.
 ---
 
-# Operator FAQ
+## Where is the dashboard?
 
-Short answers to the questions operators ask most often. For deeper material, follow the links inside each answer.
+The core stack does not include one. VoicEra is API-first: `http://localhost:8000/docs` gives you an interactive console for every endpoint.
 
-## Telephony and integrations
+On `http://localhost:3000`, started with the rest of the stack. It covers agents, numbers, campaigns, knowledge documents, call history, and per-call latency. Its container runs the Next.js development server, so build it properly before exposing it. See [Dashboard](../../developer/frontend/overview.md) and [Operating via the API](operating-via-api.md).
 
-### Do I put Vobiz credentials in a `.env` file on the server?
+## Why is the database on port 27018?
 
-No. For normal operation, enter **Vobiz Auth ID** and **Vobiz Auth Token** in **Dashboard → Integrations**. The voice server reads them from the database per organization. See [integrations service](../../services/integrations.md).
+The container listens on `27017`; the host mapping is `27018` so it cannot collide with a MongoDB you already run locally. From your machine use `27018`; inside the Compose network services use `mongodb:27017`.
 
-### What is JOHNAIC in the configuration?
+It is FerretDB — the MongoDB wire protocol on top of PostgreSQL — not MongoDB. See [Data store](../concepts/data-store.md).
 
-It is a legacy name for your **public voice server URL** (HTTPS and WSS). Use your own domain rather than any example hostname from early deployments. See [public voice URLs](../deployment/public-voice-urls.md).
+## Do I need a GPU?
 
-### Test on Browser works but phone calls do not — why?
+Not with cloud model providers. The core stack runs on 2 CPU cores and 4 GB of RAM.
 
-Browser test only needs the voice server and AI keys. Phone calls also need:
+A GPU is only needed to self-host models with the [model server](../../developer/model-server/overview.md).
 
-- Correct telephony webhooks on the provider side.
-- A public URL that is reachable from Vobiz or Plivo.
-- The phone number linked to the agent in **Phone numbers**.
+## Can I use only OpenAI?
 
-See [telephony model](../../concepts/telephony-model.md) and [telephony troubleshooting](../../troubleshooting/telephony.md).
+Yes. `openai` registers speech-to-text, text-to-speech, and a language model, so one credential covers all three. `google` and `sarvam` do the same.
 
-### Call connects but the agent does not speak — why?
+Mixing is common — Deepgram for STT, Cartesia for TTS, OpenAI for the LLM. The choice is per agent.
 
-Usually the AI provider key is missing or invalid, or the agent has the wrong STT/TTS provider selected. Your hosting partner should check `voice_server` logs at the time of the call. See [voice and audio troubleshooting](../../troubleshooting/voice-and-audio.md).
+## Why are my provider dropdowns or catalogs empty?
 
-## Deployment and environment
+Catalogs filter to providers you have stored credentials for. Store them first:
 
-### Do we need a GPU?
+```bash
+curl -X POST http://localhost:8000/api/v1/auth \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"provider": "openai", "auth": {"api_key": "sk-..."}}'
 
-Only if you run the optional local **AI4Bharat** STT and TTS servers. Cloud-only speech providers run fine without a GPU on the voice host. You still need to size CPU and memory for the expected number of concurrent calls. See [AI4Bharat STT](../../services/ai4bharat-stt.md).
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/api/v1/auth/configured
+```
 
-### Does the system fall back from cloud speech to local speech automatically?
+## Why did my campaign pause itself?
 
-No. Each agent uses exactly the STT and TTS providers configured on it. There is no automatic provider fallback.
+The circuit breaker tripped — by default, more than 50% of calls failing within a 300-second window, over a minimum of 5 calls. It exists so a broken agent burns a handful of calls instead of the whole list.
 
-### What are the default MongoDB and MinIO passwords?
+Find out why the calls failed, fix it, then `POST /campaign/{id}/resume`. See [Troubleshooting campaigns](../troubleshooting/campaigns.md).
 
-Development defaults are documented in the repo README and must be changed before production. See [security hardening](../deployment/security-hardening.md).
+## Why does my browser test call have no transcript?
 
-### Port already in use when starting?
+Browser sessions do produce transcripts and recordings — the runtime registers a `call_type: web` call log on connect. If one is missing, check the runtime log for `Registered web call call_id=` and confirm MinIO is reachable.
 
-Your hosting partner can run `make stop-all-ports` or stop the conflicting services on ports 3000, 8000, 7860, 27017, 9000, and 9001. See [deployment troubleshooting](../../troubleshooting/deployment.md).
+## Do I need a public URL?
 
-## Dashboard and agents
+Only for real phone calls. Your telephony provider fetches `/answer` over HTTPS and opens a WSS connection for audio — both inbound, so the runtime must be publicly reachable.
 
-### What is an "agent"?
+For evaluation, a `websocket` agent needs no public URL and no telephony account. See [Public voice URLs](../../guides/deployment/public-voice-urls.md).
 
-A configured virtual voice assistant — language, voice, AI settings, instructions, and a linked phone number. It is not a human team member. See [agents, campaigns, and calls](../../concepts/agents-campaigns-calls.md).
+## My agents stopped answering after I changed a setting. Why?
 
-### How do I test without spending phone minutes?
+Almost certainly `VOICE_SERVER_BASE_URL`. The answer URL is baked into the provider application when an agent is **created**, so changing it later does not update existing agents — your provider keeps calling the old address, and nothing reaches VoicEra to log.
 
-Use **Test on Browser** on the agent card under **Assistants**. See the [dashboard tour](dashboard-tour.md).
+`PATCH` each affected agent to re-provision, or recreate it.
 
-### How do I make an outbound call?
+## How do I change a default password?
 
-Either run a **Campaign** in the dashboard (if enabled) or call `POST /outbound/call/` on the voice server. Confirm which features your deployment supports — see [REST API](../../reference/rest-api.md).
+Edit `.env` and recreate the affected containers. Change `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, and `REDIS_PASSWORD` at minimum.
 
-## Documentation and license
+<Warning>
+Changing `MONGODB_PASSWORD` after the volume exists does not update the PostgreSQL user — the same credentials serve both layers. Set it before the first start, or change it inside Postgres too.
+</Warning>
 
-### Where is the full API list?
+See [Security hardening](../../guides/deployment/security-hardening.md).
 
-Backend Swagger: `http://<your-backend>/docs`. Voice server Swagger: `http://<your-voice-host>/docs`. See [REST API](../../reference/rest-api.md) and [WebSocket API](../../reference/websocket-api.md).
+## What happens if I lose PROVIDER_AUTH_ENCRYPTION_KEY?
 
-### Is the software MIT or proprietary?
+Every stored provider credential becomes permanently undecryptable. There is no recovery path and no re-encryption tool — each organisation must re-enter every provider key.
 
-MIT License only — Copyright (c) 2026 COSS India. See the `LICENSE` file in the repository.
+Back it up with the same care as the database, and store it alongside your backups.
 
-## Getting help
+## Is there a default login?
 
-### What information should I send when reporting a problem?
+No. The first `POST /users/signup` creates the user, an organisation, and a `super_admin` membership. Whoever signs up first owns the deployment, so do it immediately after starting.
 
-- Time of the incident (with timezone).
-- Agent name.
-- Phone number, if the issue is call-related.
-- Whether **Test on Browser** worked for the same agent.
-- Any error shown in the dashboard.
-- Your organization name.
+## How many calls can run at once?
 
-### Who fixes server errors?
+`DEFAULT_ORG_CONCURRENCY_LIMIT` caps simultaneous calls per organisation, default `10`. Campaigns can set a lower `max_concurrency`.
 
-Your **hosting partner** uses Docker logs and shell access. As an **operator**, you check dashboard configuration first — Integrations, Phone numbers, and Test on Browser — before escalating. See [day-to-day operations](operations.md).
+In practice your telephony account's channel limit or your model vendor's rate limits usually bind first. See [Call concurrency](../concepts/call-concurrency.md).
 
-## Next steps
+## Can I scale the services?
 
-- [Dashboard tour](dashboard-tour.md)
-- [Day-to-day operations](operations.md)
-- [Common issues](../../troubleshooting/common-issues.md)
-- [Glossary](../../concepts/glossary.md)
+The API, runtime, and ARQ worker scale horizontally. The runtime needs session affinity, since each live call holds one WebSocket.
+
+<Warning>
+The campaign orchestrator must run as **exactly one** replica. Its state is in-memory and it uses Redis pub/sub, which fans out to every subscriber — two replicas would dial each campaign at twice its configured rate.
+</Warning>
+
+See [Production deployment](../../guides/deployment/production.md).
+
+## Does VoicEra switch language mid-call?
+
+No. An agent declares a primary language and optional secondary ones, but nothing switches during a call. Choose a provider whose model covers the languages you expect, or run separate numbers per language.
+
+## Where are recordings stored?
+
+MinIO, under `voicera-calls/{org_id}/{call_id}/`. Fetch them through the authenticated API rather than the bucket:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/api/v1/calls/$CALL_ID/recording -o recording.wav
+```
+
+Nothing expires automatically — set a retention policy.
+
+## How do I back up?
+
+Three stores together: PostgreSQL (via `pg_dump`), MinIO, and the Chroma volume. Redis is ephemeral. Store `PROVIDER_AUTH_ENCRYPTION_KEY` with the backup — credentials are useless without it.
+
+<Warning>
+`docker compose down -v` deletes all four volumes at once, irreversibly.
+</Warning>
+
+See [Daily operations](operations.md).
+
+## Is there a CI pipeline?
+
+No. There is no `.github/` directory. Run the test suites yourself before opening a pull request — see [Testing](../../developer/guides/testing.md).
+
+## Related
+
+* [Common issues](../troubleshooting/common-issues.md)
+* [Operating via the API](operating-via-api.md)
+* [Glossary](../concepts/glossary.md)

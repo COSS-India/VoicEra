@@ -1,80 +1,174 @@
 ---
-description: What the JOHNAIC environment variables mean and how to set the public voice server URL for telephony webhooks and WebSockets.
+title: Public voice URLs
+description: Exposing the runtime so telephony providers can reach it.
 ---
 
-# Public voice server URLs
+Real phone calls require your telephony provider to reach the runtime from the public internet. This page covers `VOICE_SERVER_BASE_URL`, what breaks when it is wrong, and how to proxy it correctly.
 
-Environment variables named `JOHNAIC_*` are not a third-party product. They hold the **public base URL of your deployed voice server** — the address on the internet that telephony providers call for webhooks and that browsers connect to for live audio.
+## Why a public URL is required
 
-The name is a legacy from an early deployment hostname (`johnaic.com`). New documentation uses **public voice server URL**. A future release may rename these variables to `VOICERA_PUBLIC_URL` and `VOICERA_PUBLIC_WS_URL`.
+Two separate connections come **inbound** from your provider:
 
-## What they are used for
+```mermaid
+sequenceDiagram
+  participant P as Telephony provider
+  participant R as Runtime
 
-- Telephony provider webhooks (Vobiz, Plivo) that signal incoming calls
-- WebSocket live-audio connections from telephony bridges and from the dashboard's **Test on Browser** feature
-- Answer URLs that the frontend builds when you create an agent
-
-## Variables
-
-| Variable | Where set | Meaning |
-|----------|-----------|---------|
-| `JOHNAIC_SERVER_URL` | voice server `.env` | Public HTTPS base, e.g. `https://voice.example.gov.in` |
-| `JOHNAIC_WEBSOCKET_URL` | voice server `.env` | Public WSS base for telephony audio streams, e.g. `wss://voice.example.gov.in` |
-| `NEXT_PUBLIC_JOHNAIC_SERVER_URL` | frontend `.env.local` | Voice server base for answer URLs and **Test on Browser**; WebSocket URL is derived (`http`→`ws`, `https`→`wss`) in `lib/johnaic-config.ts` |
-
-The voice server itself listens on port `7860` inside the container. The public URL points at your reverse proxy, which terminates TLS and forwards to `7860`.
-
-## URLs the system builds
-
-| Use case | Pattern |
-|----------|---------|
-| Vobiz answer webhook | `{JOHNAIC_SERVER_URL}/answer?agent_id={uuid}` |
-| Plivo answer webhook | `{JOHNAIC_SERVER_URL}/plivo/answer?agent_id={uuid}` |
-| Audio WebSocket (Vobiz) | `{JOHNAIC_WEBSOCKET_URL}/agent/{agent_id}` |
-| Audio WebSocket (Plivo) | `{JOHNAIC_WEBSOCKET_URL}/plivo/agent/{agent_id}` |
-| Browser test | `{ws-base}/browser/agent/{agent_id}` where `ws-base` is derived from `NEXT_PUBLIC_JOHNAIC_SERVER_URL` |
-
-Code references:
-
-- `voice_2_voice_server/api/server.py`
-- `voicera_frontend/app/(dashboard)/assistants/page.tsx`
-- `voicera_frontend/lib/johnaic-config.ts` — browser WebSocket URL from `NEXT_PUBLIC_JOHNAIC_SERVER_URL`
-
-## Requirements
-
-- Reachable from the **public internet** so telephony callbacks succeed
-- Use **WSS** (not `ws://`) when the dashboard is served over HTTPS, otherwise browsers block the WebSocket as mixed content
-- DNS and the TLS certificate on the reverse proxy must match the hostname in these variables
-
-## Example production values
-
-```env
-# voice_2_voice_server/.env
-JOHNAIC_SERVER_URL=https://voice.example.gov.in
-JOHNAIC_WEBSOCKET_URL=wss://voice.example.gov.in
-
-# voicera_frontend/.env.local
-NEXT_PUBLIC_JOHNAIC_SERVER_URL=https://voice.example.gov.in
+  P->>R: 1. HTTPS GET/POST /answer?agent_id=&org_id=
+  R-->>P: Stream XML naming a wss:// address
+  P->>R: 2. WSS connection, audio both ways
 ```
 
-The nginx snippet in [Production deployment](production.md) terminates TLS for `voice.example.gov.in` and forwards both HTTP and WebSocket traffic to the voice server container.
+Neither is outbound, so NAT traversal and firewall punching do not help. The provider must resolve and reach your hostname.
 
-## Local development
+## Setting it
 
-Use ngrok or a similar tunnel to expose port `7860` over HTTPS and WSS, then set both bases to the tunnel hostname. Prefer the `wss://` URL the tunnel provides:
+```bash
+# Local development only
+VOICE_SERVER_BASE_URL=http://localhost:7860
 
-```env
-JOHNAIC_SERVER_URL=https://abcd1234.ngrok.app
-JOHNAIC_WEBSOCKET_URL=wss://abcd1234.ngrok.app
+# Production
+VOICE_SERVER_BASE_URL=https://voice.example.com
 ```
 
-{% hint style="warning" %}
-Do not copy placeholder hostnames from example configs or earlier documentation. Use a domain name you control. Telephony providers cannot deliver calls to a hostname you do not own.
-{% endhint %}
+One variable, used in two places:
 
-## Next steps
+| Used by | For |
+| --- | --- |
+| **API** | Builds the answer URL stored on the provider application when an agent is created |
+| **Runtime** | Builds the `wss://` address inside the Stream XML it returns |
 
-- [Deployment walkthrough](deployment-walkthrough.md)
-- [Production deployment](production.md)
-- [Telephony model](../../concepts/telephony-model.md)
-- [Environment variables](../../reference/environment-variables.md)
+Both read the same value, so they cannot disagree.
+
+## The one-way door
+
+`build_answer_urls()` composes:
+
+```text
+{VOICE_SERVER_BASE_URL}/answer?agent_id={agent_id}&org_id={org_id}
+```
+
+and `create_application(agent_id, answer_url)` sends it to your provider **when the agent is created**.
+
+<Warning>
+Changing `VOICE_SERVER_BASE_URL` afterwards does **not** update agents that already exist. Your provider keeps calling the old URL, and those agents stop answering — with no error in VoicEra, because nothing reaches it.
+
+Fix it per agent: `PATCH /api/v1/agents/{agent_id}` re-provisions the application against the current value, or delete and recreate the agent. Set the variable correctly **before** creating telephony agents.
+</Warning>
+
+VoicEra currently uses the same URL for answer and hangup.
+
+## What breaks, and how it looks
+
+| Symptom | Cause |
+| --- | --- |
+| `VOICE_SERVER_BASE_URL is not configured` on agent create | Unset. The API refuses rather than provisioning a broken application. |
+| Provider reports the webhook failed | Hostname not resolvable, TLS invalid, or a firewall in the way |
+| `/answer` succeeds, no audio | The provider could not open the WSS URL — usually a proxy not upgrading the connection |
+| Stream XML names `localhost` | Still set to the development value |
+| Agents created earlier stopped working | The base URL changed after creation — see above |
+
+## Reverse proxy
+
+The runtime serves HTTP and WebSocket on the same port, so one server block covers both — but the upgrade headers are mandatory:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name voice.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/voice.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/voice.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:7860;
+
+        # Required for the audio WebSocket
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Calls outlive default timeouts
+        proxy_read_timeout  3600s;
+        proxy_send_timeout  3600s;
+    }
+}
+```
+
+Two defaults bite: without `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers the WebSocket never establishes, and nginx's 60-second read timeout kills any call longer than a minute.
+
+## Tunnels for local testing
+
+<Tabs>
+<Tab title="cloudflared">
+```bash
+cloudflared tunnel --url http://localhost:7860
+```
+</Tab>
+
+<Tab title="ngrok">
+```bash
+ngrok http 7860
+```
+</Tab>
+</Tabs>
+
+Put the assigned HTTPS hostname in `VOICE_SERVER_BASE_URL`, restart the API and runtime, **then** create your telephony agents.
+
+<Warning>
+Free tunnels get a new hostname every restart. Since the URL is baked in at agent-create time, recreate or `PATCH` your agents whenever the tunnel address changes.
+</Warning>
+
+## Verifying
+
+Check the runtime is reachable from outside:
+
+```bash
+curl -s https://voice.example.com/health
+```
+
+Then confirm the Stream XML names the public host:
+
+```bash
+curl -s -X POST \
+  "https://voice.example.com/answer?agent_id=$AGENT_ID&org_id=$ORG_ID"
+```
+
+```xml
+<Response>
+  <Stream bidirectional="true">wss://voice.example.com/agent/ORG_ID/AGENT_ID</Stream>
+</Response>
+```
+
+If that address says `localhost`, no real call will ever connect.
+
+Finally, test the WebSocket upgrade itself:
+
+```bash
+curl -i -N \
+  -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  "https://voice.example.com/agent/$ORG_ID/$AGENT_ID"
+```
+
+`101 Switching Protocols` means the proxy is configured correctly. `200` or `400` means it is not upgrading.
+
+## Security
+
+<Warning>
+`/answer` and `/agent/{org_id}/{agent_id}` have **no authentication** — they must be publicly reachable for telephony to work, and the runtime resolves everything from the path. Anyone who learns an org and agent id pair can open a pipeline session and consume your model credits.
+
+Mitigate with rate limiting at the proxy, and IP-allowlist your provider's ranges where they publish them. See [Security hardening](security-hardening.md).
+</Warning>
+
+## Related
+
+* [Telephony model](../concepts/telephony-model.md)
+* [Telephony clients](../../developer/clients/telephony.md)
+* [Troubleshooting telephony](../troubleshooting/telephony.md)
+* [Production deployment](production.md)

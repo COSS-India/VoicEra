@@ -1,19 +1,40 @@
 __pycache__/
+fixtures/
+.env
+.env.local
+.env.prod
+.venv/
+venv/
 *.pyc
-*.pyo
-files/
-local_files/
+.DS_Store
 
-# MongoDB → FerretDB migration dumps (keep locally; do not commit)
-backups/mongodb/*.archive.gz
-backups/mongodb/*.bson
-backups/mongodb/*.json
-!backups/mongodb/.gitkeep
+# Internal docs working notes (style contract, code findings)
+.docs-meta/
 
-# Frontend local env (compose secret); may be empty placeholder
-voicera_frontend/.env.local
-ai4bharat_tts_server/compare_marathi_tts_metrics.py
-ai4bharat_tts_server/server_grpc.py
-ai4bharat_tts_server/tts_pb2_grpc.py
-ai4bharat_tts_server/tts_pb2.py
-docs/guides/deployment/mongodb-to-ferretdb.md
+# Local agent skills, not part of the project
+.agents/
+.claude/
+skills-lock.json
+
+# Subagent-driven-development scratch workspace (ledgers, briefs, reports)
+.superpowers/
+
+# Runtime state from model-server/run/ -- pid files and logs are rewritten on
+# every start, so every developer's copy differs and each pull conflicts. These
+# rules existed and were dropped when dev merged into modelserver; the files are
+# still produced, so without them the next `git add -A` commits a stale PID and
+# a log carrying a developer's absolute home path and a NeMo traceback.
+model-server/run/
+*.pid
+*.log
+
+# Test fixtures create this beside the model they stub and clean it up on
+# teardown; a run that dies before teardown leaves it behind.
+_test_stub.nemo
+
+# Working folder created by the Claude desktop app, not part of the project.
+Claude outputs/
+
+# Generated protobuf stubs. Built at image build time and in the test fixture,
+# never committed: generated code checked in beside a .proto drifts from it and
+# nothing notices.

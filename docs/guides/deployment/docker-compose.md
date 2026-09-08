@@ -1,199 +1,182 @@
 ---
-description: Build, run, and manage VoicEra with Docker Compose using the bundled Makefile targets.
+title: Docker Compose
+description: The reference Compose stack, service by service.
 ---
 
-# Docker Compose deployment
+`docker-compose.yaml` at the repository root is the reference deployment: ten containers, four volumes, one network. This page explains each part and how to change it.
 
-VoicEra ships as five containers orchestrated by `docker-compose.yml` at the repository root. This page is for hosting partners and operators who run the standard packaged stack on a single Linux host.
+<Warning>
+This stack is built for evaluation and development. It bind-mounts source, runs the API with `--reload`, allows all CORS origins, and ships default passwords. Read [Production deployment](production.md) before exposing it.
+</Warning>
 
-## Service inventory
-
-| Container | Image / build context | Host port | Purpose |
-|-----------|----------------------|-----------|---------|
-| `voicera_postgres` | `ghcr.io/ferretdb/postgres-documentdb:…` | (internal) | PostgreSQL + DocumentDB; backing store for FerretDB |
-| `voicera_ferretdb` | `ghcr.io/ferretdb/ferretdb:2.7.0` | `27017` | Mongo-compatible API (alias `mongodb` on the Compose network) |
-| `voicera_minio` | `minio/minio:latest` | `9000` (API), `9001` (console) | Object storage for recordings, transcripts, uploads |
-| `voicera_backend` | `./voicera_backend` | `8000` | FastAPI orchestrator |
-| `voicera_voice_server` | `./voice_2_voice_server` | `7860` | Pipecat voice pipeline and telephony webhooks |
-| `voicera_frontend` | `./voicera_frontend` | `3000` | Next.js dashboard |
-| `voicera_nginx` | `nginx:alpine` | `8080` | Optional local reverse proxy (dev convenience) |
-
-> **Database note:** The primary app datastore is **FerretDB** (not MongoDB Server). See [MongoDB → FerretDB migration](mongodb-to-ferretdb.md) for architecture, cutover details, backups, and rollback.
-
-Optional AI4Bharat speech containers expose `8001` (STT) and `8002` (TTS) when enabled. See [AI4Bharat STT](../../services/ai4bharat-stt.md) and [AI4Bharat TTS](../../services/ai4bharat-tts.md).
-
-## Prerequisites
-
-- Docker 20.10+ and Docker Compose v2
-- 8 GB RAM minimum (16 GB recommended)
-- 50 GB disk for images, volumes, and recordings
-- Cloned `voicera_mono_repository` with `.env` files prepared
-
-If anything above is missing, finish the [Prerequisites](../../quickstart/prerequisites.md) checklist first.
-
-## Build and start
-
-The Makefile is the supported entry point. It wraps `docker compose` with the right flags and load order.
+## Starting
 
 ```bash
-# Build all images
-make build-all-services
-
-# Start the full stack in the background
-make start-all-services
-
-# Stop everything
-make stop-all-services
-
-# Force-release host ports if a stale process holds them
-make stop-all-ports
+./scripts/start-application-services.sh
 ```
 
-Equivalent direct commands:
+Use the script rather than `docker compose up`. The compose file's own header says a bare `up` against a fresh checkout "will fail or come up misconfigured" — three services declare `${SECRET_KEY:?...}` and abort without it.
 
-```bash
-docker compose build
-docker compose up -d
-docker compose down
-```
-
-## Startup order
-
-`depends_on` with health checks enforces this order:
+## The map
 
 ```mermaid
-flowchart LR
-    A[mongodb] --> B[backend]
-    M[minio] --> B
-    M --> V[voice_server]
-    B --> V
-    B --> F[frontend]
+flowchart TB
+  subgraph net ["app-network"]
+    PG["postgres"]
+    FDB["ferretdb<br/>alias: mongodb"]
+    API["api :8000"]
+    RT["runtime :7860"]
+    ARQ["arq-worker"]
+    ORCH["campaign-orchestrator"]
+    FE["frontend :3000"]
+    RD["redis"]
+    MN["minio :9000 :9001"]
+    INIT["minio-init<br/>runs once"]
+  end
+
+  subgraph vols ["volumes — voicera_oss_*"]
+    direction LR
+    VPG[("ferretdb_postgres_data")]
+    VMN[("minio_data")]
+    VCH[("chroma_data")]
+    VRD[("redis_data")]
+  end
+
+  PG --> VPG
+  MN --> VMN
+  API --> VCH
+  RD --> VRD
+
+  FDB --> PG
+  FE --> API
+  API --> FDB
+  API --> RD
+  API --> MN
+  ARQ --> FDB
+  ARQ --> RD
+  ORCH --> FDB
+  ORCH --> RD
+  RT --> API
+  RT --> MN
+  INIT --> MN
 ```
 
-Use `docker compose ps` to confirm services come up healthy. The backend will not start until MongoDB and MinIO report `healthy`.
+## Services
 
-## Environment files
+| Service | Image or build | Published | Command |
+| --- | --- | --- | --- |
+| `postgres` | `ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0` | — | default |
+| `ferretdb` | `ghcr.io/ferretdb/ferretdb:2.7.0` | `27018:27017` | default |
+| `api` | `apps/api/Dockerfile` | `8000:8000` | `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload` |
+| `runtime` | `apps/runtime/Dockerfile` | `7860:7860` | default |
+| `arq-worker` | `apps/api/Dockerfile` | — | `python -m arq app.tasks.arq.WorkerSettings` |
+| `campaign-orchestrator` | `apps/api/Dockerfile` | — | `python -m app.services.campaign.campaign_orchestrator` |
+| `frontend` | `frontend/Dockerfile` | `3000:3000` | `npm run start` |
+| `redis` | `redis:7` | — | `redis-server --requirepass ...` |
+| `minio` | `minio/minio:latest` | `9000`, `9001` | `server /data --console-address ":9001"` |
+| `minio-init` | `minio/mc:latest` | — | creates the bucket, exits |
 
-Each service reads its own `.env`. The compose file mounts them via `env_file`:
+Three services build from **one image** (`apps/api/Dockerfile`) and differ only by `command`. See [Workers and orchestrator](../../developer/services/workers.md).
+
+<Note>
+`minio-init` exiting with code 0 is correct — it creates the bucket and stops. It is not a crash.
+</Note>
+
+## Volumes
+
+| Volume | Holds | Losing it means |
+| --- | --- | --- |
+| `voicera_oss_ferretdb_postgres_data` | All documents | Everything gone |
+| `voicera_oss_minio_data` | Recordings, transcripts, CSVs | Call artifacts gone |
+| `voicera_oss_chroma_data` | RAG vectors | Re-ingest documents |
+| `voicera_oss_redis_data` | Queue, events, slots | Safe to lose; in-flight batches interrupted |
+
+<Warning>
+`docker compose down -v` deletes all four at once. Back up before running it — see [Daily operations](../operator/operations.md).
+</Warning>
+
+## Network and the mongodb alias
+
+One bridge network, `app-network`. The `ferretdb` service publishes the alias `mongodb`, so in-stack services connect to `mongodb:27017` and nothing refers to FerretDB by name. See [Data store](../concepts/data-store.md).
+
+## Environment precedence
+
+Each service loads `env_file: .env`, then applies its own `environment:` block — **and `environment:` wins**. Some values are pinned there deliberately, because the in-network address differs from the host one:
+
+| Variable | In `.env` | Forced in Compose |
+| --- | --- | --- |
+| `MONGODB_HOST` | `localhost` | `mongodb` |
+| `MONGODB_PORT` | `27018` | `27017` |
+| `API_BASE_URL` | `http://localhost:8000/api/v1` | `http://api:8000/api/v1` |
+| `MINIO_ENDPOINT` | `localhost:9000` | `minio:9000` |
+
+Editing these in `.env` has no effect inside the stack. That is intended.
+
+<Warning>
+`DEBUG` is deliberately **not** interpolated into `environment:`. The compose file explains why: host shells often export `DEBUG=release`, which would override the boolean `False` from `.env`. It reaches containers through `env_file` only — so do not add `DEBUG: "${DEBUG}"`.
+</Warning>
+
+Three variables have no default and abort the run if unset: `SECRET_KEY` on `api`, `arq-worker`, and `campaign-orchestrator`.
+
+## Healthchecks and start order
+
+| Service | Gate |
+| --- | --- |
+| `ferretdb` | waits for `postgres` **healthy** (`pg_isready`) |
+| `api` | waits for `ferretdb` **started**, `redis` **healthy** |
+| `arq-worker` | waits for `ferretdb` started, `redis` healthy, `api` started |
+| `campaign-orchestrator` | waits for `ferretdb` started, `redis` healthy |
+| `runtime` | waits for `api` started, `minio` **healthy** |
+
+<Warning>
+`api` waits for FerretDB only to *start*, not to be ready. On a cold first boot it can attempt a query too early and log a connection error. `restart: unless-stopped` recovers it within seconds.
+</Warning>
+
+## Overriding ports
+
+Every published port reads from `.env`:
 
 ```bash
-cp voicera_backend/env.example          voicera_backend/.env
-cp voice_2_voice_server/.env.example    voice_2_voice_server/.env
-cp voicera_frontend/.env.example        voicera_frontend/.env.local
+API_HOST_PORT=8080
+RUNTIME_HOST_PORT=7870
+FERRETDB_HOST_PORT=27019
+MINIO_API_PORT=9010
+MINIO_CONSOLE_PORT=9011
 ```
 
-Edit each file with non-default secrets and the public voice URLs before going live. See [Environment variables](../../reference/environment-variables.md) and [Public voice server URLs](public-voice-urls.md).
+Container-side ports do not change. See [Ports and defaults](../../developer/reference/ports-and-defaults.md).
 
-## Managing the stack
+## Logs
 
-{% tabs %}
-{% tab title="Logs" %}
-```bash
-# All services
-docker compose logs
-
-# One service, follow
-docker compose logs -f backend
-
-# Last 100 lines
-docker compose logs --tail 100 voice_server
-```
-{% endtab %}
-
-{% tab title="Shell access" %}
-```bash
-# Backend Python shell
-docker compose exec backend bash
-
-# MongoDB shell
-docker compose exec mongodb mongosh \
-  --username admin --password admin123
-
-# MinIO client inside the container
-docker compose exec minio mc alias set local http://localhost:9000 minioadmin minioadmin
-```
-{% endtab %}
-
-{% tab title="Restart" %}
-```bash
-# Restart all services
-docker compose restart
-
-# Restart one
-docker compose restart backend
-
-# Hard cycle
-docker compose down && docker compose up -d
-```
-{% endtab %}
-{% endtabs %}
-
-## Networking
-
-All containers share the `voicera_network` bridge and resolve each other by service name:
-
-| Source | Destination | URL inside the network |
-|--------|-------------|------------------------|
-| Backend | MongoDB | `mongodb:27017` |
-| Backend | MinIO | `minio:9000` |
-| Voice server | Backend | `backend:8000` |
-| Frontend | Backend | `backend:8000` |
-| Frontend | Voice server | `voice_server:7860` |
-
-Host port publishing (left side of `ports:`) is what you expose to the outside world. In production keep MongoDB (27017), MinIO (9000, 9001), and the backend (8000) off the public internet and front the stack with a reverse proxy.
-
-## Volumes and data
-
-Two named volumes hold all persistent state:
-
-```yaml
-volumes:
-  mongodb_data:   # MongoDB data files
-  minio_data:     # Recordings, transcripts, uploads
-```
+Every service uses `json-file` with `max-size: 10m` and `max-file: 3` — about 30 MB per container, so logs cannot fill the disk.
 
 ```bash
-# List
-docker volume ls | grep voicera
-
-# Backup MongoDB
-docker compose exec mongodb mongodump \
-  --username admin --password admin123 \
-  --out /tmp/backup
-docker cp voicera_mongodb:/tmp/backup ./mongodb_backup
-
-# Mirror MinIO to disk
-docker compose exec minio mc mirror local/recordings /tmp/minio-backup
+docker compose logs -f api runtime
+docker compose logs campaign-orchestrator --tail 100
 ```
 
-{% hint style="danger" %}
-`docker compose down -v` deletes both volumes and erases all tenant data, recordings, and uploads. Never run it on a live deployment.
-{% endhint %}
-
-## Scaling on a single host
-
-Stateless services (frontend, backend, voice server) can run multiple replicas behind a load balancer:
+## Common operations
 
 ```bash
-docker compose up -d --scale backend=3
+# Status
+docker compose ps
+
+# Restart one service after an .env change
+docker compose up -d --force-recreate api
+
+# Rebuild after a code change
+docker compose up -d --build api runtime
+
+# Stop, keep data
+./scripts/stop-application-services.sh
+
+# Stop and DELETE ALL DATA
+docker compose down -v
 ```
 
-Sticky sessions on the voice server are not required for inbound calls because each call establishes a new WebSocket, but a load balancer with WebSocket support (nginx, Traefik, cloud LB) is needed.
+## Related
 
-## Troubleshooting
-
-| Symptom | First check |
-|---------|-------------|
-| Container restarts in a loop | `docker compose logs <service>` for stack traces |
-| Port already in use | `lsof -i :<port>` and `make stop-all-ports` |
-| Backend cannot reach MongoDB | Confirm `MONGODB_HOST=mongodb` and the health check is green |
-| Voice webhook timeouts | Verify `JOHNAIC_SERVER_URL` and that port 443 reaches the host |
-
-More remedies live in [Troubleshooting: deployment](../../troubleshooting/deployment.md).
-
-## Next steps
-
-- [Deployment walkthrough](deployment-walkthrough.md)
-- [Production deployment](production.md)
-- [Security hardening](security-hardening.md)
-- [Public voice server URLs](public-voice-urls.md)
+* [Production deployment](production.md)
+* [Security hardening](security-hardening.md)
+* [Services overview](../../developer/services/index.md)
+* [Environment variables](../../developer/reference/environment-variables.md)

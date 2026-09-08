@@ -1,0 +1,105 @@
+# indic-nemotron: what this deployment decides, so nothing is inherited.
+#
+# The twelve files beside this one are Akshansh's, vendored byte for byte and
+# never edited -- the slot's promise is that a model is a folder you copy in, and
+# the moment we start patching one, every push from upstream becomes a merge
+# conflict. Everything we need to change about how it runs is therefore here.
+#
+# That includes its own `docker-compose.yml`, which stays in the folder unused
+# (compose-files.sh only ever picks up `compose.extra.yml`). Two things in it
+# would be wrong on our box: it reserves `count: all`, which takes every GPU on a
+# machine where only GPU 1 is ours, and it publishes 8000 on the host, where this
+# stack publishes exactly one port -- the gateway's.
+#
+# Every variable the code reads is declared below. This repo has now shipped this
+# same bug six times -- a value nobody set, defaulted by whatever library or
+# image was underneath -- and two of them are live in the upstream folder itself:
+#
+#   * ASR_ATT_CONTEXT   asr_engine.py:82 defaults to "96,7" -> 640 ms.
+#                       Their docker-compose.yml overrides it to 96,3 -> 320 ms.
+#                       We do not use their compose, so leaving this unset would
+#                       silently double the latency, and it would look like the
+#                       model being slow rather than like a missing line.
+#   * ASR_VAD_MARGIN_DB session.py:57 reads it; nothing declares it anywhere.
+#
+# And one dead letter, left declared so nobody re-adds it thinking it works:
+#   * ASR_DEFAULT_LANG  their compose sets it; openai_api.py:40 hardcodes
+#                       DEFAULT_LANGUAGE = "hi" and never reads the variable.
+#                       Setting it does nothing. Callers must name a language --
+#                       this checkpoint has no "auto", by design (asr_engine.py).
+
+services:
+
+  stt:
+    environment:
+      # ---- weights -----------------------------------------------------
+      # Two checkpoints: the 27-language multisoftmax model, and Bhili on its
+      # own. Both gated on HuggingFace; fetch.sh downloads them into models/.
+      INDIC_NEMO_PATH: ${NEMOTRON_INDIC_NEMO_PATH:-/models/indic-asr-nemotron-600m/indic_nemotron_v1_1_sft_600k_lr1-averaged-40k.nemo}
+      BHILI_NEMO_PATH: ${NEMOTRON_BHILI_NEMO_PATH:-/models/bhili-asr-nemotron-600m/indic_nemotron_bhili_sft_lr1-averaged.nemo}
+
+      # ---- streaming geometry ------------------------------------------
+      # left,right attention context. The encoder was trained with several
+      # configs at once, so latency is an inference-time choice:
+      #   96,1 -> 16 frames -> 160 ms
+      #   96,3 -> 32 frames -> 320 ms   <- ours
+      #   96,7 -> 64 frames -> 640 ms   (upstream's code default, and the
+      #                                  model README's recommendation)
+      # 320 ms beats indic-transcribe's 400 ms floor, so switching model cannot
+      # make a live call worse. Going to 160 trades accuracy for latency and
+      # upstream publishes no curve -- measure before moving it.
+      ASR_ATT_CONTEXT: ${NEMOTRON_ATT_CONTEXT:-96,3}
+
+      # ---- batching ----------------------------------------------------
+      # Their measurements, kept: the model step costs ~23 ms whether the batch
+      # holds 1 stream or 32, so an unused slot is throughput thrown away. Note
+      # their own warning -- batched GPU kernels are not batch-size invariant,
+      # and greedy RNNT turns ~1e-3 encoder differences into visible transcript
+      # changes. This is why a transcript can differ under load.
+      ASR_MAX_BATCH: ${NEMOTRON_MAX_BATCH:-128}
+      ASR_BATCH_WINDOW_MS: ${NEMOTRON_BATCH_WINDOW_MS:-25}
+      ASR_MEL_WINDOW_MS: ${NEMOTRON_MEL_WINDOW_MS:-5}
+
+      # ---- endpointing -------------------------------------------------
+      # VoicEra's Pipecat pipeline owns turn ends (Silero on the user
+      # aggregator) and commits via flush_eos / input_audio_buffer.commit.
+      # Leave ASR_VAD=0 so this slot does not also silence-finalize and
+      # double-emit finals. Set NEMOTRON_VAD=1 only for the standalone demo
+      # when the browser is not sending flush on stop.
+      ASR_VAD: ${NEMOTRON_VAD:-0}
+      ASR_VAD_SILENCE_MS: ${NEMOTRON_VAD_SILENCE_MS:-400}
+      ASR_VAD_MARGIN_DB: ${NEMOTRON_VAD_MARGIN_DB:-2.5}
+
+      # Writes raw mic captures to /app/debug. Off: it is unbounded, and this
+      # box has hit 100% disk three times.
+      ASR_DEBUG_CAPTURE: ${NEMOTRON_DEBUG_CAPTURE:-0}
+
+      # ---- healthcheck -------------------------------------------------
+      # The slot's healthcheck probes HEALTHCHECK_PORT, which defaults to the
+      # slot's own 8001. This server binds 8000, hardcoded at server.py:341,
+      # and does not read PORT -- the same reason the gateway is pointed at
+      # 8000 below. Undeclared, the healthcheck would probe a port nothing is
+      # listening on and mark a perfectly healthy container unhealthy.
+      HEALTHCHECK_PORT: ${STT_HEALTHCHECK_PORT:-8000}
+
+    volumes:
+      # Mounted at /models to match the path their code and compose expect.
+      # Read-only: nothing should write to a checkpoint.
+      - ${NEMOTRON_MODELS_DIR:-./stt/indic-nemotron/models}:/models:ro
+
+  gateway:
+    environment:
+      # Their server binds 8000, hardcoded at server.py:341 -- it does not read
+      # PORT. Pointing the gateway at 8000 is one line; making the model read
+      # PORT would be editing a file we do not own. Nothing is published on the
+      # host either way; this is inside the Compose network.
+      STT_UPSTREAM: ${STT_UPSTREAM:-http://stt:8000}
+      # Their demo page is served at `/`, not `/demo`.
+      STT_DEMO_PATH: ${STT_DEMO_PATH:-/}
+      # ...and it loads its AudioWorklet from an absolute path:
+      #   audioWorklet.addModule('/static/audio-processor.js')
+      # Behind the gateway that request lands at the gateway root, which knows
+      # nothing about /static. The browser then reports "could not start the
+      # microphone", which reads like a permissions problem rather than a
+      # missing file. Declared here so the gateway forwards it to this slot.
+      STT_DEMO_ASSETS: ${STT_DEMO_ASSETS:-/static}

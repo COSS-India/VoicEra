@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+// A gRPC front door for the STT slot, for callers that cannot hold a WebSocket.
+//
+// NVIDIA Cloud Functions is the reason this exists: it forwards HTTP paths to a
+// container unchanged -- so POST /v1/audio/transcriptions works there already --
+// but it has no WebSocket invocation path, and a telephony leg needs audio
+// flowing in while transcripts flow back.
+//
+// This is a FACADE, not a second model server. One StreamingRecognize call maps
+// to exactly one /v1/asr/ws session on the model container, so batching, VAD and
+// vocabulary slicing behave identically whichever door a caller came in through.
+package voicera.asr.v1;
+
+service Asr {
+  // Live audio. The first message MUST be a config; every message after it is
+  // audio. Transcripts stream back as they form. Half-close to finish the turn.
+  rpc StreamingRecognize(stream StreamingRequest) returns (stream StreamingResponse);
+
+  // Whole-file, for parity with POST /v1/audio/transcriptions.
+  rpc Recognize(RecognizeRequest) returns (RecognizeResponse);
+}
+
+enum Encoding {
+  ENCODING_UNSPECIFIED = 0;
+  LINEAR16 = 1;  // the only one this model accepts: 16-bit signed, little endian
+}
+
+message StreamingConfig {
+  // Required. There is NO auto-detection: this is a multisoftmax checkpoint
+  // whose output layer is sliced per language, and an unsliced decode emits
+  // cross-script nonsense. A BCP-47 region is tolerated and stripped, so both
+  // "hi" and "hi-IN" reach the model as "hi". An unknown code is rejected with
+  // INVALID_ARGUMENT listing what is valid -- never silently defaulted.
+  string language = 1;
+
+  // Must be 16000. Not resampled here on purpose: a resampler on the ingest
+  // path is a quality decision hiding in a transport component.
+  int32 sample_rate_hz = 2;
+
+  Encoding encoding = 3;
+
+  // Interim transcripts are ON by default, because a telephony caller wants
+  // words as they form. Expressed as an opt-OUT rather than an opt-in because
+  // proto3 has no field presence for a plain bool: `interim_results = false`
+  // would be indistinguishable from "unset", and the useful default is on.
+  bool disable_interim_results = 4;
+}
+
+// End the current turn WITHOUT ending the call.
+//
+// REQUIRED when the server's VAD is off (ASR_VAD=0), because then nothing else
+// finalises a transcript: a caller that owns turn detection -- a telephony app
+// with its own endpointing -- has to say when a turn ended, or it receives one
+// transcript per call at hang-up instead of one per turn.
+//
+// Useful with VAD on too: it finalises immediately rather than waiting out the
+// silence window, which is worth ~400 ms on a barge-in.
+message CommitTurn {}
+
+message StreamingRequest {
+  oneof payload {
+    StreamingConfig config = 1;
+    bytes audio = 2;  // ~160 ms per frame suits the model's 320 ms chunk
+    CommitTurn commit = 3;
+  }
+}
+
+// Echoes what the model reports on session open, so a caller can verify the
+// geometry it is actually getting rather than assuming it.
+message SessionStarted {
+  string session_id = 1;
+  int32 model_chunk_ms = 2;
+  int32 expected_sample_rate_hz = 3;
+  string build_id = 4;
+  string language = 5;
+}
+
+message Transcript {
+  string text = 1;
+  bool is_final = 2;
+  double latency_ms = 3;
+  string language = 4;
+}
+
+// Conditions the caller cannot otherwise see.
+//
+// `samples_dropped` is the one that matters on a live call: if the GPU falls
+// behind real time the model drops its oldest buffered audio rather than
+// applying backpressure, and the transcript comes back plausible but short.
+// Without this event that loss is invisible from the outside.
+// Conditions the caller cannot otherwise see, that do NOT end the call. An
+// error that ends the call is the RPC status instead -- a warning nobody is
+// obliged to read is the wrong place for "your language is not supported".
+message Warning {
+  string code = 1;  // "samples_dropped" | "input_rate_mismatch"
+  string message = 2;
+  int64 samples_dropped = 3;
+}
+
+message StreamingResponse {
+  oneof event {
+    SessionStarted started = 1;
+    Transcript transcript = 2;
+    Warning warning = 3;
+  }
+}
+
+message RecognizeRequest {
+  StreamingConfig config = 1;
+  bytes audio = 2;  // a complete WAV file, or raw 16 kHz LINEAR16
+}
+
+message RecognizeResponse {
+  string text = 1;
+  string language = 2;
+}

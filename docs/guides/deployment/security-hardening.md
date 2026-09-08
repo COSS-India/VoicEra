@@ -1,265 +1,165 @@
 ---
-description: Production security hardening for VoicEra covering credentials, MongoDB, MinIO, TLS, JWT secrets, Docker, firewall, secret storage, and recording retention.
+title: Security hardening
+description: What to change before exposing a VoicEra deployment.
 ---
 
-# Security and production hardening
+VoicEra ships development defaults so the stack starts on the first try. Work through this page before anything is reachable beyond your laptop.
 
-VoicEra ships with development defaults so a new operator can run the stack within minutes. None of those defaults are safe for production. This page is the hardening pass to run before any VoicEra deployment becomes reachable on the internet or processes real call traffic.
+## Change every default
 
-The intended audience is a hosting partner or platform engineer who has already completed the [Deployment walkthrough](deployment-walkthrough.md) and now needs to close gaps before go-live.
+All of these are public knowledge — they are in `.env.example` and `docker-compose.yaml`.
 
-{% hint style="danger" %}
-Do not connect a VoicEra deployment to live phone numbers, real users, or production telephony provider credentials until every item in the [Hardening checklist](#hardening-checklist) at the end of this page is complete.
-{% endhint %}
+| Variable | Ships as | Protects |
+| --- | --- | --- |
+| `MONGODB_PASSWORD` | `admin123` | The database, **and** the PostgreSQL superuser |
+| `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY` | `minioadmin123` | Recordings and transcripts |
+| `MINIO_ROOT_USER` / `MINIO_ACCESS_KEY` | `minioadmin` | Same |
+| `REDIS_PASSWORD` | `redissecret` | Job queue, campaign events, concurrency slots |
 
-## 1. Default credentials to change
+<Warning>
+`MONGODB_USER` and `MONGODB_PASSWORD` become the PostgreSQL credentials too. Changing them after the volume exists does **not** update the Postgres user — set them before the first start, or change the password inside Postgres as well.
+</Warning>
 
-Every value in this table is set somewhere in the bundled `docker-compose.yml` or in the example env files. Each one must change before production traffic.
+## The three generated secrets
 
-| Component | Default | Where it lives | Risk if unchanged |
-|-----------|---------|----------------|-------------------|
-| MongoDB root | `admin` / `admin123` | `docker-compose.yml` env on `mongodb` | Full database read and write |
-| MinIO root | `minioadmin` / `minioadmin` | `docker-compose.yml` env on `minio` and `voice_server` | All recordings, transcripts, uploads exposed |
-| Backend `SECRET_KEY` | Example value | `voicera_backend/.env` | Session cookie forgery, JWT spoofing |
-| `INTERNAL_API_KEY` | Example value | Backend and voice server `.env` | Service-to-service impersonation |
-| CORS `allow_origins` | `["*"]` | `voicera_backend/app/main.py` | Any browser origin can call the API |
-| Mailtrap SMTP | Sandbox creds | Backend `.env` | Password reset email is intercepted in a dev sandbox |
+`./scripts/start-application-services.sh` generates these when blank and never overwrites them.
 
-Steps to remediate:
+| Secret | Protects | Rotation |
+| --- | --- | --- |
+| `SECRET_KEY` | JWT signatures (HS256) | Invalidates all tokens; users log in again |
+| `INTERNAL_API_KEY` | Service-to-service auth | Update API and runtime together |
+| `PROVIDER_AUTH_ENCRYPTION_KEY` | Fernet encryption of stored credentials | **One-way — see below** |
 
-1. Generate a strong random value for each secret (see [JWT and application secrets](#4-jwt-and-application-secrets)).
-2. Update the env files on every host that runs the affected container.
-3. Restart only the services whose env changed (`docker compose up -d --no-deps <service>`).
-4. Tighten CORS in `voicera_backend/app/main.py` to the exact dashboard origin before deploying.
+<Warning>
+`PROVIDER_AUTH_ENCRYPTION_KEY` cannot be rotated. There is no re-encryption tool: changing or losing it makes every stored provider credential permanently undecryptable, and every organisation must re-enter every key. Back it up alongside the database, and store it with the same protection.
+</Warning>
 
-## 2. MongoDB hardening
-
-The bundled MongoDB container starts with `mongod --bind_ip_all` and root credentials in plain environment variables. Harden it in three layers.
-
-**Authentication**
-
-- Rotate `MONGO_INITDB_ROOT_USERNAME` and `MONGO_INITDB_ROOT_PASSWORD` to a unique strong password (24+ chars).
-- Add `--auth` to the `command:` so anonymous connections are rejected.
-- Create a least-privilege application user instead of using root from the backend:
-
-  ```javascript
-  use voicera
-  db.createUser({
-    user: "voicera_app",
-    pwd: "REPLACE_WITH_STRONG_PASSWORD",
-    roles: [{ role: "readWrite", db: "voicera" }]
-  })
-  ```
-
-  Then point the backend at `voicera_app`, not the root account.
-
-**Network binding**
-
-- Remove the `"27017:27017"` host port mapping in production so MongoDB is reachable only on the internal Docker network.
-- If MongoDB must be reachable across hosts, restrict it to a private subnet (VPN or VPC) and never to the public internet.
-
-**Durability and recovery**
-
-- Enable a replica set (`--replSet rs0`) for write durability.
-- Run daily `mongodump` backups, copy them off-host, and restore-test quarterly. See [Production deployment](production.md) for a backup script.
-
-## 3. MinIO hardening
-
-MinIO holds every call recording and transcript. Treat it like an S3 bucket containing PII.
-
-**Root credentials**
-
-- Replace `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` with strong values.
-- Update `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` on the voice server to match.
-- Restart MinIO and the voice server together so the credentials stay in sync.
-
-**Service accounts and IAM**
-
-- Avoid using root credentials from application services. Create per-service IAM keys via the MinIO client:
-
-  ```bash
-  mc alias set local http://minio:9000 ROOT_USER ROOT_PASS
-  mc admin user add local voicera_voice_server STRONG_SECRET
-  mc admin policy attach local readwrite --user voicera_voice_server
-  ```
-
-- Rotate service-account secrets on a scheduled cadence (90 days is a reasonable starting point) and immediately on suspected compromise.
-
-**Bucket policy and TLS**
-
-- Set bucket policies to deny anonymous access. Buckets that hold recordings must be private.
-- When MinIO sits behind a TLS-terminating reverse proxy, set `MINIO_SECURE=true` on every client.
-- Never expose the MinIO console (`9001`) on the public internet. If operators need it, put it behind a VPN or HTTP auth.
-
-## 4. JWT and application secrets
-
-VoicEra signs session tokens and internal API calls with secrets read from env files. Weak or shared secrets break the whole trust model.
-
-Generate strong, unrelated values:
+<Warning>
+If `SECRET_KEY` is blank the API does **not** fail. `apps/api/app/auth.py` logs a warning and generates a temporary key at import — so tokens die on every restart and replicas reject each other's tokens. Verify it is set:
 
 ```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"  # SECRET_KEY
-python -c "import secrets; print(secrets.token_urlsafe(48))"  # INTERNAL_API_KEY
-openssl rand -base64 48                                        # alternative generator
+grep '^SECRET_KEY=' .env
 ```
+</Warning>
 
-Rules of thumb:
-
-- `SECRET_KEY` and `INTERNAL_API_KEY` must be different.
-- `INTERNAL_API_KEY` must match on the backend and the voice server. If you rotate one, rotate both in the same change window.
-- Never reuse a secret across staging and production.
-- Treat any secret in chat, ticket comments, screenshots, or browser history as leaked.
-- Rotate immediately on staff offboarding or any suspected leak.
-
-## 5. TLS and HTTPS via reverse proxy
-
-Terminate TLS at nginx, Traefik, or a cloud load balancer. The application containers should never speak plain HTTP to the internet.
-
-Minimum production nginx for the voice server:
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name voice.example.gov.in;
-
-    ssl_certificate     /etc/letsencrypt/live/voice.example.gov.in/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/voice.example.gov.in/privkey.pem;
-    ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         HIGH:!aNULL:!MD5;
-
-    location / {
-        proxy_pass http://voice_server:7860;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For  $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-Apply similar blocks for the dashboard and the backend API. Force HTTP → HTTPS redirects on port 80 and add HSTS once you are confident the certificate chain is stable. The same hostname must appear in `JOHNAIC_SERVER_URL` and `JOHNAIC_WEBSOCKET_URL` ([Public voice server URLs](public-voice-urls.md)).
-
-{% hint style="warning" %}
-Browsers refuse `ws://` connections from `https://` pages. If the dashboard is on HTTPS, every voice WebSocket must use `wss://` or **Test on Browser** silently fails.
-{% endhint %}
-
-## 6. Docker daemon and host security
-
-- Keep the host kernel and Docker engine patched. Schedule monthly `apt update && apt upgrade`.
-- Run containers as non-root where the Dockerfile allows; add `user:` to compose entries that ship as root.
-- Drop unneeded Linux capabilities (`cap_drop: [ALL]`) and add back only what each service needs.
-- Set `read_only: true` on containers that do not write to disk, with explicit `tmpfs` for ephemeral paths.
-- Do not enable the Docker remote API on TCP. If you must, require mTLS.
-- Restrict `docker.sock` access — anyone who can read it is effectively root on the host.
-- Configure Docker log rotation so disks do not fill silently:
-
-  ```yaml
-  logging:
-    driver: json-file
-    options:
-      max-size: "100m"
-      max-file: "10"
-  ```
-
-## 7. Firewall rules
-
-Block everything by default and allow only what the deployment needs. UFW example for a single-host install with the reverse proxy on the same machine:
+Generate:
 
 ```bash
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-
-# Administrative SSH (consider restricting to a jump host)
-sudo ufw allow from 203.0.113.0/24 to any port 22 proto tcp
-
-# Public web traffic
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-
-# Internal-only services from a private subnet
-sudo ufw allow from 10.0.0.0/8 to any port 27017 proto tcp   # MongoDB
-sudo ufw allow from 10.0.0.0/8 to any port 9000  proto tcp   # MinIO API
-sudo ufw allow from 10.0.0.0/8 to any port 9001  proto tcp   # MinIO console
-
-sudo ufw enable
-sudo ufw status verbose
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Do not open `3000`, `7860`, `8000`, `8001`, `8002`, `9000`, `9001`, or `27017` to the public internet. The reverse proxy on `443` is the only public entry point.
+Keep them out of files on disk in production — inject from a secret manager.
 
-## 8. Secret storage practices
+## CORS
 
-Env files are convenient but they are not a secret manager.
+`apps/api/app/main.py` sets:
 
-- Never commit `.env`, `.env.local`, `.env.prod`, `*.pem`, or `*.key` to git. Confirm a `.gitignore` rule exists for each.
-- Restrict env-file permissions on the host: `chmod 600 voicera_backend/.env`.
-- Use a dedicated secret manager for anything beyond a single host: HashiCorp Vault, AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, or sealed Kubernetes Secrets.
-- Inject secrets at container start, not at image build. Secrets baked into an image are visible to anyone who pulls it.
-- Audit who can read deployment secrets. Reduce the list to a named on-call group.
-- Telephony auth IDs and tokens entered through **Dashboard → Integrations** are stored in MongoDB. They inherit MongoDB's protections, so hardening MongoDB is part of protecting them.
+```python
+allow_origins=["*"], allow_credentials=True
+```
 
-## 9. Logs, transcripts, and recording retention
+Any origin can call the API with credentials. Restrict it to the origins that actually need it and rebuild.
 
-Call recordings and live transcripts contain PII and sometimes sensitive content (health, finance, ID numbers).
+## The internal API key
 
-**Redaction**
+`INTERNAL_API_KEY` is a **single shared credential with organisation-wide reach**. `POST /users/bot/token` exchanges it plus an `org_id` for a token with role `admin` in that organisation — for any organisation.
 
-- Strip API keys, JWTs, and tokens from application logs. Confirm the backend and voice server do not log `Authorization` headers or request bodies that include `INTERNAL_API_KEY`.
-- For transcript storage, mask obvious PII patterns (phone numbers, government IDs, card numbers) before persistence when the use case permits.
-- Disable verbose debug logging in production.
+| Rule | Why |
+| --- | --- |
+| Never send it from a browser | It is not a user credential |
+| Never expose the routes that accept it publicly | They bypass user auth by design |
+| Rotate on any suspicion | One value protects every tenant |
 
-**Retention**
+## The unauthenticated runtime endpoints
 
-- Define and document a retention policy: how long recordings, transcripts, and call logs are kept, and on what schedule they are deleted.
-- Implement deletion as a scheduled job that removes both the MinIO object and any database reference.
-- Publish the retention policy to end users where regulation requires it.
+<Warning>
+`GET|POST /answer` and `WS /agent/{org_id}/{agent_id}` have **no authentication**. They must be publicly reachable for telephony to work, and the runtime resolves everything from the path — so anyone who learns an org and agent id pair can open a pipeline session and spend your model credits.
+</Warning>
 
-**Access control**
+Mitigations:
 
-- Recordings are private bucket objects. Serve them only via short-lived presigned URLs issued by the backend after an authorization check, never as public links.
-- Audit which org admins can download recordings and review the list periodically.
+* Rate limit `/answer` and `/agent` at the proxy.
+* IP-allowlist your telephony provider's published ranges.
+* Treat org and agent ids as semi-secret — do not put them in public pages or client-side code.
+* Monitor call volume for unexplained sessions.
 
-**API docs exposure**
+## Network exposure
 
-- Decide whether `/docs` and `/redoc` on the backend and voice server should be public. For most deployments they should sit behind authentication or be disabled in production builds.
+Publish only what must be public:
 
-## 10. Hardening checklist
+| Service | Expose |
+| --- | --- |
+| API `:8000` | Behind TLS, to your clients |
+| Runtime `:7860` | Behind TLS, to your telephony provider |
+| FerretDB `:27018` | **Never publicly.** Bind to localhost or drop the mapping. |
+| MinIO `:9000` | Private |
+| MinIO console `:9001` | **Never publicly.** It is an admin UI. |
+| Model gateway `:8100` | Private only — it has no authentication |
+| PostgreSQL, Redis | Already unpublished; keep it that way |
 
-Run through this list before flipping production traffic on. Tick every box.
+To stop publishing a port, remove its `ports:` entry or bind it to loopback:
 
-| Area | Item |
-|------|------|
-| Credentials | MongoDB root password rotated; no defaults remain |
-| Credentials | MinIO root credentials rotated; voice server updated to match |
-| Credentials | `SECRET_KEY` and `INTERNAL_API_KEY` regenerated with `secrets.token_urlsafe(48)` |
-| Credentials | CORS `allow_origins` restricted to the dashboard origin |
-| MongoDB | `--auth` enabled; least-privilege app user created |
-| MongoDB | Host port 27017 removed from public mapping |
-| MongoDB | Daily backup job scheduled and restore-tested |
-| MinIO | Per-service IAM key used instead of root |
-| MinIO | `MINIO_SECURE=true` set when behind TLS |
-| MinIO | Console (9001) not exposed publicly |
-| TLS | Valid certificates on dashboard, API, voice domains |
-| TLS | HTTP redirects to HTTPS; HSTS enabled |
-| TLS | Voice server uses `wss://` for WebSockets |
-| Docker | Containers patched; non-root where possible |
-| Docker | Log rotation configured (`max-size`, `max-file`) |
-| Network | UFW or equivalent deny-by-default policy active |
-| Network | Only ports 80 and 443 reachable from the public internet |
-| Secrets | `.env` files chmod 600 and excluded from git |
-| Secrets | Production secrets stored in a dedicated secret manager |
-| Logs | API keys and tokens absent from application logs |
-| Data | Retention policy documented and enforced for recordings |
-| Data | Recordings served via short-lived presigned URLs |
-| Email | Mailtrap replaced with production SMTP/API |
-| API docs | `/docs` and `/redoc` access decided and configured |
+```yaml
+ports:
+  - "127.0.0.1:27018:27017"
+```
 
-## Next steps
+## TLS
 
-- [Production deployment](production.md)
-- [Deployment walkthrough](deployment-walkthrough.md)
-- [Operations](../operator/operations.md)
-- [Troubleshooting: deployment](../../troubleshooting/deployment.md)
+Telephony providers require HTTPS for webhooks and WSS for audio, so TLS is mandatory rather than optional. Terminate at a reverse proxy — see [Production deployment](production.md) for a working nginx configuration, including the WebSocket upgrade headers and the long read timeouts calls need.
+
+For Redis over TLS use a `rediss://` URL; the ARQ settings enable TLS when they see that scheme.
+
+## Email enumeration
+
+<Warning>
+`GET /users/check/{email}` is **public and unauthenticated**, and confirms whether an account exists. Rate limit it at the proxy, or require authentication if you do not need the invite-flow convenience.
+</Warning>
+
+## Health probes
+
+`GET /health` returns HTTP **200 even when the database is down** — only the body changes to `"status": "degraded"`. Configure probes to parse the body, or a broken API will look healthy.
+
+## Images and dependencies
+
+* `minio/minio:latest` is unpinned — pin a digest for reproducible deployments. The FerretDB, Postgres, and Redis images are already pinned.
+* Rebuild periodically to pick up base-image security updates.
+* VoicEra has no CI, so nothing scans dependencies automatically. Run `pip-audit` or equivalent yourself.
+
+## Log hygiene
+
+Logs go to `json-file`, rotating at 10 MB with three files kept. Before shipping them anywhere central, confirm no provider keys or tokens appear — and note that `DEBUG=True` substantially increases what is logged. Keep it `False` in production.
+
+## Data protection
+
+You hold call recordings, transcripts, and contact lists. That is regulated data in most jurisdictions.
+
+* Encrypt volumes at rest.
+* Set a retention policy — nothing expires automatically.
+* Restrict MinIO access; artifacts are served through the authenticated API proxy, so the bucket never needs to be public.
+* Remember `docker compose down -v` destroys all of it irreversibly.
+
+## Checklist
+
+- [ ] `MONGODB_PASSWORD` changed
+- [ ] `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` changed
+- [ ] `REDIS_PASSWORD` changed
+- [ ] `SECRET_KEY` set and non-empty
+- [ ] `INTERNAL_API_KEY` set and non-empty
+- [ ] `PROVIDER_AUTH_ENCRYPTION_KEY` set and backed up
+- [ ] `SECRET_KEY` identical across API replicas
+- [ ] CORS restricted
+- [ ] TLS on the API and runtime
+- [ ] FerretDB, MinIO console, and the model gateway not publicly reachable
+- [ ] Rate limiting on `/answer`, `/agent`, and `/users/check`
+- [ ] `DEBUG=False`
+- [ ] Volumes encrypted, retention policy set
+- [ ] Backups tested by restoring
+
+## Related
+
+* [Production deployment](production.md)
+* [Generated secrets and defaults](../quickstart/secrets-and-defaults.md)
+* [Provider credentials](../concepts/provider-auth.md)
+* [Multi-tenancy and roles](../concepts/multi-tenancy.md)

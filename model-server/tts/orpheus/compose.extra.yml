@@ -1,0 +1,165 @@
+# What Orpheus needs from the slot beyond a build context.
+#
+# Three things were missing, and none of them failed loudly.
+#
+# 1. THE WEIGHTS HAD NOWHERE TO ARRIVE. The folder's own .env.example says
+#    "./models is bind-mounted to /models by compose" -- true of upstream's
+#    docker-compose.yml, which was not vendored with the code. This slot mounts
+#    only the folder itself at /app, so ORPHEUS_MODEL_PATH=/models/... pointed at
+#    a path nothing provided. vLLM would have failed at load with a missing
+#    directory, several minutes into a first start.
+#
+# 2. THE GPU RESERVATION WAS SIZED FOR A DEDICATED CARD. Upstream ships
+#    gpu_memory_utilization 0.90, documented as "FULL CAPACITY on a large
+#    datacentre GPU". On the 143GB H200 this stack shares with production that
+#    reserves ~129GB at startup, and vLLM takes it whether it needs it or not.
+#    The default here is sized from the README's own figure -- roughly 7GB for a
+#    3B backbone in bf16 -- plus room for a working KV cache. Raise it on a card
+#    you actually own.
+#
+# 3. NONE OF IT WAS DECLARED. Same defect as the STT geometry: a value read by
+#    the code, absent from the deployment, silently taking the upstream author's
+#    development default. tests/test_engine_env_surface.py now covers this folder.
+#
+# Note the base file bind-mounts ./tts/${TTS_MODEL} over /app, so the code, the
+# config, the voice roster and the demo page all come from the checkout at run
+# time. Editing the demo page needs a container restart, not an image rebuild.
+
+services:
+  tts:
+    # Root, and not by preference.
+    #
+    # An MPS client must run as the same user as the MPS daemon. On ace-h200 the
+    # GPU is in Exclusive_Process mode behind a root-owned daemon shared with
+    # production, so a CUDA init from this image's uid-1000 `orpheus` user does
+    # not fail -- it blocks in the MPS handshake, in a unix datagram receive,
+    # with no log line, no GPU allocation and 63 threads parked in futex_wait.
+    # Indistinguishable from a model still loading, and it cost most of an
+    # afternoon to find.
+    #
+    # indic-transcribe never hit this because its image happens to run as root.
+    # Verified: `torch.cuda.device_count()` returns 1 as root and hangs as uid
+    # 1000, in the same container, on the same device.
+    #
+    # A host whose GPU is in Default compute mode needs none of this -- drop the
+    # line there and keep the image's non-root user. And note /hf-cache will
+    # hold root-owned files once this runs, so reverting to non-root wants a
+    # `chown 1000:1000` on that volume.
+    user: "0:0"
+    environment:
+      # ---- model -------------------------------------------------------
+      # A directory under the mount below, or a HuggingFace repo id, in which
+      # case vLLM fetches into hf_cache instead and the mount goes unused.
+      ORPHEUS_MODEL_PATH: ${ORPHEUS_MODEL_PATH:-/models/orpheus-indic-5679}
+      ORPHEUS_MODEL_NAME: ${ORPHEUS_MODEL_NAME:-orpheus-indic}
+      ORPHEUS_DTYPE: ${ORPHEUS_DTYPE:-auto}
+      # fp8 needs compute capability >= 8.9. H200 is 9.0, so this is fine here;
+      # set 'none' on Ampere or older, where it silently falls back to emulation.
+      ORPHEUS_QUANTIZATION: ${ORPHEUS_QUANTIZATION:-fp8}
+      ORPHEUS_MAX_MODEL_LEN: ${ORPHEUS_MAX_MODEL_LEN:-8192}
+      ORPHEUS_TRUST_REMOTE_CODE: ${ORPHEUS_TRUST_REMOTE_CODE:-false}
+
+      # ---- capacity, sized for a shared card ---------------------------
+      ORPHEUS_GPU_MEMORY_UTILIZATION: ${ORPHEUS_GPU_MEMORY_UTILIZATION:-0.12}
+      # An admission limit, not a throughput knob. 256 is upstream's batch
+      # default; 32 is what its own notes say holds up under sustained live
+      # load, which is what a demo is.
+      ORPHEUS_MAX_NUM_SEQS: ${ORPHEUS_MAX_NUM_SEQS:-32}
+      ORPHEUS_DECODER_MAX_BATCH: ${ORPHEUS_DECODER_MAX_BATCH:-32}
+      ORPHEUS_TENSOR_PARALLEL_SIZE: ${ORPHEUS_TENSOR_PARALLEL_SIZE:-1}
+      ORPHEUS_ENFORCE_EAGER: ${ORPHEUS_ENFORCE_EAGER:-false}
+
+      # ---- server ------------------------------------------------------
+      # The slot contract is one service on 8002. Orpheus defaults to 9000, so
+      # it is told the slot's port rather than the slot working around it.
+      ORPHEUS_PORT: 8002
+      # config.py:229 reads this to locate config.yaml, falling back to the repo
+      # root -- which is correct here only because the folder is bind-mounted at
+      # /app. Declared because this file's whole premise is that nothing is
+      # inherited: an undeclared path is one bind-mount change away from the
+      # server loading a config nobody edited.
+      ORPHEUS_CONFIG: ${ORPHEUS_CONFIG:-/app/config.yaml}
+      ORPHEUS_LOG_LEVEL: ${ORPHEUS_LOG_LEVEL:-INFO}
+      # vLLM's own logger, not the app's. The image bakes WARNING, which hides
+      # the weight load, the fp8 quantization and the one line that says whether
+      # the reservation above was right:
+      #
+      #   Available KV cache memory: X GiB
+      #
+      # Undeclared, that default wins and a first boot -- minutes of loading a
+      # 7.6 GB checkpoint -- is indistinguishable from a hang. Upstream's own
+      # compose sets INFO for exactly this reason; this slot did not, and the
+      # first thing it cost was half an hour of not knowing.
+      VLLM_LOGGING_LEVEL: ${VLLM_LOGGING_LEVEL:-INFO}
+
+      # Pinned, not inherited. The slot default is 0, but a deployment running
+      # indic-transcribe sets HF_HUB_OFFLINE=1 in .env -- correct for that model,
+      # whose image cannot fetch anything -- and the base file hands the same
+      # value to every slot. Orpheus MUST reach HuggingFace on first boot for the
+      # SNAC codec, and offline mode against an empty cache does not fail fast:
+      # it sleeps in a socket read with no log line, one process, no GPU
+      # allocation, indistinguishable from a model still loading.
+      #
+      # Set to 1 once /hf-cache holds snac_24khz, for an airgapped run.
+      HF_HUB_OFFLINE: "0"
+      ORPHEUS_CORS_ORIGINS: ${ORPHEUS_CORS_ORIGINS:-}
+      # The roster must match the checkpoint. This defaulted to voices.json --
+      # the v1 roster -- while the deployment runs indic-speak-preview-v2 and
+      # only worked because .env overrode it. Fresh installs got a roster that
+      # was wrong in ways nothing reports: 22 languages instead of 23, NO BHILI
+      # VOICES at all, and style names from a different vocabulary (CONV, NEWS,
+      # BOOK against v2's `news`, `AIR style news`, `happy`). A caller asking
+      # for voice "Bhima" gets an error; a caller asking for style "news" gets
+      # it silently ignored.
+      #
+      # models.yaml already records the checkpoint as v2, so the default follows
+      # it. Set this back to voices.json only alongside a v1 checkpoint.
+      ORPHEUS_VOICES_FILE: ${ORPHEUS_VOICES_FILE:-voices-v2.json}
+      ORPHEUS_DRAIN_TIMEOUT: ${ORPHEUS_DRAIN_TIMEOUT:-30}
+      ORPHEUS_HOST: ${ORPHEUS_HOST:-0.0.0.0}
+
+      # ---- sampling and limits, at upstream's shipped values ------------
+      # v2's production sampling, quoted from its model card: "ckpt-8944,
+      # t 0.6 · top_p 0.9 · rp 1.2". config.yaml still carries 0.8 / 1.3, which
+      # were verified against the PREVIOUS checkpoint -- inherited defaults are
+      # what this file exists to stop, so they are restated here rather than
+      # left to whichever value happened to ship.
+      #
+      # Their code example also passes top_k=50, which the benchmark line does
+      # not mention and this server cannot set at all. Open question for them;
+      # see docs/orpheus-v2-tremolo.md.
+      ORPHEUS_TEMPERATURE: ${ORPHEUS_TEMPERATURE:-0.6}
+      ORPHEUS_TOP_P: ${ORPHEUS_TOP_P:-0.9}
+      ORPHEUS_REPETITION_PENALTY: ${ORPHEUS_REPETITION_PENALTY:-1.2}
+      ORPHEUS_MIN_TOKENS: ${ORPHEUS_MIN_TOKENS:-28}
+      ORPHEUS_MAX_TOKENS_DEFAULT: ${ORPHEUS_MAX_TOKENS_DEFAULT:-8192}
+      ORPHEUS_MAX_TOKENS_LIMIT: ${ORPHEUS_MAX_TOKENS_LIMIT:-8192}
+
+      # ---- the SNAC codec ----------------------------------------------
+      # A second HuggingFace repo, fetched at startup into hf_cache. Named here
+      # because it is a download this slot has to allow for, not just a setting:
+      # with HF_HUB_OFFLINE=1 and a cold cache the container fails at load.
+      ORPHEUS_SNAC_MODEL_ID: ${ORPHEUS_SNAC_MODEL_ID:-hubertsiuzdak/snac_24khz}
+      ORPHEUS_DECODER_DEVICE: ${ORPHEUS_DECODER_DEVICE:-cuda}
+
+      # ---- warmup ------------------------------------------------------
+      # Upstream warms every width up to 256. On a shared card that is a
+      # several-minute burst at full admission before the service answers at
+      # all, sizing CUDA graphs for a batch this deployment never allows.
+      # Capped to ORPHEUS_MAX_NUM_SEQS above.
+      ORPHEUS_WARMUP_ENABLED: ${ORPHEUS_WARMUP_ENABLED:-true}
+      ORPHEUS_WARMUP_WIDTHS: ${ORPHEUS_WARMUP_WIDTHS:-1,2,4,8,16,32}
+      ORPHEUS_WARMUP_MAX_TOKENS: ${ORPHEUS_WARMUP_MAX_TOKENS:-64}
+    volumes:
+      # Read-only: nothing in this stack should ever write a checkpoint. Path
+      # resolves against --project-directory (model-server/), not against this
+      # file -- see the note in stt/indic-transcribe/compose.extra.yml, which
+      # learned that the hard way.
+      - ${ORPHEUS_MODELS_DIR:-./tts/orpheus/models}:/models:ro
+      # The slot mounts hf_cache at /root/.cache/huggingface, which this image
+      # cannot use: HF_HOME is /hf-cache and the container runs as uid 1000, so
+      # /root is not writable by it. Mounting the same volume at the path this
+      # image actually reads means a download survives a restart instead of
+      # landing in the container layer -- on a 95%-full disk that distinction is
+      # the difference between working and not.
+      - hf_cache:/hf-cache

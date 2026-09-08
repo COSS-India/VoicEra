@@ -1,0 +1,341 @@
+# Voicera local stack — prefer the helper script over a bare `docker compose up`.
+#
+#   ./scripts/start_docker.sh
+#
+# The script ensures a root .env with required secrets, then starts this compose
+# file. Running `docker compose up` against a fresh checkout without .env will
+# fail or come up misconfigured (SECRET_KEY / INTERNAL_API_KEY / PROVIDER_AUTH_ENCRYPTION_KEY).
+#
+# Container names use the voicera_oss_* prefix for a stable, unique identity.
+
+services:
+  postgres:
+    image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
+    container_name: voicera_oss_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${MONGODB_USER:-admin}"
+      POSTGRES_PASSWORD: "${MONGODB_PASSWORD:-admin123}"
+      POSTGRES_DB: postgres
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - voicera_oss_ferretdb_postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MONGODB_USER:-admin} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  ferretdb:
+    image: ghcr.io/ferretdb/ferretdb:2.7.0
+    container_name: voicera_oss_ferretdb
+    restart: unless-stopped
+    ports:
+      - "${FERRETDB_HOST_PORT:-27018}:27017"
+    environment:
+      FERRETDB_POSTGRESQL_URL: "postgres://${MONGODB_USER:-admin}:${MONGODB_PASSWORD:-admin123}@postgres:5432/postgres"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      app-network:
+        aliases:
+          - mongodb
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: voicera_oss_api
+    restart: unless-stopped
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      MONGODB_HOST: mongodb
+      MONGODB_PORT: "27017"
+      MONGODB_USER: "${MONGODB_USER:-admin}"
+      MONGODB_PASSWORD: "${MONGODB_PASSWORD:-admin123}"
+      MONGODB_DATABASE: "${MONGODB_DATABASE:-voicera}"
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set to a strong secret}"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
+      PROVIDER_AUTH_ENCRYPTION_KEY: "${PROVIDER_AUTH_ENCRYPTION_KEY:-}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:3000}"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin123}"
+      MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
+      MINIO_SECURE: "false"
+      CHROMA_BASE_DIR: /app/app/rag/chroma_data
+      KB_EMBEDDING_API_KEY: "${KB_EMBEDDING_API_KEY:-}"
+      KB_EMBEDDING_MODEL: "${KB_EMBEDDING_MODEL:-text-embedding-3-small}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+      # Model-server gateway for local provider readiness (configuration authenticated).
+      MODEL_SERVER_URL: http://host.docker.internal:8100/v1
+      # DEBUG comes from root .env via env_file only — do not interpolate
+      # ${DEBUG} here; the host shell often exports DEBUG=release and would
+      # override a boolean False from .env.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      ferretdb:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - ./apps:/app/apps:ro
+      - voicera_oss_chroma_data:/app/app/rag/chroma_data
+    working_dir: /app
+    networks:
+      - app-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  minio:
+    image: minio/minio:latest
+    container_name: voicera_oss_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin123}"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - voicera_oss_minio_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: voicera_oss_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin123}"
+      MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb local/$$MINIO_BUCKET --ignore-existing
+      "
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    container_name: voicera_oss_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redissecret}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - voicera_oss_redis_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redissecret}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  arq-worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: voicera_oss_arq_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGODB_HOST: mongodb
+      MONGODB_PORT: "27017"
+      MONGODB_USER: "${MONGODB_USER:-admin}"
+      MONGODB_PASSWORD: "${MONGODB_PASSWORD:-admin123}"
+      MONGODB_DATABASE: "${MONGODB_DATABASE:-voicera}"
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set to a strong secret}"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
+      PROVIDER_AUTH_ENCRYPTION_KEY: "${PROVIDER_AUTH_ENCRYPTION_KEY:-}"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin123}"
+      MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
+      MINIO_SECURE: "false"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+      VOICE_SERVER_BASE_URL: "${VOICE_SERVER_BASE_URL:-http://localhost:7860}"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      ferretdb:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - ./apps/api:/app
+      - ./apps:/app/apps:ro
+    working_dir: /app
+    networks:
+      - app-network
+    command: python -m arq app.tasks.arq.WorkerSettings
+
+  campaign-orchestrator:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: voicera_oss_campaign_orchestrator
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGODB_HOST: mongodb
+      MONGODB_PORT: "27017"
+      MONGODB_USER: "${MONGODB_USER:-admin}"
+      MONGODB_PASSWORD: "${MONGODB_PASSWORD:-admin123}"
+      MONGODB_DATABASE: "${MONGODB_DATABASE:-voicera}"
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set to a strong secret}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+      CAMPAIGN_BATCH_SIZE: "${CAMPAIGN_BATCH_SIZE:-10}"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      ferretdb:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - ./apps:/app/apps:ro
+    working_dir: /app
+    networks:
+      - app-network
+    command: python -m app.services.campaign.campaign_orchestrator
+
+  runtime:
+    build:
+      context: .
+      dockerfile: apps/runtime/Dockerfile
+    container_name: voicera_oss_runtime
+    restart: unless-stopped
+    ports:
+      - "${RUNTIME_HOST_PORT:-7860}:7860"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      API_BASE_URL: http://api:8000/api/v1
+      MINIO_ENDPOINT: minio:9000
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
+      MODEL_SERVER_WS_URL: ws://host.docker.internal:8100/v1/asr/ws
+      MODEL_SERVER_URL: http://host.docker.internal:8100/v1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      api:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}"
+        NEXT_PUBLIC_RUNTIME_WS_URL: "${NEXT_PUBLIC_RUNTIME_WS_URL}"
+
+    container_name: voicera_oss_frontend
+    restart: unless-stopped
+
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
+
+    env_file:
+      - .env
+
+    environment:
+      # Browser calls same-origin /api/v1; Next proxies to the API service.
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}"
+      API_PROXY_TARGET: "http://api:8000"
+      ALLOWED_DEV_ORIGINS: "${ALLOWED_DEV_ORIGINS}"
+
+      # Browser test-call WebSocket — from root .env (NEXT_PUBLIC_RUNTIME_WS_URL).
+      NEXT_PUBLIC_RUNTIME_WS_URL: "${NEXT_PUBLIC_RUNTIME_WS_URL}"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    depends_on:
+      api:
+        condition: service_started
+
+    networks:
+      - app-network
+
+    command: npm run start
+
+volumes:
+  voicera_oss_ferretdb_postgres_data:
+    driver: local
+  voicera_oss_minio_data:
+    driver: local
+  voicera_oss_chroma_data:
+    driver: local
+  voicera_oss_redis_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge

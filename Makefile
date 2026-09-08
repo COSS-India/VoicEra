@@ -1,58 +1,65 @@
-.PHONY: build start stop
+SHELL := /bin/bash
 
-# Build all services
-build-all-services:
-	docker compose build backend minio frontend voice_server
+COMPOSE  := docker compose
+APP_FILE := docker-compose.yaml
+MS_DIR   := model-server
 
-# Start all services (postgres+ferretdb pulled/started with up)
-start-all-services:
-	docker compose up -d postgres ferretdb backend minio frontend voice_server
+# Extra arguments for a single invocation, e.g. `make up ARGS=--no-build`.
+ARGS ?=
 
-# Stop all services
-stop-all-services:
-	docker compose down postgres ferretdb backend minio frontend voice_server
+# Deferred on purpose, and expanded inside each recipe rather than when this
+# file is parsed: the answer depends on model-server/.env and on whether an MPS
+# daemon is running at the moment the target runs. Resolving it at parse time
+# would freeze a list from before `make ms-setup` had written .env.
+MS_COMPOSE = $(COMPOSE) $$(sh $(MS_DIR)/compose-files.sh) --project-directory $(MS_DIR)
 
-build-backend-services:
-	docker compose build backend minio
+.DEFAULT_GOAL := help
 
-# Start services except voice_server (detached)
-start-backend-services:
-	docker compose up -d postgres ferretdb backend minio
+.PHONY: help up down restart logs ps \
+        ms-setup ms-up ms-down ms-logs ms-ps \
+        down-all \
+        test test-providers test-api test-runtime test-model-server lint
 
-# Stop services except voice_server
-stop-backend-services:
-	docker compose stop postgres ferretdb backend minio
+# ---------------------------------------------------------------- application
 
-start-voice-only-services:
-	bash -c "(cd ai4bharat_stt_server && source venv/bin/activate && python server.py) & (cd ai4bharat_tts_server && source venv/bin/activate && python server.py) & (cd voice_2_voice_server && source venv/bin/activate && python main.py) & wait"
+application-up:  ## Start the application stack (generates missing secrets first)
+	./scripts/start-application-services.sh $(ARGS)
 
-stop-all-ports:
-	-lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-	-lsof -ti:27017 | xargs kill -9 2>/dev/null || true
-	-lsof -ti:8001 | xargs kill -9 2>/dev/null || true
-	-lsof -ti:8002 | xargs kill -9 2>/dev/null || true
-	-lsof -ti:7860 | xargs kill -9 2>/dev/null || true
-	-lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+application-down:  ## Stop the application stack (keeps volumes)
+	./scripts/stop-application-services.sh $(ARGS)
 
-start-frontend:
-	-lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-	bash -c "(cd voicera_frontend && npm run dev) & wait"
+restart: application-down application-up  ## Stop then start the application stack
 
-start-dev:
-	$(MAKE) start-frontend 
-	$(MAKE) start-backend-services
-	$(MAKE) start-voice-only-services
+application-logs:  ## Follow application logs (SERVICE=api to narrow)
+	$(COMPOSE) -f $(APP_FILE) logs -f $(SERVICE)
 
-stop-dev:
-	$(MAKE) stop-backend-services
-	$(MAKE) stop-all-ports
+application-ps:  ## Show application containers
+	$(COMPOSE) -f $(APP_FILE) ps
 
-# MongoDB → FerretDB migration helpers
-dump-mongo:
-	./scripts/migrate_mongo_to_ferretdb.sh dump
+# --------------------------------------------------------------- model-server
 
-migrate-to-ferretdb:
-	./scripts/migrate_mongo_to_ferretdb.sh cutover
+model-server-setup:  ## Configure slots, fetch weights, build and start model-server
+	./scripts/start-model-server.sh
 
-#podman compose up -d postgres ferretdb backend minio
-#podman compose stop postgres ferretdb backend minio
+model-server-up:  ## Start model-server from the existing configuration
+	$(MS_COMPOSE) up -d
+
+model-server-down:  ## Stop model-server
+	./scripts/stop-model-server.sh
+
+model-server-logs:  ## Follow model-server logs
+	$(MS_COMPOSE) logs -f
+
+model-server-ps:  ## Show model-server containers
+	$(MS_COMPOSE) ps
+
+down-all: ## Stop both stacks
+	-$(MAKE) application-down
+	-$(MAKE) model-server-down
+
+help:  ## Show this help	
+	@echo "Voicera -- make targets"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	  | awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ""

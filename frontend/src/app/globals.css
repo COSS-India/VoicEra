@@ -1,0 +1,282 @@
+@import "tailwindcss";
+
+/* "Signal" design system. Existing --v- token NAMES are kept (so every
+ * existing bg-v-, text-v-, border-v-, rounded-v- usage across the app
+ * repaints automatically) but the VALUES are the new warm-paper/blue
+ * palette. Net-new tokens (surfaces, faint/dim/disabled text, ok/warn
+ * status, shadows) are added alongside for new work (e.g. the dashboard
+ * rebuild) — there is no parallel old palette left in place. */
+:root {
+  /* surfaces — warm paper, not cool grey */
+  --v-bg: #fbfaf7; /* canvas */
+  --v-panel: #ffffff; /* surface */
+  --v-card: #ffffff;
+  --v-surface-sunk: #fdfcfa; /* table headers/footers, inset panels */
+  --v-soft: #f4f2ed; /* surface-mute — hover fills */
+  --v-track: #f1eee8; /* segmented-control track, sparkline empty bars */
+
+  /* borders */
+  --v-line: #e8e4dc;
+  --v-line-strong: #d9d3c8;
+  --v-hairline: #f1eee8; /* row dividers inside a card */
+
+  /* text */
+  --v-fg: #14161a; /* ink */
+  --v-muted-2: #4c5460; /* body */
+  --v-body: var(--v-muted-2); /* spec-vocabulary alias */
+  --v-muted: #6b7280;
+  --v-faint: #8a8577; /* metadata */
+  --v-dim: #a19a8c; /* mono labels */
+  --v-disabled: #c4bdb0; /* zero values, empty state text */
+
+  /* brand */
+  --v-accent: #1f4ee8; /* blue */
+  --v-accent-deep: #1740c4; /* blue-hover */
+  --v-accent-mid: #3f6bee;
+  --v-pale: #eef1fe; /* blue-tint — active nav, info panels */
+  --v-blue-soft: #dde4fc; /* sparkline inactive-but-live bars */
+
+  /* status */
+  --v-success: #0f9d6b;
+  --v-success-deep: #0b7a53;
+  --v-success-pale: #e6f6ef;
+  --v-warning: #d98324;
+  --v-warning-deep: #a96a16;
+  --v-warning-pale: #fef7ec;
+  --v-danger: #c2410c;
+  --v-danger-deep: #9a3410;
+  --v-danger-pale: #fdece3;
+  --v-danger-line: #fbdcc9;
+
+  /* short spec-vocabulary aliases (ok/warn), same values as above */
+  --v-ok: var(--v-success);
+  --v-ok-ink: var(--v-success-deep);
+  --v-ok-tint: var(--v-success-pale);
+  --v-warn: var(--v-warning);
+  --v-warn-ink: var(--v-warning-deep);
+  --v-warn-tint: var(--v-warning-pale);
+
+  /* overlay */
+  --v-overlay: rgba(20, 22, 26, 0.55);
+
+  /* shadows — restrained; no soft glow, no coloured shadows except primary */
+  --v-shadow-card: 0 1px 2px rgba(20, 22, 26, 0.04);
+  --v-shadow-primary: 0 1px 2px rgba(31, 78, 232, 0.4), 0 8px 18px -8px rgba(31, 78, 232, 0.55);
+}
+
+@theme inline {
+  --color-v-bg: var(--v-bg);
+  --color-v-panel: var(--v-panel);
+  --color-v-card: var(--v-card);
+  --color-v-surface-sunk: var(--v-surface-sunk);
+  --color-v-line: var(--v-line);
+  --color-v-line-strong: var(--v-line-strong);
+  --color-v-hairline: var(--v-hairline);
+  --color-v-fg: var(--v-fg);
+  --color-v-muted: var(--v-muted);
+  --color-v-muted-2: var(--v-muted-2);
+  --color-v-body: var(--v-body);
+  --color-v-faint: var(--v-faint);
+  --color-v-dim: var(--v-dim);
+  --color-v-disabled: var(--v-disabled);
+  --color-v-soft: var(--v-soft);
+  --color-v-track: var(--v-track);
+  --color-v-accent: var(--v-accent);
+  --color-v-accent-deep: var(--v-accent-deep);
+  --color-v-accent-mid: var(--v-accent-mid);
+  --color-v-pale: var(--v-pale);
+  --color-v-blue-soft: var(--v-blue-soft);
+  --color-v-danger: var(--v-danger);
+  --color-v-danger-deep: var(--v-danger-deep);
+  --color-v-danger-pale: var(--v-danger-pale);
+  --color-v-danger-line: var(--v-danger-line);
+  --color-v-success: var(--v-success);
+  --color-v-success-deep: var(--v-success-deep);
+  --color-v-success-pale: var(--v-success-pale);
+  --color-v-warning: var(--v-warning);
+  --color-v-warning-deep: var(--v-warning-deep);
+  --color-v-warning-pale: var(--v-warning-pale);
+  --color-v-ok: var(--v-ok);
+  --color-v-ok-ink: var(--v-ok-ink);
+  --color-v-ok-tint: var(--v-ok-tint);
+  --color-v-warn: var(--v-warn);
+  --color-v-warn-ink: var(--v-warn-ink);
+  --color-v-warn-tint: var(--v-warn-tint);
+
+  --font-sans: var(--font-jakarta);
+  --font-mono: var(--font-ibm-plex-mono);
+
+  --radius-v-sm: 6px;
+  --radius-v-md: 9px;
+  --radius-v-lg: 11px;
+  --radius-v-xl: 14px;
+
+  --animate-v-rise: v-rise 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+  --animate-v-pop: v-pop 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
+  --animate-v-bar: v-bar 1.1s ease-in-out infinite;
+  --animate-v-live: v-live 1.6s ease-in-out infinite;
+  --animate-v-tick: v-tick 1.08s linear infinite;
+  --animate-v-fill: v-fill 1.4s ease-out forwards;
+  --animate-v-pulse: v-pulse 1.6s ease-out infinite;
+  --animate-v-grad: v-grad 22s ease-in-out infinite;
+  --animate-v-drift: v-drift 18s ease-in-out infinite;
+  --animate-v-drift-rev: v-drift 21s ease-in-out infinite reverse;
+  --animate-v-turn-in: v-turn-in 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+
+  @keyframes v-rise {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes v-pop {
+    0% {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.98);
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes v-bar {
+    0%,
+    100% {
+      transform: scaleY(0.2);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+  @keyframes v-live {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.2;
+    }
+  }
+  @keyframes v-tick {
+    0% {
+      opacity: 1;
+    }
+    65%,
+    100% {
+      opacity: 0.14;
+    }
+  }
+  @keyframes v-fill {
+    0% {
+      transform: scaleX(0);
+    }
+    100% {
+      transform: scaleX(1);
+    }
+  }
+  @keyframes v-pulse {
+    0% {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    70%,
+    100% {
+      transform: scale(2.1);
+      opacity: 0;
+    }
+  }
+  @keyframes v-grad {
+    0%,
+    100% {
+      background-position: 0% 22%;
+    }
+    50% {
+      background-position: 100% 78%;
+    }
+  }
+  @keyframes v-drift {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(0, -26px, 0) scale(1.06);
+    }
+  }
+  @keyframes v-turn-in {
+    0% {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+body {
+  background: var(--v-bg);
+  color: var(--v-fg);
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+}
+
+/* Hides the scrollbar chrome without disabling scrolling — wheel/touch/
+   keyboard scrolling all keep working, only the visible track/thumb is gone. */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge/IE */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, new Edge */
+}
+
+::placeholder {
+  color: var(--v-dim);
+}
+
+:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 2px;
+}
+
+[disabled],
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* Print isolation: a page's ".print-area" is the only thing that prints,
+ * regardless of ancestor chrome (sidebar, layout wrappers) it doesn't control.
+ * visibility (not display) so hidden ancestors don't collapse .print-area's
+ * own layout, then absolute-position it to escape the page flow entirely. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+}

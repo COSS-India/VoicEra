@@ -1,0 +1,253 @@
+# VoicEra model-server
+#
+# Three slots -- stt, tts, llm -- each of which can host many models. A slot is
+# one Compose service whose build context is the folder you named:
+#
+#     stt/indic-conformer/     STT_MODEL=indic-conformer
+#     stt/canary/              STT_MODEL=canary
+#     llm/qwen3.5-4b/          LLM_MODEL=qwen3.5-4b
+#
+# Switching model is one line in .env plus `up -d --build <slot>`. The service
+# name and port never change, so the gateway needs no knowledge of which model
+# is loaded. Adding a model is a folder; it touches nothing in this file.
+#
+# `ports:` appears exactly ONCE, on the gateway. The model containers listen
+# inside their own network namespace and are reachable only by service name --
+# nothing binds to the host, so this stack sits beside the prod and translate
+# stacks without competing for ports.
+
+name: voicera-model-server
+
+# GPU placement, per slot.
+#
+# This was one anchor shared by all three services, which meant one card for the
+# whole stack -- STT, TTS and LLM could not be put on different GPUs. On a host
+# with several small cards that is the placement you actually want, and the slot
+# design exists precisely so three models can run side by side.
+#
+# Each slot falls back to GPU_DEVICE_IDS, so a single-GPU host configures one
+# variable and nothing below is ever set. Set STT_GPU_DEVICE_IDS and friends
+# only to spread the slots out.
+#
+# The default is 0, not 1. 0 is the only index guaranteed to exist on a machine
+# that has a GPU at all; 1 was our allocation on ace-h200 and made every other
+# host either pick a card at random or fail outright on a single-GPU box.
+# **On ace-h200 that means .env must say 1** -- GPU 0 there is production's.
+x-gpu-stt: &gpu-stt
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ["${STT_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}"]
+            capabilities: [gpu]
+
+x-gpu-tts: &gpu-tts
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ["${TTS_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}"]
+            capabilities: [gpu]
+
+x-gpu-llm: &gpu-llm
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ["${LLM_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}"]
+            capabilities: [gpu]
+
+# MPS lives in compose.mps.yml, not here.
+#
+# On ace-h200 our GPU runs in Exclusive Process mode behind an MPS daemon shared
+# with the prod workers, so a container cannot claim the device directly -- it
+# has to attach as an MPS client. That was originally wired into this file with
+# the pipe directory hardcoded to /tmp/nvidia-mps-gpu1, which was wrong twice:
+# it did not follow GPU_DEVICE_IDS (so GPU 3 got GPU 1's pipe), and it applied
+# on hosts with no daemon at all, where there is nothing to attach to.
+#
+# It is now an overlay, added only when a daemon is actually there. setup.sh
+# detects that; see compose.mps.yml for the detection and the paths.
+x-alloc: &alloc
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+
+services:
+
+  # The single published entry point. Routes on modality, streams without
+  # buffering, and holds no model-specific knowledge.
+  #
+  # No depends_on: with profiles, a slot may legitimately not be running. The
+  # gateway answers 503 naming the missing upstream instead of failing to start.
+  # No GPU or MPS either -- it is pure async I/O.
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    image: voicera/model-gateway:latest
+    container_name: voicera_model_gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8100}:8000"
+    environment:
+      # Optional overrides only. Unset means "use the Compose service name",
+      # and a slot counts as deployed when its *_MODEL is named -- the same
+      # variable that picks the folder, so the two cannot disagree.
+      STT_UPSTREAM: ${STT_UPSTREAM:-}
+      TTS_UPSTREAM: ${TTS_UPSTREAM:-}
+      LLM_UPSTREAM: ${LLM_UPSTREAM:-}
+      STT_MODEL: ${STT_MODEL:-}
+      TTS_MODEL: ${TTS_MODEL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      # Editing the catalogue takes effect on restart, no rebuild.
+      - ./models.yaml:/app/app/models.yaml:ro
+    networks: [model_net]
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/v1/models',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ---- STT slot ---------------------------------------------------------
+  # Profile is the slot name, not the model name: it answers "is this slot on",
+  # while STT_MODEL answers "which model fills it". One job each.
+  stt:
+    profiles: ["stt"]
+    build:
+      context: ./stt/${STT_MODEL:-indic-conformer}
+      additional_contexts:
+        # A named context is only fetched when a Dockerfile references it, so
+        # models that do not need the AI4Bharat NeMo fork ignore this.
+        #
+        # Relative paths here resolve against this file's directory, NOT the
+        # build context above -- so this stays ../../ even though the context
+        # moved a level deeper. Default assumes ~/ai4bharat_nemo beside the
+        # repo; override with NEMO_CONTEXT_PATH in .env.
+        nemo: ${NEMO_CONTEXT_PATH:-../../ai4bharat_nemo}
+    image: voicera/model-stt:${STT_MODEL:-indic-conformer}
+    container_name: voicera_model_stt
+    restart: unless-stopped
+    environment:
+      <<: *alloc
+      PORT: 8001
+      HEALTHCHECK_PORT: ${STT_HEALTHCHECK_PORT:-8001}
+      INDIC_NEMO_PATH: ${INDIC_NEMO_PATH:-/app/models/IndicConformer.nemo}
+      BHILI_ENABLE: ${BHILI_ENABLE:-no}
+      BHILI_NEMO_PATH: ${BHILI_NEMO_PATH:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # Source and weights both live in the model folder; setup.sh downloads
+      # IndicConformer.nemo into it. Bind-mounting also means editing server.py
+      # does not need a rebuild.
+      - ./stt/${STT_MODEL:-indic-conformer}:/app
+    # A model container that is loading, wedged or serving a dead worker used to
+    # look identical to a healthy one: `running`, with /health answering 200.
+    # `restart: unless-stopped` never fired because the process was alive.
+    #
+    # HEALTHCHECK_PORT rather than PORT: indic-nemotron is vendored code that
+    # hardcodes 8000 and ignores PORT, so the slot's own overlay overrides this.
+    # python3 is resolved rather than assumed -- these images are not ours.
+    healthcheck:
+      test: ["CMD-SHELL", "PY=$$(command -v python3 || command -v python); exec $$PY -c \"import os,sys,urllib.request; p=os.environ.get('HEALTHCHECK_PORT','8001'); sys.exit(0 if urllib.request.urlopen('http://localhost:'+p+'/health',timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Weights take minutes to load; vLLM captures CUDA graphs on top of that.
+      start_period: 600s
+    networks: [model_net]
+    <<: *gpu-stt
+
+  # ---- TTS slot ---------------------------------------------------------
+  tts:
+    profiles: ["tts"]
+    build:
+      context: ./tts/${TTS_MODEL:-indic-parler}
+    image: voicera/model-tts:${TTS_MODEL:-indic-parler}
+    container_name: voicera_model_tts
+    restart: unless-stopped
+    environment:
+      <<: *alloc
+      PORT: 8002
+      HEALTHCHECK_PORT: ${TTS_HEALTHCHECK_PORT:-8002}
+      CHECKPOINT_PATH_DEFAULT: /app/checkpoints
+      # ai4bharat/indic-parler-tts is a gated repo, so the tokenizer and T5
+      # encoder cannot be fetched without an authorised token. Offline mode
+      # stops HuggingFace making the gated check that would 401 -- set it when
+      # pointing at a cache that already holds those files.
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+      TRANSFORMERS_OFFLINE: ${HF_HUB_OFFLINE:-0}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ./tts/${TTS_MODEL:-indic-parler}:/app
+      - hf_cache:/root/.cache/huggingface
+    # A model container that is loading, wedged or serving a dead worker used to
+    # look identical to a healthy one: `running`, with /health answering 200.
+    # `restart: unless-stopped` never fired because the process was alive.
+    #
+    # HEALTHCHECK_PORT rather than PORT: indic-nemotron is vendored code that
+    # hardcodes 8000 and ignores PORT, so the slot's own overlay overrides this.
+    # python3 is resolved rather than assumed -- these images are not ours.
+    healthcheck:
+      test: ["CMD-SHELL", "PY=$$(command -v python3 || command -v python); exec $$PY -c \"import os,sys,urllib.request; p=os.environ.get('HEALTHCHECK_PORT','8002'); sys.exit(0 if urllib.request.urlopen('http://localhost:'+p+'/health',timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Weights take minutes to load; vLLM captures CUDA graphs on top of that.
+      start_period: 900s
+    networks: [model_net]
+    <<: *gpu-tts
+
+  # ---- LLM slot ---------------------------------------------------------
+  # vLLM speaks OpenAI spec natively, so these folders hold no code at all --
+  # a Dockerfile naming the model and its flags is the whole implementation.
+  llm:
+    profiles: ["llm"]
+    build:
+      context: ./llm/${LLM_MODEL:-qwen3.5-4b}
+    image: voicera/model-llm:${LLM_MODEL:-qwen3.5-4b}
+    container_name: voicera_model_llm
+    restart: unless-stopped
+    environment:
+      <<: *alloc
+      PORT: 8003
+      HEALTHCHECK_PORT: ${LLM_HEALTHCHECK_PORT:-8003}
+      # Never vLLM's 0.9 default: several processes share this GPU through MPS,
+      # and MPS does not partition memory.
+      GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.10}
+      MAX_MODEL_LEN: ${VLLM_MAX_MODEL_LEN:-8192}
+      MAX_NUM_SEQS: ${VLLM_MAX_NUM_SEQS:-20}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    # A model container that is loading, wedged or serving a dead worker used to
+    # look identical to a healthy one: `running`, with /health answering 200.
+    # `restart: unless-stopped` never fired because the process was alive.
+    #
+    # HEALTHCHECK_PORT rather than PORT: indic-nemotron is vendored code that
+    # hardcodes 8000 and ignores PORT, so the slot's own overlay overrides this.
+    # python3 is resolved rather than assumed -- these images are not ours.
+    healthcheck:
+      test: ["CMD-SHELL", "PY=$$(command -v python3 || command -v python); exec $$PY -c \"import os,sys,urllib.request; p=os.environ.get('HEALTHCHECK_PORT','8003'); sys.exit(0 if urllib.request.urlopen('http://localhost:'+p+'/health',timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Weights take minutes to load; vLLM captures CUDA graphs on top of that.
+      start_period: 900s
+    networks: [model_net]
+    <<: *gpu-llm
+
+volumes:
+  # Compose creates this and the containers download into it, which needs
+  # HF_TOKEN with access to the gated ai4bharat/indic-parler-tts repo.
+  # To reuse a cache that already has those files, add the override:
+  #   docker compose -f compose.model-server.yml -f compose.shared-hf-cache.yml ...
+  hf_cache:
+
+networks:
+  model_net:
+    driver: bridge

@@ -1,0 +1,101 @@
+# What this model needs from the slot beyond a build context.
+#
+# Indic-Transcribe does not fetch its own weights. `HF_HUB_OFFLINE=1` is baked
+# into its image on purpose -- the checkpoint is in a private HuggingFace repo,
+# and a container that silently tried to reach out for it would fail slowly and
+# obscurely instead of quickly. So two paths have to be mounted in, and the
+# folder declares them here rather than the slot hardcoding them:
+#
+#   /models/core   the HuggingFace checkpoint, read-only
+#   /artifacts     the converted .nemo the engine actually restores
+#
+# See README.md for how those are produced. It is a one-time step and it does
+# not happen automatically.
+#
+# The slot contract is unchanged: one service named `stt` on 8001, answering the
+# OpenAI route (and now a WebSocket alongside it). Nothing new is published.
+#
+#   docker compose -f compose.model-server.yml \
+#                  -f stt/indic-transcribe/compose.extra.yml --project-directory . up -d
+#
+# setup.sh adds the overlay automatically when STT_MODEL names a folder that has
+# one, so this is only needed when driving Compose by hand.
+
+services:
+  stt:
+    environment:
+      # The image defaults these; they are repeated so the mounts above and the
+      # paths the engine looks in cannot drift apart silently.
+      CORE_CKPT: /artifacts/indic_transcribe_core.nemo
+      CORE_HF_DIR: /models/core
+      CORE_LANGUAGE: ${CORE_LANGUAGE:-hi}
+      # Overrides the slot's default of 0. This image has no path that can fetch
+      # anything -- see above -- and offline mode turns a hang into an error.
+      HF_HUB_OFFLINE: "1"
+
+      # ---- engine tuning -------------------------------------------------
+      #
+      # These were undeclared, and two of them mattered. When CORE_CHUNK_SECS
+      # and CORE_RIGHT_SECS are unset, app.py falls back to NeMo's own geometry
+      # -- a 1.0 s chunk and 0.5 s right context, which NeMo floors to a
+      # theoretical latency of 1.44 s. Upstream ships 0.24/0.16, reading 0.40 s,
+      # and every number in its docs/LATENCY.md (1845 ms to first word, ~50 ms
+      # per-word emit lag) was measured at that geometry. Undeclared, this slot
+      # ran the model 3.6x slower than the configuration it was benchmarked at,
+      # and nothing reported it: a slow stream is still a correct stream, so
+      # there was no error to notice.
+      #
+      # Declared, not pinned. docs/LATENCY.md's open question is whether the
+      # 1845 ms floor moves with the AlignAtt threshold, and that sweep needs
+      # these settable from .env.
+      CORE_LEFT_SECS: "${CORE_LEFT_SECS:-10.0}"
+      CORE_CHUNK_SECS: "${CORE_CHUNK_SECS:-0.24}"
+      CORE_RIGHT_SECS: "${CORE_RIGHT_SECS:-0.16}"
+      CORE_POLICY: "${CORE_POLICY:-alignatt}"
+      CORE_ALIGNATT_THR: "${CORE_ALIGNATT_THR:-8}"
+      CORE_TOKEN_BUDGET: "${CORE_TOKEN_BUDGET:-}"
+      CORE_DTYPE: "${CORE_DTYPE:-bfloat16}"
+      CORE_CUDA_EVENTS: "${CORE_CUDA_EVENTS:-1}"
+      CORE_MODEL_ID: "${CORE_MODEL_ID:-indic-transcribe-core}"
+      CORE_LOG_LEVEL: "${CORE_LOG_LEVEL:-INFO}"
+
+      # Admission. Upstream raised max_sessions to 64; kept here at the
+      # measured real-time capacity, because this card is shared with
+      # production and admitting several times what the decoder can serve in
+      # real time degrades every stream instead of refusing one.
+      CORE_MAX_SESSIONS: "${CORE_MAX_SESSIONS:-8}"
+      CORE_REALTIME_CAPACITY: "${CORE_REALTIME_CAPACITY:-8}"
+      CORE_MAX_BATCH: "${CORE_MAX_BATCH:-32}"
+      CORE_BATCH_WINDOW_MS: "${CORE_BATCH_WINDOW_MS:-0}"
+      CORE_ADAPTIVE: "${CORE_ADAPTIVE:-0}"
+
+      # Decoder-state rotation. The duration triggers are meant to fire before
+      # the token backstop; see app.py's SAFE_ROLL_SECS comment for what the
+      # backstop is protecting against.
+      CORE_ROLL_SOFT_SECS: "${CORE_ROLL_SOFT_SECS:-12}"
+      CORE_ROLL_HARD_SECS: "${CORE_ROLL_HARD_SECS:-20}"
+      CORE_SEAMLESS_ROTATION: "${CORE_SEAMLESS_ROTATION:-0}"
+      CORE_CARRY_TOKENS: "${CORE_CARRY_TOKENS:-24}"
+      CORE_CARRY_SECS: "${CORE_CARRY_SECS:-0}"
+
+      # Voice activity detection.
+      CORE_VAD: "${CORE_VAD:-1}"
+      CORE_VAD_THRESHOLD: "${CORE_VAD_THRESHOLD:-0.5}"
+      CORE_VAD_SILENCE_MS: "${CORE_VAD_SILENCE_MS:-800}"
+      # Empty means "find the bundled Silero weights"; set only to override the
+      # path. vad.py raises with this name in the message when it cannot locate
+      # them, so it must exist as a knob rather than only as an error string.
+      ASR_VAD_ONNX: "${ASR_VAD_ONNX:-}"
+    volumes:
+      # Read-only: the engine reads this and nothing should write it. Both
+      # default to a path beside the model folder, which is gitignored.
+      #
+      # Path note, and it is not the intuitive one: these resolve against
+      # `--project-directory` (model-server/), NOT against this file's own
+      # folder. That is why they are spelled from the project root rather than
+      # as ./models/core, even though this file sits inside the model folder.
+      # `additional_contexts` in the base file follows a *different* rule -- it
+      # resolves against the compose file's directory -- so the two cannot be
+      # reasoned about interchangeably. Verified with `docker compose config`.
+      - ${CORE_MODELS_DIR:-./stt/indic-transcribe/models/core}:/models/core:ro
+      - ${CORE_ARTIFACTS_DIR:-./stt/indic-transcribe/artifacts}:/artifacts

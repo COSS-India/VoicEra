@@ -1,0 +1,235 @@
+{
+  "_comment": "Voice roster for bodhan-ai/indic-speak-preview-v2, from the README's 'All 95 voices by language' table -- the authoritative one. voices.md lists only the 44 RECOMMENDED voices (one female, one male per language) and omits Bhili entirely. IMPORTANT: v2 is fully CROSS-LINGUAL -- every voice can speak every language, and the prompt carries NO language code at all, so the model infers language from the script of the text. The mapping below is each voice's native language, which is what keeps speaker names unique and lets an OpenAI client select a language with the standard 'voice' field alone. ENGLISH IS DELIBERATELY ABSENT: the model card lists 44 English voices and they are the same 44 names, so adding them would make every Rasa name ambiguous and break /v1/audio/speech for callers that send only 'voice'. Styles are v2's own trained tags and share nothing with the previous checkpoint's CONV/WIKI/NEWS set.",
+  "prompt_template": "indic",
+  "default_style": "news",
+  "styles": [
+    "news",
+    "AIR style news",
+    "TV style news",
+    "educational lecture",
+    "single person narration audiobook",
+    "children's stories",
+    "advertisements",
+    "Customer Care",
+    "happy",
+    "sad",
+    "anger",
+    "fear",
+    "surprise",
+    "disgust"
+  ],
+  "languages": [
+    {
+      "code": "as",
+      "name": "Assamese",
+      "voices": [
+        "Prastuti",
+        "Ankur"
+      ],
+      "sample": "নমস্কাৰ, আজি বতৰ বৰ ভাল।"
+    },
+    {
+      "code": "bn",
+      "name": "Bengali",
+      "voices": [
+        "Ishita",
+        "Sourav"
+      ],
+      "sample": "নমস্কার, আজ আবহাওয়া খুব ভালো।"
+    },
+    {
+      "code": "bhb",
+      "name": "Bhili",
+      "voices": [
+        "Bhima",
+        "Dhulji",
+        "Govind",
+        "Jhamku",
+        "Kanku",
+        "Sarju",
+        "Tantya"
+      ],
+      "sample": ""
+    },
+    {
+      "code": "brx",
+      "name": "Bodo",
+      "voices": [
+        "Gwrbw",
+        "Sansuma"
+      ],
+      "sample": "खुलुमबाय, दिनै मौसम गोजोन।"
+    },
+    {
+      "code": "doi",
+      "name": "Dogri",
+      "voices": [
+        "Preeti",
+        "Sham"
+      ],
+      "sample": "नमस्कार, अज्ज मौसम बड़ा खरा ऐ।"
+    },
+    {
+      "code": "gu",
+      "name": "Gujarati",
+      "voices": [
+        "Dhara",
+        "Parth"
+      ],
+      "sample": "નમસ્તે, આજે હવામાન ખૂબ સરસ છે."
+    },
+    {
+      "code": "hi",
+      "name": "Hindi",
+      "voices": [
+        "Kavya",
+        "Amit"
+      ],
+      "sample": "नमस्ते, आज मौसम बहुत अच्छा है। मैं ठीक हूँ।"
+    },
+    {
+      "code": "kn",
+      "name": "Kannada",
+      "voices": [
+        "Deepika",
+        "Adarsh"
+      ],
+      "sample": "ನಮಸ್ಕಾರ, ಇಂದು ಹವಾಮಾನ ತುಂಬಾ ಚೆನ್ನಾಗಿದೆ."
+    },
+    {
+      "code": "ks",
+      "name": "Kashmiri",
+      "voices": [
+        "Zoon",
+        "Ishfaq"
+      ],
+      "sample": "آداب، از چھُ موسم ٲنٛدِ خٕش۔"
+    },
+    {
+      "code": "kok",
+      "name": "Konkani",
+      "voices": [
+        "Anjali",
+        "Sandeep"
+      ],
+      "sample": "नमस्कार, आयज हवामान बरें आसा."
+    },
+    {
+      "code": "mai",
+      "name": "Maithili",
+      "voices": [
+        "Vaidehi",
+        "Madhukar"
+      ],
+      "sample": "प्रणाम, आइ मौसम बहुत नीक अछि।"
+    },
+    {
+      "code": "ml",
+      "name": "Malayalam",
+      "voices": [
+        "Lakshmi",
+        "Kiran"
+      ],
+      "sample": "നമസ്കാരം, ഇന്ന് കാലാവസ്ഥ വളരെ നല്ലതാണ്."
+    },
+    {
+      "code": "mni",
+      "name": "Manipuri",
+      "voices": [
+        "Thoibi",
+        "Chaoba"
+      ],
+      "sample": "খুরুমজরি, ঙসি নুংশা ফজৈ।"
+    },
+    {
+      "code": "mr",
+      "name": "Marathi",
+      "voices": [
+        "Anagha",
+        "Chinmay"
+      ],
+      "sample": "नमस्कार, आज हवामान खूप छान आहे."
+    },
+    {
+      "code": "ne",
+      "name": "Nepali",
+      "voices": [
+        "Srijana",
+        "Sagar"
+      ],
+      "sample": "नमस्ते, आज मौसम धेरै राम्रो छ।"
+    },
+    {
+      "code": "or",
+      "name": "Odia",
+      "voices": [
+        "Itishree",
+        "Akash"
+      ],
+      "sample": "ନମସ୍କାର, ଆଜି ପାଗ ବହୁତ ଭଲ ଅଛି।"
+    },
+    {
+      "code": "pa",
+      "name": "Punjabi",
+      "voices": [
+        "Kaur",
+        "Manpreet"
+      ],
+      "sample": "ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਅੱਜ ਮੌਸਮ ਬਹੁਤ ਵਧੀਆ ਹੈ।"
+    },
+    {
+      "code": "sa",
+      "name": "Sanskrit",
+      "voices": [
+        "Bharati",
+        "Aryaman"
+      ],
+      "sample": "नमस्ते, अद्य वातावरणम् अतीव उत्तमम् अस्ति।"
+    },
+    {
+      "code": "sat",
+      "name": "Santali",
+      "voices": [
+        "Phulmani",
+        "Sibu"
+      ],
+      "sample": "ᱡᱚᱦᱟᱨ ᱾"
+    },
+    {
+      "code": "sd",
+      "name": "Sindhi",
+      "voices": [
+        "Moomal",
+        "Rano"
+      ],
+      "sample": "السلام عليڪم، اڄ موسم تمام سٺو آهي."
+    },
+    {
+      "code": "ta",
+      "name": "Tamil",
+      "voices": [
+        "Anitha",
+        "Arun"
+      ],
+      "sample": "வணக்கம், இன்று வானிலை மிகவும் நன்றாக உள்ளது."
+    },
+    {
+      "code": "te",
+      "name": "Telugu",
+      "voices": [
+        "Sravani",
+        "Vamsi"
+      ],
+      "sample": "నమస్తే, ఈ రోజు వాతావరణం చాలా బాగుంది."
+    },
+    {
+      "code": "ur",
+      "name": "Urdu",
+      "voices": [
+        "Saba",
+        "Zaid"
+      ],
+      "sample": "السلام علیکم، آج موسم بہت اچھا ہے۔"
+    }
+  ]
+}
