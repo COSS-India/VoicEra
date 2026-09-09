@@ -115,21 +115,68 @@ export function resolvedField(
   return resolvedModelFields(settings, modelId, languageId).find(([key]) => key === name)?.[1];
 }
 
+/**
+ * Map a VoicEra canonical language id to the vendor wire code for a model.
+ * Prefers `fields.language.language_codes[model]`, then
+ * `capabilities[model].languages`, then the canonical id unchanged.
+ */
+export function vendorLanguageCode(
+  settings: ProviderSettingsCatalog | null | undefined,
+  modelId: string,
+  canonicalId: string,
+): string {
+  const fromField = settings?.fields?.language?.language_codes?.[modelId]?.[canonicalId];
+  if (fromField) return fromField;
+  const fromCaps = settings?.capabilities?.[modelId]?.languages?.[canonicalId];
+  if (fromCaps) return fromCaps;
+  return canonicalId;
+}
+
+/**
+ * Reverse of `vendorLanguageCode` — vendor wire code → canonical id.
+ * Useful when reading older agents that stored a vendor spelling in
+ * `stt_config.language` / `tts_config.language`.
+ */
+export function canonicalLanguageId(
+  settings: ProviderSettingsCatalog | null | undefined,
+  modelId: string,
+  vendorCode: string,
+): string {
+  const fromField = settings?.fields?.language?.language_codes?.[modelId];
+  if (fromField) {
+    for (const [canonical, vendor] of Object.entries(fromField)) {
+      if (vendor === vendorCode) return canonical;
+    }
+  }
+  const fromCaps = settings?.capabilities?.[modelId]?.languages;
+  if (fromCaps) {
+    for (const [canonical, vendor] of Object.entries(fromCaps)) {
+      if (vendor === vendorCode) return canonical;
+    }
+  }
+  return vendorCode;
+}
+
 /** Build a non-secret model config blob for one model + language of a
- * provider settings catalog + user overrides (e.g. `{ voice: "…" }`). */
+ * provider settings catalog + user overrides (e.g. `{ voice: "…" }`).
+ *
+ * `overrides.language` must be a **canonical** id (for capability/voice
+ * resolution). The written `language` field is the **vendor** wire code. */
 export function modelConfigFromSettings(
   catalog: ProviderSettingsCatalog,
   modelId: string,
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  const language =
+  const canonicalLanguage =
     (typeof overrides.language === "string" && overrides.language) ||
     (catalog.fields?.language?.default !== undefined ? String(catalog.fields.language.default) : undefined);
 
   const out: Record<string, unknown> = { provider: catalog.provider, model: modelId };
-  if (language) out.language = language;
+  if (canonicalLanguage) {
+    out.language = vendorLanguageCode(catalog, modelId, canonicalLanguage);
+  }
 
-  for (const [key, field] of resolvedModelFields(catalog, modelId, language)) {
+  for (const [key, field] of resolvedModelFields(catalog, modelId, canonicalLanguage)) {
     if (key in overrides && overrides[key] !== undefined && overrides[key] !== "") {
       out[key] = overrides[key];
       continue;
