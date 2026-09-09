@@ -7,13 +7,12 @@ RUN npm ci
 
 COPY . .
 
-# NEXT_PUBLIC_* are inlined at build time; API_PROXY_TARGET is read at runtime in next.config.ts.
+# NEXT_PUBLIC_* are inlined at build time; proxy targets are read at runtime in next.config.ts.
 ARG NEXT_PUBLIC_API_URL=/api/v1
-ARG NEXT_PUBLIC_RUNTIME_WS_URL
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_RUNTIME_WS_URL=$NEXT_PUBLIC_RUNTIME_WS_URL
 ENV API_PROXY_TARGET=http://api:8000
+ENV RUNTIME_PROXY_TARGET=http://runtime:7860
 
 RUN npm run build
 

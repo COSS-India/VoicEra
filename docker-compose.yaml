@@ -291,7 +291,6 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}"
-        NEXT_PUBLIC_RUNTIME_WS_URL: "${NEXT_PUBLIC_RUNTIME_WS_URL}"
 
     container_name: voicera_oss_frontend
     restart: unless-stopped
@@ -303,13 +302,11 @@ services:
       - .env
 
     environment:
-      # Browser calls same-origin /api/v1; Next proxies to the API service.
+      # Browser calls same-origin /api/v1 and /agent/*; Next proxies internally.
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}"
       API_PROXY_TARGET: "http://api:8000"
+      RUNTIME_PROXY_TARGET: "http://runtime:7860"
       ALLOWED_DEV_ORIGINS: "${ALLOWED_DEV_ORIGINS}"
-
-      # Browser test-call WebSocket — from root .env (NEXT_PUBLIC_RUNTIME_WS_URL).
-      NEXT_PUBLIC_RUNTIME_WS_URL: "${NEXT_PUBLIC_RUNTIME_WS_URL}"
 
     logging:
       driver: "json-file"
@@ -319,6 +316,8 @@ services:
 
     depends_on:
       api:
+        condition: service_started
+      runtime:
         condition: service_started
 
     networks:
