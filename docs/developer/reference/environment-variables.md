@@ -101,10 +101,10 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 | `FRONTEND_HOST_PORT` | `3000` | No | Host port published for the `frontend` container. |
 | `NEXT_PUBLIC_API_URL` | `/api/v1` | No | Base path the browser calls for every REST request. Same-origin by default — see below. |
 | `API_PROXY_TARGET` | `http://api:8000` | No | Where the Next.js server forwards `/api/v1/*` internally. Read at **runtime**, not build time, so changing it needs only a container restart, not a rebuild. |
+| `RUNTIME_PROXY_TARGET` | `http://runtime:7860` (Compose) / `http://127.0.0.1:7860` (local default) | No | Where the Next.js server forwards `/agent/:orgId/:agentId` WebSockets for browser test calls. Read at runtime. |
 | `ALLOWED_DEV_ORIGINS` | `voicera.johnaic.com` | No | Hosts Next.js accepts dev-origin requests from. |
-| `NEXT_PUBLIC_RUNTIME_WS_URL` | `wss://vobiz.johnaic.com` | No | Base URL for the browser test-call WebSocket. No path segment. This one **does** need to be reachable from the visitor's browser — it is not proxied. |
 
-The API and the WebSocket URL are handled differently on purpose. `NEXT_PUBLIC_API_URL` stays a relative, same-origin path: the browser calls `/api/v1/...` on whatever host serves the dashboard, and `next.config.ts` rewrites that to `API_PROXY_TARGET` server-side, so the FastAPI service never needs a public hostname of its own. The runtime WebSocket has no such proxy — `NEXT_PUBLIC_RUNTIME_WS_URL` must be a URL the browser can open directly, and being `NEXT_PUBLIC_*` it is inlined at build time: changing it without rebuilding the image has no effect.
+Both REST and the browser test-call WebSocket are same-origin from the browser: `/api/v1/...` and `/agent/...` hit the dashboard host, and `next.config.ts` rewrites them to `API_PROXY_TARGET` and `RUNTIME_PROXY_TARGET` server-side. Neither FastAPI nor the runtime need a public hostname of their own for the dashboard.
 
 `FRONTEND_URL` in the [API](#api) section is a separate variable: the API uses it to build password-reset links, and it is read server-side.
 
