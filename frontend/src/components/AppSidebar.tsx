@@ -153,7 +153,7 @@ export function AppSidebar() {
           <button
             type="button"
             title="Docs"
-            onClick={() => window.open("https://docs.voicera.ai", "_blank")}
+            onClick={() => window.open("https://voicera.mintlify.app/docs/guides", "_blank")}
             className="flex w-full cursor-pointer items-center gap-[11px] rounded-v-md px-[11px] py-[9px] text-left text-[13.5px] font-medium text-v-body transition-colors duration-[120ms] hover:bg-v-soft hover:text-v-fg"
           >
             <FileText className={iconClass} strokeWidth={1.8} />
