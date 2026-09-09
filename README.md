@@ -27,26 +27,27 @@ Use it for inbound helplines, outbound calling campaigns, and IVR replacements, 
 ```bash
 git clone https://github.com/COSS-India/voicera.git
 cd voicera
-./scripts/start-application-services.sh
+
+make application-up
 ```
 
-The script creates `.env`, generates the required secrets, and starts the stack.
+`make application-up` creates `.env`, generates the required secrets, and starts the stack.
 
 > [!IMPORTANT]
-> Use `./scripts/start-application-services.sh`, not a bare `docker compose up`. Three services refuse to start without a generated `SECRET_KEY`.
+> Use `make application-up`, not a bare `docker compose up`. Three services refuse to start without a generated `SECRET_KEY`.
 
 Once it is up:
 
 | Service | URL |
 | --- | --- |
-| Dashboard | `http://localhost:3000` |
-| API | `http://localhost:8000` |
-| OpenAPI console | `http://localhost:8000/docs` |
-| Runtime | `http://localhost:7860` |
-| MinIO console | `http://localhost:9001` |
+| Dashboard | `localhost:3000` |
+| API | `localhost:8000` |
+| OpenAPI console | `localhost:8000/docs` |
+| Runtime | `localhost:7860` |
+| MinIO console | `localhost:9001` |
 | FerretDB | `localhost:27018` |
 
-Stop with `./scripts/stop-application-services.sh`.
+Stop with `make application-down`.
 
 ## 🏗️ Architecture
 
