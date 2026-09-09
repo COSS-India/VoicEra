@@ -4,7 +4,7 @@
 
 **Please do not open a public issue for a security vulnerability.**
 
-Report privately using [GitHub's private security advisory flow](https://github.com/coss-india/voicera/security/advisories) on this repository.
+Report privately using [GitHub's private security advisory flow](https://github.com/coss-india/voicera/security/advisories/new) on this repository.
 
 Please include:
 
