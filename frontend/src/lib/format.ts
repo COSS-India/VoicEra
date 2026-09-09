@@ -1,13 +1,5 @@
 import type { CallLogItem } from "@/lib/api-types";
 
-/** Strips everything except letters (any script — Hindi/Kannada/etc. included),
- * numbers, whitespace, and basic sentence punctuation. Used on spoken-aloud
- * fields (hold phrases, online-detection prompts) where symbols like
- * `{}[]<>@#$%` would either break TTS pronunciation or get read aloud verbatim. */
-export function sanitizeSpeechText(value: string): string {
-  return value.replace(/[^\p{L}\p{N}\s.,!?'’-]/gu, "");
-}
-
 /** Shorten a label for tight UI (agent cards, etc.). Full value stays available via title/tooltip. */
 export function truncateLabel(value: string, max = 30): string {
   if (value.length <= max) return value;
