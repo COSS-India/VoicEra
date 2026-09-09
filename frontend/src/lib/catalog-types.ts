@@ -16,6 +16,8 @@ export interface CatalogField {
   /** Only meaningful when `input_type === "both"` — whether the free-text
    * entry is actually offered alongside the dropdown. */
   allow_custom_input?: boolean;
+  /** On `fields.language` only: model id → { canonical id → vendor wire code }. */
+  language_codes?: Record<string, Record<string, string>>;
 }
 
 export interface AuthProviderCatalog {

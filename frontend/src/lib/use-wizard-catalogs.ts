@@ -316,6 +316,9 @@ export function buildModelConfigsFromCatalogs(
   const ttsModelId = overrides.ttsModel || defaultModelFromSettings(catalogs.ttsSettings);
   const llmModelId = overrides.llmModel || defaultModelFromSettings(catalogs.llmSettings);
 
+  // `primaryLang` is canonical (e.g. `hi`); `modelConfigFromSettings` maps it
+  // to the vendor wire code on `stt`/`tts`.language while resolving knobs by
+  // canonical id.
   const stt =
     catalogs.sttSettings && sttModelId
       ? modelConfigFromSettings(catalogs.sttSettings, sttModelId, {
