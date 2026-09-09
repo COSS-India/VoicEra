@@ -7,8 +7,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/components/AuthProvider";
 import { createAgent, updateAgent } from "@/lib/api-client";
 import { formToAgentCreatePayload } from "@/lib/agent-mapper";
-import { CallStage } from "@/components/call/CallStage";
-import { usePipecatAudio } from "@/hooks/usePipecatAudio";
+import { BrowserCallSession } from "@/components/call/BrowserCallSession";
 import type { AgentForm } from "@/lib/wizard-data";
 import type { AgentApiResponse } from "@/lib/api-types";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
@@ -144,8 +143,6 @@ export function ReviewStep({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const audio = usePipecatAudio(session?.orgId ?? "", agentId ?? "");
-
   // Save the agent as soon as this step is reached instead of waiting for an
   // explicit click — so the test-call box is there to use right away. Once
   // `agentId` is set it's owned by the parent, so revisiting this step later
@@ -213,8 +210,8 @@ export function ReviewStep({
       {error ? <span className="text-[12.5px] text-v-danger">{error}</span> : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
-        {agentId ? (
-          <CallStage audio={audio} agentName={form.name} />
+        {agentId && session?.orgId ? (
+          <BrowserCallSession orgId={session.orgId} agentId={agentId} agentName={form.name} />
         ) : (
           <div className="flex min-h-[260px] flex-col items-center justify-center gap-2 rounded-v-md border border-dashed border-v-line bg-white p-8 text-center">
             {saving ? (

@@ -45,7 +45,9 @@ The API knows about the dashboard in exactly one place: `FRONTEND_URL` (default 
 | `jspdf` | 4.2 |
 | `d3` + `topojson-client` | 7 / 3 — the language map |
 | `lucide-react` | 1.35 — icons |
-| `protobufjs` | 8 — Pipecat frame encoding for browser calls |
+| `@pipecat-ai/client-js` | Pipecat client for browser test calls |
+| `@pipecat-ai/websocket-transport` | Protobuf WebSocket transport (16 kHz) |
+| `@pipecat-ai/client-react` | Provider, audio, mic, devices, VoiceVisualizer, conversation |
 
 All versions are from `frontend/package.json`. There is no state-management library, no data-fetching library, and no component framework: fetches go through a single `apiFetch` helper and state is plain React hooks.
 
@@ -61,11 +63,13 @@ flowchart LR
   RT["Runtime<br/>:7860"]
 
   Browser --> FE
-  Browser -->|"REST + Bearer token"| API
-  Browser -->|"WebSocket<br/>protobuf audio"| RT
+  Browser -->|"REST via Next rewrite<br/>/api/v1"| FE
+  FE -->|"proxy"| API
+  Browser -->|"WS via Next rewrite<br/>/agent"| FE
+  FE -->|"proxy"| RT
 ```
 
-Next.js serves the pages, but the data requests are made from the browser itself — there is no server-side proxy. `frontend/src/lib/api/http.ts` calls the API directly from client code, and `frontend/src/hooks/usePipecatAudio.ts` opens the runtime WebSocket directly.
+Next.js serves the pages and proxies both REST (`/api/v1/*` → `API_PROXY_TARGET`) and browser test-call WebSockets (`/agent/...` → `RUNTIME_PROXY_TARGET`). `frontend/src/lib/api/http.ts` calls same-origin `/api/v1`, and `frontend/src/lib/pipecat/createBrowserClient.ts` opens a same-origin WebSocket that Next forwards to the runtime.
 
 ### API surfaces it consumes
 
