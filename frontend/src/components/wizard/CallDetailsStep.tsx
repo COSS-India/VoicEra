@@ -4,7 +4,6 @@ import { Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/Field";
 import { Switch } from "@/components/ui/Switch";
 import { InfoTip } from "@/components/ui/Tooltip";
-import { sanitizeSpeechText } from "@/lib/format";
 import { TIPS, type AgentForm } from "@/lib/wizard-data";
 
 interface CallDetailsStepProps {
@@ -88,7 +87,7 @@ function NumberField({
 export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
   function updateHold(index: number, value: string) {
     const next = [...form.holdPhrases];
-    next[index] = sanitizeSpeechText(value);
+    next[index] = value;
     onChange("holdPhrases", next);
   }
 
@@ -214,7 +213,7 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
               </span>
               <Input
                 value={form.onlineDetectionMessage}
-                onChange={(e) => onChange("onlineDetectionMessage", sanitizeSpeechText(e.target.value))}
+                onChange={(e) => onChange("onlineDetectionMessage", e.target.value)}
                 placeholder="Are you still there?"
               />
             </label>
@@ -246,7 +245,7 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
               </span>
               <Input
                 value={form.onlineDetectionClosingMessage}
-                onChange={(e) => onChange("onlineDetectionClosingMessage", sanitizeSpeechText(e.target.value))}
+                onChange={(e) => onChange("onlineDetectionClosingMessage", e.target.value)}
                 placeholder="I'll end the call now. Goodbye."
               />
             </label>
