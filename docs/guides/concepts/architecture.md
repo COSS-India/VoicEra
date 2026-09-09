@@ -35,7 +35,7 @@ flowchart TB
 | API consumer | Anything driving VoicEra over REST — your own console, a script, or the [dashboard](../../developer/frontend/overview.md). |
 | Caller | The person on the phone, inbound or outbound. |
 | Telephony providers | [Vobiz or Plivo](telephony-model.md). They own the numbers and stream the audio. |
-| AI providers | 22 cloud vendors plus the Bhashini and Kenpath adapters, reachable through the [provider registry](provider-registry.md). |
+| AI providers | 22 cloud vendors plus the Bhashini and Kenpath adapters, reachable through the [provider registry](../../developer/reference/provider-registry.md). |
 | Model server | Optional [self-hosted models](../../developer/model-server/overview.md) behind one gateway. |
 
 ## Level 2 — Containers
@@ -107,7 +107,7 @@ flowchart LR
 | Runtime | FastAPI + Pipecat | The `/answer` webhook and the real-time audio pipeline, one WebSocket per call. |
 | ARQ worker | ARQ | Executes campaign batches and CSV source syncs off the request path. |
 | Campaign orchestrator | Python daemon | Listens on Redis pub/sub, schedules the next batch, detects completion. |
-| FerretDB | FerretDB 2.7 | MongoDB wire protocol on top of PostgreSQL. See [Data store](data-store.md). |
+| FerretDB | FerretDB 2.7 | MongoDB wire protocol on top of PostgreSQL. See [Data store](../../developer/reference/data-store.md). |
 | PostgreSQL | postgres-documentdb 17 | The actual storage engine behind FerretDB. Not published. |
 | Redis | Redis 7 | ARQ job queue, campaign event bus, concurrency slots and rate limiting. Not published. |
 | MinIO | MinIO | S3-compatible store for recordings and transcripts. |
@@ -247,10 +247,10 @@ VoicEra replaces the earlier `voicera_mono_repository`. If you know the old syst
 | `voice_2_voice_server` | `apps/runtime` |
 | `ai4bharat_stt_server`, `ai4bharat_tts_server`, `llm_server` | One [model server](../../developer/model-server/overview.md), three slots |
 | A `.env` per service | One root `.env`, plus `model-server/.env` |
-| Integrations documents | [`ProviderAuth`](provider-auth.md), Fernet-encrypted |
+| Integrations documents | [`ProviderAuth`](../../developer/reference/provider-auth.md), Fernet-encrypted |
 | Vobiz only | Vobiz and Plivo, [provider-agnostic](telephony-model.md) |
 | No queue | Redis, ARQ worker, and campaign orchestrator |
-| Hard-coded provider list | Self-describing [provider registry](provider-registry.md) |
+| Hard-coded provider list | Self-describing [provider registry](../../developer/reference/provider-registry.md) |
 | Dashboard assumed | API-first — the [dashboard](../../developer/frontend/overview.md) is one client of the REST API, not a privileged surface |
 
 ## Related

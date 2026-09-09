@@ -55,11 +55,11 @@ An inbound call triggers a webhook to the runtime's `/answer` endpoint, carrying
 
 ### 2. The runtime loads the agent
 
-Before answering, the runtime asks the API for the agent's configuration and the organisation's provider credentials. It has no standing credentials of its own: it authenticates with a shared internal key, receives a short-lived token, and gets back only what that organisation is entitled to. See [Provider credentials](../concepts/provider-auth.md).
+Before answering, the runtime asks the API for the agent's configuration and the organisation's provider credentials. It has no standing credentials of its own: it authenticates with a shared internal key, receives a short-lived token, and gets back only what that organisation is entitled to. See [Provider credentials](../../developer/reference/provider-auth.md).
 
 ### 3. The pipeline starts
 
-With config in hand, the runtime builds three services — speech-to-text, a language model, and text-to-speech — from the [provider registry](../concepts/provider-registry.md), and assembles them into a Pipecat pipeline. Audio flows in one side, audio flows out the other.
+With config in hand, the runtime builds three services — speech-to-text, a language model, and text-to-speech — from the [provider registry](../../developer/reference/provider-registry.md), and assembles them into a Pipecat pipeline. Audio flows in one side, audio flows out the other.
 
 The agent usually speaks first, with the greeting from its prompts.
 
@@ -80,9 +80,9 @@ When either side hangs up — or the agent decides it is done — the runtime wr
 
 ## Outbound calls
 
-Outbound reverses only the first step. Something asks the API to place a call; the API checks the organisation is not already running its max number of simultaneous calls — a [concurrency slot](../concepts/call-concurrency.md) — records the call, and asks the provider to dial. When the callee answers, the provider hits `/answer` and everything proceeds identically.
+Outbound reverses only the first step. Something asks the API to place a call; the API checks the organisation is not already running its max number of simultaneous calls — a [concurrency slot](../../developer/reference/call-concurrency.md) — records the call, and asks the provider to dial. When the callee answers, the provider hits `/answer` and everything proceeds identically.
 
-Campaigns are outbound calls at volume, with a queue, retries, and an automatic cutoff in front: if too many calls in a row fail, the campaign pauses itself instead of burning through the rest of the list. See [Campaigns](../concepts/campaigns.md).
+Campaigns are outbound calls at volume, with a queue, retries, and an automatic cutoff in front: once enough calls have been placed to judge, if too many of them are failing the campaign pauses itself instead of burning through the rest of the list. See [Campaigns](../concepts/campaigns.md).
 
 ## Where your data lives
 

@@ -93,7 +93,7 @@ API_HOST_PORT=8080
 ```
 
 ```bash
-docker compose up -d
+make application-up
 ```
 
 If you move `FERRETDB_HOST_PORT`, also update `MONGODB_PORT` in `.env` — that value is what a host-side API process connects with. Inside the stack it stays `27017` regardless, because `docker-compose.yaml` overrides it.
@@ -103,5 +103,5 @@ If you move `FERRETDB_HOST_PORT`, also update `MONGODB_PORT` in `.env` — that 
 * [Environment variables](environment-variables.md)
 * [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet.md)
 * [Docker Compose](../../guides/deployment/docker-compose.md)
-* [Data store (FerretDB)](../../guides/concepts/data-store.md)
+* [Data store (FerretDB)](data-store.md)
 * [Overview](../model-server/overview.md)

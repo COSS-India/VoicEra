@@ -92,9 +92,11 @@ Running from source, export the repository root once per shell:
 export PYTHONPATH="$PWD"
 ```
 
-<Warning>
-There is **no** `pip install -e .` and **no** `make` target. `pyproject.toml` and `Makefile` exist but are empty placeholders. Install dependencies with an explicit `pip install -r apps/<app>/requirements.txt`, and set `PYTHONPATH` yourself.
-</Warning>
+<Note>
+There is **no** `pip install -e .` — `pyproject.toml` is an empty placeholder, so the project is not pip-installable. Install dependencies with an explicit `pip install -r apps/<app>/requirements.txt`, and set `PYTHONPATH` yourself.
+
+The `Makefile` does cover the Docker stack — `make application-up`, `make application-down`, `make application-logs`, and the `model-server-*` equivalents; run `make help` for the list. It has no targets for running services from source, which is what the rest of this page describes.
+</Note>
 
 ## Database-only Compose
 
@@ -225,9 +227,9 @@ It sets `line-length = 100`, `target-version = "py312"`, and selects `E`, `F`, `
 
 There is no ruff, black, or isort configuration covering `apps/`. Match the surrounding style: `from __future__ import annotations` at the top of every module, PEP 8, and type hints on public functions.
 
-<Warning>
+<Note>
 There is no CI. Nothing runs lint or tests on a push. Run [the test suites](testing.md) and `ruff check .` yourself before opening a pull request.
-</Warning>
+</Note>
 
 ## Related
 

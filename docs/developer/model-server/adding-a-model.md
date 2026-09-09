@@ -97,9 +97,9 @@ Two quite different needs turned out to have the same answer:
 
 Either way the slot contract is unchanged — one service, one port, one route.
 
-<Warning>
+<Note>
 Paths in an overlay resolve against the **project directory** (`model-server/`), not against the overlay's own folder. `additional_contexts` in the base file follows a *different* rule — it resolves against the compose file's directory — so the two cannot be reasoned about interchangeably.
-</Warning>
+</Note>
 
 That is why `stt/indic-transcribe/compose.extra.yml` spells its mounts from the project root even though the file lives inside the model folder:
 
@@ -162,4 +162,4 @@ One thing `scripts/start-model-server.sh` still knows about a specific model: th
 
 * [Slots and models](slots-and-models.md)
 * [Gateway API](gateway-api.md)
-* [Provider registry](../../guides/concepts/provider-registry.md)
+* [Provider registry](../reference/provider-registry.md)

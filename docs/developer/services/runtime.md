@@ -159,7 +159,7 @@ From the repository root, the whole stack:
 
 ```bash
 cp .env.example .env
-./scripts/start-application-services.sh
+make application-up
 ```
 
 The runtime is then at `http://localhost:7860`, or `RUNTIME_HOST_PORT` from `.env`. Smoke tests:

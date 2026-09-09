@@ -9,6 +9,10 @@ The complete VoicEra API: 71 REST routes across twelve routers, plus the realtim
 A running API serves an **interactive console** at `http://localhost:8000/docs`, generated from the same code. Use it to fire real requests; use these pages to learn what a route does and how it behaves.
 </Tip>
 
+<Note>
+There is no official Node.js, Python, or other client SDK. Every example on this site is a raw `curl` request or, for the WebSocket, a standard library client (`WebSocket` in the browser, [`websockets`](https://websockets.readthedocs.io/) in Python) — see [Recipes](recipes.md) for REST and [WebSocket API](websocket-api.md#connecting) for the socket. `GET /openapi.json` on a running API is a valid input to any OpenAPI client generator if you want to build your own typed client.
+</Note>
+
 ## Start here
 
 | Page | Covers |
@@ -41,6 +45,6 @@ Each endpoint lists its **method and path**, the **auth** it requires, its **req
 
 ## Related
 
-* [Operating via the API](../guides/operator/operating-via-api.md) — task-shaped recipes built on these routes
+* [Recipes](recipes.md) — task-shaped recipes built on these routes
 * [Connecting a client](../developer/clients/index.md) — choosing a surface
 * [Data model](../developer/reference/data-model.md) — the documents behind these routes

@@ -5,9 +5,9 @@ description: Pointing VoicEra at your own model server instead of cloud provider
 
 Run speech and language models on your own GPUs so audio and text never leave your network. This page covers deploying the model server and wiring it to the runtime.
 
-<Warning>
+<Note>
 **This path is not verified end to end.** `model-server/README.md` states plainly that a real call through the voice server pointed at the gateway has **not been tested**, and that the LLM slot "has never been built or started". STT and TTS have been verified standalone on an H200; the integration has not. Budget time for debugging, and do not put this in front of callers without testing it yourself.
-</Warning>
+</Note>
 
 ## When to self-host
 
@@ -25,7 +25,7 @@ Against: you need GPUs, the images are large, and cold starts are slow. Mixing i
 From the repository root:
 
 ```bash
-STT_MODEL=indic-conformer TTS_MODEL=indic-parler ./scripts/start-model-server.sh
+STT_MODEL=indic-conformer TTS_MODEL=indic-parler make model-server-setup
 ```
 
 The gateway comes up on `:8100`; the model slots stay internal on `8001`, `8002`, `8003`. Check it:
@@ -37,9 +37,9 @@ curl -s localhost:8100/v1/models
 
 Full detail in [Model server overview](../../developer/model-server/overview.md) and [Slots and models](../../developer/model-server/slots-and-models.md).
 
-<Warning>
+<Tip>
 Weights are **not** in the repository. `stt/indic-conformer/models/IndicConformer.nemo` and `tts/indic-parler/checkpoints/` are gitignored, and `ai4bharat/indic-parler-tts` is a **gated** HuggingFace repo — you need a token with access, or a pre-populated cache. Build one image at a time on a tight disk; parallel builds double peak usage at the export stage, which is where they fail.
-</Warning>
+</Tip>
 
 ## Network it to the runtime
 
@@ -141,4 +141,5 @@ The per-model pages under [Model server](../../developer/model-server/overview.m
 * [Model server overview](../../developer/model-server/overview.md)
 * [Gateway API](../../developer/model-server/gateway-api.md)
 * [Running on GPUs](../../developer/model-server/gpu-operations.md)
-* [Provider registry](../concepts/provider-registry.md)
+* [Provider registry](../../developer/reference/provider-registry.md)
+* [Environment variables](../../developer/reference/environment-variables.md)

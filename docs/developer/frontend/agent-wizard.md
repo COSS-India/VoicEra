@@ -65,7 +65,7 @@ On mount, and again whenever the language selection changes, it issues six reque
 | `GET /configuration/telephony` | Telephony providers, for the delivery dropdown. |
 | `GET /auth/configured` | Which providers this organisation has credentials for. |
 
-The last one is the important filter. `filterToConfigured()` intersects each provider list with `GET /auth/configured`, so **a provider you have not connected under Integrations never appears in the wizard**. If your stack step shows an empty dropdown, the fix is to add credentials — see [Provider credentials (ProviderAuth)](../../guides/concepts/provider-auth.md).
+The last one is the important filter. `filterToConfigured()` intersects each provider list with `GET /auth/configured`, so **a provider you have not connected under Integrations never appears in the wizard**. If your stack step shows an empty dropdown, the fix is to add credentials — see [Provider credentials (ProviderAuth)](../reference/provider-auth.md).
 
 Once you pick a provider, a second round of requests fetches its field schema:
 
@@ -141,9 +141,9 @@ The resulting body:
 
 Several values in `behaviour` and `knowledge_base` are **constants the mapper hardcodes**, not wizard inputs: `hold_message_timeout_seconds` (5), all four `user_online_detection_*` values apart from the enabled toggle, and `top_k` (5). To change them, edit the agent over the API. Field meanings are in [Agent configuration](../reference/agent-configuration.md).
 
-<Warning>
+<Note>
 `AgentForm` still carries `tokens`, `temperature`, and `bufferMs` (`frontend/src/lib/wizard-data.ts`), but no step renders a control for them and `formToAgentCreatePayload()` never reads them. They are dead form state. Set LLM sampling parameters over the API instead.
-</Warning>
+</Note>
 
 If the provider settings have not finished loading, the mapper throws rather than posting a half-built config — the wizard surfaces this as "Provider settings are still loading."
 

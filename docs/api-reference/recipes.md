@@ -1,12 +1,12 @@
 ---
-title: Operating via the API
-description: Running VoicEra day to day with curl and the OpenAPI console.
+title: Recipes
+description: End-to-end curl workflows for operating VoicEra, built on the endpoints in this reference.
 ---
 
 Everything an operator does — creating agents, attaching numbers, placing calls, reading transcripts, running campaigns — is an HTTP request. The dashboard is one way to make them; this page is the working set for doing it directly, which is what you want for anything scripted or reproducible.
 
 <Note>
-The stack also ships a [dashboard](../../developer/frontend/overview.md) covering most of this. Nothing on this page depends on it.
+The stack also ships a [dashboard](../developer/frontend/overview.md) covering most of this. Nothing on this page depends on it. For exploring routes interactively, use the console described in [API overview](overview.md).
 </Note>
 
 The shape of a first run, before the detail:
@@ -29,102 +29,20 @@ sequenceDiagram
   You->>API: "GET /calls/{call_id}/transcript"
 ```
 
-## `/docs` is your console
-
-`apps/api/app/main.py` mounts FastAPI's interactive documentation at `docs_url="/docs"` and ReDoc at `redoc_url="/redoc"`. Both are enabled unconditionally.
-
-| URL | What it is |
-| --- | --- |
-| `http://localhost:8000/docs` | Swagger UI. Every route, every schema, and an **Authorize** button that puts a Bearer token on subsequent calls. |
-| `http://localhost:8000/redoc` | The same OpenAPI document, read-only, better for reading long schemas. |
-| `http://localhost:8000/openapi.json` | The raw document. Feed it to a client generator. |
-
-`/docs` is generated from the running code, so it is always correct for the version you are on. When this documentation and `/docs` disagree, `/docs` wins. Use it as the authority for exact field names; use the [REST API reference](../../api-reference/overview.md) for the narrative.
-
-<Warning>
-`/docs`, `/redoc`, and `/openapi.json` are unauthenticated and publish your full API surface. Block them at the reverse proxy on any deployment reachable from outside your network. See [Security hardening](../deployment/security-hardening.md).
-</Warning>
-
 ## Getting a token
 
-Every operator route takes `Authorization: Bearer <jwt>`. There are two ways to get one and they are for different callers.
-
-The first user signs up, which creates the organisation and makes them its `super_admin`:
+Token mechanics, lifetime, and roles are covered in [Authentication](authentication.md). The one call you need to start:
 
 ```bash
 export API=http://localhost:8000
 
-curl -X POST "$API/api/v1/users/signup" \
+export TOKEN=$(curl -s -X POST "$API/api/v1/users/signup" \
   -H 'Content-Type: application/json' \
-  -d '{
-    "email": "you@example.com",
-    "password": "YOUR_PASSWORD",
-    "organisation_name": "Your Org"
-  }'
-```
-
-Afterwards, log in:
-
-```bash
-curl -X POST "$API/api/v1/users/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"YOUR_PASSWORD"}'
-```
-
-```json
-{
-  "status": "success",
-  "message": "Login successful",
-  "access_token": "eyJhbGciOiJIUzI1NiIs…",
-  "token_type": "bearer",
-  "org_id": "YOUR_ORG_ID",
-  "role": "super_admin",
-  "organisations": [{"org_id": "YOUR_ORG_ID", "name": "Your Org", "role": "super_admin"}]
-}
-```
-
-Capture it into a shell variable:
-
-```bash
-export TOKEN=$(curl -s -X POST "$API/api/v1/users/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"YOUR_PASSWORD"}' \
+  -d '{"email":"you@example.com","password":"YOUR_PASSWORD","organisation_name":"Your Org"}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 ```
 
-The token carries `org_id`. If you belong to several organisations, `POST /api/v1/users/switch-organisation` issues a new token scoped to another one and persists it as your default for next login:
-
-```bash
-curl -X POST "$API/api/v1/users/switch-organisation" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"org_id": "OTHER_ORG_ID"}'
-```
-
-The second path is for services, not people. `POST /api/v1/users/bot/token` exchanges the shared `INTERNAL_API_KEY` for an org-scoped JWT with the `admin` role. The runtime uses it to write call artifacts back. You will not normally call it by hand.
-
-```bash
-curl -X POST "$API/api/v1/users/bot/token" \
-  -H "X-API-Key: YOUR_INTERNAL_API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"org_id": "YOUR_ORG_ID"}'
-```
-
-A handful of routes take `X-API-Key` directly instead of a Bearer token — `GET /api/v1/agents/by-phone/{phone_number}`, `POST /api/v1/rag/retrieve`, and `POST /api/v1/campaign/internal/call-status`. They are service-to-service and are not part of an operator's routine.
-
-## Keeping a token fresh
-
-`ACCESS_TOKEN_EXPIRE_MINUTES` in `apps/api/app/config.py` defaults to **30**. There is no refresh-token endpoint: when a token expires, you log in again.
-
-| Behaviour | Consequence |
-| --- | --- |
-| 30-minute lifetime | A shell that sat idle over lunch has a dead `$TOKEN`. `401 Invalid authentication credentials` is almost always this. |
-| No refresh route | Scripts must re-login, not refresh. |
-| `SECRET_KEY` signs the token | Restarting the API with a **changed or unset** `SECRET_KEY` invalidates every issued token immediately. |
-
-That last row is worth care. When `SECRET_KEY` is unset, `apps/api/app/auth.py` generates a temporary random key at import and logs a warning, so every restart invalidates every token — and two API replicas would reject each other's. Compose refuses to start without it, but a bare `uvicorn` on your host does not. See [Security hardening](../deployment/security-hardening.md).
-
-To lengthen the lifetime, set `ACCESS_TOKEN_EXPIRE_MINUTES` in the root `.env` and restart the API. It is absent from `.env.example`; add it.
+The first signup creates the organisation and makes you its `super_admin`. On later runs, log in instead of signing up again — see [Authentication](authentication.md) for the login call, token expiry, and the service-to-service bot-token path.
 
 A re-login helper for long sessions:
 
@@ -143,35 +61,22 @@ Each recipe assumes `$API` and `$TOKEN` are set. Placeholders are `YOUR_AGENT_ID
 
 ### Add provider credentials
 
-Do this first — agents validate their model configuration against configured providers. Credentials are org-scoped, provider-level (one key set covers that vendor's STT, TTS, and LLM), and Fernet-encrypted at rest.
-
-Find out which fields a provider wants:
+Do this first — agents validate their model configuration against configured providers. See [Provider credentials](provider-auth.md) for the field contract; the flow is catalog, store, verify:
 
 ```bash
 curl "$API/api/v1/auth/catalog/openai" -H "Authorization: Bearer $TOKEN"
-```
 
-Store them. Only secret fields belong in `auth`:
-
-```bash
 curl -X POST "$API/api/v1/auth" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"provider": "openai", "auth": {"api_key": "sk-…"}}'
-```
 
-Check what is configured, and remove one:
-
-```bash
 curl "$API/api/v1/auth/configured" -H "Authorization: Bearer $TOKEN"
-curl -X DELETE "$API/api/v1/auth/openai" -H "Authorization: Bearer $TOKEN"
 ```
-
-`POST /api/v1/auth` and `DELETE /api/v1/auth/{provider}` need `admin` or `super_admin`. Reading is open to any member, with secrets masked. See [Provider credentials (ProviderAuth)](../concepts/provider-auth.md).
 
 ### Create an agent
 
-Browse the catalogs first — they are generated from the [provider registry](../concepts/provider-registry.md), so they are always current:
+Browse the catalogs first — they are generated from the [provider registry](../developer/reference/provider-registry.md), so they are always current:
 
 ```bash
 curl "$API/api/v1/configuration/stt" -H "Authorization: Bearer $TOKEN"
@@ -206,12 +111,7 @@ curl -X POST "$API/api/v1/agents" \
   }'
 ```
 
-The `agents` path has **no trailing slash**. `422` means config validation failed — the message names the field. Full field reference in [Agent configuration](../../developer/reference/agent-configuration.md).
-
-```bash
-curl "$API/api/v1/agents" -H "Authorization: Bearer $TOKEN"
-curl "$API/api/v1/agents/YOUR_AGENT_ID" -H "Authorization: Bearer $TOKEN"
-```
+The `agents` path has **no trailing slash**. `422` means config validation failed — the message names the field. Full field reference in [Agent configuration](../developer/reference/agent-configuration.md) and [Agents](agents.md).
 
 ### Attach a number
 
@@ -233,7 +133,7 @@ curl -X POST "$API/api/v1/phone-numbers/attach" \
 
 With `agent_id`, this also links the number to the agent's provider application, so inbound calls route to it. Omit `agent_id` to import into inventory only.
 
-Detach is a `DELETE` **with a body**:
+Detach is a `DELETE` **with a body**, and keeps the inventory row:
 
 ```bash
 curl -X DELETE "$API/api/v1/phone-numbers/detach" \
@@ -241,8 +141,6 @@ curl -X DELETE "$API/api/v1/phone-numbers/detach" \
   -H 'Content-Type: application/json' \
   -d '{"phone_number": "+919000000000"}'
 ```
-
-Detach unlinks at the provider and clears the agent association, keeping the inventory row.
 
 ### Place a test call
 
@@ -257,17 +155,9 @@ curl -X POST "$API/api/v1/calls/outbound" \
   }'
 ```
 
-`custom_variables` override the agent's `config.custom_variables` defaults for this call only. Add `from_number` to override the caller ID.
-
-The response carries a `call_id`. Everything afterwards keys off it.
+`custom_variables` override the agent's `config.custom_variables` defaults for this call only. Add `from_number` to override the caller ID. The response carries a `call_id`; everything afterwards keys off it.
 
 ### Check a call's transcript
-
-```bash
-curl "$API/api/v1/calls/YOUR_CALL_ID" -H "Authorization: Bearer $TOKEN"
-```
-
-Read the artifacts through the API proxy, which streams them out of MinIO with your JWT enforced:
 
 ```bash
 curl "$API/api/v1/calls/YOUR_CALL_ID/transcript" -H "Authorization: Bearer $TOKEN"
@@ -280,13 +170,6 @@ Both return `404` until the runtime uploads the artifact at the end of the call,
 Browser websocket sessions create a `call_type: web` CallLog, so they produce transcripts and recordings alongside telephony calls. Pre-register one with `POST /api/v1/calls/web` to know the `call_id` up front.
 </Note>
 
-List an organisation's calls:
-
-```bash
-curl "$API/api/v1/calls/org/YOUR_ORG_ID?limit=50&offset=0" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
 ### Invite a member
 
 ```bash
@@ -296,22 +179,11 @@ curl -X POST "$API/api/v1/members/invite" \
   -d '{"email": "colleague@example.com", "password": "THEIR_INITIAL_PASSWORD"}'
 ```
 
-The invite sets the member's initial password directly; there is no email invitation flow. They then log in normally. Requires `admin` or `super_admin`.
-
-```bash
-curl "$API/api/v1/members/YOUR_ORG_ID" -H "Authorization: Bearer $TOKEN"
-
-curl -X POST "$API/api/v1/members/assign-admin" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"email": "colleague@example.com"}'
-```
-
-Promoting and removing members requires `super_admin`. See [Multi-tenancy and roles](../concepts/multi-tenancy.md).
+The invite sets the member's initial password directly; there is no email invitation flow. Requires `admin` or `super_admin`. See [Multi-tenancy and roles](../developer/reference/multi-tenancy.md) for who can promote or remove members.
 
 ### Start a campaign
 
-Three calls: upload, create, start.
+Three calls: upload, create, start. Field contract, retry/circuit-breaker config, and reports are in [Campaigns](campaigns.md) and [Running a campaign](../guides/operator/running-a-campaign.md).
 
 ```bash
 curl -X POST "$API/api/v1/campaign/upload" \
@@ -332,23 +204,6 @@ curl -X POST "$API/api/v1/campaign/create" \
 curl -X POST "$API/api/v1/campaign/YOUR_CAMPAIGN_ID/start" \
   -H "Authorization: Bearer $TOKEN"
 ```
-
-The CSV contract, the retry and circuit-breaker blocks, and the report are all in [Running a campaign](running-a-campaign.md).
-
-### Check health
-
-No authentication needed on any of these.
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:7860/health
-```
-
-```json
-{"status": "ok", "database": "up"}
-```
-
-Details, including the model-server gateway, are in [Daily operations](operations.md).
 
 ## Scripting
 
@@ -399,8 +254,9 @@ VoicEra ships no CLI. There is no `voicerctl`; `scripts/` contains only `start-a
 
 ## Related
 
-* [REST API](../../api-reference/overview.md)
-* [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet.md)
-* [Running a campaign](running-a-campaign.md)
-* [Daily operations](operations.md)
-* [FAQ](faq.md)
+* [API overview](overview.md)
+* [Endpoints cheatsheet](endpoints-cheatsheet.md)
+* [Running a campaign](../guides/operator/running-a-campaign.md)
+* [Daily operations](../guides/operator/operations.md)
+* [FAQ](../guides/operator/faq.md)
+</content>

@@ -57,10 +57,10 @@ Adding a model is adding a folder — no service, no port, no gateway change, wh
 From the repository root:
 
 ```bash
-STT_MODEL=indic-conformer ./scripts/start-model-server.sh
+STT_MODEL=indic-conformer make model-server-setup
 ```
 
-`scripts/start-model-server.sh` asks which model should fill each slot, fetches weights, builds the images and starts the stack. When it finishes it prints the demo URL:
+`make model-server-setup` (which wraps `scripts/start-model-server.sh`) asks which model should fill each slot, fetches weights, builds the images and starts the stack. When it finishes it prints the demo URL:
 
 ```text
   Demo:     http://localhost:8100/demo
@@ -69,14 +69,14 @@ STT_MODEL=indic-conformer ./scripts/start-model-server.sh
   Models:   curl http://localhost:8100/models
 ```
 
-Stop it with `./scripts/stop-model-server.sh`. Or drive Compose directly:
+Stop it with `make model-server-down`. Or drive Compose directly:
 
 ```bash
 cp .env.example .env
 docker compose -f compose.model-server.yml up -d --build
 ```
 
-Driving Compose by hand with only the base file skips the overlays a model or host may need — a `compose.extra.yml` a model brings, the shared HuggingFace cache, and the MPS attachment. `compose-files.sh` produces the correct `-f` list:
+Driving Compose by hand with only the base file skips the overlays a model or host may need — a `compose.extra.yml` a model brings, the shared HuggingFace cache, and the MPS attachment. `compose-files.sh` produces the correct `-f` list, which is also what `make model-server-up` runs once the configuration already exists:
 
 ```bash
 docker compose $(sh model-server/compose-files.sh) --project-directory model-server up -d
@@ -108,13 +108,13 @@ Verified on the `ace-h200` box on 26 August, running beside the production and t
 | Round trip | TTS speaks a sentence, STT transcribes it back word for word |
 | Effect on production | none — `voicera-prod` stayed `running(11)` throughout |
 
-<Warning>
+<Note>
 Two things are **not** verified on hardware, and `model-server/README.md` is explicit about both.
 
 **A real call through the runtime has not been tested.** That needs a second runtime pointed at the gateway via `MODEL_SERVER_URL`, plus an agent configured for `indic-conformer-stt` and `indic-parler-tts`.
 
 **The LLM slot has not been run on hardware at all.** `llm/qwen3.5-4b/` is written but has never been built or started, so the vLLM flags in it are unverified against a live model. The numbers above cover STT and TTS only.
-</Warning>
+</Note>
 
 Per-model status is recorded in `model-server/models.yaml` and summarised on [STT models](stt-models.md), [TTS models](tts-models.md) and [LLM models](llm-models.md).
 

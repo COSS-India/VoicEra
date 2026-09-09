@@ -77,7 +77,7 @@ Credentials are **provider-level** — one key set is shared across the STT, TTS
 | GET | `/auth/{provider}` | Bearer — stored auth (members see masked secrets) |
 | DELETE | `/auth/{provider}` | Bearer (`admin` or `super_admin`) |
 
-See [Provider credentials (ProviderAuth)](../../guides/concepts/provider-auth.md).
+See [Provider credentials (ProviderAuth)](../reference/provider-auth.md).
 
 ### Agents
 
@@ -139,7 +139,7 @@ Routers stay thin. `app/services/` owns the rules:
 | `secret_crypto.py` | Fernet encrypt and decrypt for `ProviderAuth` blobs. |
 | `call_log_service.py`, `inbound_call_service.py`, `outbound_call_service.py` | CallLog creation and updates for each direction. |
 | `knowledge_service.py` | Knowledge document records and MinIO objects. |
-| `call_concurrency/` | Redis-backed concurrency slots and rate limiting. See [Call concurrency](../../guides/concepts/call-concurrency.md). |
+| `call_concurrency/` | Redis-backed concurrency slots and rate limiting. See [Call concurrency](../reference/call-concurrency.md). |
 | `campaign/` | Repository, dispatcher, circuit breaker, event protocol, orchestrator. See [Campaigns](../../guides/concepts/campaigns.md). |
 
 `app/rag/` holds the ingest pipeline: `pdf_to_text.py` → `chunk_text.py` → `embed_chunks.py` → `chroma_store.py`. `app/storage/minio_client.py` wraps the MinIO SDK. `app/models/schemas.py` holds the Pydantic request and response models.
@@ -156,7 +156,7 @@ Three stores, each with a different job.
 
 `app/database.py` builds the connection URI from `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USER`, `MONGODB_PASSWORD`, and `MONGODB_DATABASE`. `MONGODB_AUTH_SOURCE` and `MONGODB_AUTH_MECHANISM` default to empty strings because FerretDB authenticates with PostgreSQL users over SCRAM-SHA-256. Connections use `serverSelectionTimeoutMS=5000`.
 
-See [Data store (FerretDB)](../../guides/concepts/data-store.md) and the [Data model](../reference/data-model.md).
+See [Data store (FerretDB)](../reference/data-store.md) and the [Data model](../reference/data-model.md).
 
 ## Startup lifecycle
 
@@ -236,5 +236,5 @@ curl -s http://localhost:8000/health
 
 * [Workers and orchestrator](workers.md) — the other two containers from this package
 * [Runtime (apps/runtime)](runtime.md) — the only other service that calls this API
-* [Multi-tenancy and roles](../../guides/concepts/multi-tenancy.md)
+* [Multi-tenancy and roles](../reference/multi-tenancy.md)
 * [REST API reference](../../api-reference/overview.md) · [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet.md)

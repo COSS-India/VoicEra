@@ -7,13 +7,13 @@ description: Common questions about running VoicEra.
 
 The core stack does not include one. VoicEra is API-first: `http://localhost:8000/docs` gives you an interactive console for every endpoint.
 
-On `http://localhost:3000`, started with the rest of the stack. It covers agents, numbers, campaigns, knowledge documents, call history, and per-call latency. Its container runs the Next.js development server, so build it properly before exposing it. See [Dashboard](../../developer/frontend/overview.md) and [Operating via the API](operating-via-api.md).
+On `http://localhost:3000`, started with the rest of the stack. It covers agents, numbers, campaigns, knowledge documents, call history, and per-call latency. Its container runs the Next.js development server, so build it properly before exposing it. See [Dashboard](../../developer/frontend/overview.md) and [Operating via the API](../../api-reference/recipes.md).
 
 ## Why is the database on port 27018?
 
 The container listens on `27017`; the host mapping is `27018` so it cannot collide with a MongoDB you already run locally. From your machine use `27018`; inside the Compose network services use `mongodb:27017`.
 
-It is FerretDB — the MongoDB wire protocol on top of PostgreSQL — not MongoDB. See [Data store](../concepts/data-store.md).
+It is FerretDB — the MongoDB wire protocol on top of PostgreSQL — not MongoDB. See [Data store](../../developer/reference/data-store.md).
 
 ## Do I need a GPU?
 
@@ -86,7 +86,7 @@ No. The first `POST /users/signup` creates the user, an organisation, and a `sup
 
 `DEFAULT_ORG_CONCURRENCY_LIMIT` caps simultaneous calls per organisation, default `10`. Campaigns can set a lower `max_concurrency`.
 
-In practice your telephony account's channel limit or your model vendor's rate limits usually bind first. See [Call concurrency](../concepts/call-concurrency.md).
+In practice your telephony account's channel limit or your model vendor's rate limits usually bind first. See [Call concurrency](../../developer/reference/call-concurrency.md).
 
 ## Can I scale the services?
 
@@ -130,5 +130,5 @@ No. There is no `.github/` directory. Run the test suites yourself before openin
 ## Related
 
 * [Common issues](../troubleshooting/common-issues.md)
-* [Operating via the API](operating-via-api.md)
+* [Operating via the API](../../api-reference/recipes.md)
 * [Glossary](../concepts/glossary.md)

@@ -6,7 +6,7 @@ description: Agents, the two agent categories, and what the API provisions for y
 An agent is the configuration a call runs on. This page covers what lives on an agent document, the difference between the two agent categories, and the side effects the API performs on your telephony provider when you create, change, or delete one.
 
 <Note>
-Agents hold **no secrets**. Model API keys live in [`ProviderAuth`](provider-auth.md) and are merged in at call time. Sending a secret field inside `config.models` is rejected by validation.
+Agents hold **no secrets**. Model API keys live in [`ProviderAuth`](../../developer/reference/provider-auth.md) and are merged in at call time. Sending a secret field inside `config.models` is rejected by validation.
 </Note>
 
 ## What an agent is
@@ -19,7 +19,7 @@ An agent is a document in the `Agents` collection, scoped to one organisation. I
 * an optional knowledge-base attachment
 * for telephony agents, a provisioned provider application and an optional linked phone number
 
-Agents are created by any organisation member (`created_by` is taken from the JWT email) and deleted only by `admin` or `super_admin`. See [Multi-tenancy and roles](multi-tenancy.md).
+Agents are created by any organisation member (`created_by` is taken from the JWT email) and deleted only by `admin` or `super_admin`. See [Multi-tenancy and roles](../../developer/reference/multi-tenancy.md).
 
 ## telephony vs websocket
 
@@ -114,7 +114,7 @@ For a `telephony` agent, `create_agent()` calls `provision_application(org_id, p
 
 1. Requires `VOICE_SERVER_BASE_URL`, and builds `{VOICE_SERVER_BASE_URL}/answer?agent_id={agent_id}&org_id={org_id}`. The answer URL and the hangup URL are the same URL — the runtime dispatches on the webhook event.
 2. Loads the organisation's provider credentials from `ProviderAuth`. Missing or incomplete credentials (`auth_id` and `auth_token` are both required) raise `AgentTelephonyError`.
-3. Calls `client.create_application(agent_id, answer_url)` through the [provider registry](provider-registry.md). The application is **named by the `agent_id` UUID**, deliberately — providers commonly reject spaces and punctuation in application names.
+3. Calls `client.create_application(agent_id, answer_url)` through the [provider registry](../../developer/reference/provider-registry.md). The application is **named by the `agent_id` UUID**, deliberately — providers commonly reject spaces and punctuation in application names.
 4. Returns the attachment `{provider, application_id, answer_url, hangup_url}` and stores it on the agent.
 
 If the insert then fails, whether from a duplicate name or anything else, the API deletes the application it just created before raising. You do not get an orphaned application from a failed create.

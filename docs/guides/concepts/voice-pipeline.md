@@ -42,7 +42,7 @@ Before any processor exists, `run_pipeline()` calls `build_ai_services(agent)` f
 2. For each, calls `backend_client.get_provider_auth(provider, org_id)` and merges the returned secrets over the non-secret config blob.
 3. Validates the merged result as an `AgentConfig` and calls `create_stt_service()`, `create_tts_service()`, and `create_llm_service()` from `apps.providers`.
 
-Secrets never live on the agent document. They come from [`ProviderAuth`](provider-auth.md) at call time, which is why rotating a key takes effect on the next call without editing any agent. Which providers are available and what each config blob accepts is in the [provider registry](provider-registry.md).
+Secrets never live on the agent document. They come from [`ProviderAuth`](../../developer/reference/provider-auth.md) at call time, which is why rotating a key takes effect on the next call without editing any agent. Which providers are available and what each config blob accepts is in the [provider registry](../../developer/reference/provider-registry.md).
 
 ## Prompts and custom variables
 
@@ -82,9 +82,9 @@ The behaviour fields are defined on `AgentBehaviour` in `apps/api/app/models/sch
 | `user_online_detection_closing_message` | `str` | `""` | — | Spoken after the last online-detection prompt, before hangup. |
 | `automatic_call_ending` | `AutomaticCallEnding` | `{enabled: false, graceful_llm_call_ending: false}` | — | Lets the LLM hang up itself. See [Automatic call ending](#automatic-call-ending). |
 
-<Warning>
+<Note>
 `call_timeout_seconds` is accepted and stored by the API but no code in `apps/runtime` reads it. There is currently no hard call-duration cap enforced by the pipeline. Cap call length at your telephony provider, or by [campaign](campaigns.md) controls, until this lands.
-</Warning>
+</Note>
 
 The runtime coerces missing values rather than rejecting them. `user_online_detection_seconds` falls back to `10`, `user_online_detection_repeats` to `1`, and `user_silence_hangup_seconds` to `0` — see `online_detection_from_behaviour()` in `idle.py`.
 

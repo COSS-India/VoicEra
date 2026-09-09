@@ -130,8 +130,8 @@ The ciphertext itself is never returned to a client. `upsert_provider_auth` retu
 ## Related
 
 * [Provider registry](provider-registry.md) — where the auth field definitions come from
-* [Agents and agent categories](agents.md) — the secret-free half of a provider config
+* [Agents and agent categories](../../guides/concepts/agents.md) — the secret-free half of a provider config
 * [Multi-tenancy and roles](multi-tenancy.md) — who counts as an admin
-* [Runtime (apps/runtime)](../../developer/services/runtime.md) — the bot-token consumer
-* [Security hardening](../deployment/security-hardening.md)
-* [Generated secrets and defaults](../quickstart/secrets-and-defaults.md)
+* [Runtime (apps/runtime)](../services/runtime.md) — the bot-token consumer
+* [Security hardening](../../guides/deployment/security-hardening.md)
+* [Generated secrets and defaults](../../guides/quickstart/secrets-and-defaults.md)

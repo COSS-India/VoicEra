@@ -27,7 +27,7 @@ voicera/
 ├── SECURITY.md            Vulnerability reporting policy
 ├── CODE_OF_CONDUCT.md     Community standards and enforcement
 ├── LICENSE                MIT
-├── Makefile               Placeholder — empty
+├── Makefile               Wrappers for the start/stop scripts — `make help` lists them
 ├── pyproject.toml         Placeholder — empty
 └── __init__.py            Empty; makes the checkout importable as a package
 ```
@@ -37,8 +37,9 @@ voicera/
 | `docs.json` | Mintlify site config: tabs (Guides, Developer, API Reference), groups, and redirects. |
 | `docker-compose.yaml` | Ten services: `postgres`, `ferretdb`, `api`, `arq-worker`, `campaign-orchestrator`, `runtime`, `frontend`, `redis`, `minio`, `minio-init`. Container and volume names are prefixed `voicera_oss_`; the network is `app-network`. |
 | `.env.example` | The one environment template. Copy it to `.env` at the root. See [Environment variables](../reference/environment-variables.md). |
-| `scripts/start-application-services.sh` | Creates a root `.env` if one doesn't exist, generating `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` if missing, then starts the stack. Prefer it over a bare `docker compose up`. |
+| `scripts/start-application-services.sh` | Creates a root `.env` if one doesn't exist, generating `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` if missing, then starts the stack. Run it via `make application-up` rather than calling it directly or using a bare `docker compose up`. |
 | `scripts/stop-application-services.sh` | Stops the stack. |
+| `Makefile` | Thin wrappers over those scripts and the Compose commands: `application-up`, `application-down`, `restart`, `application-logs`, `application-ps`, the five `model-server-*` equivalents, and `down-all`. Run `make help` for the list. |
 
 ## apps
 
@@ -96,7 +97,7 @@ apps/runtime/
 │   ├── pipecat/              The pipeline — 9 modules + events/, metrics/, termination/
 │   ├── knowledge/            RAG context injection
 │   └── storage/              Call artifacts to MinIO
-└── tests/              6 test modules plus conftest.py
+└── tests/              7 test modules plus conftest.py
 ```
 
 ### apps/providers
@@ -109,10 +110,10 @@ apps/providers/
 ├── schema.py       provider_schemas() and configuration_defaults() catalog dump
 ├── languages.py    Canonical language ids and language_schema_extra()
 ├── readme.md
-├── cloud/          21 vendor folders → provider_type=cloud
+├── cloud/          22 vendor folders → provider_type=cloud
 ├── adapters/       bhashini · kenpath → provider_type=adapter
-├── local/          Reserved for self-hosted providers; currently only __init__.py
-└── tests/          1 test module
+├── local/          indic_nemotron (STT) · indic_orpheus (TTS) → provider_type=local
+└── tests/          5 test modules
 ```
 
 Every STT/TTS vendor folder is three files: `catalog.py` (with `*_CAPABILITIES`), `config.py`, `service.py`. LLM-only vendors may keep an empty stub `languages.py`. See [Adding an AI provider](adding-a-provider.md).
@@ -159,7 +160,7 @@ model-server/
 ├── stt/                           indic-conformer, indic-transcribe
 ├── tts/                           indic-mio, indic-parler, orpheus
 ├── llm/                           qwen3.5-4b
-├── tests/                         20 test modules plus stubs
+├── tests/                         27 test modules plus stubs
 └── hindi.wav                      Fixture for the GPU smoke script
 ```
 
@@ -196,7 +197,6 @@ Several files exist so tooling and GitHub find them, but hold no content yet. Do
 
 | File | State | What this means |
 | --- | --- | --- |
-| `Makefile` | Empty | There are **no** `make` targets. Never document one. Use the explicit `pip` and `uvicorn` commands in [Local setup](local-setup.md). |
 | `pyproject.toml` | Empty | The project is **not** pip-installable. There is no `pip install -e .`, no build backend, and no tool configuration. Dependencies come from `apps/<app>/requirements.txt`. |
 | `apps/schemes/__init__.py` | Empty | `apps/schemes/` contains nothing but this empty file. It is not imported anywhere. |
 | `apps/runtime/services/pipecat/termination/__init__.py` | Empty | The `termination/` package holds nothing but this empty file. Nothing imports it. |
@@ -204,9 +204,9 @@ Several files exist so tooling and GitHub find them, but hold no content yet. Do
 
 There is also **no `.github/` directory**, and therefore no CI, no workflows, no issue templates, and no pull-request template. Nothing runs automatically on a push. Every check is something you run locally before opening a pull request.
 
-<Warning>
+<Note>
 Because there is no CI, a green local run is the only signal a change has. Run the relevant [test suites](testing.md) and `ruff check .` in `model-server/` yourself.
-</Warning>
+</Note>
 
 ## Related
 

@@ -7,6 +7,10 @@ Every HTTP and WebSocket route the VoicEra stack exposes, extracted from the rou
 
 The API serves interactive OpenAPI docs at `http://localhost:8000/docs` and ReDoc at `/redoc`. Those are generated from the same routers this page was extracted from, so they never drift.
 
+<Note>
+This page is hand-maintained, not generated from a spec — this site has no static OpenAPI file wired into its build. That means it and the per-resource pages under [Endpoints](agents.md) can drift from the routers and from each other if one is updated without the other. When you add or change a route, update both this page and its resource page in the same change, and treat `/docs` on a running API as the tiebreaker if they ever disagree.
+</Note>
+
 ## Auth column values
 
 | Value | Dependency in the route signature | How you satisfy it |
@@ -137,9 +141,9 @@ Declared in `model-server/gateway/app/main.py`. The gateway is the only publishe
 
 A request to a slot with no model deployed returns `503` with `"type": "upstream_not_configured"`; a WebSocket route sends a JSON error frame and closes with code `1013`.
 
-<Warning>
+<Note>
 `model-server/README.md` states that the LLM slot has never been built or started, so the vLLM flags behind `/v1/chat/completions` are unverified. Treat that route as untested.
-</Warning>
+</Note>
 
 ## Related
 

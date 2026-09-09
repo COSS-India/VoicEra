@@ -78,9 +78,9 @@ Online detection speaks `user_online_detection_message` up to `user_online_detec
 
 `automatic_call_ending` registers an `end_conversation` function tool on the LLM context, but only when **both** `enabled` and `graceful_llm_call_ending` are true — `_call_ending_enabled()` in `apps/runtime/services/pipecat/call_ending.py` requires the pair. The tool ends the call when the model calls it.
 
-<Warning>
+<Note>
 `call_timeout_seconds` is accepted, validated, and stored, but nothing in `apps/runtime` reads it. There is no hard call-duration limit in the pipeline. Enforce a ceiling at your telephony provider if you need one.
-</Warning>
+</Note>
 
 ### Example from the model
 
@@ -117,9 +117,9 @@ Online detection speaks `user_online_detection_message` up to `user_online_detec
 
 Valid ids come from `GET /api/v1/languages`, which returns the canonical id → label map the agent builder uses. The per-provider language filter is `GET /api/v1/configuration/stt?languages=` and its TTS equivalent.
 
-<Warning>
+<Note>
 `secondary` is stored on the agent and returned by the API, but **no code reads it**. There is no mid-call language switching in VoicEra: nothing in `apps/runtime` inspects `language.secondary`, and no processor swaps the STT or TTS language once a session is running. The language a call runs in is whatever the `stt_config` and `tts_config` were built with. Treat `secondary` as documentation of intent, not as behaviour.
-</Warning>
+</Note>
 
 ## `models`
 
@@ -134,7 +134,7 @@ Valid ids come from `GET /api/v1/languages`, which returns the canonical id → 
 Two rules apply to all three, enforced by `validate_persisted_model_config()`:
 
 1. **`provider` is required and must be registered.** It is matched against the provider registry for that kind; an unknown id fails validation with the registry's own error. Enumerate the valid ids with `GET /api/v1/configuration/stt`, `/tts`, and `/llm`, and fetch one provider's setting schema from `GET /api/v1/configuration/{kind}/setting/{provider}`.
-2. **Non-secret settings only.** Every auth and secret field name declared by the provider's config class is forbidden. Sending one fails with `{kind}_config must not include secret/auth fields: …`. API keys live in `ProviderAuth`, stored once per organisation through `POST /api/v1/auth` and Fernet-encrypted at rest. See [Provider credentials (ProviderAuth)](../../guides/concepts/provider-auth.md).
+2. **Non-secret settings only.** Every auth and secret field name declared by the provider's config class is forbidden. Sending one fails with `{kind}_config must not include secret/auth fields: …`. API keys live in `ProviderAuth`, stored once per organisation through `POST /api/v1/auth` and Fernet-encrypted at rest. See [Provider credentials (ProviderAuth)](provider-auth.md).
 
 The remaining fields are whatever that provider's config class declares — model name, voice, language, speed, base URL and so on. Validation runs the payload through the provider's own Pydantic model, so an unknown or malformed field is rejected there. The stored result is the validated dump with secrets excluded and `null` values dropped.
 
@@ -272,6 +272,6 @@ curl -X POST http://localhost:8000/api/v1/agents \
 * [Data model](data-model.md)
 * [REST API](../../api-reference/overview.md)
 * [Agents and agent categories](../../guides/concepts/agents.md)
-* [Provider registry](../../guides/concepts/provider-registry.md)
-* [Provider credentials (ProviderAuth)](../../guides/concepts/provider-auth.md)
+* [Provider registry](provider-registry.md)
+* [Provider credentials (ProviderAuth)](provider-auth.md)
 * [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag.md)

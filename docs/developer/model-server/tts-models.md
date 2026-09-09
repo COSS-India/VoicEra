@@ -16,9 +16,9 @@ Three models can fill the TTS slot. They differ in backbone, in how a voice is c
 
 Set the one you want with `TTS_MODEL` in `model-server/.env`. Statuses are from `model-server/models.yaml`.
 
-<Warning>
+<Note>
 Only `indic-parler` has been run on VoicEra's hardware. `models.yaml` records "Not yet run on hardware" against both `orpheus` and `indic-mio`, and their folder READMEs repeat it: for `indic-mio`, "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here.
-</Warning>
+</Note>
 
 `omnivoice` is `planned` and needs its own runtime — it is diffusion-style, so not vLLM-servable.
 

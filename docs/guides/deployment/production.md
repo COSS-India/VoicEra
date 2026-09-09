@@ -145,6 +145,8 @@ Keep them out of `.env` on disk. Use your platform's secret manager and inject a
 | `PROVIDER_AUTH_ENCRYPTION_KEY` | Back it up. Losing it orphans every stored credential, permanently. |
 | Database, Redis, MinIO passwords | Change from the shipped defaults |
 
+Every variable the stack reads, with defaults and which service consumes it, is in [Environment variables](../../developer/reference/environment-variables.md).
+
 ## Backups
 
 Back up all three durable stores together — a database restored without its recordings is inconsistent:
@@ -185,3 +187,4 @@ There is no migration tool; schema is enforced by Pydantic at the edge.
 * [Security hardening](security-hardening.md)
 * [Public voice URLs](public-voice-urls.md)
 * [Docker Compose](docker-compose.md)
+* [Environment variables](../../developer/reference/environment-variables.md)

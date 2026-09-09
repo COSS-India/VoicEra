@@ -3,12 +3,12 @@ title: Running the dashboard
 description: Run the dashboard against a local VoicEra stack.
 ---
 
-`./scripts/start-application-services.sh` starts the dashboard with the rest of the stack — nothing extra to do. This page covers that, and running it outside Compose when you are working on the frontend itself.
+`make application-up` starts the dashboard with the rest of the stack — nothing extra to do. This page covers that, and running it outside Compose when you are working on the frontend itself.
 
 ## With the stack
 
 ```bash
-./scripts/start-application-services.sh
+make application-up
 ```
 
 The `frontend` service builds from `frontend/Dockerfile` and comes up on `http://localhost:3000`, wired to the API and runtime by Compose. Override the published port with `FRONTEND_HOST_PORT` in the root `.env`.

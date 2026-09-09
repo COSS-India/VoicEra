@@ -30,9 +30,9 @@ The MIT grant applies to **this repository's source code**. It does not extend t
 | Container base images and Python dependencies | Their own licences. |
 | Call recordings, transcripts, and contact data | You. VoicEra is self-hosted, so this data is yours and your obligation. |
 
-<Warning>
+<Tip>
 Model weights are the most common surprise. A permissive platform licence does not make a restrictively licensed model redistributable. Check each model's terms before deploying it — the per-model pages under [Model server](../../developer/model-server/overview.md) note where weights are gated.
-</Warning>
+</Tip>
 
 ## Contributions
 

@@ -19,7 +19,7 @@ cp .env.example .env
 
 Every service in `docker-compose.yaml` that needs configuration loads this one file through `env_file: - .env`. The API also reads it directly outside Docker: `apps/api/app/config.py` pins `env_file` to the repository root `.env`, resolved four directories up from `config.py`, so running `uvicorn` from `apps/api` still picks up the root file.
 
-`./scripts/start-application-services.sh` generates `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` if they are missing. Prefer that script over a bare `docker compose up` — the compose file's own header says a fresh checkout without `.env` will fail or come up misconfigured.
+`make application-up` (which wraps `./scripts/start-application-services.sh`) generates `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` if they are missing. Prefer it over a bare `docker compose up` — the compose file's own header says a fresh checkout without `.env` will fail or come up misconfigured.
 
 The model server is a separate stack with its own compose file and its own `model-server/.env`. See [Model server](#model-server) below.
 

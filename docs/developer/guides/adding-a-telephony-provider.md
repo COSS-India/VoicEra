@@ -56,9 +56,9 @@ A telephony provider is a folder under `apps/telephony/providers/<name>/` with t
 
 The split between `client.py` and `application.py` / `recording.py` is not ceremony. `client.py` holds only what is provider-account specific — how auth headers are shaped, how the account path is built — and the other two hold the calls. Vobiz sends `X-Auth-ID` and `X-Auth-Token` headers under `/Account/{auth_id}/`; another vendor might use HTTP basic auth. Changing that is a `client.py` edit and nothing else.
 
-<Warning>
+<Note>
 `__init__.py` must not import `serializers` or `serializer_service`. Both existing vendors say so in their module docstring. `apps/api` (which has no Pipecat installed) reaches your provider only through the parent package — `apps.telephony.registry` and `apps.telephony` itself, e.g. `apps/api/app/services/agent_telephony_service.py` and `outbound_call_service.py` — never by importing a vendor submodule directly. A serializer import at package level would still break it the moment `apps.telephony` is imported, since Python runs `__init__.py` for the whole package.
-</Warning>
+</Note>
 
 ## Config, Auth and Settings
 
@@ -104,7 +104,7 @@ class VobizConfig(VobizAuth, VobizSettings, BaseTelephonyConfig):
 Three details that matter:
 
 * **`@register_telephony` decorates the class, not a function.** It reads the `provider` field's default and puts the class into `TELEPHONY_CONFIGS`. Registering the same id twice raises `ValueError` at import.
-* **Both credential fields are `secret: True`.** They land in `ProviderAuth`, Fernet-encrypted with `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Provider credentials](../../guides/concepts/provider-auth.md).
+* **Both credential fields are `secret: True`.** They land in `ProviderAuth`, Fernet-encrypted with `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Provider credentials](../reference/provider-auth.md).
 * **`integration_model` names the legacy credential key.** Copy the pattern for a new vendor: `"integration_model": "AcmeAuthId"`.
 
 `base_url` belongs on Settings, never on Auth. Ship a `DEFAULT_*_API_BASE_URL` constant so the field is optional, and set `allow_custom_input=True` if the vendor has regional endpoints.
@@ -324,9 +324,9 @@ You can also dump the catalog to eyeball what the API will serve:
 python apps/telephony/scripts/print_schemas.py
 ```
 
-<Warning>
+<Note>
 There is no CI. Run these yourself before opening a pull request, and test a real inbound call against the vendor's sandbox — the registry tests prove the wiring, not that the vendor accepts your XML.
-</Warning>
+</Note>
 
 ## Related
 

@@ -95,11 +95,11 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 ## The campaign is `failed` and will not resume
 
-<Warning>
+<Note>
 `failed` is terminal. Resume is only permitted from `paused`, so a campaign that failed cannot be restarted through the API even when queued runs remain. **Redial is the only recovery path.**
 
 A single batch exception is enough to reach this state — including a `ConcurrentSlotAcquisitionError` from a 120-second slot shortage under load, which fails the whole campaign rather than just the batch.
-</Warning>
+</Note>
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/campaign/$CAMPAIGN_ID/redial \
@@ -156,6 +156,6 @@ docker exec -it voicera_oss_redis redis-cli -a "$REDIS_PASSWORD"
 ## Related
 
 * [Campaigns](../concepts/campaigns.md)
-* [Call concurrency](../concepts/call-concurrency.md)
+* [Call concurrency](../../developer/reference/call-concurrency.md)
 * [Workers and orchestrator](../../developer/services/workers.md)
 * [Running a campaign](../operator/running-a-campaign.md)

@@ -16,16 +16,16 @@ Three models can fill the STT slot. They cover overlapping sets of Indian langua
 
 Set the one you want with `STT_MODEL` in `model-server/.env`. Statuses are from `model-server/models.yaml`.
 
-<Warning>
+<Note>
 `indic-transcribe` is marked `ready` in the catalogue — the folder exists with a Dockerfile — but its own README says **it has not been run on hardware**, and names two real blockers: the image is pinned to `torch 2.12.0+cu132` targeting CUDA 13 / sm_120 (Blackwell) while the H200 is Hopper sm_90, and the checkpoint needs a token for a private HuggingFace repository. `ready` means deployable by the slot mechanics, not verified on this hardware.
-</Warning>
+</Note>
 
 ## indic-conformer
 
 AI4Bharat's 600M hybrid RNNT/CTC Conformer, served through NeMo. Covers 23 Indic languages. Bhili (`bhb`) uses a separate checkpoint — enable it with `BHILI_ENABLE=yes` and point `BHILI_NEMO_PATH` at the file. The server routes on the request's `language` field, so callers use the same endpoint either way.
 
 ```bash
-STT_MODEL=indic-conformer ./scripts/start-model-server.sh
+STT_MODEL=indic-conformer make model-server-setup
 # open http://localhost:8100/demo for the live demo
 ```
 
@@ -94,7 +94,7 @@ The Pipecat side of the socket does not exist yet. The voice pipeline still uses
 AI4Bharat's Nemotron streaming ASR, 600M, cache-aware with a fixed chunk. It is a **superset of the other two**: 27 Indian languages plus English from one multisoftmax checkpoint (27 × 256 tokens = 6912 classes, the prompt selecting the slice), with Bhili on a second checkpoint and no separate flag — unlike `indic-conformer`, which needs `BHILI_ENABLE=yes`. Switching to it cannot lose a language a caller can ask for.
 
 ```bash
-STT_MODEL=indic-nemotron ./scripts/start-model-server.sh
+STT_MODEL=indic-nemotron make model-server-setup
 ```
 
 Three things this deployment declares rather than inherits:
@@ -111,9 +111,9 @@ Its VAD, batching, and mel window are all tunable from `.env` — `NEMOTRON_VAD`
 This is the one STT model **confirmed on hardware**: running on `ace-h200` GPU 1 since 2 September 2026, both checkpoints loaded, 320 ms verified at `/health`.
 </Tip>
 
-<Warning>
+<Note>
 Both checkpoints are gated on HuggingFace **manually** — a token is not enough. A maintainer has to approve each account on both model pages before `fetch.sh` can pull them.
-</Warning>
+</Note>
 
 ## Partial transcripts vs streaming endpoint
 
@@ -177,9 +177,9 @@ The periodic pause is the most visible behaviour in the live demo, and it is del
 
 The geometry is a deliberate trade, not a default. NeMo recommends `chunk 1.0 / right 0.5`; this service ships `0.24 / 0.16`. Over 43 s of continuous speech that is 95 commits at a 0.30 s median gap against the default's 36 commits and a 3.36 s worst gap, for the same transcript accuracy. **It costs capacity, not accuracy**: roughly twice the GPU per stream, so roughly half the concurrent sessions.
 
-<Warning>
+<Tip>
 Do not size capacity from time-to-first-partial. From `LOADTEST.md`: at 60 concurrent streams — 7.5x the real-time capacity of 8 — TTFP p50 only doubles (1926 ms → 3881 ms) while drift behind real time grows 88x (174 ms → 15325 ms). Nothing errors, nothing is refused, every transcript is still produced; it arrives later and later. The columns that reveal it are `normalized_latency_by_bucket` (past ~1.10 you are over capacity) and `delta_lag_p95_ms`. `/metrics` also emits `over_realtime_capacity` and `capacity_warning` directly.
-</Warning>
+</Tip>
 
 Admission is capped in the slot's overlay at the measured real-time capacity — `CORE_MAX_SESSIONS=8`, `CORE_REALTIME_CAPACITY=8` — rather than at the 64 upstream raised it to, because this card is shared with production and admitting several times what the decoder can serve in real time degrades every stream instead of refusing one.
 

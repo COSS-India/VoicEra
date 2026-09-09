@@ -11,7 +11,7 @@ No seeded account, no default login. The first `POST /users/signup` creates the 
 
 ## Generated secrets
 
-`./scripts/start-application-services.sh` generates these into `.env` when blank, and never overwrites an existing value.
+`make application-up` (which wraps `./scripts/start-application-services.sh`) generates these into `.env` when blank, and never overwrites an existing value.
 
 | Variable | Protects | If it changes |
 | --- | --- | --- |
@@ -85,5 +85,5 @@ Full guidance: [Security hardening](../deployment/security-hardening.md).
 ## Related
 
 * [Environment variables](../../developer/reference/environment-variables.md)
-* [Multi-tenancy and roles](../concepts/multi-tenancy.md)
-* [Provider credentials](../concepts/provider-auth.md)
+* [Multi-tenancy and roles](../../developer/reference/multi-tenancy.md)
+* [Provider credentials](../../developer/reference/provider-auth.md)

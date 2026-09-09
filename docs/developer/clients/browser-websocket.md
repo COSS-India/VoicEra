@@ -44,7 +44,7 @@ So a browser connecting to a telephony agent hangs until it sends a `start` fram
 
 ## Protobuf and RTVI frames
 
-The transport is `ProtobufFrameSerializer` from Pipecat — every message in both directions is a binary protobuf `Frame`. The schema the Beta dashboard compiles at runtime, and which the runtime speaks:
+The transport is `ProtobufFrameSerializer` from Pipecat — every message in both directions is a binary protobuf `Frame`. The schema the dashboard compiles at runtime, and which the runtime speaks:
 
 ```protobuf
 syntax = "proto3";

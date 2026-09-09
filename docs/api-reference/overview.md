@@ -5,6 +5,10 @@ description: Base URL, versioning, request and response conventions.
 
 The VoicEra API is a JSON REST API served by the `api` container on port `8000`. Everything the platform does — users, agents, credentials, numbers, calls, campaigns, documents — is available through it. There is no private admin surface.
 
+<Note>
+There is no official Node.js, Python, or other client SDK. Integrate with plain HTTP — every example in this reference is `curl`. `GET /openapi.json` on a running API works with any OpenAPI client generator if you want a typed client of your own.
+</Note>
+
 <Tip>
 A running API serves an **interactive console** at `http://localhost:8000/docs` and ReDoc at `/redoc`, generated from the same routers as these pages. Use it to try requests against a real token; use these pages to understand what a route is for and how it behaves.
 </Tip>
@@ -44,4 +48,4 @@ Prefer one flat list? See the [Endpoints cheatsheet](endpoints-cheatsheet.md).
 * [Authentication](authentication.md) — tokens, headers, and roles
 * [Errors](errors.md) — status codes and error shapes
 * [WebSocket API](websocket-api.md) — the media protocol
-* [Operating via the API](../guides/operator/operating-via-api.md) — task-shaped recipes
+* [Recipes](recipes.md) — task-shaped recipes
