@@ -44,9 +44,19 @@
               "docs/guides/quickstart/index",
               "docs/guides/quickstart/prerequisites",
               "docs/guides/quickstart/install-and-run",
-              "docs/guides/quickstart/first-agent",
-              "docs/guides/quickstart/first-call",
               "docs/guides/quickstart/secrets-and-defaults"
+            ]
+          },
+          {
+            "group": "Using the dashboard",
+            "icon": "hand-pointer",
+            "pages": [
+              "docs/guides/dashboard/index",
+              "docs/guides/dashboard/sign-up",
+              "docs/guides/dashboard/create-an-agent",
+              "docs/guides/dashboard/make-a-call",
+              "docs/guides/dashboard/run-a-campaign",
+              "docs/guides/dashboard/everyday-tasks"
             ]
           },
           {
@@ -60,13 +70,8 @@
               "docs/guides/concepts/agents",
               "docs/guides/concepts/campaigns",
               "docs/guides/concepts/calls",
-              "docs/guides/concepts/call-concurrency",
-              "docs/guides/concepts/provider-registry",
-              "docs/guides/concepts/provider-auth",
               "docs/guides/concepts/telephony-model",
               "docs/guides/concepts/knowledge-base-rag",
-              "docs/guides/concepts/multi-tenancy",
-              "docs/guides/concepts/data-store",
               "docs/guides/concepts/glossary"
             ]
           },
@@ -76,7 +81,6 @@
             "pages": [
               "docs/guides/operator/running-a-campaign",
               "docs/guides/operator/managing-knowledge",
-              "docs/guides/operator/operating-via-api",
               "docs/guides/operator/operations",
               "docs/guides/operator/faq"
             ]
@@ -180,6 +184,17 @@
             ]
           },
           {
+            "group": "System architecture",
+            "icon": "diagram-project",
+            "pages": [
+              "docs/developer/reference/data-store",
+              "docs/developer/reference/multi-tenancy",
+              "docs/developer/reference/provider-registry",
+              "docs/developer/reference/provider-auth",
+              "docs/developer/reference/call-concurrency"
+            ]
+          },
+          {
             "group": "Dashboard",
             "icon": "gauge",
             "pages": [
@@ -205,7 +220,8 @@
               "docs/api-reference/overview",
               "docs/api-reference/authentication",
               "docs/api-reference/errors",
-              "docs/api-reference/endpoints-cheatsheet"
+              "docs/api-reference/endpoints-cheatsheet",
+              "docs/api-reference/recipes"
             ]
           },
           {
@@ -240,8 +256,14 @@
     { "source": "/services/ai4bharat-tts", "destination": "/docs/developer/model-server/tts-models" },
     { "source": "/services/voice-server", "destination": "/docs/developer/services/runtime" },
     { "source": "/services/backend", "destination": "/docs/developer/services/api" },
-    { "source": "/services/integrations", "destination": "/docs/guides/concepts/provider-registry" },
-    { "source": "/guides/deployment/mongodb-to-ferretdb", "destination": "/docs/guides/concepts/data-store" },
+    { "source": "/services/integrations", "destination": "/docs/developer/reference/provider-registry" },
+    { "source": "/guides/deployment/mongodb-to-ferretdb", "destination": "/docs/developer/reference/data-store" },
+    { "source": "/docs/guides/concepts/data-store", "destination": "/docs/developer/reference/data-store" },
+    { "source": "/docs/guides/concepts/multi-tenancy", "destination": "/docs/developer/reference/multi-tenancy" },
+    { "source": "/docs/guides/concepts/provider-auth", "destination": "/docs/developer/reference/provider-auth" },
+    { "source": "/docs/guides/concepts/provider-registry", "destination": "/docs/developer/reference/provider-registry" },
+    { "source": "/docs/guides/operator/operating-via-api", "destination": "/docs/api-reference/recipes" },
+    { "source": "/docs/guides/concepts/call-concurrency", "destination": "/docs/developer/reference/call-concurrency" },
     { "source": "/introduction/what-is-voicera", "destination": "/docs/guides/introduction/what-is-voicera" },
     { "source": "/quickstart/install-and-run", "destination": "/docs/guides/quickstart/install-and-run" },
     { "source": "/concepts/architecture", "destination": "/docs/guides/concepts/architecture" },
