@@ -38,20 +38,20 @@ By default there is nothing to configure. `frontend/next.config.ts` proxies ever
 
 | Variable | Read in | Default | What it is |
 | --- | --- | --- | --- |
-| `API_PROXY_TARGET` | `frontend/next.config.ts` | `http://127.0.0.1:8000` | Where the Next dev server forwards `/api/v1/*`. Set this, not `NEXT_PUBLIC_API_URL`, if your API runs on a different host or port. |
+| `API_PROXY_TARGET` | `frontend/next.config.ts` | `http://127.0.0.1:8000` | Where the Next server forwards `/api/v1/*`. Set this, not `NEXT_PUBLIC_API_URL`, if your API runs on a different host or port. |
 | `NEXT_PUBLIC_API_URL` | `frontend/src/lib/api/http.ts` | `/api/v1` | Base path the browser calls. Leave it alone to go through the proxy; only override it (to an absolute URL) if the browser should call the API directly instead. |
-| `NEXT_PUBLIC_RUNTIME_WS_URL` | `frontend/src/hooks/usePipecatAudio.ts` | `wss://vobiz.johnaic.com` | Base URL for the browser test-call WebSocket. No path segment — the hook appends `/agent/{org_id}/{agent_id}`. Unlike the REST base, this one is not proxied and must be a URL your browser can open directly. |
+| `RUNTIME_PROXY_TARGET` | `frontend/next.config.ts` | `http://127.0.0.1:7860` | Where the Next server forwards `/agent/:orgId/:agentId` WebSockets for browser test calls. Compose sets `http://runtime:7860`. |
 
 There are no other environment variables anywhere under `frontend/`, and no `.env.example` is committed (`.env*` is gitignored).
 
-If your API is on `localhost:8000` and the runtime is on `localhost:7860`, set only the WebSocket URL — the REST proxy already targets `127.0.0.1:8000`. Otherwise create `frontend/.env.local`:
+If your API is on `localhost:8000` and the runtime is on `localhost:7860`, the defaults are enough — both REST and the test-call WebSocket go through Next rewrites. Otherwise create `frontend/.env.local`:
 
 ```bash
 API_PROXY_TARGET=http://localhost:8000
-NEXT_PUBLIC_RUNTIME_WS_URL=ws://localhost:7860
+RUNTIME_PROXY_TARGET=http://localhost:7860
 ```
 
-`API_PROXY_TARGET` is read at request time by the Next server, so changing it needs only a restart of `next dev`, not a rebuild. `NEXT_PUBLIC_*` values are inlined into the browser bundle at build time instead — they are not secrets, but changing one needs a restart of `next dev` (or a rebuild for `next start`) to take effect.
+`API_PROXY_TARGET` and `RUNTIME_PROXY_TARGET` are read by the Next server, so changing them needs a restart of `next dev` (or a rebuild for `next start`). `NEXT_PUBLIC_*` values are inlined into the browser bundle at build time instead — they are not secrets, but changing one needs a restart of `next dev` (or a rebuild) to take effect.
 
 ## Run
 
@@ -100,10 +100,10 @@ You do not need it. The browser only ever calls same-origin `/api/v1/...`; Next'
 | Published port | `${FRONTEND_HOST_PORT:-3000}` → 3000 |
 | `NEXT_PUBLIC_API_URL` | defaults to `/api/v1` — same-origin, not the API's own host |
 | `API_PROXY_TARGET` | defaults to `http://api:8000` — where Next forwards `/api/v1/*` server-side |
-| `NEXT_PUBLIC_RUNTIME_WS_URL` | defaults to `wss://vobiz.johnaic.com` |
+| `RUNTIME_PROXY_TARGET` | defaults to `http://runtime:7860` — where Next forwards `/agent/...` WebSockets |
 | Depends on | `api` (service_started) |
 
-The proxy is the same mechanism as **Outside Compose** above, just pointed at a different target — `API_PROXY_TARGET` is `127.0.0.1:8000` there and `http://api:8000` here. Either way the browser only ever addresses `/api/v1/...` on the dashboard's own origin; the FastAPI service itself does not need to be reachable from the visitor's browser, only from wherever Next is running. See [Environment variables](../reference/environment-variables.md#dashboard) for the full picture.
+The proxy is the same mechanism as **Outside Compose** above, just pointed at different targets — `API_PROXY_TARGET` / `RUNTIME_PROXY_TARGET` are `127.0.0.1` there and Compose service DNS here. Either way the browser only ever addresses `/api/v1/...` and `/agent/...` on the dashboard's own origin. See [Environment variables](../reference/environment-variables.md#dashboard) for the full picture.
 
 The API's own reference to the dashboard is `FRONTEND_URL` (default `http://localhost:3000`), used to build password-reset links in `apps/api/app/services/user_service.py`. Every dashboard feature remains reachable over the API, so the stack still runs headless if you remove the service.
 

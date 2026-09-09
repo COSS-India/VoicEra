@@ -93,72 +93,41 @@ message Frame {
 }
 ```
 
-You send `audio` frames carrying signed 16-bit little-endian PCM. You receive `audio` frames to play, and `transcription`, `text`, and `message` frames to render. `MessageFrame.data` is a JSON string carrying RTVI events; the dashboard reads `bot-tts-text`, `bot-output`, `generated_text`, `user-transcription`, `transcription`, and `bot-stopped-speaking` from its `type` field.
+You send `audio` frames carrying signed 16-bit little-endian PCM. You receive `audio` frames to play, and `transcription`, `text`, and `message` frames to render. `MessageFrame.data` is a JSON string carrying RTVI events.
 
-The supported client library is `@pipecat-ai/websocket-transport`, which speaks this format for you. The dashboard instead parses the schema above with `protobufjs` and drives the socket by hand — either approach works against the same runtime.
+The supported client library is `@pipecat-ai/websocket-transport` (with `@pipecat-ai/client-js` / `@pipecat-ai/client-react`). The dashboard uses that stack — see [Browser test calls](../frontend/test-calls.md) and `frontend/src/lib/pipecat/createBrowserClient.ts`.
 
 ## Sample rate
 
-Browser sessions run at `WEBSOCKET_SAMPLE_RATE`, which defaults to `16000` in `.env.example`. Telephony runs at `SAMPLE_RATE`, default `8000`. Set the same rate on your `AudioContext`, on the `getUserMedia` constraint, and in the `sample_rate` field of every `AudioRawFrame` you send. Mismatched rates do not error — they produce audio at the wrong pitch and speed.
+Browser sessions run at `WEBSOCKET_SAMPLE_RATE`, which defaults to `16000` in `.env.example`. Telephony runs at `SAMPLE_RATE`, default `8000`. Set the same rate on your client recorder/player and in the `sample_rate` field of every `AudioRawFrame` you send. Mismatched rates do not error — they produce audio at the wrong pitch and speed.
 
 ## A minimal client
 
-The dashboard's implementation lives in `frontend/src/hooks/usePipecatAudio.ts`. Its shape, reduced to the parts that matter:
+Prefer the official packages over hand-rolled protobuf:
 
 ```javascript
-const SAMPLE_RATE = 16000;
-const Frame = protobuf.parse(PROTO).root.lookupType("pipecat.Frame");
+import { PipecatClient } from "@pipecat-ai/client-js";
+import {
+  WebSocketTransport,
+  ProtobufFrameSerializer,
+} from "@pipecat-ai/websocket-transport";
 
-const ctx = new AudioContext({ latencyHint: "interactive", sampleRate: SAMPLE_RATE });
-await ctx.audioWorklet.addModule("/stream-processor-worklet.js");
-const worklet = new AudioWorkletNode(ctx, "stream-processor");
-worklet.connect(ctx.createGain()).connect(ctx.destination);
+const client = new PipecatClient({
+  transport: new WebSocketTransport({
+    serializer: new ProtobufFrameSerializer(),
+    recorderSampleRate: 16000,
+    playerSampleRate: 16000,
+  }),
+  enableMic: true,
+  enableCam: false,
+});
 
-const ws = new WebSocket(`ws://localhost:7860/agent/${orgId}/${agentId}`);
-ws.binaryType = "arraybuffer";
-
-ws.onopen = async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true, noiseSuppression: true },
-  });
-  const source = ctx.createMediaStreamSource(stream);
-  const processor = ctx.createScriptProcessor(512, 1, 1);
-  source.connect(processor);
-  processor.connect(ctx.destination);
-
-  processor.onaudioprocess = (event) => {
-    const pcm = convertFloat32ToS16PCM(event.inputBuffer.getChannelData(0));
-    const frame = Frame.create({
-      audio: { audio: Array.from(new Uint8Array(pcm.buffer)), sampleRate: SAMPLE_RATE, numChannels: 1 },
-    });
-    ws.send(new Uint8Array(Frame.encode(frame).finish()));
-  };
-};
-
-ws.onmessage = (event) => {
-  const parsed = Frame.decode(new Uint8Array(event.data));
-  if (parsed.audio) {
-    worklet.port.postMessage({
-      event: "write-float32",
-      buffer: int16BytesToFloat32(parsed.audio.audio),
-      sampleRate: ctx.sampleRate,
-      trackId: `chunk-${Date.now()}`,
-    });
-  }
-};
+await client.connect({
+  wsUrl: `ws://localhost:7860/agent/${orgId}/${agentId}`,
+});
 ```
 
-The two audio paths are asymmetric, worth calling out directly:
-
-* **Capture uses a `ScriptProcessorNode`** with a 512-sample buffer. `ScriptProcessorNode` is deprecated: it runs on the main thread and glitches under load. It works, and it is what the dashboard ships, but a new client should capture through an `AudioWorkletNode` instead.
-* **The AudioWorklet is the playback path.** `frontend/public/stream-processor-worklet.js` registers a `stream-processor` that buffers incoming Float32 chunks in 128-sample blocks and drains them into the output. It handles the `write-float32`, `clear`, `offset`, and `interrupt` messages. It does not touch the microphone.
-
-Read both files in full before copying them:
-
-```bash
-frontend/src/hooks/usePipecatAudio.ts
-frontend/public/stream-processor-worklet.js
-```
+The dashboard connects through the Next rewrite (`ws(s)://{host}/agent/...`) after `POST /calls/web`. For a standalone page talking to the runtime directly, use the runtime host as above.
 
 ## Authentication and CORS
 

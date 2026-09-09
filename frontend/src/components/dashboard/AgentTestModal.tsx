@@ -4,8 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { CallStage } from "@/components/call/CallStage";
-import { usePipecatAudio } from "@/hooks/usePipecatAudio";
+import { BrowserCallSession } from "@/components/call/BrowserCallSession";
 import type { AgentApiResponse } from "@/lib/api-types";
 import {
   languageLabel,
@@ -34,7 +33,6 @@ export function AgentTestModal({ agent, orgId, onClose }: AgentTestModalProps) {
   const voice = String(tts.voice ?? "");
 
   const catalogs = useWizardCatalogs(langs, sttProvider, ttsProvider, llmProvider);
-  const audio = usePipecatAudio(orgId, agent.agent_id);
 
   const voices = voiceOptionsFromSettings(catalogs.ttsSettings, ttsModel, langs[0]);
 
@@ -90,7 +88,7 @@ export function AgentTestModal({ agent, orgId, onClose }: AgentTestModalProps) {
 
         <div className="flex flex-col gap-4 overflow-y-auto p-5 md:flex-row md:items-start">
           <div className="md:flex-[3]">
-            <CallStage audio={audio} agentName={agent.name} />
+            <BrowserCallSession orgId={orgId} agentId={agent.agent_id} agentName={agent.name} />
           </div>
 
           <section className="flex flex-col gap-3 rounded-v-md border border-v-line bg-v-soft/40 p-4 md:flex-[2]">
