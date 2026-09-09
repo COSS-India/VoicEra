@@ -72,59 +72,11 @@ Transitions are enforced in `runner.py`: start requires `created`, pause require
 
 There is no transition out of `failed`. A campaign that a batch pushed to `failed` cannot be resumed through the API — create a new campaign or a [redial](#redial).
 
-## The orchestrator loop
+## The orchestrator and the worker
 
-The orchestrator is a separate container (`campaign-orchestrator`) running `campaign_orchestrator.py`. It never places calls. It decides *when* the next batch should be enqueued and *when* a campaign is finished.
+Two containers do the work off the request path: `campaign-orchestrator` decides *when* the next batch should be enqueued and *when* a campaign is finished, and `arq-worker` runs the batches themselves against a Redis event bus. Neither places a call directly with an HTTP request — the dispatcher inside the worker does that. The mechanics of both processes — the event loop, `WorkerSettings`, scaling, and restart behaviour — are in [Workers and orchestrator](../../developer/services/workers.md).
 
-It runs two concurrent tasks:
-
-* **`_listen_for_events`** — subscribes to the Redis pub/sub channel `campaign_events` (`CAMPAIGN_EVENTS_CHANNEL` in `apps/api/app/constants/campaign.py`) and reacts to each event.
-* **`_monitor_completion`** — wakes every `completion_check_interval` seconds (60) and sweeps every campaign in state `running`.
-
-On the event side:
-
-| Event | Orchestrator response |
-| --- | --- |
-| `sync_completed` | Schedule the first batch. |
-| `batch_completed` | Clear `_batch_in_progress`, re-read the campaign, and schedule the next batch if it is still `running`. |
-| `batch_failed` | Clear `_batch_in_progress` and stamp last activity. Nothing is rescheduled. |
-| `retry_needed` | Create a delayed retry `QueuedRuns` document — see [Retry policy](#retry-policy). |
-| `circuit_breaker_tripped` | Drop all in-memory state for the campaign. |
-
-`_schedule_next_batch` is the gate every batch passes through. In order, it:
-
-1. Takes a 5-second in-process lock keyed by `campaign_id`, so a burst of events cannot enqueue two batches at once.
-2. Re-reads the campaign and bails unless the state is `running` or `syncing`.
-3. Checks `_is_within_schedule`. If `orchestrator_metadata.schedule_config.enabled` is true, the current weekday and `HH:MM` in the configured `timezone` must fall inside one of the `slots` (`day_of_week` 0 = Monday). An unparseable timezone fails open — the campaign runs.
-4. Asks the circuit breaker whether the circuit is open. If it is, the campaign is set to `paused` and a `circuit_breaker_tripped` event is published.
-5. Checks `_has_pending_work` — queued runs due now, or any run still `processing`.
-6. Enqueues `process_campaign_batch` with `settings.CAMPAIGN_BATCH_SIZE`, records `_batch_in_progress[campaign_id]`, and stamps `last_batch_scheduled_at` and `last_activity_at`.
-
-<Warning>
-`_processing_locks`, `_last_activity`, and `_batch_in_progress` are plain Python dicts on the orchestrator instance. They are not shared state — run exactly one orchestrator container. Two would each schedule batches for the same campaign.
-</Warning>
-
-## Batches and the ARQ worker
-
-The worker is another container running `arq` against `WorkerSettings` in `apps/api/app/tasks/arq.py`:
-
-| Setting | Value |
-| --- | --- |
-| `functions` | `sync_campaign_source`, `process_campaign_batch` |
-| `max_jobs` | 10 |
-| `conn_timeout` | 10 |
-| `redis_settings` | Derived from `REDIS_URL`; TLS when the scheme is `rediss` |
-
-Batch size comes from `settings.CAMPAIGN_BATCH_SIZE` (environment variable `CAMPAIGN_BATCH_SIZE`, default 10).
-
-`process_campaign_batch` in `apps/api/app/tasks/campaign_tasks.py` delegates to the dispatcher and then publishes exactly one event:
-
-* Success → `batch_completed` with the processed count. If anything was processed, the `phone_number_pool_exhausted_attempts` counter resets.
-* `ConcurrentSlotAcquisitionError` → `batch_failed`, campaign set to `failed`, and the job re-raises.
-* `PhoneNumberPoolExhaustedError` → increments `phone_number_pool_exhausted_attempts`. Below `MAX_PHONE_POOL_ATTEMPTS` (3) it publishes `batch_completed` with zero processed, which makes the orchestrator try again later. On the third attempt it publishes `batch_failed` and sets the campaign to `failed`.
-* Any other exception → `batch_failed` and campaign `failed`.
-
-The full end-to-end path for one contact:
+The end-to-end path for one contact:
 
 ```mermaid
 sequenceDiagram
@@ -159,7 +111,7 @@ Claiming is atomic. `claim_queued_runs_for_processing` issues one `find_one_and_
 For each claimed run the dispatcher then:
 
 1. Waits on the per-second token bucket (`rate_limiter.acquire_token`) polling every 50 ms.
-2. Acquires a concurrency slot with `CONCURRENT_SLOT_TIMEOUT = 120.0` seconds — see [Call concurrency](call-concurrency.md).
+2. Acquires a concurrency slot with `CONCURRENT_SLOT_TIMEOUT = 120.0` seconds — see [Call concurrency](../../developer/reference/call-concurrency.md).
 3. Resolves a caller ID and places the call.
 4. Marks the run `processed` with the resulting `call_id` and increments `processed_rows`.
 
@@ -213,10 +165,6 @@ The breaker stops a campaign that is failing wholesale — a bad number list, a 
 | `window_seconds` | `300` | Sliding window length, 60–3600. |
 | `min_calls_in_window` | `5` | Minimum calls before the rate is evaluated, 1–100. |
 
-State lives in two Redis sorted sets per campaign, `cb_failures:{campaign_id}` and `cb_successes:{campaign_id}`, scored by timestamp. Both `record_call_outcome` and `is_circuit_open` run a Lua script that trims entries older than the window, counts what remains, and trips when `total >= min_calls` **and** `failures / total >= threshold`. Doing it in Lua keeps trim-count-decide a single atomic step, so two workers recording outcomes concurrently cannot read a half-trimmed window.
-
-A separate list `cb_recent_failures:{campaign_id}` keeps the most recent failures for diagnosis, capped at `MAX_RECENT_FAILURES = 20` and expiring `window_seconds + 60` after the last write.
-
 ```mermaid
 stateDiagram-v2
   [*] --> closed: "campaign running"
@@ -226,23 +174,11 @@ stateDiagram-v2
   paused --> closed: "resume"
 ```
 
-The self-transition is the normal case: an outcome is recorded, the window still sits under `min_calls_in_window` or below the failure threshold, and the breaker stays closed.
-
-The breaker is evaluated at two points: on every terminal call outcome (`record_and_evaluate`, which pauses the campaign and appends a `circuit_breaker_tripped` log entry), and again before every batch is enqueued (`is_circuit_open` inside `_schedule_next_batch`). A campaign paused by the breaker stays paused until you resume it.
+The self-transition is the normal case: an outcome is recorded, the window still sits under `min_calls_in_window` or below the failure threshold, and the breaker stays closed. A campaign paused by the breaker stays paused until you resume it. The Redis keys, the Lua scripts, and exactly when the breaker is evaluated are in [Workers and orchestrator](../../developer/services/workers.md).
 
 ## Completion detection
 
-There is no "last row" signal, so completion is inferred. Every 60 seconds `_check_stale_campaigns` walks every `running` campaign:
-
-* If a batch has been in progress for more than 300 seconds, the entry is dropped, and a new batch is scheduled if work remains. This is the recovery path for a worker that died mid-batch.
-* If no batch is in progress and work remains, a batch is scheduled (subject to the schedule window).
-* Otherwise `_should_mark_complete` runs.
-
-`_should_mark_complete` returns true only when no batch is in progress, no queued run is pending or processing, **and** the last activity is older than `completion_timeout` (3600 seconds). Last activity comes from the in-memory `_last_activity` map, falling back to `last_activity_at`, `last_batch_scheduled_at`, then `started_at` on the document. The campaign is then set to `completed`, `completed_at` is stamped, and a `campaign_completed` event is published with the counters and elapsed duration.
-
-The one-hour idle window exists so a pending retry — which may be scheduled up to an hour out — is not mistaken for an empty queue.
-
-Because `_last_activity` is in memory, restarting the orchestrator falls back to the timestamps on the document. A campaign whose last batch was scheduled over an hour ago and has no pending work is marked `completed` on the first sweep after a restart.
+There is no "last row" signal, so completion is inferred: the orchestrator sweeps every `running` campaign on a timer and marks one `completed` once no batch is in progress, no work is pending, and there has been no activity for an hour. That one-hour idle window exists so a pending retry — which may be scheduled up to an hour out — is not mistaken for an empty queue. The sweep interval, the exact fallback timestamps, and restart behaviour are in [Workers and orchestrator](../../developer/services/workers.md).
 
 ## Progress and reporting
 
@@ -273,7 +209,7 @@ Because the rows already exist, `start_campaign` detects `parent_campaign_id` an
 
 * [Running a campaign](../operator/running-a-campaign.md) — the operator walkthrough
 * [Workers and orchestrator](../../developer/services/workers.md) — the two containers this page depends on
-* [Call concurrency and rate limiting](call-concurrency.md) — the slot the dispatcher waits for
+* [Call concurrency and rate limiting](../../developer/reference/call-concurrency.md) — the slot the dispatcher waits for
 * [Calls and call artifacts](calls.md) — what a dispatched call produces
 * [Data model](../../developer/reference/data-model.md) — `Campaigns` and `QueuedRuns` in full
 * [Campaign troubleshooting](../troubleshooting/campaigns.md)

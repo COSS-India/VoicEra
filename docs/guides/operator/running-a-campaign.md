@@ -5,9 +5,9 @@ description: Upload contacts, start a campaign, watch it run, and read the repor
 
 A campaign dials a list of contacts with one telephony agent, under a concurrency ceiling, with retries and a circuit breaker. This page runs one end to end with `curl`, from CSV to downloaded report.
 
-<Warning>
-The dashboard (Beta) has a **Batches** screen, but it renders static sample data and makes no API calls. It cannot upload a CSV, create a campaign, or start one. Campaigns are driven over HTTP only. See [Dashboard tour](../../developer/frontend/dashboard-tour.md).
-</Warning>
+<Note>
+Prefer clicking? [Run a calling campaign](../dashboard/run-a-campaign.md) covers this same workflow from the dashboard's **Batches** screen — no `curl` required. This page drives the same endpoints over HTTP, which is what you want for scripting and scheduling. See also [Dashboard tour](../../developer/frontend/dashboard-tour.md).
+</Note>
 
 ## Before you start
 
@@ -32,7 +32,7 @@ export TOKEN=$(curl -s -X POST "$API/api/v1/users/login" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 ```
 
-Creating the agent and attaching the number are covered in [Create your first agent](../quickstart/first-agent.md) and [Operating via the API](operating-via-api.md).
+Creating the agent and attaching the number are covered in [Operating via the API](../../api-reference/recipes.md).
 
 ## The contact CSV
 
@@ -106,41 +106,17 @@ curl -X POST "$API/api/v1/campaign/create" \
   }'
 ```
 
-Top-level fields, from `CreateCampaignRequest` in `apps/api/app/models/schemas.py`:
-
-| Field | Type | Default | Range |
-| --- | --- | --- | --- |
-| `name` | string | required | — |
-| `agent_id` | string | required | Must be a telephony agent with a number. |
-| `source_type` | string | `"csv"` | Only `csv` has a sync service today. |
-| `source_id` | string | required | The `source_id` from upload. |
-| `rate_limit_per_second` | int | `1` | 1–20 |
-| `max_concurrency` | int | `5` | 1–20, and at or below the org limit |
-| `from_number` | string | `null` | Optional caller ID override. One number can back many concurrent calls. |
-| `retry_config` | object | see below | — |
-| `schedule_config` | object | `null` | — |
-| `circuit_breaker` | object | `null` | — |
-
-The campaign is created in state `created`. It does not dial until you start it.
+The campaign is created in state `created`. It does not dial until you start it. Full field bounds and defaults are in [Campaigns](../../api-reference/campaigns.md#post-campaigncreate).
 
 ## Retry, schedule, concurrency and circuit breaker
 
-<Warning>
+<Note>
 `max_concurrency`, `schedule_config`, and `circuit_breaker` are **request fields at the top level of the create body**, but the API nests them inside `orchestrator_metadata` on the stored document. Read them back from `orchestrator_metadata`, not from the top level of the response. Only `retry_config` is stored as its own top-level field.
-</Warning>
+</Note>
 
 ### Retry
 
-`retry_config` governs whether a failed contact is queued again. Defaults are in `DEFAULT_CAMPAIGN_RETRY_CONFIG` in `apps/api/app/constants/campaign.py`; the request bounds are in `RetryConfigRequest`.
-
-| Field | Default | Range | Effect |
-| --- | --- | --- | --- |
-| `enabled` | `true` | — | `false` disables all retries. |
-| `max_retries` | `2` | 0–10 | Attempts after the first. Exceeding it increments `failed_rows`. |
-| `retry_delay_seconds` | `120` | 30–3600 | The retry run is scheduled this far in the future. |
-| `retry_on_busy` | `true` | — | Retry when the line was busy. |
-| `retry_on_no_answer` | `true` | — | Retry when nobody picked up. |
-| `retry_on_voicemail` | `false` | — | Retry when voicemail answered. |
+`retry_config` governs whether a failed contact is queued again. Field bounds and defaults are in [Campaigns](../../api-reference/campaigns.md#post-campaigncreate).
 
 A retry is a new queued run with `retry_count` incremented and `is_retry`, `retry_attempt`, and `retry_reason` merged into its context variables, so the prompt can tell a redial from a first attempt.
 
@@ -165,20 +141,13 @@ Outside a window the orchestrator declines to schedule the next batch. The campa
 
 ### Concurrency
 
-`max_concurrency` is this campaign's ceiling on simultaneous live calls, enforced by the dispatcher as a `campaign:{campaign_id}` scope on top of the organisation's slot pool. `rate_limit_per_second` throttles how fast new calls are placed. See [Call concurrency and rate limiting](../concepts/call-concurrency.md).
+`max_concurrency` is this campaign's ceiling on simultaneous live calls, enforced by the dispatcher as a `campaign:{campaign_id}` scope on top of the organisation's slot pool. `rate_limit_per_second` throttles how fast new calls are placed. See [Call concurrency and rate limiting](../../developer/reference/call-concurrency.md).
 
 The orchestrator dispatches in batches of `CAMPAIGN_BATCH_SIZE`, default `10`, set on the `campaign-orchestrator` service in `docker-compose.yaml`.
 
 ### Circuit breaker
 
-The breaker pauses a campaign that is failing broadly, so a bad number range or a dead provider does not burn the whole list. Defaults from `DEFAULT_CIRCUIT_BREAKER_CONFIG`, bounds from `CircuitBreakerConfigRequest`:
-
-| Field | Default | Range | Effect |
-| --- | --- | --- | --- |
-| `enabled` | `true` | — | `false` disables the breaker for this campaign. |
-| `failure_threshold` | `0.5` | 0.1–1.0 | Failure fraction that trips it. |
-| `window_seconds` | `300` | 60–3600 | Sliding window over which failures are counted. |
-| `min_calls_in_window` | `5` | 1–100 | Minimum calls before the ratio is evaluated at all. |
+The breaker pauses a campaign that is failing broadly, so a bad number range or a dead provider does not burn the whole list. Field bounds and defaults are in [Campaigns](../../api-reference/campaigns.md#post-campaigncreate).
 
 The counts live in Redis sorted sets keyed per campaign and are evaluated in a Lua script, so the check is atomic across workers.
 
@@ -378,7 +347,7 @@ That in-memory state means the campaign orchestrator is a **single-replica servi
 ## Related
 
 * [Campaigns](../concepts/campaigns.md)
-* [Call concurrency and rate limiting](../concepts/call-concurrency.md)
+* [Call concurrency and rate limiting](../../developer/reference/call-concurrency.md)
 * [Workers and orchestrator](../../developer/services/workers.md)
-* [Operating via the API](operating-via-api.md)
+* [Operating via the API](../../api-reference/recipes.md)
 * [Campaign troubleshooting](../troubleshooting/campaigns.md)

@@ -6,7 +6,7 @@ description: Symptom-first index — find your error message, get the fix.
 Organised by where the symptom shows up. If you are not sure which page applies, scan the table below for the message you actually saw.
 
 <Note>
-Before anything else: `docker compose ps` shows which containers are up, and `docker compose logs -f <service>` shows why one is not. Most issues resolve from those two commands.
+Before anything else: `make application-ps` shows which containers are up, and `docker compose logs -f <service>` shows why one is not. Most issues resolve from those two commands.
 </Note>
 
 ## Symptom index
@@ -47,7 +47,7 @@ Before anything else: `docker compose ps` shows which containers are up, and `do
 
 ## Still stuck
 
-Collect these before opening an issue: the failing command, `docker compose ps`, the last 100 log lines from the affected container, and your `.env` with **every secret redacted**.
+Collect these before opening an issue: the failing command, `make application-ps`, the last 100 log lines from the affected container, and your `.env` with **every secret redacted**.
 
 ## Related
 

@@ -5,9 +5,9 @@ description: Upload, list, and delete knowledge documents.
 
 Knowledge documents ground an agent's answers in your own PDFs. This page covers the whole lifecycle over the API: upload, check ingest status, attach to an agent, and delete.
 
-<Warning>
-The dashboard (Beta) has a **Knowledge Base** screen, but it renders static sample data. Its upload dialog uploads nothing — no request reaches the API. Manage documents over HTTP only.
-</Warning>
+<Note>
+Prefer clicking? [Upload a document](../dashboard/everyday-tasks.md#upload-a-document) covers this same workflow from the dashboard's **Knowledge Base** screen — no `curl` required. This page uses HTTP throughout, which is the complete surface and what you want for scripting.
+</Note>
 
 ## What a knowledge document is
 
@@ -53,15 +53,7 @@ curl -X POST "$API/api/v1/knowledge/upload" \
 }
 ```
 
-`201` with `status: "processing"` means the file is stored and ingest is scheduled. It does not mean the document is searchable yet. Poll the list route until `status` is `ready`.
-
-| Response | Meaning |
-| --- | --- |
-| `400 Only PDF files are allowed` | The filename does not end in `.pdf`. |
-| `400 Empty file` | Zero bytes uploaded. |
-| `400 User has no organization` | The JWT carries no `org_id`. |
-| `413` | Larger than `KB_MAX_UPLOAD_BYTES`, default 25 MiB. |
-| `500 Failed to store uploaded file` | MinIO rejected the write. The metadata row is marked `failed` with the reason. |
+`201` with `status: "processing"` means the file is stored and ingest is scheduled. It does not mean the document is searchable yet. Poll the list route until `status` is `ready`. Failure codes are in [Knowledge and RAG](../../api-reference/knowledge-and-rag.md#post-knowledgeupload).
 
 Ingest failures never surface as an HTTP error, because ingest happens after the response. They land on the document as `status: "failed"` with an `error_message`. The ones you will see:
 
@@ -111,9 +103,9 @@ Delete removes the Chroma vectors first and the metadata row second. If the Chro
 
 `404 Document not found` means no document with that id in your organisation.
 
-<Warning>
+<Note>
 Deleting a document does not update agents that reference it. An agent whose `config.knowledge_base.document_ids` still names a deleted document keeps working — retrieval simply finds nothing for that id. Update the agent as well.
-</Warning>
+</Note>
 
 ## Attaching to an agent
 
@@ -204,4 +196,4 @@ Chroma is embedded in the API process, not a separate service. It persists to th
 * [Knowledge base (RAG)](../concepts/knowledge-base-rag.md)
 * [Agent configuration](../../developer/reference/agent-configuration.md)
 * [Environment variables](../../developer/reference/environment-variables.md)
-* [Operating via the API](operating-via-api.md)
+* [Operating via the API](../../api-reference/recipes.md)

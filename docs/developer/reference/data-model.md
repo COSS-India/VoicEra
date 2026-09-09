@@ -31,7 +31,7 @@ erDiagram
   CallLogs ||--o| CallMetrics : "has"
 ```
 
-Every collection except `Users` is scoped by `org_id`. `Users` is global — one account can hold memberships in many organisations, and the JWT carries whichever one is currently active. See [Multi-tenancy and roles](../../guides/concepts/multi-tenancy.md).
+Every collection except `Users` is scoped by `org_id`. `Users` is global — one account can hold memberships in many organisations, and the JWT carries whichever one is currently active. See [Multi-tenancy and roles](multi-tenancy.md).
 
 ## Organizations
 
@@ -78,7 +78,7 @@ Signup writes the `super_admin` membership. `POST /api/v1/members/invite` writes
 
 ## ProviderAuth
 
-Encrypted credentials for one provider in one organisation. Documented in full at [Provider credentials (ProviderAuth)](../../guides/concepts/provider-auth.md).
+Encrypted credentials for one provider in one organisation. Documented in full at [Provider credentials (ProviderAuth)](provider-auth.md).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -133,9 +133,9 @@ The organisation's number inventory. A number belongs to one organisation global
 | `last_link_by_email` | string or null | Audit: who performed it. |
 | `last_link_at` | string or null | Audit: when. |
 
-<Warning>
+<Note>
 The `phone_number_unique` index is on `phone_number` alone, with no `org_id` component. Two organisations cannot hold the same number, and the second attach fails on a duplicate key rather than with a clear conflict message.
-</Warning>
+</Note>
 
 ## CallLogs
 
@@ -276,7 +276,7 @@ Every enumeration is a `Literal` in `apps/api/app/models/schemas.py` unless note
 
 `Role` is mirrored as constants in `apps/api/app/database_init.py` (`ROLE_SUPER_ADMIN`, `ROLE_ADMIN`, `ROLE_MEMBER`, and the `VALID_ROLES` frozenset), which is what the routers compare against.
 
-`TelephonyProvider` is aliased to plain `str`, not a `Literal`. Valid values come from the telephony registry at runtime — call `GET /api/v1/configuration/telephony` to enumerate them. See [Provider registry](../../guides/concepts/provider-registry.md).
+`TelephonyProvider` is aliased to plain `str`, not a `Literal`. Valid values come from the telephony registry at runtime — call `GET /api/v1/configuration/telephony` to enumerate them. See [Provider registry](provider-registry.md).
 
 The `QueuedRuns.state` values — `queued`, `processing`, `processed`, `failed` — are string literals in the campaign services, not a declared `Literal` type.
 
@@ -329,8 +329,8 @@ Every organisation-scoped read is served by an `org_id` prefix, which is what ke
 ## Related
 
 * [Agent configuration](agent-configuration.md)
-* [Data store (FerretDB)](../../guides/concepts/data-store.md)
-* [Multi-tenancy and roles](../../guides/concepts/multi-tenancy.md)
+* [Data store (FerretDB)](data-store.md)
+* [Multi-tenancy and roles](multi-tenancy.md)
 * [Campaigns](../../guides/concepts/campaigns.md)
 * [Calls and call artifacts](../../guides/concepts/calls.md)
 * [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet.md)

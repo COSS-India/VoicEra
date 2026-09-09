@@ -6,7 +6,7 @@ description: The providers package — layout, public API, and dependency model.
 `apps/providers` holds Pydantic configs and a factory that build Pipecat STT, TTS, and LLM services. It is a library, not a container: it is copied into both the `api` and `runtime` images. The API imports it to generate provider catalogs; the runtime imports it to build live services for a call.
 
 <Note>
-This page walks through the package layout and public API. Why the registry is shaped this way, and what it buys you, is in [Provider registry](../../guides/concepts/provider-registry.md). To add a vendor, follow [Adding an AI provider](../guides/adding-a-provider.md).
+This page walks through the package layout and public API. Why the registry is shaped this way, and what it buys you, is in [Provider registry](../reference/provider-registry.md). To add a vendor, follow [Adding an AI provider](../guides/adding-a-provider.md).
 </Note>
 
 ## Public API
@@ -127,7 +127,7 @@ def create_tts(cfg: BhashiniTTSConfig):
 
 `load_providers()` imports every `*.service` module under `cloud/`, `adapters/`, and `local/` so the `@register_*` decorators run. If a vendor imported its Pipecat extra at module scope, that discovery sweep would raise `ImportError` on the first vendor whose extra is not installed — and the whole catalog would be unavailable.
 
-Deferring the import means the registration decorator runs with no vendor SDK present. The API can therefore enumerate all 24 providers, validate agent configs against them, and serve `GET /configuration/*` while installing none of them. Only the runtime, and only at the moment it creates a service for a call, needs the extra on disk.
+Deferring the import means the registration decorator runs with no vendor SDK present. The API can therefore enumerate all 26 providers, validate agent configs against them, and serve `GET /configuration/*` while installing none of them. Only the runtime, and only at the moment it creates a service for a call, needs the extra on disk.
 
 `apps/providers/__init__.py` extends the same idea to the package root. `AgentConfig`, `STTConfig`, `TTSConfig`, `LLMConfig`, and the three `create_*_service` functions are resolved lazily through a module-level `__getattr__`, because `factory.py` imports `loguru`. Importing `apps.providers` for a catalog dump therefore does not pull in the factory at all.
 
@@ -198,13 +198,13 @@ register_local("indic_orpheus", GATEWAY_MODEL_ID)  # GATEWAY_MODEL_ID = "orpheus
 
 `gateway_model_id` is the model server's own slot id (its `models.yaml`/folder name under `model-server/<kind>/`), a separate namespace from the `apps/providers` provider id — `indic_orpheus` → gateway id `"orpheus"`, `indic_nemotron` → gateway id `"indic-nemotron"`.
 
-<Warning>
+<Note>
 No local LLM provider exists. `model-server/llm/qwen3.5-4b/` is `status: ready` in the model server's catalog, but nothing under `apps/providers/local/` wires it up, so no agent can select it yet.
-</Warning>
+</Note>
 
 ## Related
 
-* [Provider registry](../../guides/concepts/provider-registry.md) — the design, and why it is self-describing
-* [Provider credentials (ProviderAuth)](../../guides/concepts/provider-auth.md) — where the secrets live
+* [Provider registry](../reference/provider-registry.md) — the design, and why it is self-describing
+* [Provider credentials (ProviderAuth)](../reference/provider-auth.md) — where the secrets live
 * [Adding an AI provider](../guides/adding-a-provider.md)
 * [Agent configuration](../reference/agent-configuration.md)

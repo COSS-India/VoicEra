@@ -8,13 +8,13 @@ Problems that appear once VoicEra leaves your laptop: proxies, volumes, images, 
 ## Containers restart in a loop
 
 ```bash
-docker compose ps
+make application-ps
 docker compose logs <service> --tail 100
 ```
 
 | Cause | Fix |
 | --- | --- |
-| Missing required secret | Compose aborts on `${SECRET_KEY:?...}`. Run `./scripts/start-application-services.sh`. |
+| Missing required secret | Compose aborts on `${SECRET_KEY:?...}`. Run `make application-up`. |
 | Cannot reach the database | Check `postgres` and `ferretdb` are healthy first |
 | Cannot reach Redis | Check `REDIS_PASSWORD` matches `REDIS_URL` |
 | Out of memory | Check `docker stats` and the host's OOM killer |
@@ -138,15 +138,7 @@ More than one campaign orchestrator. Run exactly one — see [Campaigns](campaig
 
 ## Health checks
 
-```bash
-curl -s localhost:8000/health
-curl -s localhost:7860/health
-curl -s localhost:8100/health
-```
-
-<Warning>
-`GET /health` returns HTTP **200 even when the database is down** — only the body changes to `"status": "degraded"`. A probe that checks the status code alone will report a broken API as healthy. Parse the body.
-</Warning>
+Endpoints, response shapes, and the "200 even when degraded" gotcha are in [Daily operations](../operator/operations.md#health-endpoints).
 
 ## Related
 

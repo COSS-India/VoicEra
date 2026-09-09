@@ -13,7 +13,7 @@ If you only want to configure agents and read call logs, you need the REST API a
 
 | Surface | Where | Who connects | What it carries |
 | --- | --- | --- | --- |
-| REST API | `:8000`, under `/api/v1` | Your console, scripts, CI, the dashboard (Beta) | Everything configuration and control: users, organisations, agents, phone numbers, calls, campaigns, knowledge documents. |
+| REST API | `:8000`, under `/api/v1` | Your console, scripts, CI, the dashboard | Everything configuration and control: users, organisations, agents, phone numbers, calls, campaigns, knowledge documents. |
 | Browser WebSocket | Runtime `:7860`, `WS /agent/{org_id}/{agent_id}` | A browser page you write | Live microphone audio in, agent audio out, as Pipecat protobuf frames. |
 | Telephony media stream | Runtime `:7860`, `GET|POST /answer` then `WS /agent/{org_id}/{agent_id}` | Your telephony provider, on behalf of a caller | The provider's answer webhook and its bidirectional media stream. |
 
@@ -48,7 +48,7 @@ Both categories run the same Pipecat pipeline. The difference is the frame seria
 * Building a phone agent? Use `telephony` and read [Telephony agents](telephony.md).
 * Building an in-page voice widget or a demo? Use `websocket` and read [Browser WebSocket agents](browser-websocket.md).
 
-## The Beta dashboard
+## The dashboard
 
 The bundled Next.js dashboard is a client like any other: it drives the REST API for configuration and opens the runtime WebSocket for browser test calls.
 

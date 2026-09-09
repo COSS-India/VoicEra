@@ -71,9 +71,9 @@ docker compose -f compose.model-server.yml up -d --build llm
 
 The service is still called `llm`, still on 8003, so the gateway never learns that anything changed.
 
-<Warning>
+<Note>
 Rebuild the slot; restarting it is not enough. `<SLOT>_MODEL` selects the build context, so `up -d` without `--build` reuses the image built from the previous folder and quietly keeps serving the old model.
-</Warning>
+</Note>
 
 If the new model brings a `compose.extra.yml`, use `compose-files.sh` instead so the overlay is included:
 
@@ -105,7 +105,7 @@ The list is built by listing the folders in `stt/`, `tts/` and `llm/` — not by
 Set the variable in the environment to skip a menu and run unattended, from the repository root:
 
 ```bash
-STT_MODEL=indic-conformer TTS_MODEL=indic-parler LLM_MODEL= ./scripts/start-model-server.sh
+STT_MODEL=indic-conformer TTS_MODEL=indic-parler LLM_MODEL= make model-server-setup
 ```
 
 An empty value means "no model in this slot" — distinct from the variable being unset, which means "ask me".

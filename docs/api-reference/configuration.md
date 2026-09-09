@@ -5,7 +5,7 @@ description: Discover which providers exist and what each one accepts.
 
 ## Configuration
 
-`apps/api/app/routers/configuration.py`, prefix `/api/v1/configuration`. The self-describing provider catalogue. Everything here is generated from the registry at runtime, so a newly added provider appears without a code change here. See [Provider registry](../guides/concepts/provider-registry.md).
+`apps/api/app/routers/configuration.py`, prefix `/api/v1/configuration`. The self-describing provider catalogue. Everything here is generated from the registry at runtime, so a newly added provider appears without a code change here. See [Provider registry](../developer/reference/provider-registry.md).
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |

@@ -5,9 +5,9 @@ description: The LLM slot and the model that fills it.
 
 The LLM slot is the third of the model server's three slots, on internal port 8003, answering `POST /v1/chat/completions`. It is the only slot that ships turned off — `LLM_MODEL` is empty in `.env.example` — and it is the one part of the model server that has never been run on hardware.
 
-<Warning>
+<Note>
 **The LLM slot has not been run on hardware at all.** `model-server/README.md` states it plainly: `llm/qwen3.5-4b/` is written but has never been built or started, so the vLLM flags in it are unverified against a live model. `models.yaml` repeats it against the catalogue entry. Everything on this page describes intended behaviour that no live model has confirmed.
-</Warning>
+</Note>
 
 ## qwen3.5-4b
 
@@ -89,4 +89,4 @@ Treat the deployment as untried. Start it on its own, watch `docker compose logs
 * [Gateway API](gateway-api.md)
 * [Adding a model](adding-a-model.md)
 * [Running on GPUs](gpu-operations.md)
-* [Provider registry](../../guides/concepts/provider-registry.md)
+* [Provider registry](../reference/provider-registry.md)

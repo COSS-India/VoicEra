@@ -41,4 +41,4 @@ Two gaps are documented rather than hidden. The LLM slot has not yet been run on
 ## Related
 
 * [Self-hosted models](../../guides/deployment/self-hosted-models.md) — wiring the model server to the runtime
-* [Provider registry](../../guides/concepts/provider-registry.md) — how agents select a provider
+* [Provider registry](../reference/provider-registry.md) — how agents select a provider

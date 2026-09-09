@@ -3,10 +3,10 @@ title: Quickstart
 description: From an empty machine to a working voice agent, in order.
 ---
 
-Five pages, meant to be read in sequence. Together they take you from nothing to an agent that answers and speaks.
+Three pages, meant to be read in sequence. Together they get the stack running and ready to use.
 
 <Note>
-Total time is roughly 20 minutes, most of it Docker pulling images. You need Docker, one AI provider API key, and — for real phone calls only — a public HTTPS hostname.
+Total time is roughly 20 minutes, most of it Docker pulling images. You need Docker and one AI provider API key.
 </Note>
 
 ## The path
@@ -15,16 +15,21 @@ Total time is roughly 20 minutes, most of it Docker pulling images. You need Doc
 | --- | --- | --- |
 | 1 | [Prerequisites](prerequisites.md) | A machine that can run the stack, and the accounts you need. |
 | 2 | [Install and run](install-and-run.md) | Ten containers up, API answering on `:8000`, dashboard on `:3000`. |
-| 3 | [Create your first agent](first-agent.md) | An agent configured with real provider credentials. |
-| 4 | [Your first call](first-call.md) | A conversation you can hear, with a transcript. |
-| 5 | [Generated secrets and defaults](secrets-and-defaults.md) | Knowing what was generated for you and what to change. |
+| 3 | [Generated secrets and defaults](secrets-and-defaults.md) | Knowing what was generated for you and what to change. |
+
+Once the stack is up, build your first agent and place your first call from the dashboard — no terminal needed:
+
+* [Create your first agent](../dashboard/create-an-agent.md)
+* [Test and call with your agent](../dashboard/make-a-call.md)
+
+Prefer the API? See [Recipes](../../api-reference/recipes.md).
 
 ## Before you start
 
-You do **not** need a telephony account to try VoicEra. A `websocket` agent runs entirely in the browser and needs only an STT, TTS, and LLM key. Add telephony when you want real phone numbers — [Your first call](first-call.md) covers both paths.
+You do **not** need a telephony account to try VoicEra. A `websocket` agent runs entirely in the browser and needs only an STT, TTS, and LLM key. Add telephony when you want real phone numbers.
 
 <Warning>
-Run `./scripts/start-application-services.sh`, not a bare `docker compose up`. The script generates `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` into `.env`; without them the stack starts misconfigured.
+Run `make application-up`, not a bare `docker compose up`. It generates `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` into `.env`; without them the stack starts misconfigured.
 </Warning>
 
 ## Where next

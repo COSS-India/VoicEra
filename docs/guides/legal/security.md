@@ -64,5 +64,5 @@ The project has not cut a tagged release. Security fixes land on `dev` and flow 
 ## Related
 
 * [Security hardening](../deployment/security-hardening.md)
-* [Provider credentials](../concepts/provider-auth.md)
+* [Provider credentials](../../developer/reference/provider-auth.md)
 * [Code of conduct](code-of-conduct.md)

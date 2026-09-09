@@ -11,10 +11,10 @@ Concurrency slots are separate from the per-second rate limit. The rate limit go
 
 ## Why concurrency is capped
 
-An outbound [campaign](campaigns.md) will happily dial as fast as it is allowed to. Three things break if nothing stops it:
+An outbound [campaign](../../guides/concepts/campaigns.md) will happily dial as fast as it is allowed to. Three things break if nothing stops it:
 
 * **Telephony provider limits.** Providers cap concurrent channels per account and reject or throttle beyond that.
-* **Runtime capacity.** Each live call holds one WebSocket and one full [voice pipeline](voice-pipeline.md) in the runtime.
+* **Runtime capacity.** Each live call holds one WebSocket and one full [voice pipeline](../../guides/concepts/voice-pipeline.md) in the runtime.
 * **Provider spend.** Every concurrent call is concurrent STT, LLM, and TTS usage against your own keys.
 
 The cap is enforced at the point of dispatch, before the outbound call is placed, so a campaign that cannot get a slot simply waits.
@@ -101,9 +101,9 @@ The from-number pool uses the same timeout: its Lua script resets any number who
 
 Every acquisition also adds a member to one global sorted set, `FLEET_CONCURRENT_KEY = "concurrent_calls_fleet"`, with the member string `{org_id}:{slot_id}`. It is trimmed for staleness and cleaned up on release exactly like the per-organisation set.
 
-<Warning>
+<Note>
 The fleet set is written and cleaned but never checked against a maximum. It is observability — `ZCARD concurrent_calls_fleet` gives you live calls across every organisation — not an enforced cap. There is no fleet-wide limit in the code today.
-</Warning>
+</Note>
 
 ## Why Lua
 
@@ -148,8 +148,8 @@ Because slot state lives only in Redis, wiping Redis loses the record of every i
 
 ## Related
 
-* [Campaigns](campaigns.md) — the only caller that uses scoped slots today
-* [Calls and call artifacts](calls.md) — the call lifecycle a slot is bound to
-* [Workers and orchestrator](../../developer/services/workers.md)
-* [Environment variables](../../developer/reference/environment-variables.md)
-* [Campaign troubleshooting](../troubleshooting/campaigns.md)
+* [Campaigns](../../guides/concepts/campaigns.md) — the only caller that uses scoped slots today
+* [Calls and call artifacts](../../guides/concepts/calls.md) — the call lifecycle a slot is bound to
+* [Workers and orchestrator](../services/workers.md)
+* [Environment variables](environment-variables.md)
+* [Campaign troubleshooting](../../guides/troubleshooting/campaigns.md)

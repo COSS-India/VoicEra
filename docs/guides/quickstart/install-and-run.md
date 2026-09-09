@@ -15,10 +15,10 @@ cd voicera
 ## 2. Start
 
 ```bash
-./scripts/start-application-services.sh
+make application-up
 ```
 
-The script must run from the repository root. It:
+`make application-up` (which wraps `./scripts/start-application-services.sh`) must run from the repository root. It:
 
 1. Creates `.env` from `.env.example` if missing.
 2. Generates `SECRET_KEY` and `INTERNAL_API_KEY` if either is blank.
@@ -29,7 +29,7 @@ The script must run from the repository root. It:
 Existing values are never overwritten — rerunning is safe.
 
 <Warning>
-Do not start with a bare `docker compose up` on a fresh checkout. Three services declare `${SECRET_KEY:?...}`, so Compose aborts without it. The script exists to generate these secrets.
+Do not start with a bare `docker compose up` on a fresh checkout. Three services declare `${SECRET_KEY:?...}`, so Compose aborts without it. `make application-up` exists to generate these secrets.
 </Warning>
 
 The first build pulls images and compiles dependencies — expect several minutes. Subsequent starts are fast.
@@ -37,13 +37,13 @@ The first build pulls images and compiles dependencies — expect several minute
 To skip the prompt, pipe from a non-interactive shell, or pass extra Compose arguments after `--`:
 
 ```bash
-./scripts/start-application-services.sh -- --no-build
+make application-up ARGS="-- --no-build"
 ```
 
 ## 3. What came up
 
 ```bash
-docker compose ps
+make application-ps
 ```
 
 Ten containers:
@@ -78,7 +78,7 @@ curl -s localhost:7860/health
 ```
 
 <Warning>
-`/health` returns HTTP **200 even when the database is down** — only the body changes to `"status": "degraded"`. Check the body, not the status code.
+`/health` returns HTTP **200 even when the database is down** — check the body, not the status code. See [Daily operations](../operator/operations.md#health-endpoints) for every endpoint and response shape.
 </Warning>
 
 Open the dashboard at [http://localhost:3000](http://localhost:3000), or drive the API directly from the interactive console at [http://localhost:8000/docs](http://localhost:8000/docs).
@@ -129,13 +129,13 @@ Logs rotate at 10 MB with three files kept per container.
 ## Stop and reset
 
 ```bash
-./scripts/stop-application-services.sh
+make application-down
 ```
 
 That is `docker compose down` — containers stop, data survives.
 
 <Warning>
-`./scripts/stop-application-services.sh -- -v` (or `docker compose down -v`) also deletes the volumes: your database, recordings, RAG vectors, and queue. There is no undo. Back up first — see [Daily operations](../operator/operations.md).
+`make application-down ARGS="-- -v"` (or `docker compose down -v`) also deletes the volumes: your database, recordings, RAG vectors, and queue. There is no undo. Back up first — see [Daily operations](../operator/operations.md).
 </Warning>
 
 ## Running the API on your host instead
@@ -167,4 +167,5 @@ Point `.env` at the published database port — `MONGODB_HOST=localhost`, `MONGO
 
 ## Next
 
-[Create your first agent](first-agent.md)
+* [Create your first agent](../dashboard/create-an-agent.md) — no terminal required from here on
+* [Recipes](../../api-reference/recipes.md) — the same tasks over `curl`

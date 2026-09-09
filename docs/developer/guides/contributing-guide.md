@@ -16,10 +16,12 @@ Contributions are welcome. This page covers the workflow; [Local setup](local-se
 ```bash
 git clone https://github.com/COSS-India/voicera.git
 cd voicera
-./scripts/start-application-services.sh
+make application-up
 ```
 
-There is **no** `make` target and **no** `pip install -e .` — `Makefile` and `pyproject.toml` are empty placeholders. Install per app:
+`make application-up` wraps `./scripts/start-application-services.sh`; `make help` lists every target.
+
+There is **no** `pip install -e .` — `pyproject.toml` is an empty placeholder. Install per app:
 
 ```bash
 pip install -r apps/api/requirements.txt

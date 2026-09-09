@@ -87,7 +87,7 @@ Public. Body `{ "token": "…", "new_password": "…" }`. Returns `{status, mess
 
 ## Members
 
-`apps/api/app/routers/members.py`, prefix `/api/v1/members`. Members are the join between a user and an organisation, carrying a role. See [Multi-tenancy and roles](../guides/concepts/multi-tenancy.md).
+`apps/api/app/routers/members.py`, prefix `/api/v1/members`. Members are the join between a user and an organisation, carrying a role. See [Multi-tenancy and roles](../developer/reference/multi-tenancy.md).
 
 ### `POST /members/invite`
 

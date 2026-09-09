@@ -6,7 +6,7 @@ description: Definitions of the terms used throughout the VoicEra documentation.
 ## A
 
 **Adapter**
-A provider implemented first-party rather than through Pipecat, living under `apps/providers/adapters/`. Two exist today: Bhashini (TTS) and Kenpath (LLM). Reported as `provider_type: adapter`. See [Provider registry](provider-registry.md).
+A provider implemented first-party rather than through Pipecat, living under `apps/providers/adapters/`. Two exist today: Bhashini (TTS) and Kenpath (LLM). Reported as `provider_type: adapter`. See [Provider registry](../../developer/reference/provider-registry.md).
 
 **Agent**
 A configured voice assistant: prompts, behaviour, language, and its STT, TTS, and LLM choices. Belongs to one organisation. See [Agents](agents.md).
@@ -26,7 +26,7 @@ The Redis-backed job queue running campaign batches and CSV syncs off the reques
 A caller interrupting the agent mid-sentence. The pipeline stops playback and starts listening. Tunable with `interruption_min_words`. See [Voice pipeline](voice-pipeline.md).
 
 **Bot token**
-A short-lived, organisation-scoped JWT minted by `POST /users/bot/token` against the `INTERNAL_API_KEY`. How the runtime authenticates to the API. See [Multi-tenancy](multi-tenancy.md).
+A short-lived, organisation-scoped JWT minted by `POST /users/bot/token` against the `INTERNAL_API_KEY`. How the runtime authenticates to the API. See [Multi-tenancy](../../developer/reference/multi-tenancy.md).
 
 ## C
 
@@ -43,7 +43,7 @@ A guard that pauses a campaign when the failure rate in a rolling window crosses
 The embedded vector store holding per-organisation RAG chunks, persisted to the `voicera_oss_chroma_data` volume.
 
 **Concurrency slot**
-A Redis-held token representing one in-flight call. Bounded per organisation and per campaign. See [Call concurrency](call-concurrency.md).
+A Redis-held token representing one in-flight call. Bounded per organisation and per campaign. See [Call concurrency](../../developer/reference/call-concurrency.md).
 
 ## D
 
@@ -53,7 +53,7 @@ The Pydantic pattern in `apps/providers/factory.py` that turns the registry into
 ## F
 
 **FerretDB**
-A proxy speaking the MongoDB wire protocol on top of PostgreSQL. VoicEra's data store. Published on host port `27018`. See [Data store](data-store.md).
+A proxy speaking the MongoDB wire protocol on top of PostgreSQL. VoicEra's data store. Published on host port `27018`. See [Data store](../../developer/reference/data-store.md).
 
 **Frame**
 Pipecat's unit of data flowing through the pipeline: an audio chunk, a transcript, an LLM token, a control signal.
@@ -79,7 +79,7 @@ Documents ingested, chunked, embedded, and retrieved to ground an agent's answer
 ## M
 
 **Membership**
-The join record between a user and an organisation, carrying the role. See [Multi-tenancy](multi-tenancy.md).
+The join record between a user and an organisation, carrying the role. See [Multi-tenancy](../../developer/reference/multi-tenancy.md).
 
 **MinIO**
 The S3-compatible object store holding call recordings and transcripts.
@@ -104,10 +104,10 @@ Words returned while the speaker is still talking. Required for responsive telep
 The async Python framework for real-time voice pipelines that the runtime is built on.
 
 **ProviderAuth**
-The Fernet-encrypted, provider-level credential record for an organisation. Replaces the old Integrations model. See [Provider credentials](provider-auth.md).
+The Fernet-encrypted, provider-level credential record for an organisation. Replaces the old Integrations model. See [Provider credentials](../../developer/reference/provider-auth.md).
 
 **Provider registry**
-The self-describing catalogue of STT, TTS, and LLM vendors. Providers register themselves; the schema dump drives client forms. See [Provider registry](provider-registry.md).
+The self-describing catalogue of STT, TTS, and LLM vendors. Providers register themselves; the schema dump drives client forms. See [Provider registry](../../developer/reference/provider-registry.md).
 
 ## Q
 

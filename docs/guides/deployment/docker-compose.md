@@ -12,10 +12,10 @@ This stack is built for evaluation and development. It bind-mounts source, runs 
 ## Starting
 
 ```bash
-./scripts/start-application-services.sh
+make application-up
 ```
 
-Use the script rather than `docker compose up`. The compose file's own header says a bare `up` against a fresh checkout "will fail or come up misconfigured" — three services declare `${SECRET_KEY:?...}` and abort without it.
+Use `make application-up` rather than a bare `docker compose up`. The compose file's own header says a bare `up` against a fresh checkout "will fail or come up misconfigured" — three services declare `${SECRET_KEY:?...}` and abort without it.
 
 ## The map
 
@@ -97,7 +97,7 @@ Three services build from **one image** (`apps/api/Dockerfile`) and differ only 
 
 ## Network and the mongodb alias
 
-One bridge network, `app-network`. The `ferretdb` service publishes the alias `mongodb`, so in-stack services connect to `mongodb:27017` and nothing refers to FerretDB by name. See [Data store](../concepts/data-store.md).
+One bridge network, `app-network`. The `ferretdb` service publishes the alias `mongodb`, so in-stack services connect to `mongodb:27017` and nothing refers to FerretDB by name. See [Data store](../../developer/reference/data-store.md).
 
 ## Environment precedence
 
@@ -112,9 +112,9 @@ Each service loads `env_file: .env`, then applies its own `environment:` block �
 
 Editing these in `.env` has no effect inside the stack. That is intended.
 
-<Warning>
+<Note>
 `DEBUG` is deliberately **not** interpolated into `environment:`. The compose file explains why: host shells often export `DEBUG=release`, which would override the boolean `False` from `.env`. It reaches containers through `env_file` only — so do not add `DEBUG: "${DEBUG}"`.
-</Warning>
+</Note>
 
 Three variables have no default and abort the run if unset: `SECRET_KEY` on `api`, `arq-worker`, and `campaign-orchestrator`.
 
@@ -128,9 +128,9 @@ Three variables have no default and abort the run if unset: `SECRET_KEY` on `api
 | `campaign-orchestrator` | waits for `ferretdb` started, `redis` healthy |
 | `runtime` | waits for `api` started, `minio` **healthy** |
 
-<Warning>
+<Note>
 `api` waits for FerretDB only to *start*, not to be ready. On a cold first boot it can attempt a query too early and log a connection error. `restart: unless-stopped` recovers it within seconds.
-</Warning>
+</Note>
 
 ## Overriding ports
 
@@ -159,7 +159,7 @@ docker compose logs campaign-orchestrator --tail 100
 
 ```bash
 # Status
-docker compose ps
+make application-ps
 
 # Restart one service after an .env change
 docker compose up -d --force-recreate api
@@ -168,10 +168,10 @@ docker compose up -d --force-recreate api
 docker compose up -d --build api runtime
 
 # Stop, keep data
-./scripts/stop-application-services.sh
+make application-down
 
 # Stop and DELETE ALL DATA
-docker compose down -v
+make application-down ARGS="-- -v"
 ```
 
 ## Related

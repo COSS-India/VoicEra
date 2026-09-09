@@ -63,6 +63,63 @@ A supplied `call_id` is accepted only if its `call_type` is `web` and its `agent
 
 `run_pipeline()` is called with `finalize_call=bool(call_id)` in `apps/runtime/services/pipecat/runners.py`, so a web session with a call log is finalised on teardown exactly like a telephony call.
 
+## Connecting
+
+A minimal connection in browser mode — open the socket, send one audio frame, read frames back. This is the bare protocol; for a working capture-and-playback client see [Browser WebSocket agents](../developer/clients/browser-websocket.md), which covers the full protobuf `Frame` schema, sample rates, and the audio pipeline.
+
+<CodeGroup>
+
+```javascript JavaScript
+const ws = new WebSocket(`ws://localhost:7860/agent/${orgId}/${agentId}`);
+ws.binaryType = "arraybuffer";
+
+ws.onopen = () => {
+  // Encode a Frame with an `audio` field carrying PCM16 bytes — see
+  // the protobuf schema in Browser WebSocket agents — then:
+  // ws.send(encodedFrameBytes);
+};
+
+ws.onmessage = (event) => {
+  // event.data is an ArrayBuffer containing one encoded `Frame`.
+  // Decode it with the same protobuf schema to get audio, text,
+  // or transcription frames back.
+  console.log("received frame bytes:", event.data.byteLength);
+};
+
+ws.onclose = (event) => {
+  console.log("closed", event.code, event.reason);
+};
+```
+
+```python Python
+import asyncio
+import websockets
+
+async def main():
+    org_id = "YOUR_ORG_ID"
+    agent_id = "YOUR_AGENT_ID"
+    uri = f"ws://localhost:7860/agent/{org_id}/{agent_id}"
+
+    async with websockets.connect(uri) as ws:
+        # Encode a Frame with an `audio` field carrying PCM16 bytes
+        # using the same protobuf schema, then:
+        # await ws.send(encoded_frame_bytes)
+
+        async for message in ws:
+            # message is bytes containing one encoded `Frame`.
+            # Decode it with the protobuf schema to get audio, text,
+            # or transcription frames back.
+            print("received frame bytes:", len(message))
+
+asyncio.run(main())
+```
+
+</CodeGroup>
+
+Both examples connect to a `websocket`-category agent — no handshake message is required, and the agent speaks its greeting first. A `telephony`-category agent instead requires a text `start` event as the first message, sent by the telephony provider, not by an integrator's client; see [Telephony mode](#telephony-mode).
+
+There is no official SDK for either language. Both snippets use each ecosystem's standard WebSocket client (`WebSocket` in the browser, [`websockets`](https://websockets.readthedocs.io/) in Python) plus a protobuf library to encode and decode `Frame` messages against the schema in [Browser WebSocket agents](../developer/clients/browser-websocket.md#protobuf-and-rtvi-frames).
+
 ## Connection lifecycle
 
 ```mermaid
@@ -110,7 +167,7 @@ The optional [model server](../developer/model-server/overview.md) publishes its
 
 The gateway serves both as a transparent relay — the actual protocol is between your client and whichever STT model is deployed in the slot, and a model that does not implement a route simply has nothing listening behind it.
 
-<Warning>
+<Note>
 Do not assume `/v1/asr/ws` works with every model. Coverage differs per checkpoint:
 
 | Model | `/v1/asr/ws` | `/v1/realtime` |
@@ -119,7 +176,7 @@ Do not assume `/v1/asr/ws` works with every model. Coverage differs per checkpoi
 | `indic-transcribe` | Yes | Yes |
 
 `models.yaml` records this per model as `streaming_endpoint` and `realtime_endpoint`. `indic-conformer` sets `streaming_endpoint: false` with the note "use OpenAI Realtime instead". Check the flag before pointing a client at a route.
-</Warning>
+</Note>
 
 Neither route is authenticated. When no STT model is deployed, both accept the socket, send a JSON error frame with `"type": "error"` and `"reason": "upstream_not_configured"`, and close with code `1013`:
 

@@ -5,9 +5,9 @@ description: Running the VoicEra test suites.
 
 VoicEra has five test suites, one per package. Each lives inside the code it covers — there is no top-level `tests/` directory and no aggregate runner. This page tells you how to run each, what it needs, and what breaks if you skip it.
 
-<Warning>
+<Note>
 There is **no CI**. The repository has no `.github/` directory, no workflows, and no pre-commit hooks. Nothing runs on a push. Every check on this page is one you run yourself, before opening a pull request.
-</Warning>
+</Note>
 
 ## The five suites
 
@@ -27,7 +27,7 @@ Run one at a time (see the warning below), a healthy tree looks like this:
 | --- | --- |
 | `apps/api/tests` | 126 passed, 1 skipped — the skip is the opt-in telephony integration module |
 | `apps/runtime/tests` | 40 passed |
-| `apps/telephony/tests` | 65 passed, 2 failed — see [the Plivo serializer defect](#apps-telephony) |
+| `apps/telephony/tests` | 65 passed, 2 failed — see [the Plivo serializer defect](#appstelephony) |
 | `apps/providers/tests` | 69 passed |
 | `model-server/tests` | 241 passed, 64 skipped, 1 failed — see the Docker and NOT VERIFIED notes below |
 
@@ -41,9 +41,9 @@ export PYTHONPATH="$PWD"
 
 `apps/providers`, `apps/telephony`, and `apps/runtime` import each other as `apps.*`, so this is not optional. See [Local setup](local-setup.md#the-pythonpath-and-the-apps-namespace).
 
-<Warning>
+<Note>
 Run the suites in **separate `pytest` invocations**, one per package. Passing them all to a single command fails at collection with `ModuleNotFoundError: No module named 'app.auth'` and similar: `apps/api` imports a top-level `app.*` package via its `conftest.py`, and `model-server/tests` puts its own tree on `sys.path`, so whichever is collected first claims the name. Each suite passes on its own.
-</Warning>
+</Note>
 
 ### Providers and telephony
 
@@ -102,13 +102,17 @@ ruff check .
 
 `tests/requirements-dev.txt` is deliberately small: `pytest`, `pytest-asyncio`, `httpx`, `numpy`, `fastapi`, `uvicorn`, `ruff`, `websockets`, plus the three `grpcio` packages that exercise `stt/_grpc/`. No torch, no NeMo, no CUDA. `tests/pytest.ini` sets `asyncio_mode = auto`, so async tests need no decorator.
 
+<Note>
+Add `pyyaml` as well. Thirteen modules `import yaml` to read `models.yaml` and the compose files, but `requirements-dev.txt` does not list it, so a clean virtualenv built from that file alone fails at collection with `ModuleNotFoundError: No module named 'yaml'`.
+</Note>
+
 ## What needs Docker
 
-Five model-server modules shell out to `docker compose config`: `test_model_switching.py`, `test_gpu_placement.py`, `test_grpc_facade.py`, `test_model_extras.py`, and `test_mps.py`. That subcommand only interpolates the compose files, so it needs the `docker` CLI but **no running daemon**, and each module is guarded by `skipif(shutil.which("docker") is None)`. On a machine with no Docker at all the whole model-server suite still runs; you just lose those modules' coverage.
+Five model-server modules shell out to `docker compose config`: `test_model_switching.py`, `test_gpu_placement.py`, `test_grpc_facade.py`, `test_model_extras.py`, and `test_mps.py`. That subcommand only interpolates the compose files, so it needs the `docker` CLI but **no running daemon**. Four of them guard with `skipif(shutil.which("docker") is None)`; `test_grpc_facade.py` instead checks that `docker compose version` exits zero. On a machine with no Docker at all the whole model-server suite still runs; you just lose those modules' coverage.
 
-<Warning>
+<Note>
 `test_gpu_placement.py::test_the_model_matches_real_compose` **fails** rather than skips on a Docker Desktop install. The `skipif` guard resolves `docker` on the full `PATH`, but the subprocess is then launched with a hardcoded `env={"PATH": "/usr/bin:/bin"}`. Docker Desktop puts the binary in `/usr/local/bin`, so the call raises `FileNotFoundError` before reaching the `returncode != 0` check that was meant to skip. Passing the inherited `PATH` through fixes it.
-</Warning>
+</Note>
 
 No other suite touches Docker. The database-only Compose stack described in [Local setup](local-setup.md#database-only-compose) is for running the services by hand, not for testing.
 
@@ -181,11 +185,11 @@ Five modules. `test_provider_schemas.py` tests the registry as a whole rather th
 
 `test_registry.py` asserts the registered set is exactly `{"vobiz", "plivo"}` and that the lazy serializer load works. `test_xml.py` pins the answer XML per sample rate — the string most likely to be silently wrong, because malformed XML produces a call that connects and then goes quiet.
 
-<Warning>
+<Note>
 Two tests in `test_serializers.py` currently **fail**: `test_create_frame_serializer_known_providers[plivo]` and `[Plivo]`, with `ValueError: auto_hang_up is enabled but missing required parameters: auth_id, auth_token`.
 
 This is a real defect, not a stale test. Pipecat's `PlivoFrameSerializer` defaults `auto_hang_up` to `True` and then requires `auth_id` and `auth_token`, but `apps/telephony/providers/plivo/serializer_service.py` passes neither — and neither does the runtime callsite in `apps/runtime/services/pipecat/runners.py`, so the serializer raises before any Plivo call can start. Vobiz is unaffected because `VobizFrameSerializer.InputParams` sets `auto_hang_up=False` explicitly. The fix is to do the same for Plivo, since the runtime ends calls itself and holds no Plivo API credentials at that point.
-</Warning>
+</Note>
 
 ### apps/api
 
@@ -201,9 +205,9 @@ The broadest suite. `test_secret_crypto.py` covers Fernet encryption of `Provide
 
 ## Four model-server modules silently skip
 
-<Warning>
+<Note>
 `test_llm_wiring.py`, `test_client_selection.py`, `test_tts_format_negotiation.py`, and `test_partial_transcripts.py` all locate the voice pipeline at `ROOT.parent / "voice_2_voice_server"` — a directory that **no longer exists**. Every test in those four modules therefore skips, and a skip does not fail a run.
-</Warning>
+</Note>
 
 The paths are hardcoded at the top of each module:
 
@@ -216,7 +220,7 @@ pytestmark = pytest.mark.skipif(
 )
 ```
 
-`voice_2_voice_server` was renamed to `apps/runtime` in the revamp. The directory those tests point at was never recreated, so `V2V.is_dir()` is `False` and 44 tests across the four modules never run.
+`voice_2_voice_server` was renamed to `apps/runtime` in the revamp. The directory those tests point at was never recreated, so `V2V.is_dir()` is `False` and 46 tests across the four modules never run. The exact number moves with the catalogue — `test_llm_wiring.py` parametrises over `deployable_llms()`.
 
 The suite is honest about it. `conftest.py` installs a `pytest_terminal_summary` hook that prints a red **NOT VERIFIED** block after the summary line, naming what is unverified while that is true:
 
@@ -228,9 +232,9 @@ The comment above the hook explains why it exists: "A skip is invisible in a gre
 
 These four modules should be repointed at `apps/runtime`. The specific paths they look for are `voice_2_voice_server/api/services.py`, `voice_2_voice_server/services/ai4bharat/stt.py`, and `voice_2_voice_server/services/ai4bharat/tts.py`, none of which map one-to-one onto the current runtime layout — the client selection logic now lives in `apps/providers` and the pipeline in `apps/runtime/services/pipecat/`. Repointing them is a real piece of work, not a path substitution.
 
-<Warning>
+<Note>
 Until that is done, treat the model-server suite's pass count as covering the server side only. The seam between the model server and the voice pipeline is unverified, and that seam is where a mistake stays invisible until a live call drops.
-</Warning>
+</Note>
 
 ## Related
 

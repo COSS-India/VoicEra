@@ -64,7 +64,7 @@ Handlers read `org_id` from the token, never from the request body, so a caller 
 Signing uses HS256 with `SECRET_KEY`, and tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default **30**).
 
 <Warning>
-If `SECRET_KEY` is unset, `apps/api/app/auth.py` logs a warning and generates a temporary key at import time. Every restart then invalidates all outstanding tokens, and multiple replicas will not accept each other's. Always set it — `./scripts/start-application-services.sh` does this for you.
+If `SECRET_KEY` is unset, `apps/api/app/auth.py` logs a warning and generates a temporary key at import time. Every restart then invalidates all outstanding tokens, and multiple replicas will not accept each other's. Always set it — `make application-up` does this for you.
 </Warning>
 
 ### Switching organisations
@@ -97,7 +97,7 @@ sequenceDiagram
   API-->>U: invited
 ```
 
-Signup always creates an organisation and makes the signer its `super_admin`. There is no seeded default account — see [Generated secrets and defaults](../quickstart/secrets-and-defaults.md).
+Signup always creates an organisation and makes the signer its `super_admin`. There is no seeded default account — see [Generated secrets and defaults](../../guides/quickstart/secrets-and-defaults.md).
 
 Check whether an address is already known before inviting:
 
@@ -128,7 +128,7 @@ sequenceDiagram
 The returned token carries role `admin` in the requested organisation. An unknown `org_id` returns **404**.
 
 <Warning>
-`INTERNAL_API_KEY` is a single shared secret with organisation-wide reach. Treat it like a root credential: never send it from a browser, and rotate it as described in [Security hardening](../deployment/security-hardening.md).
+`INTERNAL_API_KEY` is a single shared secret with organisation-wide reach. Treat it like a root credential: never send it from a browser, and rotate it as described in [Security hardening](../../guides/deployment/security-hardening.md).
 </Warning>
 
 ## How scoping is enforced
@@ -143,6 +143,6 @@ A request for an object in another organisation returns **404**, not 403 — exi
 ## Related
 
 * [Provider credentials](provider-auth.md) — how secrets are stored and masked
-* [Agents](agents.md) — what a member can configure
+* [Agents](../../guides/concepts/agents.md) — what a member can configure
 * [REST API](../../api-reference/overview.md) — auth column for every route
-* [Security hardening](../deployment/security-hardening.md)
+* [Security hardening](../../guides/deployment/security-hardening.md)

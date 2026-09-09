@@ -29,10 +29,10 @@ flowchart TD
 Compose refuses to start `api`, `arq-worker`, or `campaign-orchestrator` without it — the variable is declared `${SECRET_KEY:?...}`, which fails the whole command rather than starting a broken stack.
 
 ```bash
-./scripts/start-application-services.sh
+make application-up
 ```
 
-The script generates `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` into the root `.env` if they are missing. Starting with a bare `docker compose up` on a fresh checkout is what produces this error.
+`make application-up` (which wraps `./scripts/start-application-services.sh`) generates `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` into the root `.env` if they are missing. Starting with a bare `docker compose up` on a fresh checkout is what produces this error.
 
 To generate one by hand:
 
@@ -42,11 +42,11 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ### `docker-compose.yaml not found at repo root`
 
-`start-application-services.sh` must run from the repository root:
+`make application-up` (and the `start-application-services.sh` script it wraps) must run from the repository root:
 
 ```bash
 cd /path/to/voicera
-./scripts/start-application-services.sh
+make application-up
 ```
 
 ### A port is already in use
@@ -78,7 +78,7 @@ If it does not settle:
 
 ```bash
 docker compose logs postgres | tail -30
-docker compose ps
+make application-ps
 ```
 
 ### `Authentication failed` against FerretDB
@@ -89,7 +89,7 @@ Almost always `MONGODB_AUTH_SOURCE`. It must be **empty** for FerretDB:
 MONGODB_AUTH_SOURCE=
 ```
 
-Setting it to `admin` — correct for real MongoDB, and what the old mono repo used — appends `?authSource=admin` and authentication fails. See [Data store](../concepts/data-store.md).
+Setting it to `admin` — correct for real MongoDB, and what the old mono repo used — appends `?authSource=admin` and authentication fails. See [Data store](../../developer/reference/data-store.md).
 
 ### Connection refused on port 27017
 
@@ -128,7 +128,7 @@ If it is blank, set it and restart. See [Security hardening](../deployment/secur
 | Symptom | Cause |
 | --- | --- |
 | `401 Invalid authentication credentials` | Missing, malformed, or expired token. Tokens last 30 minutes by default — log in again. |
-| `403` on a valid token | Your role is too low for that route. Role checks are explicit, so 403 means authenticated but not permitted. See [Multi-tenancy](../concepts/multi-tenancy.md). |
+| `403` on a valid token | Your role is too low for that route. Role checks are explicit, so 403 means authenticated but not permitted. See [Multi-tenancy](../../developer/reference/multi-tenancy.md). |
 | `404` for a resource you know exists | It belongs to a different organisation. Existence is never leaked across tenants — switch with `POST /users/switch-organisation`. |
 | `401 Missing API key` | An internal route needs `X-API-Key: $INTERNAL_API_KEY`. |
 | `500 Internal API key not configured` | `INTERNAL_API_KEY` is empty in `.env`. |
@@ -174,15 +174,7 @@ There is no `pip install -e .` — `pyproject.toml` is an empty placeholder. Ins
 
 ## Checking health
 
-```bash
-curl -s localhost:8000/health   # API and its database
-curl -s localhost:7860/health   # runtime
-curl -s localhost:8100/health   # model server, if running
-```
-
-<Warning>
-`GET /health` returns HTTP **200 even when the database is down** — the body says `"status": "degraded"`. A probe that only checks the status code will not notice. Parse the body.
-</Warning>
+Endpoints, response shapes, and the "200 even when degraded" gotcha are in [Daily operations](../operator/operations.md#health-endpoints).
 
 ## Where next
 

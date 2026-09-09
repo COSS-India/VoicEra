@@ -26,7 +26,7 @@ Which of `cloud/`, `adapters/`, `local/` you pick **is** the `provider_type` —
 **Only legitimate exception:** `apps/runtime/requirements.txt`, if your vendor needs a Pipecat extra not already installed.
 
 <Note>
-This page is the how-to. For *why* the registry works this way — discriminated unions, the catalog dump, and where credentials live — read [Provider registry](../../guides/concepts/provider-registry.md).
+This page is the how-to. For *why* the registry works this way — discriminated unions, the catalog dump, and where credentials live — read [Provider registry](../reference/provider-registry.md).
 </Note>
 
 ## Before you start
@@ -44,7 +44,7 @@ Check two things first:
 
 | Directory | `provider_type` | Use when |
 | --- | --- | --- |
-| `cloud/<vendor>/` | `cloud` | Pipecat already ships a service class for the vendor and you are configuring it. 21 vendors live here. |
+| `cloud/<vendor>/` | `cloud` | Pipecat already ships a service class for the vendor and you are configuring it. 22 vendors live here. |
 | `adapters/<vendor>/` | `adapter` | You are writing the Pipecat service subclass yourself. Two examples: `adapters/bhashini/` (`tts.py`, NVCF gRPC) and `adapters/kenpath/` (`llm.py`, JWT-signed Vistaar HTTP). |
 | `local/<vendor>/` | `local` | The vendor is VoicEra's own [model server](../model-server/overview.md) gateway, not a third-party API. Two examples: `local/indic_orpheus/` (TTS) and `local/indic_nemotron/` (STT). |
 
@@ -183,9 +183,9 @@ The inversion keeps the first vendor code that maps to a canonical id. ElevenLab
 
 Vendor **defaults may differ on purpose**. Deepgram STT defaults to `multi`, Deepgram TTS to `en`, Bhashini to `hi`. Do not force one default across providers.
 
-<Warning>
+<Note>
 Every canonical id you emit must already exist in `LANGUAGES` in `apps/providers/languages.py`. `test_every_stt_tts_schema_with_language_has_structured_extras` walks every provider's `examples` and fails on an id that is not there. If your vendor supports a language VoicEra has no canonical id for, add it to `LANGUAGES` in the same change.
-</Warning>
+</Note>
 
 ## Controlling input_mode
 
@@ -281,9 +281,9 @@ Because there is no third-party SDK to configure, a local provider's own transpo
 
 Auth is often unnecessary — the gateway itself has no auth layer, so `indic_orpheus` has no `Auth` class at all. Don't add one your local provider doesn't need.
 
-<Warning>
+<Note>
 No `local` LLM provider exists yet. `model-server/llm/qwen3.5-4b/` is `status: ready` in the model server's own catalog, but nothing in `apps/providers/local/` wires it up, so agents cannot select it. If you are adding the first local LLM provider, `local/indic_orpheus/` and `local/indic_nemotron/` are still the closest structural templates — you'll be writing the `register_llm` creator and the OpenAI-compatible client yourself.
-</Warning>
+</Note>
 
 ## Why you never edit factory.py
 
@@ -340,9 +340,9 @@ Bump the number for the kinds you added. That failure is the test doing its job 
 
 Add a vendor-specific test only where your provider does something the generic checks cannot see, such as a non-obvious vendor code inversion. `test_elevenlabs_stt_odia_vendor_code_in_schema` and `test_sarvam_stt_auto_detect_vendor_code_is_unknown` are the models to follow.
 
-<Warning>
+<Note>
 There is no CI. Run the suite yourself before opening a pull request. See [Testing](testing.md).
-</Warning>
+</Note>
 
 ## A worked example
 
@@ -474,8 +474,8 @@ If your vendor also needs a Pipecat extra, add it to the extras list in `apps/ru
 
 ## Related
 
-* [Provider registry](../../guides/concepts/provider-registry.md)
-* [Provider credentials (ProviderAuth)](../../guides/concepts/provider-auth.md)
+* [Provider registry](../reference/provider-registry.md)
+* [Provider credentials (ProviderAuth)](../reference/provider-auth.md)
 * [Adding a telephony provider](adding-a-telephony-provider.md)
 * [Providers service](../services/providers.md)
 * [Testing](testing.md)

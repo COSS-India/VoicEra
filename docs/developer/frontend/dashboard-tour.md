@@ -129,7 +129,7 @@ Fully wired, over the `useMembers` hook and `frontend/src/lib/api/members.ts`.
 | Promote to admin | `POST /members/assign-admin` | `super_admin` |
 | Remove from the organisation | `POST /members/remove` | `super_admin` |
 
-Cards sort highest-rank-first: `super_admin`, then `admin`, then `member`. There is no accept-invite step — `POST /members/invite` creates the account directly in your active organisation with a password you set, so you hand the credentials over yourself. The "add member" link the modal generates points at `/add-member/{uid}`, a shareable page identifier; the organisation context travels in query parameters. Roles are explained in [Multi-tenancy and roles](../../guides/concepts/multi-tenancy.md).
+Cards sort highest-rank-first: `super_admin`, then `admin`, then `member`. There is no accept-invite step — `POST /members/invite` creates the account directly in your active organisation with a password you set, so you hand the credentials over yourself. The "add member" link the modal generates points at `/add-member/{uid}`, a shareable page identifier; the organisation context travels in query parameters. Roles are explained in [Multi-tenancy and roles](../reference/multi-tenancy.md).
 
 ## integrations
 
@@ -139,7 +139,7 @@ The credential manager, rendered by `Integrations.tsx`. It is the screen you nee
 
 A second filter row sits above the list: provider type tabs (`cloud`, `adapter`, `local`), built from whatever `catalog.provider_type` values are actually present, on top of the existing kind filter. Both narrow the same connected/available/telephony lists together.
 
-Saving a provider sends `POST /auth` with `{ provider, auth }`. `GET /auth/{provider}` reads a stored entry back and `DELETE /auth/{provider}` removes it. Secret fields render behind a show/hide toggle. Credentials are encrypted at rest by the API — see [Provider credentials (ProviderAuth)](../../guides/concepts/provider-auth.md).
+Saving a provider sends `POST /auth` with `{ provider, auth }`. `GET /auth/{provider}` reads a stored entry back and `DELETE /auth/{provider}` removes it. Secret fields render behind a show/hide toggle. Credentials are encrypted at rest by the API — see [Provider credentials (ProviderAuth)](../reference/provider-auth.md).
 
 Because the form is generated from the catalog rather than hand-written, it always matches what the API accepts. That makes this screen genuinely more reliable than reading credential field names out of documentation.
 

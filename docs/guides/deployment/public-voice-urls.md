@@ -120,9 +120,9 @@ ngrok http 7860
 
 Put the assigned HTTPS hostname in `VOICE_SERVER_BASE_URL`, restart the API and runtime, **then** create your telephony agents.
 
-<Warning>
+<Note>
 Free tunnels get a new hostname every restart. Since the URL is baked in at agent-create time, recreate or `PATCH` your agents whenever the tunnel address changes.
-</Warning>
+</Note>
 
 ## Verifying
 
@@ -172,3 +172,4 @@ Mitigate with rate limiting at the proxy, and IP-allowlist your provider's range
 * [Telephony clients](../../developer/clients/telephony.md)
 * [Troubleshooting telephony](../troubleshooting/telephony.md)
 * [Production deployment](production.md)
+* [Environment variables](../../developer/reference/environment-variables.md)

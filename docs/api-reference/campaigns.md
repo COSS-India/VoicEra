@@ -5,9 +5,9 @@ description: "CSV-driven outbound campaigns: upload, schedule, run, report."
 
 `apps/api/app/routers/campaign.py`, prefix `/api/v1/campaign`. See [Campaigns](../guides/concepts/campaigns.md).
 
-<Warning>
+<Note>
 `max_concurrency`, `schedule_config`, and `circuit_breaker` are accepted as **top-level fields on the request** but are **not** top-level fields on the stored document. The router nests all three inside `orchestrator_metadata` on both create and update, and `CampaignResponse` returns them there. Read `orchestrator_metadata.max_concurrency`, not `max_concurrency`.
-</Warning>
+</Note>
 
 ## `POST /campaign/upload`
 

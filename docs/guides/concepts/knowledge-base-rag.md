@@ -90,9 +90,9 @@ Implemented in `apps/runtime/services/knowledge/`: `context_processor.py` is a P
 
 `top_k` is the accuracy-versus-cost dial: more chunks give the model more to work with and cost more tokens per turn.
 
-<Warning>
+<Note>
 The runtime parses this block **more permissively** than the API validates it — an unknown `mode` falls back to `context`, and `top_k` is clamped. A document written straight into FerretDB can therefore behave differently from one created through the API.
-</Warning>
+</Note>
 
 ## Retrieval at call time
 
@@ -154,7 +154,7 @@ See [Managing knowledge documents](../operator/managing-knowledge.md).
 | **Vectors are on a volume** | `voicera_oss_chroma_data`. Losing it means re-ingesting everything. |
 
 <Note>
-The Beta dashboard's Knowledge Base screen renders static sample data and its upload dialog uploads nothing. Use the API. See [Dashboard tour](../../developer/frontend/dashboard-tour.md).
+The dashboard's Knowledge Base screen is backed by the API — it lists, previews, uploads, and deletes documents through `/knowledge`. The API remains the complete surface; the screen covers the common operations. See [Dashboard tour](../../developer/frontend/dashboard-tour.md).
 </Note>
 
 ## Tuning retrieval quality

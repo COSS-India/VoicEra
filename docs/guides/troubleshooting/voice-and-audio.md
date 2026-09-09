@@ -83,9 +83,9 @@ See [Agent configuration](../../developer/reference/agent-configuration.md) for 
 | `automatic_call_ending` | Lets the agent end the call when the conversation is done |
 | `user_online_detection_*` | Prompts the caller, then closes after `user_online_detection_repeats` unanswered prompts |
 
-<Warning>
+<Note>
 `call_timeout_seconds` is accepted and stored by the API but **no code in the runtime reads it**. Calls are not capped by it. Use `user_silence_hangup_seconds` or `automatic_call_ending` instead.
-</Warning>
+</Note>
 
 ## Latency
 

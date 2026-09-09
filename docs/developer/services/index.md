@@ -69,9 +69,9 @@ flowchart LR
   MINIO --> INIT["minio-init"]
 ```
 
-<Warning>
+<Note>
 `api` waits for `ferretdb` to *start*, not to accept connections, and `ferretdb` itself only waits for `postgres` to pass `pg_isready`. On a cold first boot the API can come up before FerretDB serves queries and log a connection failure. `restart: unless-stopped` recovers it. If a container is stuck restarting, see [Deployment troubleshooting](../../guides/troubleshooting/deployment.md).
-</Warning>
+</Note>
 
 ## Who talks to whom
 

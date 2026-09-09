@@ -3,7 +3,7 @@ title: Provider credentials
 description: Store and retrieve encrypted provider API keys.
 ---
 
-`apps/api/app/routers/auth.py`, prefix `/api/v1/auth`. Credentials are **provider-level** — one key set per provider per organisation, shared across whichever of STT, TTS, and LLM that vendor serves. The whole `auth` object is Fernet-encrypted at rest with `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Provider credentials (ProviderAuth)](../guides/concepts/provider-auth.md).
+`apps/api/app/routers/auth.py`, prefix `/api/v1/auth`. Credentials are **provider-level** — one key set per provider per organisation, shared across whichever of STT, TTS, and LLM that vendor serves. The whole `auth` object is Fernet-encrypted at rest with `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Provider credentials (ProviderAuth)](../developer/reference/provider-auth.md).
 
 ## `GET /auth/catalog`
 

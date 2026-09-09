@@ -40,7 +40,7 @@ sequenceDiagram
   RT->>API: PATCH /calls/{call_id} with minio:// URIs
 ```
 
-The runtime never holds long-lived credentials of its own. It mints a bot token with `INTERNAL_API_KEY`, and the API returns decrypted provider keys for that organisation only. See [Provider credentials](provider-auth.md).
+The runtime never holds long-lived credentials of its own. It mints a bot token with `INTERNAL_API_KEY`, and the API returns decrypted provider keys for that organisation only. See [Provider credentials](../../developer/reference/provider-auth.md).
 
 Inbound registration is idempotent — `register_inbound_call` returns the existing record if the same `provider_call_sid` arrives twice, so a provider retry does not create a duplicate call log.
 
@@ -68,9 +68,9 @@ sequenceDiagram
   RT->>API: PATCH /calls/{call_id} with the outcome
 ```
 
-<Warning>
-This path takes **no concurrency slot**. `initiate_outbound_call()` never touches Redis — only `CampaignCallDispatcher` acquires and releases slots, so an organisation's ceiling constrains campaigns, not direct `POST /calls/outbound` requests. See [Call concurrency](call-concurrency.md).
-</Warning>
+<Note>
+This path takes **no concurrency slot**. `initiate_outbound_call()` never touches Redis — only `CampaignCallDispatcher` acquires and releases slots, so an organisation's ceiling constrains campaigns, not direct `POST /calls/outbound` requests. See [Call concurrency](../../developer/reference/call-concurrency.md).
+</Note>
 
 ## Campaign call
 

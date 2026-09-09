@@ -128,7 +128,7 @@ Both processes share one Redis instance, addressed by `REDIS_URL`.
 | `concurrent_calls_fleet` | `call_concurrency/rate_limiter.py` | Fleet-wide slot set across organisations. |
 | `rate_limit:{scope}` | `call_concurrency/rate_limiter.py` | Sliding-window rate limit, 2s TTL. |
 
-Slot and rate-limit keys are manipulated by Lua scripts so acquisition is atomic across processes. See [Call concurrency and rate limiting](../../guides/concepts/call-concurrency.md).
+Slot and rate-limit keys are manipulated by Lua scripts so acquisition is atomic across processes. See [Call concurrency and rate limiting](../reference/call-concurrency.md).
 
 ## Scaling
 
@@ -189,5 +189,5 @@ A worker with no `Processing batch` lines while a campaign sits in `running` usu
 
 * [Campaigns](../../guides/concepts/campaigns.md) — states, retries, scheduling, and the circuit breaker
 * [API (apps/api)](api.md) — the same package, running as HTTP
-* [Call concurrency and rate limiting](../../guides/concepts/call-concurrency.md)
+* [Call concurrency and rate limiting](../reference/call-concurrency.md)
 * [Running a campaign](../../guides/operator/running-a-campaign.md) · [Campaign troubleshooting](../../guides/troubleshooting/campaigns.md)

@@ -51,7 +51,7 @@ The gateway reports `degraded` when a deployed slot's upstream fails its check, 
 Compose's own healthchecks cover only `postgres`, `minio`, and `redis`. `api`, `runtime`, `arq-worker`, and `campaign-orchestrator` have **no** `healthcheck:` block, so `docker compose ps` shows them as running whether or not they are working. Probe them yourself:
 
 ```bash
-docker compose ps
+make application-ps
 ```
 
 ## Which logs matter
@@ -126,7 +126,7 @@ docker run --rm \
 Same command with `voicera_oss_redis_data` for Redis. Redis is worth capturing mainly so a restore does not resurrect stale queue entries; if you are willing to lose in-flight campaign batches, you can skip it and let the queue rebuild.
 
 <Warning>
-`docker compose down -v` deletes **all four volumes**: your database, every recording and transcript, every knowledge embedding, and the queue. There is no undo and no confirmation prompt. Use `./scripts/stop-application-services.sh` (which runs `docker compose down` without `-v`) unless you specifically intend to destroy the data.
+`docker compose down -v` deletes **all four volumes**: your database, every recording and transcript, every knowledge embedding, and the queue. There is no undo and no confirmation prompt. Use `make application-down` (which runs `docker compose down` without `-v`) unless you specifically intend to destroy the data.
 </Warning>
 
 ## Restoring
@@ -167,7 +167,7 @@ docker run --rm \
 Then bring the rest up and verify:
 
 ```bash
-docker compose up -d
+make application-up
 curl http://localhost:8000/health
 ```
 
@@ -212,11 +212,10 @@ Neither recordings nor call logs are ever deleted by VoicEra. Budget disk for th
 Routine restart, preserving all data:
 
 ```bash
-./scripts/stop-application-services.sh
-./scripts/start-application-services.sh
+make restart
 ```
 
-`stop-application-services.sh` runs `docker compose down` with no `-v`, so the volumes survive. `start-application-services.sh` ensures the three secrets exist in `.env` before starting, which is why it is preferred over a bare `docker compose up`.
+`make restart` runs `application-down` then `application-up`. `application-down` runs `docker compose down` with no `-v`, so the volumes survive. `application-up` ensures the three secrets exist in `.env` before starting, which is why it is preferred over a bare `docker compose up`.
 
 Restarting one service in place, without touching the others:
 
@@ -240,7 +239,7 @@ Losing the orchestrator's in-memory state is recoverable by design: the completi
 Recovery checks after any restart:
 
 ```bash
-docker compose ps
+make application-ps
 curl http://localhost:8000/health
 curl http://localhost:7860/health
 curl -s "$API/api/v1/campaign/" -H "Authorization: Bearer $TOKEN"

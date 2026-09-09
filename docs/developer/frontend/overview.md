@@ -74,7 +74,7 @@ Every request is built in `frontend/src/lib/api-client.ts` or `frontend/src/lib/
 | Module | Endpoints it calls | API router |
 | --- | --- | --- |
 | `api-client.ts` (agents) | `GET /agents`, `GET /agents/{id}`, `POST /agents`, `PATCH /agents/{id}`, `DELETE /agents/{id}` | agents |
-| `api-client.ts` (provider auth) | `GET /auth/catalog`, `GET /auth/configured`, `POST /auth`, `GET /auth/{provider}`, `DELETE /auth/{provider}` | [ProviderAuth](../../guides/concepts/provider-auth.md) |
+| `api-client.ts` (provider auth) | `GET /auth/catalog`, `GET /auth/configured`, `POST /auth`, `GET /auth/{provider}`, `DELETE /auth/{provider}` | [ProviderAuth](../reference/provider-auth.md) |
 | `api-client.ts` (catalogs) | `GET /languages`, `GET /configuration/{stt,tts,llm,telephony}`, `GET /configuration/{stt,tts}/setting/{provider}`, `GET /configuration/llm/setting/{provider}` | configuration |
 | `api/users.ts` | `POST /users/login`, `POST /users/signup`, `GET /users/me`, `GET /users/organisations`, `POST /users/switch-organisation`, `GET /users/check/{email}`, `GET /users/{email}`, `POST /users/forgot-password`, `POST /users/reset-password` | users |
 | `api/members.ts` | `POST /members/invite`, `GET /members/{org_id}`, `POST /members/assign-admin`, `POST /members/remove` | members |

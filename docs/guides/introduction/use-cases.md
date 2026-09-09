@@ -13,7 +13,7 @@ A public number that answers immediately, in the caller's language, at any hour.
 
 | What you configure | Where |
 | --- | --- |
-| A `telephony` agent with your prompts and greeting | [Create your first agent](../quickstart/first-agent.md) |
+| A `telephony` agent with your prompts and greeting | [Create your first agent](../dashboard/create-an-agent.md) |
 | A phone number attached to it | [Agents](../concepts/agents.md) |
 | Documents it may answer from | [Knowledge base](../concepts/knowledge-base-rag.md) |
 | A public HTTPS and WSS address | [Public voice URLs](../deployment/public-voice-urls.md) |
@@ -31,7 +31,7 @@ Dial a list of numbers, hold the same short conversation with each, and record w
 | A contact CSV | [Running a campaign](../operator/running-a-campaign.md) |
 | Retry policy — how often, how long apart | [Campaigns](../concepts/campaigns.md) |
 | Calling hours, so you do not dial at night | [Campaigns](../concepts/campaigns.md) |
-| A concurrency ceiling | [Call concurrency](../concepts/call-concurrency.md) |
+| A concurrency ceiling | [Call concurrency](../../developer/reference/call-concurrency.md) |
 
 The orchestrator paces the run, retries the numbers worth retrying, and **stops the campaign on its own** if the failure rate crosses your threshold — so a misconfigured agent burns a handful of calls, not the whole list.
 
@@ -84,5 +84,5 @@ Browser sessions are recorded too — the API registers a `call_type: web` call 
 ## Where next
 
 * [Prerequisites](../quickstart/prerequisites.md)
-* [Create your first agent](../quickstart/first-agent.md)
+* [Create your first agent](../dashboard/create-an-agent.md)
 * [Running a campaign](../operator/running-a-campaign.md)

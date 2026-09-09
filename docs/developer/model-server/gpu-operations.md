@@ -27,9 +27,9 @@ LLM_GPU_DEVICE_IDS=2
 
 Each slot holds its own reservation rather than sharing one anchor, and `tts/indic-mio`'s vLLM sidecar follows the TTS slot. `tests/test_gpu_placement.py` pins all of it against a real `docker compose config` render.
 
-<Warning>
+<Note>
 The fallback is `0`, not `1`. GPU 1 is this team's allocation on `ace-h200`, not a default — leaving `GPU_DEVICE_IDS` unset lands the stack on card 0.
-</Warning>
+</Note>
 
 Check `nvidia-smi` first:
 
@@ -91,7 +91,7 @@ A model that brings GPU sidecars brings their MPS wiring too, as `<slot>/<model>
 On a box where another stack has already downloaded them, mount that cache read-only:
 
 ```bash
-USE_SHARED_HF_CACHE=1 ./scripts/start-model-server.sh
+USE_SHARED_HF_CACHE=1 make model-server-setup
 ```
 
 Or by hand:
@@ -171,7 +171,7 @@ There is no Apple Metal path. **MPS throughout this repository means NVIDIA's Mu
 
 Nothing in `model-server` targets Apple silicon. The GPU reservations name `driver: nvidia`, the images are built on CUDA bases, and `scripts/start-model-server.sh` requires `nvidia-smi` when any slot is selected. The `indic-conformer` folder notes that CPU inference works but is far too slow for a live call, which is the closest thing to a non-NVIDIA path here.
 
-To develop on a Mac, run the test suite — it needs no GPU — and point an agent at cloud providers via the [provider registry](../../guides/concepts/provider-registry.md) instead of self-hosting.
+To develop on a Mac, run the test suite — it needs no GPU — and point an agent at cloud providers via the [provider registry](../reference/provider-registry.md) instead of self-hosting.
 
 ## Related
 

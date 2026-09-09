@@ -49,13 +49,13 @@ docker compose version
 docker run --rm hello-world
 ```
 
-<Warning>
+<Note>
 `start-application-services.sh` needs `python3` with the `cryptography` package to generate `PROVIDER_AUTH_ENCRYPTION_KEY`. Without it the script stops and tells you to set the key manually.
 
 ```bash
 pip install cryptography
 ```
-</Warning>
+</Note>
 
 ## Hardware
 
@@ -93,7 +93,7 @@ The alternative is self-hosting — see [Model server](../../developer/model-ser
 A [Vobiz](../concepts/telephony-model.md) or Plivo account with at least one number. You need the account credentials and a number you can attach.
 
 <Note>
-You can skip telephony entirely at first. A `websocket` agent runs the same pipeline from a browser, with no telephony account and no call charges. See [Your first call](first-call.md).
+You can skip telephony entirely at first. A `websocket` agent runs the same pipeline from a browser, with no telephony account and no call charges. See [Test and call with your agent](../dashboard/make-a-call.md).
 </Note>
 
 ### Optional
