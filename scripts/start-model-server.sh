@@ -413,7 +413,13 @@ set_env USE_STT_GRPC "${USE_STT_GRPC:-}"
 
 # Leftover from an old native-mode experiment — localhost upstreams break the
 # gateway container, which must reach STT/TTS/LLM by Compose service name.
-sed -i '/^RUN_MODE=/d; /^STT_UPSTREAM=http:\/\/127\.0\.0\.1/d' "$MS_DIR/.env"
+#
+# This named STT_UPSTREAM only, while .env.example shipped TTS_UPSTREAM
+# uncommented, so the slot that was cleaned worked and the slot that was not
+# failed -- a tts container up and serving on 0.0.0.0:8002 while the gateway
+# reported "All connection attempts failed" against its own localhost. All
+# three slots are covered now, and localhost as well as 127.0.0.1.
+sed -i '/^RUN_MODE=/d; /^\(STT\|TTS\|LLM\)_UPSTREAM=http:\/\/\(127\.0\.0\.1\|localhost\)/d' "$MS_DIR/.env"
 
 # Always a directory that exists. Compose stats every declared build context
 # whether or not a Dockerfile references it, so the `nemo` context in
