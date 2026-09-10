@@ -415,9 +415,19 @@ set_env USE_STT_GRPC "${USE_STT_GRPC:-}"
 # gateway container, which must reach STT/TTS/LLM by Compose service name.
 sed -i '/^RUN_MODE=/d; /^STT_UPSTREAM=http:\/\/127\.0\.0\.1/d' "$MS_DIR/.env"
 
-if [ -n "$NEMO_DIR" ]; then
-  set_env NEMO_CONTEXT_PATH "$NEMO_DIR"
+# Always a directory that exists. Compose stats every declared build context
+# whether or not a Dockerfile references it, so the `nemo` context in
+# compose.model-server.yml is resolved even for models that never use it --
+# only indic-conformer has `COPY --from=nemo`. The base file's comment claimed
+# the opposite, and .env.example shipped one person's home directory, so a
+# fresh checkout picking indic-nemotron still died with
+#   failed to get build context nemo: stat /home/<someone>/ai4bharat_nemo
+# An empty folder is a correct and unused context for every other model.
+if [ -z "$NEMO_DIR" ]; then
+  NEMO_DIR="$MS_DIR/.nemo-context"
+  mkdir -p "$NEMO_DIR"
 fi
+set_env NEMO_CONTEXT_PATH "$NEMO_DIR"
 
 # Persist the shared-cache choice. It was a setup-time variable only, so a
 # later `make ms-up` or restart silently dropped the overlay and the gated

@@ -32,6 +32,10 @@ model-server/run/
 # teardown; a run that dies before teardown leaves it behind.
 _test_stub.nemo
 
+# Empty stand-in for the `nemo` build context, created by
+# start-model-server.sh when the selected STT model does not need the fork.
+model-server/.nemo-context/
+
 # Working folder created by the Claude desktop app, not part of the project.
 Claude outputs/
 

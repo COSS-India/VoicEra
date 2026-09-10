@@ -121,8 +121,13 @@ services:
     build:
       context: ./stt/${STT_MODEL:-indic-conformer}
       additional_contexts:
-        # A named context is only fetched when a Dockerfile references it, so
-        # models that do not need the AI4Bharat NeMo fork ignore this.
+        # Only stt/indic-conformer's Dockerfile references this, via
+        # `COPY --from=nemo`. That does NOT make it free for everyone else:
+        # buildx resolves every declared context up front, so a stale or
+        # personal path here fails the build for models that never touch it --
+        # "failed to get build context nemo: stat ...". This said the opposite
+        # and was believed. start-model-server.sh now guarantees the value
+        # names a directory that exists.
         #
         # Relative paths here resolve against this file's directory, NOT the
         # build context above -- so this stays ../../ even though the context
