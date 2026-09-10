@@ -20,7 +20,7 @@ from apps.telephony.schema import DEFAULT_SERVICE_PROVIDERS
 
 def test_provider_schemas_keys():
     schemas = provider_schemas(Kind.TELEPHONY)
-    assert set(schemas) == {"vobiz", "plivo"}
+    assert set(schemas) == {"vobiz", "plivo", "vi"}
 
 
 def test_all_provider_schemas_shape():
@@ -28,6 +28,7 @@ def test_all_provider_schemas_shape():
     assert set(schemas) == {"telephony"}
     assert "vobiz" in schemas["telephony"]
     assert "plivo" in schemas["telephony"]
+    assert "vi" in schemas["telephony"]
 
 
 def test_vobiz_secrets_and_integration_models():
@@ -70,7 +71,7 @@ def test_catalog_omits_schema_noise():
 
 def test_configuration_telephony_envelope():
     defaults = configuration_telephony()
-    assert set(defaults["telephony"]) == {"vobiz", "plivo"}
+    assert set(defaults["telephony"]) == {"vobiz", "plivo", "vi"}
     assert defaults["default_providers"] == DEFAULT_SERVICE_PROVIDERS
     assert DEFAULT_SERVICE_PROVIDERS["telephony"] == "vobiz"
 
@@ -102,8 +103,9 @@ def test_list_providers_summary():
     from apps.telephony.schema import list_providers
 
     listed = list_providers()
-    assert set(listed) == {"vobiz", "plivo"}
+    assert set(listed) == {"vobiz", "plivo", "vi"}
     assert listed["vobiz"] == {"provider": "vobiz", "name": "Vobiz"}
+    assert listed["vi"]["name"] == "Vodafone Idea"
     assert "secrets" not in listed["vobiz"]
     assert "fields" not in listed["vobiz"]
 

@@ -7,7 +7,7 @@ import pytest
 from apps.telephony.serializers import create_frame_serializer
 
 
-@pytest.mark.parametrize("provider", ["vobiz", "plivo", "Vobiz", "Plivo"])
+@pytest.mark.parametrize("provider", ["vobiz", "plivo", "Vobiz", "Plivo", "vi", "VI"])
 def test_create_frame_serializer_known_providers(provider: str) -> None:
     serializer = create_frame_serializer(
         provider,
@@ -16,7 +16,11 @@ def test_create_frame_serializer_known_providers(provider: str) -> None:
         sample_rate=8000,
     )
     assert serializer is not None
-    assert type(serializer).__name__ in ("VobizFrameSerializer", "PlivoFrameSerializer")
+    assert type(serializer).__name__ in (
+        "VobizFrameSerializer",
+        "PlivoFrameSerializer",
+        "ViFrameSerializer",
+    )
 
 
 def test_vobiz_16k_serializer() -> None:

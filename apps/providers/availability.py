@@ -41,6 +41,12 @@ def clear_deployed_cache() -> None:
 
 def is_authenticated(provider: str, configured: AbstractSet[str]) -> bool:
     """Return whether ``provider`` should show as authenticated."""
+    if provider == "vi":
+        # VI uses process env credentials, not org ProviderAuth.
+        return bool(
+            (os.getenv("VI_OBD_USERNAME") or "").strip()
+            and (os.getenv("VI_OBD_PASSWORD") or "").strip()
+        )
     gateway_id = LOCAL_GATEWAY_MODELS.get(provider)
     if gateway_id is not None:
         return gateway_id in _deployed_ids()

@@ -131,6 +131,19 @@ def _raise_on_fail(result: dict[str, Any], action: str) -> None:
     raise AgentTelephonyError(message, status_code=502)
 
 
+def _vi_stream_url() -> str:
+    """Public informational URL for the VI DIY Streaming Object."""
+    base = _require_voice_server_base_url()
+    # Prefer wss for portal docs; keep http(s) host from VOICE_SERVER_BASE_URL.
+    if base.startswith("https://"):
+        return "wss://" + base[len("https://") :] + "/vi/stream"
+    if base.startswith("http://"):
+        return "ws://" + base[len("http://") :] + "/vi/stream"
+    if base.startswith("wss://") or base.startswith("ws://"):
+        return base.rstrip("/") + "/vi/stream"
+    return f"wss://{base}/vi/stream"
+
+
 async def provision_application(
     org_id: str,
     provider: str,
@@ -140,8 +153,28 @@ async def provision_application(
 
     Using the stable UUID ``agent_id`` as ``app_name`` keeps names valid for
     typical Letters/Numbers/-/_ provider rules (spaces are often rejected).
+
+    Vodafone Idea (``vi``) skips ProviderAuth and provider application APIs —
+    credentials live in process env and media uses ``/vi/stream``.
     """
     provider = _require_provider(provider)
+    if provider == "vi":
+        from apps.telephony.providers.vi.obd_client import vi_env_credentials_configured
+
+        if not vi_env_credentials_configured():
+            raise AgentTelephonyError(
+                "VI OBD credentials are not configured. "
+                "Set VI_OBD_USERNAME and VI_OBD_PASSWORD in the server environment.",
+                status_code=422,
+            )
+        stream_url = _vi_stream_url()
+        return {
+            "provider": "vi",
+            "application_id": "vi-env",
+            "answer_url": stream_url,
+            "hangup_url": "",
+        }
+
     answer_url, _hangup_url = build_answer_urls(org_id, agent_id)
     client = load_telephony_client(org_id, provider)
     result = await client.create_application(agent_id, answer_url)
@@ -157,9 +190,11 @@ async def provision_application(
 
 async def delete_application(org_id: str, attachment: dict[str, Any]) -> None:
     """Best-effort delete of a provider application."""
-    provider = str(attachment.get("provider") or "").strip()
+    provider = str(attachment.get("provider") or "").strip().lower()
     application_id = str(attachment.get("application_id") or "").strip()
     if not provider or not application_id:
+        return
+    if provider == "vi":
         return
     try:
         client = load_telephony_client(org_id, provider)
@@ -195,9 +230,11 @@ async def rename_application(
     new_name: str,
 ) -> None:
     """Rename an existing provider application when the agent name changes."""
-    provider = str(attachment.get("provider") or "").strip()
+    provider = str(attachment.get("provider") or "").strip().lower()
     application_id = str(attachment.get("application_id") or "").strip()
     if not provider or not application_id:
+        return
+    if provider == "vi":
         return
     client = load_telephony_client(org_id, provider)
     result = await client.update_application_name(application_id, new_name)
@@ -207,6 +244,15 @@ async def rename_application(
 async def list_provider_numbers(org_id: str, provider: str) -> list[str]:
     """List phone numbers on the org's provider account."""
     provider = _require_provider(provider)
+    if provider == "vi":
+        # Env DNI only — no ProviderAuth / carrier inventory API.
+        from apps.telephony.providers.vi.client import ViClient
+
+        result = await ViClient("env", "env").list_numbers()
+        _raise_on_fail(result, "list numbers")
+        numbers = result.get("numbers") or []
+        return [str(n) for n in numbers if n]
+
     client = load_telephony_client(org_id, provider)
     result = await client.list_numbers()
     _raise_on_fail(result, "list numbers")
@@ -222,6 +268,15 @@ async def link_number(
 ) -> None:
     """Bind a phone number to a provider application."""
     provider = _require_provider(provider)
+    if provider == "vi":
+        # Local inventory only — VI portal routes by DNI; no provider link API.
+        logger.info(
+            "VI link_number no-op org=%s phone=%s app_id=%s",
+            org_id,
+            phone_number,
+            application_id,
+        )
+        return
     client = load_telephony_client(org_id, provider)
     result = await client.link_number(phone_number, application_id)
     _raise_on_fail(result, "link number")
@@ -230,6 +285,9 @@ async def link_number(
 async def unlink_number(org_id: str, provider: str, phone_number: str) -> None:
     """Unbind a phone number from its provider application."""
     provider = _require_provider(provider)
+    if provider == "vi":
+        logger.info("VI unlink_number no-op org=%s phone=%s", org_id, phone_number)
+        return
     client = load_telephony_client(org_id, provider)
     result = await client.unlink_number(phone_number)
     _raise_on_fail(result, "unlink number")

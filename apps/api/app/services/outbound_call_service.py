@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +19,12 @@ from app.services.agent_telephony_service import (
 )
 from app.services.phone_number_service import PhoneNumberNotFoundError
 from apps.telephony import initiate_outbound
+from apps.telephony.providers.vi.obd_client import (
+    ViObdClient,
+    ViObdError,
+    get_dni_from_env,
+    vi_env_credentials_configured,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +77,8 @@ def _resolve_from_number(
     agent_id: str,
     agent: dict[str, Any],
     from_number_override: str | None,
+    *,
+    provider: str,
 ) -> str:
     if from_number_override:
         return _normalize_phone(from_number_override, field="from_number")
@@ -86,6 +96,14 @@ def _resolve_from_number(
     except PhoneNumberNotFoundError:
         pass
 
+    if provider == "vi":
+        try:
+            dni = get_dni_from_env()
+            return _normalize_phone(dni, field="from_number")
+        except ViObdError:
+            # OBD may still resolve DNI via getActiveDNIList at dial time.
+            return os.environ.get("VI_DNI", "").strip() or "vi-dni"
+
     raise OutboundCallError(
         "No caller ID configured for this agent. "
         "Attach a phone number or pass from_number.",
@@ -94,17 +112,50 @@ def _resolve_from_number(
 
 
 def _extract_provider_call_sid(result: dict[str, Any]) -> str | None:
-    for key in ("call_uuid", "request_uuid", "uuid"):
+    for key in ("call_uuid", "request_uuid", "uuid", "campaign_Ref_ID"):
         value = result.get(key)
-        if value:
+        if value is not None and str(value).strip():
             return str(value)
     raw = result.get("raw") or {}
     if isinstance(raw, dict):
-        for key in ("call_uuid", "request_uuid", "uuid"):
+        for key in ("call_uuid", "request_uuid", "uuid", "campaign_Ref_ID"):
             value = raw.get(key)
-            if value:
+            if value is not None and str(value).strip():
                 return str(value)
     return None
+
+
+async def _dial_vi_outbound(
+    *,
+    agent_id: str,
+    to_number: str,
+) -> dict[str, Any]:
+    if not vi_env_credentials_configured():
+        raise OutboundCallError(
+            "VI OBD credentials are not configured. "
+            "Set VI_OBD_USERNAME and VI_OBD_PASSWORD in the server environment.",
+            status_code=422,
+        )
+
+    def _run() -> dict:
+        client = ViObdClient.from_env()
+        return client.place_single_outbound_call(to_number, agent_id=agent_id)
+
+    try:
+        queued = await asyncio.to_thread(_run)
+    except ViObdError as exc:
+        raise OutboundCallError(str(exc), status_code=502) from exc
+
+    campaign_ref = queued.get("campaign_Ref_ID")
+    return {
+        "status": "success",
+        "message": queued.get("message") or "VI outbound queued",
+        "call_uuid": str(campaign_ref) if campaign_ref is not None else None,
+        "request_uuid": str(campaign_ref) if campaign_ref is not None else None,
+        "campaign_Ref_ID": campaign_ref,
+        "dni": queued.get("dni"),
+        "raw": queued,
+    }
 
 
 async def initiate_outbound_call(
@@ -123,7 +174,12 @@ async def initiate_outbound_call(
 
     provider = _require_telephony_agent(agent)
     normalized_to = _normalize_phone(to_number, field="to_number")
-    normalized_from = _resolve_from_number(org_id, agent_id, agent, from_number)
+    normalized_from = _resolve_from_number(
+        org_id, agent_id, agent, from_number, provider=provider
+    )
+    if provider == "vi" and normalized_from == "vi-dni":
+        normalized_from = "+0000000000"
+
     variables = dict(custom_variables or {})
 
     call_id = str(uuid.uuid4())
@@ -152,6 +208,57 @@ async def initiate_outbound_call(
         "error_message": None,
     }
     call_log_service.create_call_log(call_doc)
+
+    if provider == "vi":
+        try:
+            result = await _dial_vi_outbound(agent_id=agent_id, to_number=normalized_to)
+        except OutboundCallError as exc:
+            call_log_service.update_call_log(
+                call_id,
+                {
+                    "status": "failed",
+                    "call_response": "failed",
+                    "error_message": exc.message,
+                },
+            )
+            raise
+        except Exception as exc:
+            message = str(exc) or "VI OBD dial failed"
+            call_log_service.update_call_log(
+                call_id,
+                {
+                    "status": "failed",
+                    "call_response": "failed",
+                    "error_message": message,
+                },
+            )
+            raise OutboundCallError(message, status_code=502) from exc
+
+        dni = result.get("dni")
+        if dni:
+            try:
+                normalized_from = _normalize_phone(str(dni), field="from_number")
+            except OutboundCallError:
+                normalized_from = str(dni)
+
+        provider_call_sid = _extract_provider_call_sid(result)
+        updated = call_log_service.update_call_log(
+            call_id,
+            {
+                "status": "ringing",
+                "provider_call_sid": provider_call_sid,
+                "from_number": normalized_from,
+            },
+        )
+        return {
+            "call_id": call_id,
+            "status": updated.get("status", "ringing"),
+            "provider_call_sid": provider_call_sid,
+            "from_number": normalized_from,
+            "to_number": normalized_to,
+            "agent_id": agent_id,
+            "custom_variables": variables,
+        }
 
     answer_url, hangup_url = build_answer_urls(org_id, agent_id, call_id=call_id)
 

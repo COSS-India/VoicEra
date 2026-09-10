@@ -65,6 +65,13 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `MAILTRAP_FROM_NAME` | `Voicera` | No | Sender name on reset emails. |
 | `FRONTEND_URL` | `http://localhost:3000` | No | Base URL used to build the password-reset link. |
 | `VOICE_SERVER_BASE_URL` | empty | Yes for telephony | Public base URL of the runtime. Required when creating or updating a telephony agent. |
+| `VI_OBD_USERNAME` | empty | Yes for VI | Vodafone Idea OBD API username (env-only; not ProviderAuth). |
+| `VI_OBD_PASSWORD` | empty | Yes for VI | Vodafone Idea OBD API password. |
+| `VI_DNI` | empty | Yes for VI outbound | Fallback outbound caller ID (DNI) when `getActiveDNIList` is empty. |
+| `VI_FLOW_ID` | (built-in default) | No | VI DIY flow id for OBD `createCampaign`. |
+| `VI_OBD_DIAL_TIMEOUT` | `30` | No | Dial timeout seconds passed to `createCampaign`. |
+| `VI_OBD_BASE_URL` | cts.myvi.in OBD URL | No | Override OBD API base (must include `/Cpaas/api/v1/`). |
+| `VI_DEFAULT_AGENT_ID` | empty | No | Runtime fallback agent when DNI routing fails on `/vi/stream`. |
 | `ENABLE_CAMPAIGN_ORCHESTRATOR` | `True` | No | Lets API startup spawn the orchestrator. Docker runs it as a separate service instead. |
 
 Rotating `PROVIDER_AUTH_ENCRYPTION_KEY` makes every stored `ProviderAuth` blob undecryptable. Existing provider credentials must be re-entered after a rotation.

@@ -374,11 +374,15 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.agent_id, a])), [agents]);
   const existingNumbers = useMemo(() => new Set(numbers.map((n) => n.phone_number)), [numbers]);
-  // Only offer providers that are both a real telephony provider and have
-  // auth configured under Integrations — otherwise "list numbers" has
-  // nothing to authenticate with.
+  // Offer providers that can list/import numbers: org ProviderAuth *or*
+  // catalog-authenticated (VI uses process env, not Integrations).
   const connectedProviders = useMemo(
-    () => Object.fromEntries(Object.entries(providers).filter(([id]) => configuredProviders.has(id))),
+    () =>
+      Object.fromEntries(
+        Object.entries(providers).filter(
+          ([id, p]) => configuredProviders.has(id) || p.authenticated === true,
+        ),
+      ),
     [providers, configuredProviders],
   );
 

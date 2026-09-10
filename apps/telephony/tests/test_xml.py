@@ -44,3 +44,9 @@ def test_provider_modules_match_parent_dispatch():
     assert plivo_xml.build_answer_stream_xml(WS, sample_rate=8000) == build_answer_stream_xml(
         "plivo", WS, sample_rate=8000
     )
+
+
+def test_vi_xml_placeholder_contains_comment():
+    xml = build_answer_stream_xml("vi", WS, sample_rate=8000)
+    assert "Vodafone Idea" in xml or "vi/stream" in xml or "Comment" in xml
+    assert WS in xml

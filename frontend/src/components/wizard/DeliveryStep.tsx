@@ -13,6 +13,11 @@ interface DeliveryStepProps {
 const TELEPHONY_OPTIONS = [
   { id: "plivo", name: "Plivo", note: "Real phone number via Plivo." },
   { id: "vobiz", name: "Vobiz", note: "Real phone number via Vobiz." },
+  {
+    id: "vi",
+    name: "Vodafone Idea",
+    note: "VI CPaaS OBD campaigns + direct voice streaming.",
+  },
 ];
 
 function DeliveryCard({
@@ -76,11 +81,16 @@ export function DeliveryStep({ form, catalogs, onChange }: DeliveryStepProps) {
         {TELEPHONY_OPTIONS.map((opt) => {
           const provider = catalogs.telephonyProviders[opt.id];
           const configured = Boolean(provider);
+          const note = configured
+            ? opt.note
+            : opt.id === "vi"
+              ? "Not configured — set VI_OBD_USERNAME / VI_OBD_PASSWORD on the server."
+              : "Not configured — add it under Integrations first.";
           return (
             <DeliveryCard
               key={opt.id}
               name={provider?.name ?? opt.name}
-              note={configured ? opt.note : "Not configured — add it under Integrations first."}
+              note={note}
               icon={Phone}
               selected={form.delivery === opt.id}
               disabled={!configured}

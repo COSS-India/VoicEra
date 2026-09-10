@@ -80,15 +80,45 @@ def get_by_agent(org_id: str, agent_id: str) -> dict[str, Any]:
 
 
 def get_agent_by_phone(phone_number: str) -> dict[str, Any]:
-    """Resolve an agent by ``linked_phone_number`` (voice / inbound routing)."""
-    doc = get_database()[AGENTS_COLLECTION].find_one(
-        {"linked_phone_number": phone_number}
-    )
-    if not doc:
-        raise PhoneNumberNotFoundError("No agent found for this phone number")
-    prepared = prepare_mongo_response(doc) or {}
-    prepared.pop("_id", None)
-    return prepared
+    """Resolve an agent by ``linked_phone_number`` (voice / inbound routing).
+
+    Tries common Indian / E.164 normalizations so VI DNI values from the
+    WebSocket ``start`` event match Numbers-page attachments.
+    """
+    agents = get_database()[AGENTS_COLLECTION]
+
+    def _variants(value: str) -> list[str]:
+        raw = str(value or "").strip()
+        if not raw:
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+
+        def add(v: str) -> None:
+            if v and v not in seen:
+                seen.add(v)
+                out.append(v)
+
+        add(raw)
+        if raw.startswith("0") and len(raw) == 11:
+            add("+91" + raw[1:])
+        digits = raw.lstrip("+")
+        if digits.startswith("91") and len(digits) == 12:
+            add("+" + digits)
+            add(digits[2:])
+        if len(digits) == 10 and digits.isdigit():
+            add("+91" + digits)
+        if not raw.startswith("+") and raw.isdigit():
+            add("+" + raw)
+        return out
+
+    for candidate in _variants(phone_number):
+        doc = agents.find_one({"linked_phone_number": candidate})
+        if doc:
+            prepared = prepare_mongo_response(doc) or {}
+            prepared.pop("_id", None)
+            return prepared
+    raise PhoneNumberNotFoundError("No agent found for this phone number")
 
 
 def _load_agent(org_id: str, agent_id: str) -> dict[str, Any]:

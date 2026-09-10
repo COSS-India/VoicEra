@@ -22,21 +22,30 @@ async def run_telephony_bot(
     call_id: str | None,
     agent: dict[str, Any],
     custom_variables: dict[str, Any] | None = None,
+    sample_rate: int | None = None,
 ) -> None:
     """Run the Pipecat pipeline for a telephony media stream."""
-    sample_rate = telephony_sample_rate()
+    normalized = (provider or "").strip().lower()
+    if normalized == "vi":
+        from apps.telephony.providers.vi.serializers import VI_SAMPLE_RATE
+
+        rate = VI_SAMPLE_RATE
+    else:
+        rate = sample_rate if sample_rate is not None else telephony_sample_rate()
+
     serializer = create_frame_serializer(
         provider,
         stream_sid=stream_sid,
         call_sid=call_sid,
-        sample_rate=sample_rate,
+        sample_rate=rate,
+        websocket=websocket,
     )
     await run_pipeline(
         websocket,
         org_id=org_id,
         agent=agent,
         serializer=serializer,
-        sample_rate=sample_rate,
+        sample_rate=rate,
         call_id=call_id,
         custom_variables=custom_variables,
         session_label=f"call_sid={call_sid}",

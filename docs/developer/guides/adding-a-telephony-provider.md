@@ -3,7 +3,7 @@ title: Adding a telephony provider
 description: Add a telephony vendor alongside Vobiz and Plivo.
 ---
 
-How to add a phone-network vendor to `apps/telephony`. The package ships two — Vobiz and Plivo — and they are deliberately structured identically, so the fastest way to add a third is to open both folders side by side and follow the shape.
+How to add a phone-network vendor to `apps/telephony`. The package ships three — Vobiz, Plivo, and Vodafone Idea (VI) — and Vobiz/Plivo are deliberately structured identically. VI is the exception: env-based OBD dialing and direct `/vi/stream` media (no answer XML).
 
 ## Quick reference
 
@@ -327,6 +327,17 @@ python apps/telephony/scripts/print_schemas.py
 <Note>
 There is no CI. Run these yourself before opening a pull request, and test a real inbound call against the vendor's sandbox — the registry tests prove the wiring, not that the vendor accepts your XML.
 </Note>
+
+## Vodafone Idea (VI) exception
+
+VI does **not** follow the Vobiz/Plivo answer-URL model:
+
+* Credentials: `VI_OBD_*` / `VI_DNI` in process `.env` (not org ProviderAuth).
+* Dialing: OBD `createCampaign` + ingestion (single outbound = 1-row campaign; campaigns bulk-ingest).
+* Media: DIY flow opens `wss://…/vi/stream` directly; agent routing by DNI via `GET /agents/by-phone/{phone}`.
+* Recordings: Pipecat AudioBuffer only — no VI recording webhook.
+
+See `apps/telephony/providers/vi/` and `apps/runtime/routes/vi_telephony.py`.
 
 ## Related
 
