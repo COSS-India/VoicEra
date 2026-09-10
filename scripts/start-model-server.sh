@@ -6,13 +6,17 @@
 # gateway stack. Model-server only — no backend, V2V, or frontend.
 #
 # Usage:
-#   ./scripts/model-server-setup.sh
+#   ./scripts/start-model-server.sh
 #
 # Optional env vars (skip menus when set):
 #   STT_MODEL=<id>         folder under stt/  (empty = no STT)
 #   TTS_MODEL=<id>         folder under tts/  (empty = no TTS)
 #   LLM_MODEL=<id>         folder under llm/  (empty = no LLM)
-#   HF_TOKEN=xxx           HuggingFace token (needed for gated TTS tokenizers)
+#   HF_TOKEN=xxx           HuggingFace token for every slot that has no token
+#                          of its own (needed for gated checkpoints)
+#   STT_HF_TOKEN=xxx       Token for one slot only, overriding HF_TOKEN there.
+#   TTS_HF_TOKEN=xxx       Set these when access was granted to different
+#   LLM_HF_TOKEN=xxx       accounts, or for fine-grained per-repo tokens.
 #   GPU_DEVICE_IDS=0       which GPU to attach (default: from .env or 0)
 #   USE_SHARED_HF_CACHE=1  reuse an existing HF cache via compose.shared-hf-cache.yml
 #   SKIP_BUILD=1           configure only; do not build images
@@ -26,6 +30,12 @@ set -e
 MS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../model-server" && pwd)"
 
 HF_TOKEN="${HF_TOKEN:-}"
+# Per-slot tokens. Empty means "use HF_TOKEN"; the fallback is resolved once,
+# after any prompting, so the fetchers, the per-model dotenv files and Compose
+# cannot disagree about which credential belongs to which slot.
+STT_HF_TOKEN="${STT_HF_TOKEN:-}"
+TTS_HF_TOKEN="${TTS_HF_TOKEN:-}"
+LLM_HF_TOKEN="${LLM_HF_TOKEN:-}"
 USE_SHARED_HF_CACHE="${USE_SHARED_HF_CACHE:-}"
 SKIP_BUILD="${SKIP_BUILD:-}"
 SKIP_START="${SKIP_START:-}"
@@ -116,18 +126,56 @@ hf_logged_in() {
   [ -f "$HOME/.cache/huggingface/token" ] || [ -f "${HF_HOME:-$HOME/.cache/huggingface}/token" ]
 }
 
-if [ -n "$STT_SEL$TTS_SEL$LLM_SEL" ] && [ -z "$HF_TOKEN" ] \
+# Any token supplied through the environment -- shared or per-slot -- means the
+# operator has already answered this, so do not ask. The guard has to name every
+# one of the four, or `STT_HF_TOKEN=... ./scripts/start-model-server.sh` would
+# still stop for a prompt and no longer run unattended.
+if [ -n "$STT_SEL$TTS_SEL$LLM_SEL" ] \
+   && [ -z "$HF_TOKEN$STT_HF_TOKEN$TTS_HF_TOKEN$LLM_HF_TOKEN" ] \
    && [ -z "$USE_SHARED_HF_CACHE" ] && ! hf_logged_in; then
   echo ""
   echo "  Some checkpoints are gated on HuggingFace and need a token with access"
-  echo "  granted on the model page. Press Enter to skip if the model you picked"
-  echo "  does not need one -- its fetch.sh will say so if it does."
-  ask "HuggingFace token (or Enter to skip)" HF_TOKEN
+  echo "  granted on the model page. Press Enter to skip if the models you picked"
+  echo "  do not need one -- their fetch.sh will say so if they do."
+  echo ""
+  echo "  One token covers every model your account has been granted. Separate"
+  echo "  tokens are for what a single prompt cannot express: slots granted to"
+  echo "  different accounts, or fine-grained tokens scoped to one repo each."
+  echo ""
+  echo "    1) One token for all models"
+  echo "    2) A separate token per slot"
+  read -r -p "  Choose [1]: " _tok_mode
+
+  if [ "$_tok_mode" = "2" ]; then
+    # Only the slots that are actually filled, and Enter still skips each one.
+    # Deliberately not "ask only where the model is gated": this script does not
+    # know which models need tokens and must not learn, for the same reason the
+    # menu is built by listing folders -- adding a model would then mean editing
+    # a list here, and forgetting to would silently stop asking.
+    [ -n "$STT_SEL" ] && ask "HuggingFace token for STT ($STT_SEL)" STT_HF_TOKEN
+    [ -n "$TTS_SEL" ] && ask "HuggingFace token for TTS ($TTS_SEL)" TTS_HF_TOKEN
+    [ -n "$LLM_SEL" ] && ask "HuggingFace token for LLM ($LLM_SEL)" LLM_HF_TOKEN
+  else
+    ask "HuggingFace token (or Enter to skip)" HF_TOKEN
+  fi
 fi
+
+# The one place the fallback is applied. Everything downstream reads these,
+# never HF_TOKEN directly -- and compose.model-server.yml resolves the same
+# chain with ${<SLOT>_HF_TOKEN:-${HF_TOKEN:-}} so a stack started by hand
+# without this script lands on the same answer.
+STT_TOKEN="${STT_HF_TOKEN:-$HF_TOKEN}"
+TTS_TOKEN="${TTS_HF_TOKEN:-$HF_TOKEN}"
+LLM_TOKEN="${LLM_HF_TOKEN:-$HF_TOKEN}"
 
 # Exported so each model's fetch.sh -- run as a child process below -- can see
 # it. Without this the token reached the containers via .env but never the
 # downloads, so a gated fetch failed while the token sat right there.
+#
+# Each fetcher is additionally invoked with its own slot's token in HF_TOKEN, so
+# a model only ever sees the credential meant for it. This export remains the
+# value for anything else in the environment, and the fallback for a slot that
+# was not given one.
 export HF_TOKEN
 
 MODEL_PROFILES=""
@@ -179,7 +227,7 @@ if [ -n "$STT_SEL" ]; then
     fi
   fi
 
-  [ -f "$STT_DIR/fetch.sh" ] && bash "$STT_DIR/fetch.sh"
+  [ -f "$STT_DIR/fetch.sh" ] && HF_TOKEN="$STT_TOKEN" bash "$STT_DIR/fetch.sh"
 
   # A model folder's own .env, for the models that read one.
   #
@@ -193,7 +241,7 @@ if [ -n "$STT_SEL" ]; then
   # the model reads dotenv.
   {
     echo "PORT=8001"
-    echo "HF_TOKEN=$HF_TOKEN"
+    echo "HF_TOKEN=$STT_TOKEN"
     if [ "$STT_SEL" = "indic-conformer" ]; then
       echo "BHILI_ENABLE=no"
       echo "INDIC_NEMO_PATH=$STT_DIR/models/IndicConformer.nemo"
@@ -206,12 +254,12 @@ if [ -n "$TTS_SEL" ]; then
   TTS_DIR="$MS_DIR/tts/$TTS_SEL"
   [ -d "$TTS_DIR" ] || err "TTS model folder not found: tts/$TTS_SEL"
 
-  [ -f "$TTS_DIR/fetch.sh" ] && bash "$TTS_DIR/fetch.sh"
+  [ -f "$TTS_DIR/fetch.sh" ] && HF_TOKEN="$TTS_TOKEN" bash "$TTS_DIR/fetch.sh"
   cat > "$TTS_DIR/.env" << ENVEOF
 CHECKPOINT_PATH_DEFAULT=$TTS_DIR/checkpoints
 BHILI_ENABLE=no
 PORT=8002
-HF_TOKEN=$HF_TOKEN
+HF_TOKEN=$TTS_TOKEN
 ENVEOF
   ok "TTS ready ($TTS_SEL)"
 fi
@@ -219,7 +267,7 @@ fi
 if [ -n "$LLM_SEL" ]; then
   LLM_DIR="$MS_DIR/llm/$LLM_SEL"
   [ -d "$LLM_DIR" ] || err "LLM model folder not found: llm/$LLM_SEL"
-  [ -f "$LLM_DIR/fetch.sh" ] && bash "$LLM_DIR/fetch.sh"
+  [ -f "$LLM_DIR/fetch.sh" ] && HF_TOKEN="$LLM_TOKEN" bash "$LLM_DIR/fetch.sh"
   ok "LLM ready ($LLM_SEL)"
 fi
 
@@ -281,6 +329,12 @@ set_env TTS_MODEL "$TTS_SEL"
 set_env LLM_MODEL "$LLM_SEL"
 set_env COMPOSE_PROFILES "$MODEL_PROFILES"
 set_env HF_TOKEN "$HF_TOKEN"
+# Written as given, not resolved: an empty per-slot key is what tells Compose to
+# fall back to HF_TOKEN. Writing the resolved value would pin today's answer and
+# a later change to HF_TOKEN alone would then be silently ignored.
+set_env STT_HF_TOKEN "$STT_HF_TOKEN"
+set_env TTS_HF_TOKEN "$TTS_HF_TOKEN"
+set_env LLM_HF_TOKEN "$LLM_HF_TOKEN"
 set_env GPU_DEVICE_IDS "$GPU_IDS"
 
 # Leftover from an old native-mode experiment — localhost upstreams break the
@@ -321,11 +375,12 @@ fi
 COMPOSE_FILES=$(sh "$MS_DIR/compose-files.sh")
 ok "compose files:$(echo "$COMPOSE_FILES" | sed "s|$MS_DIR/||g; s| -f | |g")"
 
-if [ -n "$TTS_SEL" ] && [ -z "$HF_TOKEN" ] && [ -z "$USE_SHARED_HF_CACHE" ]; then
+if [ -n "$TTS_SEL" ] && [ -z "$TTS_TOKEN" ] && [ -z "$USE_SHARED_HF_CACHE" ]; then
   echo ""
-  echo "  WARNING: TTS is enabled but no HF_TOKEN was given. ai4bharat/indic-parler-tts"
-  echo "           is gated — the container may fail to start. Either supply HF_TOKEN,"
-  echo "           or rerun with USE_SHARED_HF_CACHE=1 to reuse an existing cache."
+  echo "  WARNING: TTS is enabled but the TTS slot has no token. ai4bharat/indic-parler-tts"
+  echo "           is gated — the container may fail to start. Supply HF_TOKEN for every"
+  echo "           slot or TTS_HF_TOKEN for this one, or rerun with"
+  echo "           USE_SHARED_HF_CACHE=1 to reuse an existing cache."
 fi
 
 if [ -z "$MODEL_PROFILES" ]; then
