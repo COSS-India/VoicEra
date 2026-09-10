@@ -1,4 +1,4 @@
-import type { CallMetricsBreakdown, CallMetricsResponse } from "@/lib/api-types";
+import type { CallMetricsBreakdown, CallMetricsResponse, CallMetricsTtfbEntry } from "@/lib/api-types";
 
 export interface NormalizedTurn {
   turnNumber: number;
@@ -33,15 +33,24 @@ export interface NormalizedCallMetrics {
 }
 
 function classifyProcessor(processor: string): "stt" | "llm" | "tts" | null {
-  const upper = processor.toUpperCase();
-  if (upper.includes("STT")) return "stt";
-  if (upper.includes("LLM")) return "llm";
-  if (upper.includes("TTS")) return "tts";
+  // Fallback for older CallMetrics docs without entry.stage. Prefer stage
+  // stamped at write time from the pipeline role map.
+  const base = processor.split("#", 1)[0].toUpperCase();
+  if (base.endsWith("TTSSERVICE") || base.endsWith("TTS")) return "tts";
+  if (base.endsWith("STTSERVICE") || base.endsWith("STT")) return "stt";
+  if (base.endsWith("LLMSERVICE") || base.endsWith("LLM") || base.includes("LLM")) return "llm";
   return null;
 }
 
+function entryStage(entry: CallMetricsTtfbEntry): "stt" | "llm" | "tts" | null {
+  if (entry.stage === "stt" || entry.stage === "llm" || entry.stage === "tts") {
+    return entry.stage;
+  }
+  return classifyProcessor(entry.processor);
+}
+
 function msFromBreakdown(breakdown: CallMetricsBreakdown, kind: "stt" | "llm" | "tts"): number | undefined {
-  const entry = breakdown.ttfb.find((t) => classifyProcessor(t.processor) === kind);
+  const entry = breakdown.ttfb.find((t) => entryStage(t) === kind);
   return entry ? entry.duration_secs * 1000 : undefined;
 }
 

@@ -215,6 +215,8 @@ export interface CallMetricsTtfbEntry {
   model: string;
   start_time: number;
   duration_secs: number;
+  /** Pipeline role stamped at write time (stt/llm/tts). Prefer over name heuristics. */
+  stage?: "stt" | "llm" | "tts";
 }
 
 /** breakdowns[] aligns positionally with turns[] (breakdowns[i] ↔ turn_number i+1).

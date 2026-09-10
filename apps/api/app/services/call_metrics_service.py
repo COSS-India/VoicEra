@@ -65,19 +65,31 @@ def upsert_call_metrics(
 
 
 def _classify_processor(processor: str) -> str | None:
-    upper = (processor or "").upper()
-    if "STT" in upper:
-        return "stt"
-    if "LLM" in upper:
-        return "llm"
-    if "TTS" in upper:
+    """Fallback for older CallMetrics docs that lack ``stage``.
+
+    Prefer ``entry["stage"]`` (stamped at write time from the pipeline role
+    map). Name heuristics are brittle: ``OrpheusTTSService`` contains ``STT``.
+    """
+    base = (processor or "").split("#", 1)[0].upper()
+    if base.endswith("TTSSERVICE") or base.endswith("TTS"):
         return "tts"
+    if base.endswith("STTSERVICE") or base.endswith("STT"):
+        return "stt"
+    if base.endswith("LLMSERVICE") or base.endswith("LLM") or "LLM" in base:
+        return "llm"
     return None
+
+
+def _entry_stage(entry: dict[str, Any]) -> str | None:
+    stage = entry.get("stage")
+    if stage in ("stt", "llm", "tts"):
+        return stage
+    return _classify_processor(entry.get("processor", ""))
 
 
 def _stage_secs_from_breakdown(breakdown: dict[str, Any], kind: str) -> float | None:
     for entry in breakdown.get("ttfb") or []:
-        if _classify_processor(entry.get("processor", "")) == kind:
+        if _entry_stage(entry) == kind:
             duration = entry.get("duration_secs")
             return float(duration) if duration is not None else None
     return None

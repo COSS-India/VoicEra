@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
 from apps.runtime.services.backend import backend_client
+
+ProcessorStage = Literal["stt", "llm", "tts"]
 
 
 def _model_to_dict(value: Any) -> Any:
@@ -32,10 +34,14 @@ class CallMetricsWriter:
         org_id: str,
         call_id: str,
         session_label: str,
+        processor_stages: dict[str, ProcessorStage] | None = None,
     ) -> None:
         self._org_id = org_id
         self._call_id = call_id
         self._session_label = session_label
+        # Pipeline role map: FrameProcessor.name → stage. Prefer this over
+        # guessing from class-name substrings (OrpheusTTS contains "STT").
+        self._processor_stages = dict(processor_stages or {})
         self._flushed = False
         self._transport: dict[str, Any] | None = None
         self._turns: list[dict[str, Any]] = []
@@ -80,7 +86,15 @@ class CallMetricsWriter:
         self._latencies["first_bot_speech_secs"] = latency_seconds
 
     def record_latency_breakdown(self, breakdown: Any) -> None:
-        self._latencies["breakdowns"].append(_model_to_dict(breakdown))
+        payload = _model_to_dict(breakdown)
+        if isinstance(payload, dict) and self._processor_stages:
+            for entry in payload.get("ttfb") or []:
+                if not isinstance(entry, dict):
+                    continue
+                stage = self._processor_stages.get(entry.get("processor") or "")
+                if stage:
+                    entry["stage"] = stage
+        self._latencies["breakdowns"].append(payload)
 
     def _build_summary(self) -> dict[str, Any]:
         completed_turns = [turn for turn in self._turns if "duration_secs" in turn]
