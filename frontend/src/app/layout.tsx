@@ -16,7 +16,10 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "VoicEra",
-  description: "VoicEra design system reference — components and prompt library.",
+  description: "VoicEra",
+  icons: {
+    icon: "/voicera-logo.png",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

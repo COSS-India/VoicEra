@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { csvParse } from "d3";
-import { AlertCircle, ChevronDown, Download, LayoutGrid, List, Trash2, Upload } from "lucide-react";
+import { AlertCircle, Download, LayoutGrid, List, Trash2, Upload } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
 import { StatCard } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -10,17 +10,59 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Dialog, DialogHeader } from "@/components/ui/Dialog";
 import { Select } from "@/components/ui/Select";
 import { Input } from "@/components/ui/Field";
+import { Switch } from "@/components/ui/Switch";
 import { Spinner } from "@/components/ui/Spinner";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useCampaigns } from "@/hooks/useCampaigns";
 import { getCampaignRuns } from "@/lib/api/campaigns";
 import { listAgents } from "@/lib/api-client";
 import { formatDateTime, maskPhoneNumber } from "@/lib/format";
-import type { AgentApiResponse, CampaignApiResponse, CampaignRunItem, CampaignState } from "@/lib/api-types";
+import type {
+  AgentApiResponse,
+  CampaignApiResponse,
+  CampaignRetryConfig,
+  CampaignRunItem,
+  CampaignScheduleConfig,
+  CampaignScheduleSlot,
+  CampaignState,
+  CreateCampaignPayload,
+} from "@/lib/api-types";
 
 const STATES: CampaignState[] = ["created", "syncing", "running", "paused", "completed", "failed"];
 const FILTERS = ["All", ...STATES] as const;
 type Filter = (typeof FILTERS)[number];
+
+const TIMEZONE_OPTIONS = [
+  { value: "Asia/Kolkata", label: "IST (Asia/Kolkata)" },
+  { value: "UTC", label: "UTC" },
+  { value: "America/New_York", label: "America/New_York" },
+  { value: "America/Los_Angeles", label: "America/Los_Angeles" },
+  { value: "Europe/London", label: "Europe/London" },
+] as const;
+
+const DEFAULT_RETRY_CONFIG: CampaignRetryConfig = {
+  enabled: true,
+  max_retries: 2,
+  retry_delay_seconds: 120,
+  retry_on_busy: true,
+  retry_on_no_answer: true,
+  retry_on_voicemail: false,
+};
+
+/** API slots are per weekday (0=Mon … 6=Sun); expand one daily window to every day. */
+function slotsForEveryday(start_time: string, end_time: string): CampaignScheduleSlot[] {
+  return Array.from({ length: 7 }, (_, day_of_week) => ({
+    day_of_week,
+    start_time,
+    end_time,
+  }));
+}
+
+const DEFAULT_SCHEDULE_CONFIG: CampaignScheduleConfig = {
+  enabled: false,
+  timezone: "Asia/Kolkata",
+  slots: slotsForEveryday("09:00", "17:00"),
+};
 
 function stateTone(state: CampaignState) {
   if (state === "running") return "live" as const;
@@ -57,14 +99,7 @@ function UploadCampaignDialog({
   uploading: boolean;
   creating: boolean;
   onUploadCsv: (file: File) => Promise<{ source_id: string; filename: string; contact_rows: number } | null>;
-  onCreate: (payload: {
-    name: string;
-    agent_id: string;
-    source_type: string;
-    source_id: string;
-    rate_limit_per_second: number;
-    max_concurrency: number;
-  }) => Promise<boolean>;
+  onCreate: (payload: CreateCampaignPayload) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [step, setStep] = useState<UploadStep>("select");
@@ -79,9 +114,10 @@ function UploadCampaignDialog({
   );
   const [name, setName] = useState("");
   const [agentId, setAgentId] = useState("");
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [rateLimit, setRateLimit] = useState(1);
   const [maxConcurrency, setMaxConcurrency] = useState(5);
+  const [retryConfig, setRetryConfig] = useState<CampaignRetryConfig>(DEFAULT_RETRY_CONFIG);
+  const [scheduleConfig, setScheduleConfig] = useState<CampaignScheduleConfig>(DEFAULT_SCHEDULE_CONFIG);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const eligibleAgents = useMemo(
@@ -89,6 +125,7 @@ function UploadCampaignDialog({
     [agents],
   );
   const hasPhoneColumn = headers.includes("phone_number");
+  const scheduleWindow = scheduleConfig.slots[0] ?? { start_time: "09:00", end_time: "17:00" };
 
   function reset() {
     setStep("select");
@@ -101,9 +138,22 @@ function UploadCampaignDialog({
     setUploadResult(null);
     setName("");
     setAgentId("");
-    setShowAdvanced(false);
     setRateLimit(1);
     setMaxConcurrency(5);
+    setRetryConfig(DEFAULT_RETRY_CONFIG);
+    setScheduleConfig(DEFAULT_SCHEDULE_CONFIG);
+  }
+
+  function patchRetry<K extends keyof CampaignRetryConfig>(key: K, value: CampaignRetryConfig[K]) {
+    setRetryConfig((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function patchScheduleWindow(patch: { start_time?: string; end_time?: string }) {
+    setScheduleConfig((prev) => {
+      const start = patch.start_time ?? prev.slots[0]?.start_time ?? "09:00";
+      const end = patch.end_time ?? prev.slots[0]?.end_time ?? "17:00";
+      return { ...prev, slots: slotsForEveryday(start, end) };
+    });
   }
 
   function handleClose() {
@@ -151,6 +201,7 @@ function UploadCampaignDialog({
       source_id: uploadResult.source_id,
       rate_limit_per_second: rateLimit,
       max_concurrency: maxConcurrency,
+      retry_config: retryConfig,
     });
     if (ok) handleClose();
   }
@@ -312,17 +363,10 @@ function UploadCampaignDialog({
               ) : null}
             </label>
 
-            <button
-              type="button"
-              onClick={() => setShowAdvanced((v) => !v)}
-              className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-fg"
-            >
-              <ChevronDown className={`size-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`} strokeWidth={1.75} />
-              Advanced settings
-            </button>
+            <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-v-soft p-3.5">
+              <span className="text-xs font-semibold uppercase tracking-[.08em] text-v-muted">Advanced settings</span>
 
-            {showAdvanced ? (
-              <div className="grid grid-cols-2 gap-3 rounded-v-md border border-v-line bg-v-soft p-3.5">
+              <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1.5 text-[13px] font-medium">
                   Calls per second
                   <Input
@@ -344,7 +388,118 @@ function UploadCampaignDialog({
                   />
                 </label>
               </div>
-            ) : null}
+
+              <div className="flex flex-col gap-3 border-t border-v-line pt-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[13px] font-semibold">Retry failed calls</span>
+                    <span className="text-xs font-light text-v-muted">Re-queue contacts that don't connect.</span>
+                  </div>
+                  <Switch
+                    checked={retryConfig.enabled}
+                    label="Retry failed calls"
+                    onChange={(checked) => patchRetry("enabled", checked)}
+                  />
+                </div>
+
+                {retryConfig.enabled ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                        Max retries
+                        <Input
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={retryConfig.max_retries}
+                          onChange={(e) => patchRetry("max_retries", Math.min(10, Math.max(0, Number(e.target.value) || 0)))}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                        Retry delay (seconds)
+                        <Input
+                          type="number"
+                          min={30}
+                          max={3600}
+                          value={retryConfig.retry_delay_seconds}
+                          onChange={(e) =>
+                            patchRetry("retry_delay_seconds", Math.min(3600, Math.max(30, Number(e.target.value) || 30)))
+                          }
+                        />
+                      </label>
+                    </div>
+                    <div className="flex flex-col gap-2.5">
+                      {(
+                        [
+                          ["retry_on_busy", "Retry on busy"],
+                          ["retry_on_no_answer", "Retry on no answer"],
+                          ["retry_on_voicemail", "Retry on voicemail"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <div key={key} className="flex items-center justify-between gap-3">
+                          <span className="text-[13px] font-medium">{label}</span>
+                          <Switch
+                            checked={retryConfig[key]}
+                            label={label}
+                            onChange={(checked) => patchRetry(key, checked)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-v-line pt-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[13px] font-semibold">Calling schedule</span>
+                    <span className="text-xs font-light text-v-muted">Limit dialling to a daily time window.</span>
+                  </div>
+                  <Switch
+                    checked={scheduleConfig.enabled}
+                    label="Calling schedule"
+                    onChange={(checked) => setScheduleConfig((prev) => ({ ...prev, enabled: checked }))}
+                  />
+                </div>
+
+                {scheduleConfig.enabled ? (
+                  <>
+                    <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                      Timezone
+                      <Select
+                        value={scheduleConfig.timezone}
+                        onChange={(e) => setScheduleConfig((prev) => ({ ...prev, timezone: e.target.value }))}
+                      >
+                        {TIMEZONE_OPTIONS.map((tz) => (
+                          <option key={tz.value} value={tz.value}>
+                            {tz.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                        Start
+                        <Input
+                          type="time"
+                          value={scheduleWindow.start_time}
+                          onChange={(e) => patchScheduleWindow({ start_time: e.target.value })}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                        End
+                        <Input
+                          type="time"
+                          value={scheduleWindow.end_time}
+                          onChange={(e) => patchScheduleWindow({ end_time: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
 
             <div className="flex justify-between gap-2 border-t border-v-line pt-4">
               <Button variant="ghost" size="sm" onClick={() => setStep("preview")}>
@@ -618,7 +773,7 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
           <h1 className="text-3xl font-semibold tracking-tight">Campaigns</h1>
           <p className="max-w-[64ch] text-sm font-light leading-relaxed text-v-muted">
             Calls you make, not calls you take — a campaign is a telephony agent plus a list of
-            people. Upload a CSV of contacts to get started.
+            people.
           </p>
         </div>
         <Button variant="primary" onClick={() => setUploadOpen(true)}>

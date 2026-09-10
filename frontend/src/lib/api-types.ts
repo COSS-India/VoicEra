@@ -301,6 +301,27 @@ export interface CampaignCsvUploadResponse {
   contact_rows: number;
 }
 
+export interface CampaignRetryConfig {
+  enabled: boolean;
+  max_retries: number;
+  retry_delay_seconds: number;
+  retry_on_busy: boolean;
+  retry_on_no_answer: boolean;
+  retry_on_voicemail: boolean;
+}
+
+export interface CampaignScheduleSlot {
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+}
+
+export interface CampaignScheduleConfig {
+  enabled: boolean;
+  timezone: string;
+  slots: CampaignScheduleSlot[];
+}
+
 export interface CreateCampaignPayload {
   name: string;
   agent_id: string;
@@ -309,6 +330,7 @@ export interface CreateCampaignPayload {
   rate_limit_per_second?: number;
   max_concurrency?: number;
   from_number?: string | null;
+  retry_config?: CampaignRetryConfig;
 }
 
 /** GET /campaign/{id}/runs returns raw call-log dicts server-side — only a
