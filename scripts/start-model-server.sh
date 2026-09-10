@@ -122,6 +122,15 @@ echo -e "\033[2m  ────────────────────�
 #
 # A previous `huggingface-cli login` counts: it writes a token to the HF cache,
 # which every fetcher and every container can already read.
+# What .env already says about a key, empty if it says nothing. A re-run must
+# not silently downgrade a value the operator set on a previous run -- that is
+# how USE_SHARED_HF_CACHE used to lose its overlay, and how a fresh checkout on
+# this box configured GPU 0 while the stack ran on GPU 1.
+env_now() {
+  [ -f "$MS_DIR/.env" ] || return 0
+  grep -E "^$1=" "$MS_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"'\r'
+}
+
 hf_logged_in() {
   [ -f "$HOME/.cache/huggingface/token" ] || [ -f "${HF_HOME:-$HOME/.cache/huggingface}/token" ]
 }
@@ -223,6 +232,54 @@ if [ -n "$MODEL_PROFILES" ]; then
   fi
   nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null \
     | while read -r line; do ok "GPU: $line"; done || true
+
+  # The list above was printed and then ignored: GPU_DEVICE_IDS came from .env
+  # or fell back to 0, so a fresh checkout on a box whose stack runs on GPU 1
+  # configured GPU 0 without saying so -- and MPS_PIPE_DIR is derived from it,
+  # so the containers went looking for the wrong daemon as well. Enumerating
+  # the cards and not offering them was the whole gap.
+  if [ -z "${GPU_DEVICE_IDS:-}" ] && [ -t 0 ]; then
+    _gpu_default=$(env_now GPU_DEVICE_IDS)
+    _gpu_default=${_gpu_default:-0}
+    echo ""
+    # Validated, because the value is not only passed to Compose: MPS_PIPE_DIR
+    # is built from it a few lines down. A typo here does not fail, it makes
+    # /tmp/nvidia-mps-gpu<typo>, and the client then finds no daemon on a card
+    # that has one -- silent, and indistinguishable from a host without MPS.
+    while :; do
+      read -r -p "  Which GPU? (comma-separated for several) [$_gpu_default]: " _gpu_pick
+      _gpu_pick=${_gpu_pick:-$_gpu_default}
+      case "$_gpu_pick" in
+        *[!0-9,]*|""|,*|*,) echo "  Digits and commas only, e.g. 0 or 1,2." ;;
+        *) GPU_DEVICE_IDS=$_gpu_pick; break ;;
+      esac
+    done
+  fi
+
+  # A gRPC front door for the STT slot, for callers that cannot hold a
+  # WebSocket. Opt-in, and it was reachable only by hand-editing .env: nothing
+  # asked, and the key is not in .env.example either, so a fresh checkout could
+  # not turn it on and an existing deployment lost it on the first re-run from
+  # a new clone.
+  if [ -n "$STT_SEL" ] && [ -z "${USE_STT_GRPC:-}" ] && [ -t 0 ]; then
+    _grpc_now=$(env_now USE_STT_GRPC)
+    if [ -n "$_grpc_now" ]; then
+      read -r -p "  Keep the STT gRPC front door? [Y/n]: " _grpc_pick
+      case "$_grpc_pick" in [Nn]*) USE_STT_GRPC="" ;; *) USE_STT_GRPC="$_grpc_now" ;; esac
+    else
+      read -r -p "  Add a gRPC front door for STT? [y/N]: " _grpc_pick
+      case "$_grpc_pick" in [Yy]*) USE_STT_GRPC=1 ;; *) USE_STT_GRPC="" ;; esac
+    fi
+  fi
+fi
+
+# Same rule for the shared HuggingFace cache: unset on this run means "whatever
+# the last run decided", not "off". It was written back unconditionally, so a
+# re-run without the variable exported dropped the overlay and the gated
+# tokeniser download came back -- the exact regression its own comment below
+# records, reintroduced by the write rather than the read.
+if [ -z "${USE_SHARED_HF_CACHE:-}" ]; then
+  USE_SHARED_HF_CACHE=$(env_now USE_SHARED_HF_CACHE)
 fi
 
 # ── Model weights & per-model env ───────────────────────────────────────────
@@ -352,6 +409,7 @@ set_env STT_HF_TOKEN "$STT_HF_TOKEN"
 set_env TTS_HF_TOKEN "$TTS_HF_TOKEN"
 set_env LLM_HF_TOKEN "$LLM_HF_TOKEN"
 set_env GPU_DEVICE_IDS "$GPU_IDS"
+set_env USE_STT_GRPC "${USE_STT_GRPC:-}"
 
 # Leftover from an old native-mode experiment — localhost upstreams break the
 # gateway container, which must reach STT/TTS/LLM by Compose service name.
