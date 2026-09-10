@@ -39,6 +39,44 @@ def test_writer_summary_aggregates_turns_and_latencies() -> None:
     assert payload["transport"]["client_connected_secs"] == 0.4
 
 
+def test_writer_stamps_stage_from_pipeline_roles() -> None:
+    writer = CallMetricsWriter(
+        org_id="org-1",
+        call_id="call-1",
+        session_label="session",
+        processor_stages={
+            "BhashiniNemotronSTTService#2": "stt",
+            "OpenAILLMService#4": "llm",
+            "BhashiniOrpheusTTSService#2": "tts",
+        },
+    )
+    writer.record_latency_breakdown(
+        type(
+            "Breakdown",
+            (),
+            {
+                "model_dump": lambda self: {
+                    "ttfb": [
+                        {
+                            "processor": "BhashiniOrpheusTTSService#2",
+                            "duration_secs": 0.4,
+                        },
+                        {
+                            "processor": "BhashiniNemotronSTTService#2",
+                            "duration_secs": 0.5,
+                        },
+                    ],
+                    "user_turn_start_time": 1.0,
+                },
+            },
+        )()
+    )
+
+    entries = writer.to_dict()["latencies"]["breakdowns"][0]["ttfb"]
+    assert entries[0]["stage"] == "tts"
+    assert entries[1]["stage"] == "stt"
+
+
 @pytest.mark.asyncio
 async def test_flush_skips_without_content() -> None:
     writer = CallMetricsWriter(

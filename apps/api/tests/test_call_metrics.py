@@ -149,3 +149,93 @@ def test_get_call_metrics_not_found(
     response = client.get("/api/v1/calls/call-abc-123/metrics")
 
     assert response.status_code == 404
+
+
+def test_classify_processor_orpheus_tts_not_stt() -> None:
+    from app.services.call_metrics_service import _classify_processor, _entry_stage
+
+    assert _classify_processor("BhashiniOrpheusTTSService#2") == "tts"
+    assert _classify_processor("BhashiniNemotronSTTService#2") == "stt"
+    assert _classify_processor("OpenAILLMService#4") == "llm"
+    # Explicit stage wins even if the processor name would confuse heuristics.
+    assert (
+        _entry_stage({"processor": "WeirdName#0", "stage": "tts", "duration_secs": 0.1})
+        == "tts"
+    )
+
+
+@_patch_metrics_db("app.services.call_metrics_service.get_database")
+@_patch_metrics_db("app.services.call_log_service.get_database")
+def test_get_call_metrics_avg_tts_with_orpheus(
+    _call_log_db: MagicMock,
+    _metrics_db: MagicMock,
+) -> None:
+    _CALL_STORE.clear()
+    _METRICS_STORE.clear()
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _METRICS_STORE["call-abc-123"] = _sample_metrics_doc(
+        latencies={
+            "user_to_bot_secs": [1.0],
+            "breakdowns": [
+                {
+                    "ttfb": [
+                        {
+                            "processor": "BhashiniNemotronSTTService#2",
+                            "duration_secs": 0.5,
+                        },
+                        {
+                            "processor": "OpenAILLMService#4",
+                            "duration_secs": 0.9,
+                        },
+                        {
+                            "processor": "BhashiniOrpheusTTSService#2",
+                            "duration_secs": 0.4,
+                        },
+                    ],
+                    "user_turn_start_time": 1.0,
+                }
+            ],
+        }
+    )
+    client = _make_client()
+
+    response = client.get("/api/v1/calls/call-abc-123/metrics")
+
+    assert response.status_code == 200
+    summary = response.json()["summary"]
+    assert summary["avg_stt_secs"] == 0.5
+    assert summary["avg_llm_secs"] == 0.9
+    assert summary["avg_tts_secs"] == 0.4
+
+
+@_patch_metrics_db("app.services.call_metrics_service.get_database")
+@_patch_metrics_db("app.services.call_log_service.get_database")
+def test_get_call_metrics_prefers_explicit_stage(
+    _call_log_db: MagicMock,
+    _metrics_db: MagicMock,
+) -> None:
+    _CALL_STORE.clear()
+    _METRICS_STORE.clear()
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _METRICS_STORE["call-abc-123"] = _sample_metrics_doc(
+        latencies={
+            "breakdowns": [
+                {
+                    "ttfb": [
+                        {
+                            "processor": "CustomVendorService#1",
+                            "stage": "tts",
+                            "duration_secs": 0.33,
+                        }
+                    ],
+                    "user_turn_start_time": 1.0,
+                }
+            ],
+        }
+    )
+    client = _make_client()
+
+    response = client.get("/api/v1/calls/call-abc-123/metrics")
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["avg_tts_secs"] == 0.33
