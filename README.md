@@ -30,13 +30,12 @@ Voice AI is increasingly powerful, but production deployments can create lock-in
 VoicEra is an open infrastructure layer that puts those choices back with the operator.
 
 - **Self-hosted by design** — run the platform on infrastructure you control.
-- **Indian-language first** — built to work with Indic speech and language models.
 - **Provider neutral** — swap STT, TTS, LLM, and telephony providers without rewriting the platform.
 - **Data ownership** — call media, transcripts, and recordings stay in your infrastructure.
 - **Public-good friendly** — MIT licensed, transparent, forkable, and deployable without a VoicEra-managed service.
 - **Composable** — use cloud APIs, local models, or a mix of both.
 
-> **VoicEra is infrastructure, not another AI vendor.**
+> **VoicEra is platform you own, not another AI vendor.**
 
 ## Quick start
 
