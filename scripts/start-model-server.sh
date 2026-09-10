@@ -130,13 +130,29 @@ hf_logged_in() {
 # operator has already answered this, so do not ask. The guard has to name every
 # one of the four, or `STT_HF_TOKEN=... ./scripts/start-model-server.sh` would
 # still stop for a prompt and no longer run unattended.
+#
+# A cached `huggingface-cli login` deliberately does NOT suppress this any more.
+# It used to, on the reasoning that a cached token is credentials enough -- true
+# when every slot drew on one account, and wrong the moment slots can need
+# different ones, which is the whole point of the per-slot keys. On a box with
+# an unrelated login cached, the operator was never asked for anything and the
+# first sign of trouble was a gated repo 404ing from inside a fetcher, which
+# reads as "the model does not exist" rather than "wrong credentials".
+#
+# The cached login is still honoured -- it is now an offer rather than a
+# silent override. Enter at any prompt falls through to it.
 if [ -n "$STT_SEL$TTS_SEL$LLM_SEL" ] \
    && [ -z "$HF_TOKEN$STT_HF_TOKEN$TTS_HF_TOKEN$LLM_HF_TOKEN" ] \
-   && [ -z "$USE_SHARED_HF_CACHE" ] && ! hf_logged_in; then
+   && [ -z "$USE_SHARED_HF_CACHE" ]; then
   echo ""
   echo "  Some checkpoints are gated on HuggingFace and need a token with access"
   echo "  granted on the model page. Press Enter to skip if the models you picked"
   echo "  do not need one -- their fetch.sh will say so if they do."
+  if hf_logged_in; then
+    echo ""
+    echo "  A cached HuggingFace login was found. Enter at a prompt uses it --"
+    echo "  give a token only where that account lacks access."
+  fi
   echo ""
   echo "  One token covers every model your account has been granted. Separate"
   echo "  tokens are for what a single prompt cannot express: slots granted to"
