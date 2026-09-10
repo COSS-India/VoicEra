@@ -13,10 +13,9 @@ from .catalog import (
     LLM_MODELS,
     STT_CAPABILITIES,
     TTS_CAPABILITIES,
-    TTS_V2_VOICES,
     TTS_V3_VOICES,
     DEFAULT_LLM_MODEL,
-    DEFAULT_TTS_VOICE,
+    DEFAULT_TTS_V3_VOICE,
 )
 
 
@@ -45,10 +44,10 @@ class SarvamSTTSettings(BaseModel):
 
 class SarvamTTSSettings(BaseTTSSettings):
     voice: str = Field(
-        default=DEFAULT_TTS_VOICE,
+        default=DEFAULT_TTS_V3_VOICE,
         description="Sarvam voice name. Available voices depend on the selected model.",
         json_schema_extra={
-            "examples": list(TTS_V2_VOICES + TTS_V3_VOICES),
+            "examples": list(TTS_V3_VOICES),
             "allow_custom_input": True,
         },
     )

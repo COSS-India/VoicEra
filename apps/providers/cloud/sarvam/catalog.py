@@ -66,14 +66,7 @@ STT_CAPABILITIES = {
 }
 
 # --- TTS ---
-DEFAULT_TTS_VOICE = "anushka"
 DEFAULT_TTS_V3_VOICE = "shubh"
-
-# Bulbul v2 voices
-TTS_V2_VOICES: tuple[str, ...] = (
-    "anushka", "manisha", "vidya", "arya",
-    "abhilash", "karun", "hitesh",
-)
 
 # Bulbul v3 voices (extended set)
 TTS_V3_VOICES: tuple[str, ...] = (
@@ -108,21 +101,6 @@ _TTS_SPEED = {
 }
 
 TTS_CAPABILITIES = {
-    "bulbul:v2": {
-        "languages": _BULBUL_LANGUAGES,
-        "settings": expand_settings(
-            _BULBUL_LANGUAGES,
-            {
-                "voice": {
-                    "default": DEFAULT_TTS_VOICE,
-                    "options": list(TTS_V2_VOICES),
-                    "input_type": "both",
-                    "allow_custom_input": True,
-                },
-                "speed": dict(_TTS_SPEED),
-            },
-        ),
-    },
     "bulbul:v3": {
         "languages": _BULBUL_LANGUAGES,
         "settings": expand_settings(
