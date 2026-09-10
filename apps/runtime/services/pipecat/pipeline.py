@@ -65,6 +65,11 @@ async def run_pipeline(
             org_id=org_id,
             call_id=call_id,
             session_label=session_label,
+            processor_stages={
+                stt.name: "stt",
+                tts.name: "tts",
+                llm.name: "llm",
+            },
         )
         register_call_metrics(components.worker, metrics_writer)
         components.metrics_writer = metrics_writer
