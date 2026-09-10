@@ -164,6 +164,7 @@ ORPHEUS_SPEAKERS: dict[str, tuple[str, ...]] = {
     "ta": ("Anitha", "Arun"),
     "te": ("Sravani", "Vamsi"),
     "ur": ("Saba", "Zaid"),
+    "en": ("Kavya", "Amit"),
 }
 
 # Vendor language code → VoicEra canonical id (``or`` → ``od``, ``bhb`` → ``bh``).
@@ -191,6 +192,7 @@ ORPHEUS_LANGS: dict[str, str] = {
     "ta": "ta",
     "te": "te",
     "ur": "ur",
+    "en": "en",
 }
 
 ORPHEUS_STYLES: tuple[str, ...] = (
