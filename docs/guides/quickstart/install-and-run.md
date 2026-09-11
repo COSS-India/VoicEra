@@ -69,11 +69,9 @@ Ten containers:
 curl -s localhost:8000/health
 ```
 
-Expected output (nothing to run here — this is what a healthy API returns):
-
-```json
-{"status": "ok", "database": "up"}
-```
+<Note>
+A healthy API returns `{"status": "ok", "database": "up"}` — nothing to run here, just what to expect in the response body.
+</Note>
 
 ```bash
 curl -s localhost:7860/health
