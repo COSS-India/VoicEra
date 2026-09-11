@@ -8,7 +8,7 @@ Every HTTP and WebSocket route the VoicEra stack exposes, extracted from the rou
 The API serves interactive OpenAPI docs at `http://localhost:8000/docs` and ReDoc at `/redoc`. Those are generated from the same routers this page was extracted from, so they never drift.
 
 <Note>
-This page is hand-maintained, not generated from a spec — this site has no static OpenAPI file wired into its build. That means it and the per-resource pages under [Endpoints](agents.md) can drift from the routers and from each other if one is updated without the other. When you add or change a route, update both this page and its resource page in the same change, and treat `/docs` on a running API as the tiebreaker if they ever disagree.
+This page is hand-maintained, not generated from a spec — this site has no static OpenAPI file wired into its build. That means it and the per-resource pages under [Endpoints](agents) can drift from the routers and from each other if one is updated without the other. When you add or change a route, update both this page and its resource page in the same change, and treat `/docs` on a running API as the tiebreaker if they ever disagree.
 </Note>
 
 ## Auth column values
@@ -119,7 +119,7 @@ Three routes, all declared in `apps/runtime/routes/` and mounted with no prefix 
 | WS | `/agent/{org_id}/{agent_id}` | public | Media WebSocket for the Pipecat pipeline. Accepts an optional `call_id` query parameter for CallLog correlation. |
 
 <Warning>
-The runtime authenticates nothing. `/answer` and `/agent/{org_id}/{agent_id}` are reachable by anyone who can reach the port, and `/answer` is the route your telephony provider calls, so it must be publicly resolvable. Put it behind a reverse proxy and restrict by source where you can — see [Security hardening](../guides/deployment/security-hardening.md).
+The runtime authenticates nothing. `/answer` and `/agent/{org_id}/{agent_id}` are reachable by anyone who can reach the port, and `/answer` is the route your telephony provider calls, so it must be publicly resolvable. Put it behind a reverse proxy and restrict by source where you can — see [Security hardening](../guides/deployment/security-hardening).
 </Warning>
 
 ## Model-server gateway — `:8100`
@@ -147,8 +147,8 @@ A request to a slot with no model deployed returns `503` with `"type": "upstream
 
 ## Related
 
-* [REST API](overview.md)
-* [WebSocket API](websocket-api.md)
-* [Ports and defaults](../developer/reference/ports-and-defaults.md)
-* [Environment variables](../developer/reference/environment-variables.md)
-* [Data model](../developer/reference/data-model.md)
+* [REST API](overview)
+* [WebSocket API](websocket-api)
+* [Ports and defaults](../developer/reference/ports-and-defaults)
+* [Environment variables](../developer/reference/environment-variables)
+* [Data model](../developer/reference/data-model)

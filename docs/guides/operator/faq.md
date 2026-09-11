@@ -7,19 +7,19 @@ description: Common questions about running VoicEra.
 
 The core stack does not include one. VoicEra is API-first: `http://localhost:8000/docs` gives you an interactive console for every endpoint.
 
-On `http://localhost:3000`, started with the rest of the stack. It covers agents, numbers, campaigns, knowledge documents, call history, and per-call latency. Its container runs the Next.js development server, so build it properly before exposing it. See [Dashboard](../../developer/frontend/overview.md) and [Operating via the API](../../api-reference/recipes.md).
+On `http://localhost:3000`, started with the rest of the stack. It covers agents, numbers, campaigns, knowledge documents, call history, and per-call latency. Its container runs the Next.js development server, so build it properly before exposing it. See [Dashboard](../../developer/frontend/overview) and [Operating via the API](../../api-reference/recipes).
 
 ## Why is the database on port 27018?
 
 The container listens on `27017`; the host mapping is `27018` so it cannot collide with a MongoDB you already run locally. From your machine use `27018`; inside the Compose network services use `mongodb:27017`.
 
-It is FerretDB — the MongoDB wire protocol on top of PostgreSQL — not MongoDB. See [Data store](../../developer/reference/data-store.md).
+It is FerretDB — the MongoDB wire protocol on top of PostgreSQL — not MongoDB. See [Data store](../../developer/reference/data-store).
 
 ## Do I need a GPU?
 
 Not with cloud model providers. The core stack runs on 2 CPU cores and 4 GB of RAM.
 
-A GPU is only needed to self-host models with the [model server](../../developer/model-server/overview.md).
+A GPU is only needed to self-host models with the [model server](../../developer/model-server/overview).
 
 ## Can I use only OpenAI?
 
@@ -44,7 +44,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 The circuit breaker tripped — by default, more than 50% of calls failing within a 300-second window, over a minimum of 5 calls. It exists so a broken agent burns a handful of calls instead of the whole list.
 
-Find out why the calls failed, fix it, then `POST /campaign/{id}/resume`. See [Troubleshooting campaigns](../troubleshooting/campaigns.md).
+Find out why the calls failed, fix it, then `POST /campaign/{id}/resume`. See [Troubleshooting campaigns](../troubleshooting/campaigns).
 
 ## Why does my browser test call have no transcript?
 
@@ -54,7 +54,7 @@ Browser sessions do produce transcripts and recordings — the runtime registers
 
 Only for real phone calls. Your telephony provider fetches `/answer` over HTTPS and opens a WSS connection for audio — both inbound, so the runtime must be publicly reachable.
 
-For evaluation, a `websocket` agent needs no public URL and no telephony account. See [Public voice URLs](../../guides/deployment/public-voice-urls.md).
+For evaluation, a `websocket` agent needs no public URL and no telephony account. See [Public voice URLs](../../guides/deployment/public-voice-urls).
 
 ## My agents stopped answering after I changed a setting. Why?
 
@@ -70,7 +70,7 @@ Edit `.env` and recreate the affected containers. Change `MONGODB_PASSWORD`, `MI
 Changing `MONGODB_PASSWORD` after the volume exists does not update the PostgreSQL user — the same credentials serve both layers. Set it before the first start, or change it inside Postgres too.
 </Warning>
 
-See [Security hardening](../../guides/deployment/security-hardening.md).
+See [Security hardening](../../guides/deployment/security-hardening).
 
 ## What happens if I lose PROVIDER_AUTH_ENCRYPTION_KEY?
 
@@ -86,7 +86,7 @@ No. The first `POST /users/signup` creates the user, an organisation, and a `sup
 
 `DEFAULT_ORG_CONCURRENCY_LIMIT` caps simultaneous calls per organisation, default `10`. Campaigns can set a lower `max_concurrency`.
 
-In practice your telephony account's channel limit or your model vendor's rate limits usually bind first. See [Call concurrency](../../developer/reference/call-concurrency.md).
+In practice your telephony account's channel limit or your model vendor's rate limits usually bind first. See [Call concurrency](../../developer/reference/call-concurrency).
 
 ## Can I scale the services?
 
@@ -96,7 +96,7 @@ The API, runtime, and ARQ worker scale horizontally. The runtime needs session a
 The campaign orchestrator must run as **exactly one** replica. Its state is in-memory and it uses Redis pub/sub, which fans out to every subscriber — two replicas would dial each campaign at twice its configured rate.
 </Warning>
 
-See [Production deployment](../../guides/deployment/production.md).
+See [Production deployment](../../guides/deployment/production).
 
 ## Does VoicEra switch language mid-call?
 
@@ -121,14 +121,14 @@ Three stores together: PostgreSQL (via `pg_dump`), MinIO, and the Chroma volume.
 `docker compose down -v` deletes all four volumes at once, irreversibly.
 </Warning>
 
-See [Daily operations](operations.md).
+See [Daily operations](operations).
 
 ## Is there a CI pipeline?
 
-No. There is no `.github/` directory. Run the test suites yourself before opening a pull request — see [Testing](../../developer/guides/testing.md).
+No. There is no `.github/` directory. Run the test suites yourself before opening a pull request — see [Testing](../../developer/guides/testing).
 
 ## Related
 
-* [Common issues](../troubleshooting/common-issues.md)
-* [Operating via the API](../../api-reference/recipes.md)
-* [Glossary](../concepts/glossary.md)
+* [Common issues](../troubleshooting/common-issues)
+* [Operating via the API](../../api-reference/recipes)
+* [Glossary](../concepts/glossary)

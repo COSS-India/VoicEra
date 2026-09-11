@@ -6,7 +6,7 @@ description: The multi-step agent creation wizard.
 The wizard at `/agent-creation` walks you through building an agent config and ends by creating it with `POST /agents`. It is the dashboard's main reason to exist: the agent config is a deeply nested object, and the wizard assembles it from provider catalogs the API serves rather than making you type it.
 
 <Warning>
-The dashboard container runs Next.js in **development** mode with the source bind-mounted. That is right for local work and wrong for anything user-facing — see [Production deployment](../../guides/deployment/production.md).
+The dashboard container runs Next.js in **development** mode with the source bind-mounted. That is right for local work and wrong for anything user-facing — see [Production deployment](../../guides/deployment/production).
 </Warning>
 
 ## The steps
@@ -65,7 +65,7 @@ On mount, and again whenever the language selection changes, it issues six reque
 | `GET /configuration/telephony` | Telephony providers, for the delivery dropdown. |
 | `GET /auth/configured` | Which providers this organisation has credentials for. |
 
-The last one is the important filter. `filterToConfigured()` intersects each provider list with `GET /auth/configured`, so **a provider you have not connected under Integrations never appears in the wizard**. If your stack step shows an empty dropdown, the fix is to add credentials — see [Provider credentials (ProviderAuth)](../reference/provider-auth.md).
+The last one is the important filter. `filterToConfigured()` intersects each provider list with `GET /auth/configured`, so **a provider you have not connected under Integrations never appears in the wizard**. If your stack step shows an empty dropdown, the fix is to add credentials — see [Provider credentials (ProviderAuth)](../reference/provider-auth).
 
 Once you pick a provider, a second round of requests fetches its field schema:
 
@@ -97,7 +97,7 @@ These are text snippets shipped with the dashboard, not API data. The API has no
 
 `formToAgentCreatePayload()` in `frontend/src/lib/agent-mapper.ts` turns the flat form into the nested agent body. `ReviewStep.tsx` calls it for both paths: `createAgent()` for a new agent, and `updateAgent()` — `PATCH /agents/{agent_id}` — when the edit page supplied one.
 
-**Agent category is derived, not chosen directly.** If the delivery dropdown has a telephony provider selected, `agent_category` is `"telephony"` and `telephony_provider` is included. If it is empty, the agent is `"websocket"` — the default, and the only kind that can take a browser test call. See [Agents and agent categories](../../guides/concepts/agents.md).
+**Agent category is derived, not chosen directly.** If the delivery dropdown has a telephony provider selected, `agent_category` is `"telephony"` and `telephony_provider` is included. If it is empty, the agent is `"websocket"` — the default, and the only kind that can take a browser test call. See [Agents and agent categories](../../guides/concepts/agents).
 
 **Languages split by position.** The first language chip becomes `language.primary`; the rest become `language.secondary`.
 
@@ -139,7 +139,7 @@ The resulting body:
 }
 ```
 
-Several values in `behaviour` and `knowledge_base` are **constants the mapper hardcodes**, not wizard inputs: `hold_message_timeout_seconds` (5), all four `user_online_detection_*` values apart from the enabled toggle, and `top_k` (5). To change them, edit the agent over the API. Field meanings are in [Agent configuration](../reference/agent-configuration.md).
+Several values in `behaviour` and `knowledge_base` are **constants the mapper hardcodes**, not wizard inputs: `hold_message_timeout_seconds` (5), all four `user_online_detection_*` values apart from the enabled toggle, and `top_k` (5). To change them, edit the agent over the API. Field meanings are in [Agent configuration](../reference/agent-configuration).
 
 <Note>
 `AgentForm` still carries `tokens`, `temperature`, and `bufferMs` (`frontend/src/lib/wizard-data.ts`), but no step renders a control for them and `formToAgentCreatePayload()` never reads them. They are dead form state. Set LLM sampling parameters over the API instead.
@@ -147,12 +147,12 @@ Several values in `behaviour` and `knowledge_base` are **constants the mapper ha
 
 If the provider settings have not finished loading, the mapper throws rather than posting a half-built config — the wizard surfaces this as "Provider settings are still loading."
 
-On success, `ReviewStep` holds the returned `agent_id` and opens a live browser call against it in `CallStage`. See [Browser test calls](test-calls.md).
+On success, `ReviewStep` holds the returned `agent_id` and opens a live browser call against it in `CallStage`. See [Browser test calls](test-calls).
 
 ## Related
 
-* [Browser test calls](test-calls.md)
-* [Dashboard tour](dashboard-tour.md)
-* [Agents and agent categories](../../guides/concepts/agents.md)
-* [Agent configuration](../reference/agent-configuration.md)
-* [Create your first agent](../../guides/quickstart/first-agent.md)
+* [Browser test calls](test-calls)
+* [Dashboard tour](dashboard-tour)
+* [Agents and agent categories](../../guides/concepts/agents)
+* [Agent configuration](../reference/agent-configuration)
+* [Create your first agent](../../guides/dashboard/create-an-agent)

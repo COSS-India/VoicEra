@@ -43,7 +43,7 @@ The response carries `X-Sample-Rate` (44100) and `X-Audio-Format`. Chunked HTTP 
 
 It needs an NVIDIA GPU of Ada generation or newer; the engine leans on CUDA graphs and flashinfer. Warm time-to-first-audio on an H200 is around 250 ms, roughly 1.5 s cold.
 
-The Parler checkpoint comes from Drive, but the tokenizer and T5 encoder are pulled from `ai4bharat/indic-parler-tts`, which is **gated**. See [Running on GPUs](gpu-operations.md) for the two ways round that.
+The Parler checkpoint comes from Drive, but the tokenizer and T5 encoder are pulled from `ai4bharat/indic-parler-tts`, which is **gated**. See [Running on GPUs](gpu-operations) for the two ways round that.
 
 ## orpheus
 
@@ -118,7 +118,7 @@ TTS moved *off* WebSockets to plain HTTP, which gave cancellation for free. Dire
 
 When the caller interrupts, Pipecat stops reading the response, the connection drops, and that drop travels through the gateway to the TTS server, which frees the GPU slot. For `indic-parler` the server evicts the request from the batch; for `indic-mio` the async generator's `GeneratorExit` aborts the vLLM request. Either way generation stops rather than finishing a sentence nobody is listening to.
 
-That propagation is what `tests/test_gateway_streaming.py` checks: the gateway streams rather than buffers, and a client disconnect reaches the upstream. The stopping-work-on-hangup row of the [container contract](adding-a-model.md) exists for exactly this.
+That propagation is what `tests/test_gateway_streaming.py` checks: the gateway streams rather than buffers, and a client disconnect reaches the upstream. The stopping-work-on-hangup row of the [container contract](adding-a-model) exists for exactly this.
 
 ## Voices
 
@@ -127,7 +127,7 @@ That propagation is what `tests/test_gateway_streaming.py` checks: the gateway s
 **orpheus** — a fixed roster, currently `tts/orpheus/voices-v2.json`: 23 languages, with 14 speaking styles (`news` is the default — `AIR style news`, `TV style news`, `educational lecture`, `single person narration audiobook`, `children's stories`, `advertisements`, `Customer Care`, and six emotion tags: happy, sad, anger, fear, surprise, disgust). Every speaker name is unique, which is what lets an OpenAI client pick a language using only the standard `voice` field. `GET /v1/voices` lists them.
 
 <Note>
-The folder also still carries the older `voices.json` (v1): 12 ALL-CAPS styles (`CONV` default, plus `WIKI`, `NEWS`, `BOOK`, ...) across the same 22 languages minus Bhili, and a completely different style vocabulary from v2 — the two rosters are not interchangeable, `model-server/tests/test_orpheus_roster.py` pins that `compose.extra.yml`'s `ORPHEUS_VOICES_FILE` matches whichever checkpoint `models.yaml` records for this slot. Which file is actually loaded is a deployment detail, not a docs one — check `ORPHEUS_VOICES_FILE` in the running `compose.extra.yml` before trusting either list. VoicEra's `indic_orpheus` provider (see [Providers → Indic Orpheus](../services/providers.md#indic-orpheus-tts)) is written against v2.
+The folder also still carries the older `voices.json` (v1): 12 ALL-CAPS styles (`CONV` default, plus `WIKI`, `NEWS`, `BOOK`, ...) across the same 22 languages minus Bhili, and a completely different style vocabulary from v2 — the two rosters are not interchangeable, `model-server/tests/test_orpheus_roster.py` pins that `compose.extra.yml`'s `ORPHEUS_VOICES_FILE` matches whichever checkpoint `models.yaml` records for this slot. Which file is actually loaded is a deployment detail, not a docs one — check `ORPHEUS_VOICES_FILE` in the running `compose.extra.yml` before trusting either list. VoicEra's `indic_orpheus` provider (see [Providers → Indic Orpheus](../services/providers#indic-orpheus-tts)) is written against v2.
 </Note>
 
 **indic-mio** — five preset speakers built from AI4Bharat Rasa reference clips: Aditi (default), Meera, Ananya, Rahul, Arjun. It is a zero-shot voice-cloning model, so a voice is a speaker embedding derived from one reference clip. The embedding is timbre only, so one voice works across all 22 Indic languages plus English — you do not need a voice per language.
@@ -146,7 +146,7 @@ To add a voice, add an entry `{name, gender, ref}` to `manifest.json` and a matc
 
 ## Related
 
-* [STT models](stt-models.md)
-* [Adding a model](adding-a-model.md)
-* [Gateway API](gateway-api.md)
-* [Running on GPUs](gpu-operations.md)
+* [STT models](stt-models)
+* [Adding a model](adding-a-model)
+* [Gateway API](gateway-api)
+* [Running on GPUs](gpu-operations)

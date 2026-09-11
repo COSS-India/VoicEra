@@ -134,7 +134,7 @@ Valid ids come from `GET /api/v1/languages`, which returns the canonical id → 
 Two rules apply to all three, enforced by `validate_persisted_model_config()`:
 
 1. **`provider` is required and must be registered.** It is matched against the provider registry for that kind; an unknown id fails validation with the registry's own error. Enumerate the valid ids with `GET /api/v1/configuration/stt`, `/tts`, and `/llm`, and fetch one provider's setting schema from `GET /api/v1/configuration/{kind}/setting/{provider}`.
-2. **Non-secret settings only.** Every auth and secret field name declared by the provider's config class is forbidden. Sending one fails with `{kind}_config must not include secret/auth fields: …`. API keys live in `ProviderAuth`, stored once per organisation through `POST /api/v1/auth` and Fernet-encrypted at rest. See [Provider credentials (ProviderAuth)](provider-auth.md).
+2. **Non-secret settings only.** Every auth and secret field name declared by the provider's config class is forbidden. Sending one fails with `{kind}_config must not include secret/auth fields: …`. API keys live in `ProviderAuth`, stored once per organisation through `POST /api/v1/auth` and Fernet-encrypted at rest. See [Provider credentials (ProviderAuth)](provider-auth).
 
 The remaining fields are whatever that provider's config class declares — model name, voice, language, speed, base URL and so on. Validation runs the payload through the provider's own Pydantic model, so an unknown or malformed field is rejected there. The stored result is the validated dump with secrets excluded and `null` values dropped.
 
@@ -153,7 +153,7 @@ When `enabled` is true, validation requires at least one non-blank `document_ids
 
 `mode: "tool"` additionally requires an LLM provider that supports function calling. The allowed set is `KB_TOOL_LLM_PROVIDERS` in `apps/api/app/services/agent_config_validation.py`: `anthropic`, `azure_openai`, `groq`, `openai`. Any other provider is rejected.
 
-The runtime re-parses this blob in `apps/runtime/services/knowledge/config.py` and is more forgiving than the API: an unrecognised `mode` falls back to `context`, and `top_k` is clamped into `1`–`10`. Knowledge is skipped entirely when `enabled` is false or `document_ids` is empty. See [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag.md).
+The runtime re-parses this blob in `apps/runtime/services/knowledge/config.py` and is more forgiving than the API: an unrecognised `mode` falls back to `context`, and `top_k` is clamped into `1`–`10`. Knowledge is skipped entirely when `enabled` is false or `document_ids` is empty. See [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag).
 
 ## Custom variables and prompt substitution
 
@@ -269,9 +269,9 @@ curl -X POST http://localhost:8000/api/v1/agents \
 
 ## Related
 
-* [Data model](data-model.md)
-* [REST API](../../api-reference/overview.md)
-* [Agents and agent categories](../../guides/concepts/agents.md)
-* [Provider registry](provider-registry.md)
-* [Provider credentials (ProviderAuth)](provider-auth.md)
-* [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag.md)
+* [Data model](data-model)
+* [REST API](../../api-reference/overview)
+* [Agents and agent categories](../../guides/concepts/agents)
+* [Provider registry](provider-registry)
+* [Provider credentials (ProviderAuth)](provider-auth)
+* [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag)

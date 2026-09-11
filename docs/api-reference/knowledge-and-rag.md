@@ -5,7 +5,7 @@ description: Upload documents and retrieve grounded context.
 
 ## Knowledge
 
-`apps/api/app/routers/knowledge.py`, prefix `/api/v1/knowledge`. See [Knowledge base (RAG)](../guides/concepts/knowledge-base-rag.md).
+`apps/api/app/routers/knowledge.py`, prefix `/api/v1/knowledge`. See [Knowledge base (RAG)](../guides/concepts/knowledge-base-rag).
 
 ### `GET /knowledge`
 
@@ -81,6 +81,6 @@ Returns `KnowledgeRetrieveResponse`:
 
 ## Related
 
-* [Endpoints cheatsheet](endpoints-cheatsheet.md) — every route on one page
-* [Authentication](authentication.md) — tokens, headers, and roles
-* [Errors](errors.md) — status codes and error shapes
+* [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page
+* [Authentication](authentication) — tokens, headers, and roles
+* [Errors](errors) — status codes and error shapes

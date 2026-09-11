@@ -6,7 +6,7 @@ description: The Next.js dashboard — the web console for VoicEra.
 The web console for VoicEra. It starts with the rest of the stack and covers agents, numbers, campaigns, knowledge documents, call history, and per-call latency.
 
 <Warning>
-The `frontend` container runs the Next.js **development** server with your checkout bind-mounted. Right for local work, wrong for anything user-facing — see [Production deployment](../../guides/deployment/production.md).
+The `frontend` container runs the Next.js **development** server with your checkout bind-mounted. Right for local work, wrong for anything user-facing — see [Production deployment](../../guides/deployment/production).
 </Warning>
 
 ## Where it sits
@@ -36,11 +36,11 @@ Next.js serves the pages, but the data never flows through it: every REST call a
 
 | Page | Covers |
 | --- | --- |
-| [Overview](overview.md) | What it is, its stack, and which API surfaces it consumes. |
-| [Running the dashboard](running.md) | Cloning the branch, installing, and pointing it at your stack. |
-| [Agent creation wizard](agent-wizard.md) | The guided flow from provider keys to a working agent. |
-| [Dashboard tour](dashboard-tour.md) | Every route: agents, numbers, campaigns, knowledge base, history, telemetry, members, integrations. |
-| [Browser test calls](test-calls.md) | Talking to an agent from the browser, and how the audio path works. |
+| [Overview](overview) | What it is, its stack, and which API surfaces it consumes. |
+| [Running the dashboard](running) | Cloning the branch, installing, and pointing it at your stack. |
+| [Agent creation wizard](agent-wizard) | The guided flow from provider keys to a working agent. |
+| [Dashboard tour](dashboard-tour) | Every route: agents, numbers, campaigns, knowledge base, history, telemetry, members, integrations. |
+| [Browser test calls](test-calls) | Talking to an agent from the browser, and how the audio path works. |
 
 ## Why it is documented at all
 
@@ -48,5 +48,5 @@ Everything the dashboard does goes through the public REST API. It is the most c
 
 ## Related
 
-* [Connecting a client](../clients/index.md) — the surfaces the dashboard uses
-* [REST API](../../api-reference/overview.md)
+* [Connecting a client](../clients/index) — the surfaces the dashboard uses
+* [REST API](../../api-reference/overview)

@@ -6,7 +6,7 @@ description: How VoicEra discovers AI providers and describes them to clients wi
 `apps/providers` holds Pydantic configs and a factory that build Pipecat (and first-party) STT, TTS, and LLM services. Adding a vendor means adding a folder — no central list, no `if/elif`, no second copy of the catalog in the API or a client form.
 
 <Note>
-To add a vendor, follow [Adding an AI provider](../guides/adding-a-provider.md). This page explains why the package is shaped the way it is.
+To add a vendor, follow [Adding an AI provider](../guides/adding-a-provider). This page explains why the package is shaped the way it is.
 </Note>
 
 ## The problem with a central if/elif
@@ -77,7 +77,7 @@ Each vendor `config.py` stacks three layers:
 2. **Settings** — vendor knobs (`voice`, `speed`, `base_url`, `grpc_url`, …).
 3. **Config** — Auth + Settings + the matching `Base*Config`, contributing `provider`, `model`, and `language`.
 
-Credentials never live on the bases. Endpoints and hosts belong on Settings, not Auth. The split is what lets [ProviderAuth](provider-auth.md) store exactly the secret fields and nothing else — `validate_auth_payload` rejects any non-secret catalog field outright.
+Credentials never live on the bases. Endpoints and hosts belong on Settings, not Auth. The split is what lets [ProviderAuth](provider-auth) store exactly the secret fields and nothing else — `validate_auth_payload` rejects any non-secret catalog field outright.
 
 Deepgram is a compact example:
 
@@ -106,7 +106,7 @@ class DeepgramSTTConfig(DeepgramAuth, DeepgramSTTSettings, BaseSTTConfig):
 | --- | --- | --- |
 | `cloud` | `apps/providers/cloud/` | A hosted vendor reached over its own API, wired through Pipecat. |
 | `adapter` | `apps/providers/adapters/` | A first-party service class implementing a Pipecat `STTService` / `TTSService`. |
-| `local` | `apps/providers/local/` | Talks to VoicEra's own [model server](../model-server/overview.md) gateway instead of a third-party API. Two providers today: `indic_orpheus` (TTS) and `indic_nemotron` (STT). |
+| `local` | `apps/providers/local/` | Talks to VoicEra's own [model server](../model-server/overview) gateway instead of a third-party API. Two providers today: `indic_orpheus` (TTS) and `indic_nemotron` (STT). |
 
 A config class outside all three raises `ValueError`, which keeps the layout honest.
 
@@ -216,7 +216,7 @@ defaults = configuration_defaults()
 
 The `languages` query parameter takes comma-separated canonical ids and filters as an AND — a provider must support all of them to be listed. An unknown language id returns 400; an unknown provider id returns 404.
 
-`apps.telephony` mirrors this package's structure with its own registry and schema module, which is why the same router serves both. See [Telephony model](../../guides/concepts/telephony-model.md).
+`apps.telephony` mirrors this package's structure with its own registry and schema module, which is why the same router serves both. See [Telephony model](../../guides/concepts/telephony-model).
 
 ## Current inventory
 
@@ -257,16 +257,16 @@ python3 -c "from apps.providers import Kind, provider_schemas; [print(k, sorted(
 | `speechmatics` | Speechmatics | cloud | STT |
 | `xai` | xAI | cloud | TTS |
 
-That is 13 STT providers, 15 TTS providers, and 10 LLM providers. No local LLM provider exists yet — see [Adding an AI provider](../guides/adding-a-provider.md#local-providers-one-extra-registration-call).
+That is 13 STT providers, 15 TTS providers, and 10 LLM providers. No local LLM provider exists yet — see [Adding an AI provider](../guides/adding-a-provider#local-providers-one-extra-registration-call).
 
 <Note>
-Bhashini covers **STT** (Dhruva WebSocket ASR, `api_key`) and **TTS** (NVCF gRPC, `auth_token` + `function_id`) — different transports and different credentials under one provider id. Kenpath is **LLM only**, and authenticates with an RSA private key rather than an API key — see [Providers](../services/providers.md#kenpath).
+Bhashini covers **STT** (Dhruva WebSocket ASR, `api_key`) and **TTS** (NVCF gRPC, `auth_token` + `function_id`) — different transports and different credentials under one provider id. Kenpath is **LLM only**, and authenticates with an RSA private key rather than an API key — see [Providers](../services/providers#kenpath).
 </Note>
 
 ## Related
 
-* [Adding an AI provider](../guides/adding-a-provider.md) — the six-step recipe
-* [Provider credentials (ProviderAuth)](provider-auth.md) — where the secret fields go
-* [Agents and agent categories](../../guides/concepts/agents.md) — where a provider config is stored
-* [Voice pipeline](../../guides/concepts/voice-pipeline.md) — what the created services plug into
-* [Providers (apps/providers)](../services/providers.md)
+* [Adding an AI provider](../guides/adding-a-provider) — the six-step recipe
+* [Provider credentials (ProviderAuth)](provider-auth) — where the secret fields go
+* [Agents and agent categories](../../guides/concepts/agents) — where a provider config is stored
+* [Voice pipeline](../../guides/concepts/voice-pipeline) — what the created services plug into
+* [Providers (apps/providers)](../services/providers)

@@ -79,10 +79,10 @@ These ship in `.env.example` and are what the stack comes up with if you change 
 | Redis | — | `redissecret` | `REDIS_PASSWORD` |
 
 <Warning>
-Change all three before any deployment reachable from outside your machine. MinIO and FerretDB are both published on the host by default, so these credentials are live on `localhost:9000` and `localhost:27018` the moment the stack starts. Redis is not published, but its password is interpolated into `REDIS_URL` — changing `REDIS_PASSWORD` alone is enough, because Compose rebuilds the URL from it. See [Security hardening](../../guides/deployment/security-hardening.md).
+Change all three before any deployment reachable from outside your machine. MinIO and FerretDB are both published on the host by default, so these credentials are live on `localhost:9000` and `localhost:27018` the moment the stack starts. Redis is not published, but its password is interpolated into `REDIS_URL` — changing `REDIS_PASSWORD` alone is enough, because Compose rebuilds the URL from it. See [Security hardening](../../guides/deployment/security-hardening).
 </Warning>
 
-There is no default VoicEra login. The first `super_admin` is created by `POST /api/v1/users/signup` — see [Create your first agent](../../guides/quickstart/first-agent.md).
+There is no default VoicEra login. The first `super_admin` is created by `POST /api/v1/users/signup` — see [Create the first user](../../guides/quickstart/install-and-run#5-create-the-first-user).
 
 ## Changing a host port
 
@@ -100,8 +100,8 @@ If you move `FERRETDB_HOST_PORT`, also update `MONGODB_PORT` in `.env` — that 
 
 ## Related
 
-* [Environment variables](environment-variables.md)
-* [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet.md)
-* [Docker Compose](../../guides/deployment/docker-compose.md)
-* [Data store (FerretDB)](data-store.md)
-* [Overview](../model-server/overview.md)
+* [Environment variables](environment-variables)
+* [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet)
+* [Docker Compose](../../guides/deployment/docker-compose)
+* [Data store (FerretDB)](data-store)
+* [Overview](../model-server/overview)

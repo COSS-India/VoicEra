@@ -6,7 +6,7 @@ description: The providers package — layout, public API, and dependency model.
 `apps/providers` holds Pydantic configs and a factory that build Pipecat STT, TTS, and LLM services. It is a library, not a container: it is copied into both the `api` and `runtime` images. The API imports it to generate provider catalogs; the runtime imports it to build live services for a call.
 
 <Note>
-This page walks through the package layout and public API. Why the registry is shaped this way, and what it buys you, is in [Provider registry](../reference/provider-registry.md). To add a vendor, follow [Adding an AI provider](../guides/adding-a-provider.md).
+This page walks through the package layout and public API. Why the registry is shaped this way, and what it buys you, is in [Provider registry](../reference/provider-registry). To add a vendor, follow [Adding an AI provider](../guides/adding-a-provider).
 </Note>
 
 ## Public API
@@ -170,13 +170,13 @@ The registry treats them identically to any cloud vendor at every layer — disc
 
 ## The local providers
 
-`local/` holds providers that talk to VoicEra's own [model server](../model-server/overview.md) gateway instead of a third-party API. Two ship today.
+`local/` holds providers that talk to VoicEra's own [model server](../model-server/overview) gateway instead of a third-party API. Two ship today.
 
 ### Indic Orpheus (TTS)
 
 `local/indic_orpheus/` wraps the model server's OpenAI-compatible `/v1/audio/speech` endpoint with `AsyncOpenAI`. There is no `Auth` class — the gateway has no auth layer, so `create_tts` passes a literal `api_key="not-needed"` purely because the OpenAI SDK rejects an empty string. `resolve_base_url()` reads `MODEL_SERVER_URL` and raises `RuntimeError` if it's unset.
 
-The catalog models **one speaking style axis independent of voice** (`TTS_STYLES`, 14 options — default `news`, plus `AIR style news`, `TV style news`, `educational lecture`, and the happy/sad/anger/fear/surprise/disgust emotion tags) alongside the usual **voice implies language** rule. `TTS_SPEAKERS` maps each of 23 Orpheus vendor language codes to a fixed roster of speaker names (Hindi alone has two, `Kavya` and `Amit`; the newest addition, `bhb`/Bhili, has seven), and picking a speaker fixes the language on the wire — the same shape as the Orpheus TTS documented for Bhashini, since it's the same underlying roster. This is the `voices-v2.json` roster; see [TTS models → orpheus](../model-server/tts-models.md#orpheus) for the older `voices.json` this catalog no longer targets.
+The catalog models **one speaking style axis independent of voice** (`TTS_STYLES`, 14 options — default `news`, plus `AIR style news`, `TV style news`, `educational lecture`, and the happy/sad/anger/fear/surprise/disgust emotion tags) alongside the usual **voice implies language** rule. `TTS_SPEAKERS` maps each of 23 Orpheus vendor language codes to a fixed roster of speaker names (Hindi alone has two, `Kavya` and `Amit`; the newest addition, `bhb`/Bhili, has seven), and picking a speaker fixes the language on the wire — the same shape as the Orpheus TTS documented for Bhashini, since it's the same underlying roster. This is the `voices-v2.json` roster; see [TTS models → orpheus](../model-server/tts-models#orpheus) for the older `voices.json` this catalog no longer targets.
 
 ### Indic Nemotron (STT)
 
@@ -204,7 +204,7 @@ No local LLM provider exists. `model-server/llm/qwen3.5-4b/` is `status: ready` 
 
 ## Related
 
-* [Provider registry](../reference/provider-registry.md) — the design, and why it is self-describing
-* [Provider credentials (ProviderAuth)](../reference/provider-auth.md) — where the secrets live
-* [Adding an AI provider](../guides/adding-a-provider.md)
-* [Agent configuration](../reference/agent-configuration.md)
+* [Provider registry](../reference/provider-registry) — the design, and why it is self-describing
+* [Provider credentials (ProviderAuth)](../reference/provider-auth) — where the secrets live
+* [Adding an AI provider](../guides/adding-a-provider)
+* [Agent configuration](../reference/agent-configuration)

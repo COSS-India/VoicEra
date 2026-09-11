@@ -3,7 +3,7 @@ title: Provider credentials
 description: Store and retrieve encrypted provider API keys.
 ---
 
-`apps/api/app/routers/auth.py`, prefix `/api/v1/auth`. Credentials are **provider-level** — one key set per provider per organisation, shared across whichever of STT, TTS, and LLM that vendor serves. The whole `auth` object is Fernet-encrypted at rest with `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Provider credentials (ProviderAuth)](../developer/reference/provider-auth.md).
+`apps/api/app/routers/auth.py`, prefix `/api/v1/auth`. Credentials are **provider-level** — one key set per provider per organisation, shared across whichever of STT, TTS, and LLM that vendor serves. The whole `auth` object is Fernet-encrypted at rest with `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Provider credentials (ProviderAuth)](../developer/reference/provider-auth).
 
 ## `GET /auth/catalog`
 
@@ -44,6 +44,6 @@ Bearer, `admin` or `super_admin`. Returns `SuccessResponse`. Nothing stored retu
 
 ## Related
 
-* [Endpoints cheatsheet](endpoints-cheatsheet.md) — every route on one page
-* [Authentication](authentication.md) — tokens, headers, and roles
-* [Errors](errors.md) — status codes and error shapes
+* [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page
+* [Authentication](authentication) — tokens, headers, and roles
+* [Errors](errors) — status codes and error shapes

@@ -6,7 +6,7 @@ description: Upload contacts, start a campaign, watch it run, and read the repor
 A campaign dials a list of contacts with one telephony agent, under a concurrency ceiling, with retries and a circuit breaker. This page runs one end to end with `curl`, from CSV to downloaded report.
 
 <Note>
-Prefer clicking? [Run a calling campaign](../dashboard/run-a-campaign.md) covers this same workflow from the dashboard's **Batches** screen — no `curl` required. This page drives the same endpoints over HTTP, which is what you want for scripting and scheduling. See also [Dashboard tour](../../developer/frontend/dashboard-tour.md).
+Prefer clicking? [Run a calling campaign](../dashboard/run-a-campaign) covers this same workflow from the dashboard's **Batches** screen — no `curl` required. This page drives the same endpoints over HTTP, which is what you want for scripting and scheduling. See also [Dashboard tour](../../developer/frontend/dashboard-tour).
 </Note>
 
 ## Before you start
@@ -32,7 +32,7 @@ export TOKEN=$(curl -s -X POST "$API/api/v1/users/login" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 ```
 
-Creating the agent and attaching the number are covered in [Operating via the API](../../api-reference/recipes.md).
+Creating the agent and attaching the number are covered in [Operating via the API](../../api-reference/recipes).
 
 ## The contact CSV
 
@@ -55,7 +55,7 @@ phone_number,customer_name,account_id
 +919876543212,Meera,ACC-1003
 ```
 
-`customer_name` and `account_id` reach the agent as call-time variables. Declare matching keys in the agent's `config.custom_variables` so the prompt can reference them — see [Agent configuration](../../developer/reference/agent-configuration.md).
+`customer_name` and `account_id` reach the agent as call-time variables. Declare matching keys in the agent's `config.custom_variables` so the prompt can reference them — see [Agent configuration](../../developer/reference/agent-configuration).
 
 ## Upload
 
@@ -106,7 +106,7 @@ curl -X POST "$API/api/v1/campaign/create" \
   }'
 ```
 
-The campaign is created in state `created`. It does not dial until you start it. Full field bounds and defaults are in [Campaigns](../../api-reference/campaigns.md#post-campaigncreate).
+The campaign is created in state `created`. It does not dial until you start it. Full field bounds and defaults are in [Campaigns](../../api-reference/campaigns#post-campaigncreate).
 
 ## Retry, schedule, concurrency and circuit breaker
 
@@ -116,7 +116,7 @@ The campaign is created in state `created`. It does not dial until you start it.
 
 ### Retry
 
-`retry_config` governs whether a failed contact is queued again. Field bounds and defaults are in [Campaigns](../../api-reference/campaigns.md#post-campaigncreate).
+`retry_config` governs whether a failed contact is queued again. Field bounds and defaults are in [Campaigns](../../api-reference/campaigns#post-campaigncreate).
 
 A retry is a new queued run with `retry_count` incremented and `is_retry`, `retry_attempt`, and `retry_reason` merged into its context variables, so the prompt can tell a redial from a first attempt.
 
@@ -141,13 +141,13 @@ Outside a window the orchestrator declines to schedule the next batch. The campa
 
 ### Concurrency
 
-`max_concurrency` is this campaign's ceiling on simultaneous live calls, enforced by the dispatcher as a `campaign:{campaign_id}` scope on top of the organisation's slot pool. `rate_limit_per_second` throttles how fast new calls are placed. See [Call concurrency and rate limiting](../../developer/reference/call-concurrency.md).
+`max_concurrency` is this campaign's ceiling on simultaneous live calls, enforced by the dispatcher as a `campaign:{campaign_id}` scope on top of the organisation's slot pool. `rate_limit_per_second` throttles how fast new calls are placed. See [Call concurrency and rate limiting](../../developer/reference/call-concurrency).
 
 The orchestrator dispatches in batches of `CAMPAIGN_BATCH_SIZE`, default `10`, set on the `campaign-orchestrator` service in `docker-compose.yaml`.
 
 ### Circuit breaker
 
-The breaker pauses a campaign that is failing broadly, so a bad number range or a dead provider does not burn the whole list. Field bounds and defaults are in [Campaigns](../../api-reference/campaigns.md#post-campaigncreate).
+The breaker pauses a campaign that is failing broadly, so a bad number range or a dead provider does not burn the whole list. Field bounds and defaults are in [Campaigns](../../api-reference/campaigns#post-campaigncreate).
 
 The counts live in Redis sorted sets keyed per campaign and are evaluated in a Lua script, so the check is atomic across workers.
 
@@ -301,7 +301,7 @@ curl "$API/api/v1/campaign/YOUR_CAMPAIGN_ID/source-download-url" \
 {"download_url": "http://localhost:9000/voicera-calls/campaigns/…"}
 ```
 
-The URL points at MinIO directly, so it must be reachable from wherever you open it. See [Docker Compose](../deployment/docker-compose.md).
+The URL points at MinIO directly, so it must be reachable from wherever you open it. See [Docker Compose](../deployment/docker-compose).
 
 ## Redial
 
@@ -333,7 +333,7 @@ A campaign can stop moving without you touching it. Four causes, distinguished b
 | --- | --- | --- |
 | State flips to `paused` and you did not pause it | The circuit breaker tripped. Failure rate reached `failure_threshold` over `window_seconds` with at least `min_calls_in_window` calls. A `circuit_breaker_tripped` entry is appended to the campaign log with the observed rate. | Fix the underlying cause — provider credentials, caller ID, number quality — then `POST /resume`, which also resets the breaker counters. |
 | State stays `running` but nothing dials | Outside a `schedule_config` window. | Nothing. It resumes at the next slot. Widen the slots with `PATCH` if the window is wrong. |
-| State stays `running`, `processed_rows` frozen, no calls | No concurrency slots free, or the ARQ worker is down. | Check `docker compose ps arq-worker` and its logs. See [Daily operations](operations.md). |
+| State stays `running`, `processed_rows` frozen, no calls | No concurrency slots free, or the ARQ worker is down. | Check `docker compose ps arq-worker` and its logs. See [Daily operations](operations). |
 | State becomes `completed` earlier than expected | The orchestrator's completion monitor found no pending or in-progress runs and no activity for one hour. | Check `failed_rows` against `total_rows`, then redial. |
 
 The breaker is checked from two directions: once per call outcome as the result lands, and again before each batch is scheduled. Both paths set the campaign to `paused` and publish the same event, so a tripped breaker cannot be missed by an idle campaign.
@@ -341,13 +341,13 @@ The breaker is checked from two directions: once per call outcome as the result 
 Completion is inferred, not asserted. `_should_mark_complete` requires no batch in progress, no queued or processing runs, and at least `completion_timeout` (3600 seconds) since the last activity — from in-memory state, or from `last_activity_at`, `last_batch_scheduled_at`, or `started_at` on the document if the orchestrator restarted. The check runs every 60 seconds.
 
 <Warning>
-That in-memory state means the campaign orchestrator is a **single-replica service**. Running two copies makes them schedule batches against each other. See [Production deployment](../deployment/production.md).
+That in-memory state means the campaign orchestrator is a **single-replica service**. Running two copies makes them schedule batches against each other. See [Production deployment](../deployment/production).
 </Warning>
 
 ## Related
 
-* [Campaigns](../concepts/campaigns.md)
-* [Call concurrency and rate limiting](../../developer/reference/call-concurrency.md)
-* [Workers and orchestrator](../../developer/services/workers.md)
-* [Operating via the API](../../api-reference/recipes.md)
-* [Campaign troubleshooting](../troubleshooting/campaigns.md)
+* [Campaigns](../concepts/campaigns)
+* [Call concurrency and rate limiting](../../developer/reference/call-concurrency)
+* [Workers and orchestrator](../../developer/services/workers)
+* [Operating via the API](../../api-reference/recipes)
+* [Campaign troubleshooting](../troubleshooting/campaigns)

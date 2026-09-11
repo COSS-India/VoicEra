@@ -73,7 +73,7 @@ It exists because live transcription is two-directional: audio flows in for as l
 
 Both directions run concurrently in the relay, and whichever ends first tears the other down — so a caller hanging up mid-sentence closes the upstream session and frees the decoder rather than leaving it transcribing an empty room. `Authorization` and `openai-beta` headers are forwarded to the upstream; the query string is passed through verbatim, which is how `?language=hi` and `&endpoint=1` reach the model.
 
-**This route is not what makes transcription live.** Every STT model here returns partial transcripts while the caller is still speaking, and always has. What differs is where the partials come from. That distinction is set out in full on [STT models](stt-models.md), and it is the thing to read before concluding that a model without this route waits for you to finish a sentence.
+**This route is not what makes transcription live.** Every STT model here returns partial transcripts while the caller is still speaking, and always has. What differs is where the partials come from. That distinction is set out in full on [STT models](stt-models), and it is the thing to read before concluding that a model without this route waits for you to finish a sentence.
 
 `WS /v1/realtime` is a second relay, to the same STT upstream, for models that serve OpenAI Realtime transcription — which is what `indic-conformer` serves. `tests/test_gateway_streaming.py` and `tests/test_stt_streaming.py` cover the relay: binary and text frames both ways, unbuffered, and a hang-up carried through to the model.
 
@@ -149,8 +149,8 @@ The gateway runs one uvicorn worker: pure async I/O, no CPU work. Scale with rep
 
 ## Related
 
-* [Overview](overview.md)
-* [STT models](stt-models.md)
-* [TTS models](tts-models.md)
-* [Ports and defaults](../reference/ports-and-defaults.md)
-* [WebSocket API](../../api-reference/websocket-api.md)
+* [Overview](overview)
+* [STT models](stt-models)
+* [TTS models](tts-models)
+* [Ports and defaults](../reference/ports-and-defaults)
+* [WebSocket API](../../api-reference/websocket-api)

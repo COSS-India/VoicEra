@@ -6,17 +6,17 @@ description: Placing a browser test call from the dashboard.
 The dashboard can talk to an agent through your laptop's microphone and speakers — no phone number, no telephony provider, no public URL. This is the one capability the dashboard has that the REST API does not, and it is the fastest way to hear whether a prompt, a voice, or a language choice actually works.
 
 <Warning>
-The dashboard container runs Next.js in **development** mode with the source bind-mounted. That is right for local work and wrong for anything user-facing — see [Production deployment](../../guides/deployment/production.md).
+The dashboard container runs Next.js in **development** mode with the source bind-mounted. That is right for local work and wrong for anything user-facing — see [Production deployment](../../guides/deployment/production).
 </Warning>
 
 ## What a browser test call is
 
-A live, bidirectional audio session between your browser and the [runtime](../services/runtime.md), running the same STT → LLM → TTS pipeline a real caller would hit. Your microphone replaces the phone line; the runtime's telephony frame serializer is replaced by Pipecat's protobuf serializer.
+A live, bidirectional audio session between your browser and the [runtime](../services/runtime), running the same STT → LLM → TTS pipeline a real caller would hit. Your microphone replaces the phone line; the runtime's telephony frame serializer is replaced by Pipecat's protobuf serializer.
 
 You reach it from two places, both rendering `BrowserCallSession` → `CallStage`:
 
 * **`AgentTestModal.tsx`** — the Test action on a `websocket` agent's card on `/dashboard`. It shows the call stage next to a summary of the agent's language, STT, TTS, voice, LLM and model.
-* **`ReviewStep.tsx`** — the final step of the [agent creation wizard](agent-wizard.md). It creates the agent first, then connects to the id that comes back.
+* **`ReviewStep.tsx`** — the final step of the [agent creation wizard](agent-wizard). It creates the agent first, then connects to the id that comes back.
 
 The stage shows transport status, a call timer, live turn latency (user stopped speaking → bot started speaking), mic mute, a mic device picker, Pipecat `VoiceVisualizer` bars, and live captions from `usePipecatConversation`.
 
@@ -25,12 +25,12 @@ The stage shows transport status, a call timer, live turn latency (user stopped 
 | Requirement | Why |
 | --- | --- |
 | An agent with `agent_category` of `websocket` | The runtime returns a telephony media path for `telephony` agents. `AgentsHome.tsx` branches on this field and offers `telephony` agents an outbound phone call instead. |
-| The Next.js rewrite for `/agent/...` | Browser opens a **same-origin** WebSocket; Next proxies it with `RUNTIME_PROXY_TARGET` (default `http://127.0.0.1:7860`, Compose `http://runtime:7860`). See [Running the dashboard](running.md). |
+| The Next.js rewrite for `/agent/...` | Browser opens a **same-origin** WebSocket; Next proxies it with `RUNTIME_PROXY_TARGET` (default `http://127.0.0.1:7860`, Compose `http://runtime:7860`). See [Running the dashboard](running). |
 | Provider credentials configured | The runtime loads them from the API. Without them the pipeline cannot start. |
 | Microphone permission | Requested by the Pipecat client when the call connects. |
 | A secure context or localhost | Browsers only grant microphone access on HTTPS or `localhost`. |
 
-To make a `websocket` agent in the wizard, leave the delivery dropdown on its default — "WebSocket — browser test". Selecting a telephony provider makes it a `telephony` agent instead. Categories are covered in [Agents and agent categories](../../guides/concepts/agents.md).
+To make a `websocket` agent in the wizard, leave the delivery dropdown on its default — "WebSocket — browser test". Selecting a telephony provider makes it a `telephony` agent instead. Categories are covered in [Agents and agent categories](../../guides/concepts/agents).
 
 ## The audio path
 
@@ -87,14 +87,14 @@ On disconnect / unmount the Pipecat client releases the microphone and closes th
 Other constraints worth knowing:
 
 * **Telephony agents cannot take a browser call.** The runtime expects a provider `start` event on that socket. Use `POST /calls/outbound` and a real phone instead.
-* **No authentication on the socket.** Anyone who can reach the runtime port and knows an `org_id` and `agent_id` pair can open a session. Do not expose port 7860 publicly without a proxy that authenticates. See [Security hardening](../../guides/deployment/security-hardening.md) and [Public voice URLs](../../guides/deployment/public-voice-urls.md).
+* **No authentication on the socket.** Anyone who can reach the runtime port and knows an `org_id` and `agent_id` pair can open a session. Do not expose port 7860 publicly without a proxy that authenticates. See [Security hardening](../../guides/deployment/security-hardening) and [Public voice URLs](../../guides/deployment/public-voice-urls).
 * **A test call in the wizard creates a real agent.** The Test call step calls `POST /agents` before it can connect. Abandoning the wizard afterwards leaves the agent in your organisation.
 
 ## Related
 
-* [Browser WebSocket agents](../clients/browser-websocket.md)
-* [Agent creation wizard](agent-wizard.md)
-* [Dashboard tour](dashboard-tour.md)
-* [Agents and agent categories](../../guides/concepts/agents.md)
-* [Runtime (apps/runtime)](../services/runtime.md)
-* [WebSocket API](../../api-reference/websocket-api.md)
+* [Browser WebSocket agents](../clients/browser-websocket)
+* [Agent creation wizard](agent-wizard)
+* [Dashboard tour](dashboard-tour)
+* [Agents and agent categories](../../guides/concepts/agents)
+* [Runtime (apps/runtime)](../services/runtime)
+* [WebSocket API](../../api-reference/websocket-api)

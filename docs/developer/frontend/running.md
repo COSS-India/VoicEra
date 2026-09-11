@@ -17,7 +17,7 @@ The dashboard is useless without an API to talk to — its first action after si
 
 ## Outside Compose
 
-Run it directly when you are iterating on the frontend and want the Next.js dev server on your host rather than in a container. Bring the rest of the stack up first ([Install and run](../../guides/quickstart/install-and-run.md)), then stop the container so the port is free:
+Run it directly when you are iterating on the frontend and want the Next.js dev server on your host rather than in a container. Bring the rest of the stack up first ([Install and run](../../guides/quickstart/install-and-run)), then stop the container so the port is free:
 
 ```bash
 docker compose stop frontend
@@ -72,7 +72,7 @@ Open `http://localhost:3000`. You land on the sign-in page. If you have not crea
 
 ## Pointing at a local stack
 
-Ports must match what the Compose stack actually published. Check them against [Ports and defaults](../reference/ports-and-defaults.md), and against your `.env` if you overrode `RUNTIME_HOST_PORT` or the API port.
+Ports must match what the Compose stack actually published. Check them against [Ports and defaults](../reference/ports-and-defaults), and against your `.env` if you overrode `RUNTIME_HOST_PORT` or the API port.
 
 ```bash
 # API reachable?
@@ -88,7 +88,7 @@ On a `401` from any request, `apiFetch` clears the stored session and hard-redir
 
 ### CORS
 
-You do not need it. The browser only ever calls same-origin `/api/v1/...`; Next's rewrite forwards that to the API server-side, so the request the API actually receives is not cross-origin. `apps/api/app/main.py` still sets `allow_origins=["*"]`, but that matters only if you set `NEXT_PUBLIC_API_URL` to an absolute URL and bypass the proxy — see [Security hardening](../../guides/deployment/security-hardening.md) before doing that anywhere but your own machine.
+You do not need it. The browser only ever calls same-origin `/api/v1/...`; Next's rewrite forwards that to the API server-side, so the request the API actually receives is not cross-origin. `apps/api/app/main.py` still sets `allow_origins=["*"]`, but that matters only if you set `NEXT_PUBLIC_API_URL` to an absolute URL and bypass the proxy — see [Security hardening](../../guides/deployment/security-hardening) before doing that anywhere but your own machine.
 
 ## The Compose service
 
@@ -103,13 +103,13 @@ You do not need it. The browser only ever calls same-origin `/api/v1/...`; Next'
 | `RUNTIME_PROXY_TARGET` | defaults to `http://runtime:7860` — where Next forwards `/agent/...` WebSockets |
 | Depends on | `api` (service_started) |
 
-The proxy is the same mechanism as **Outside Compose** above, just pointed at different targets — `API_PROXY_TARGET` / `RUNTIME_PROXY_TARGET` are `127.0.0.1` there and Compose service DNS here. Either way the browser only ever addresses `/api/v1/...` and `/agent/...` on the dashboard's own origin. See [Environment variables](../reference/environment-variables.md#dashboard) for the full picture.
+The proxy is the same mechanism as **Outside Compose** above, just pointed at different targets — `API_PROXY_TARGET` / `RUNTIME_PROXY_TARGET` are `127.0.0.1` there and Compose service DNS here. Either way the browser only ever addresses `/api/v1/...` and `/agent/...` on the dashboard's own origin. See [Environment variables](../reference/environment-variables#dashboard) for the full picture.
 
 The API's own reference to the dashboard is `FRONTEND_URL` (default `http://localhost:3000`), used to build password-reset links in `apps/api/app/services/user_service.py`. Every dashboard feature remains reachable over the API, so the stack still runs headless if you remove the service.
 
 ## Related
 
-* [Overview](overview.md)
-* [Dashboard tour](dashboard-tour.md)
-* [Install and run](../../guides/quickstart/install-and-run.md)
-* [Environment variables](../reference/environment-variables.md)
+* [Overview](overview)
+* [Dashboard tour](dashboard-tour)
+* [Install and run](../../guides/quickstart/install-and-run)
+* [Environment variables](../reference/environment-variables)

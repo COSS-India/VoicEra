@@ -76,7 +76,7 @@ server {
 }
 ```
 
-Then set `VOICE_SERVER_BASE_URL=https://voice.example.com` **before** creating telephony agents — see [Public voice URLs](public-voice-urls.md).
+Then set `VOICE_SERVER_BASE_URL=https://voice.example.com` **before** creating telephony agents — see [Public voice URLs](public-voice-urls).
 
 ## Tighten CORS
 
@@ -132,7 +132,7 @@ Start here and measure:
 | Up to 50 | 2–3 × 4 vCPU / 8 GB | 2 × 2 vCPU / 4 GB | Raise `DEFAULT_ORG_CONCURRENCY_LIMIT` |
 | 50+ | Scale on measured CPU | 2+ | Model vendor rate limits usually bind first |
 
-With cloud providers the runtime is mostly waiting on network, so it is rarely CPU-bound. Self-hosted models change the picture entirely — see [Running on GPUs](../../developer/model-server/gpu-operations.md).
+With cloud providers the runtime is mostly waiting on network, so it is rarely CPU-bound. Self-hosted models change the picture entirely — see [Running on GPUs](../../developer/model-server/gpu-operations).
 
 ## Secrets
 
@@ -145,7 +145,7 @@ Keep them out of `.env` on disk. Use your platform's secret manager and inject a
 | `PROVIDER_AUTH_ENCRYPTION_KEY` | Back it up. Losing it orphans every stored credential, permanently. |
 | Database, Redis, MinIO passwords | Change from the shipped defaults |
 
-Every variable the stack reads, with defaults and which service consumes it, is in [Environment variables](../../developer/reference/environment-variables.md).
+Every variable the stack reads, with defaults and which service consumes it, is in [Environment variables](../../developer/reference/environment-variables).
 
 ## Backups
 
@@ -156,7 +156,7 @@ docker exec voicera_oss_postgres pg_dump -U admin postgres | gzip > db.sql.gz
 # plus MinIO contents and the Chroma volume
 ```
 
-Redis is ephemeral. Store `PROVIDER_AUTH_ENCRYPTION_KEY` with the backup — the credentials are useless without it. See [Daily operations](../operator/operations.md).
+Redis is ephemeral. Store `PROVIDER_AUTH_ENCRYPTION_KEY` with the backup — the credentials are useless without it. See [Daily operations](../operator/operations).
 
 ## Upgrades
 
@@ -184,7 +184,7 @@ There is no migration tool; schema is enforced by Pydantic at the edge.
 
 ## Related
 
-* [Security hardening](security-hardening.md)
-* [Public voice URLs](public-voice-urls.md)
-* [Docker Compose](docker-compose.md)
-* [Environment variables](../../developer/reference/environment-variables.md)
+* [Security hardening](security-hardening)
+* [Public voice URLs](public-voice-urls)
+* [Docker Compose](docker-compose)
+* [Environment variables](../../developer/reference/environment-variables)

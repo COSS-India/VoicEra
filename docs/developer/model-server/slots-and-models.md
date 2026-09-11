@@ -56,7 +56,7 @@ model = _clean(f"{kind.upper()}_MODEL")
 url = _clean(f"{kind.upper()}_UPSTREAM") or (_DEFAULT_URL[kind] if model else "")
 ```
 
-An empty `LLM_MODEL` means the LLM slot is not deployed, and the gateway answers `503` on `/v1/chat/completions` naming the missing upstream rather than failing to start. See [Gateway API](gateway-api.md).
+An empty `LLM_MODEL` means the LLM slot is not deployed, and the gateway answers `503` on `/v1/chat/completions` naming the missing upstream rather than failing to start. See [Gateway API](gateway-api).
 
 `<SLOT>_UPSTREAM` defaults to the Compose service name — `http://stt:8001`, `http://tts:8002`, `http://llm:8003` — which never changes when you swap a model. Set it only to point a slot at a different host entirely.
 
@@ -135,7 +135,7 @@ It reads `model-server/.env` when present and falls back to the same defaults Co
 
 ## Related
 
-* [Adding a model](adding-a-model.md)
-* [Gateway API](gateway-api.md)
-* [Running on GPUs](gpu-operations.md)
-* [Environment variables](../reference/environment-variables.md)
+* [Adding a model](adding-a-model)
+* [Gateway API](gateway-api)
+* [Running on GPUs](gpu-operations)
+* [Environment variables](../reference/environment-variables)

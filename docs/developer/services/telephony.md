@@ -3,10 +3,10 @@ title: Telephony (apps/telephony)
 description: The telephony package — clients, XML, serializers, and webhooks.
 ---
 
-`apps/telephony` holds provider-agnostic HTTP clients and helpers for Vobiz and Plivo. Like [`apps/providers`](providers.md) it is a library, not a container: it is copied into both the `api` and `runtime` images. The API uses it to provision applications and phone numbers; the runtime uses it to build answer XML, parse webhooks, and serialize audio frames.
+`apps/telephony` holds provider-agnostic HTTP clients and helpers for Vobiz and Plivo. Like [`apps/providers`](providers) it is a library, not a container: it is copied into both the `api` and `runtime` images. The API uses it to provision applications and phone numbers; the runtime uses it to build answer XML, parse webhooks, and serialize audio frames.
 
 <Note>
-This page covers the package layout and public API. The conceptual model — applications, numbers, inbound versus outbound, what each provider owns — is in [Telephony model](../../guides/concepts/telephony-model.md).
+This page covers the package layout and public API. The conceptual model — applications, numbers, inbound versus outbound, what each provider owns — is in [Telephony model](../../guides/concepts/telephony-model).
 </Note>
 
 Credentials and `base_url` are always injected by the caller. The package never reads `ProviderAuth`, FerretDB, or environment variables for auth.
@@ -129,7 +129,7 @@ Every provider under `providers/<name>/` follows the same contract:
 
 `registry.py` keeps four maps — `TELEPHONY_CONFIGS`, `CLIENT_CREATORS`, `ANSWER_XML_BUILDERS`, and `FRAME_SERIALIZER_FACTORIES` — and rejects a duplicate registration for a provider id with a `ValueError`. Provider ids are normalised to lower case, so lookups are case-insensitive.
 
-Do not add provider `if`/`elif` chains to the package-root `xml.py`, `calls.py`, or `serializers.py`. Those three modules are thin dispatchers over the registry, and that is all they should be. To add a vendor, follow [Adding a telephony provider](../guides/adding-a-telephony-provider.md).
+Do not add provider `if`/`elif` chains to the package-root `xml.py`, `calls.py`, or `serializers.py`. Those three modules are thin dispatchers over the registry, and that is all they should be. To add a vendor, follow [Adding a telephony provider](../guides/adding-a-telephony-provider).
 
 ## Frame serializers
 
@@ -181,7 +181,7 @@ The package deliberately does not do these things. Its callers do.
 
 * Phone attach and detach against FerretDB — that is `apps/api`.
 * MinIO storage and recording submission — that is `apps/runtime`.
-* The FastAPI `/answer` route and the WebSocket endpoint — the [runtime](runtime.md) owns those and calls the XML helper.
+* The FastAPI `/answer` route and the WebSocket endpoint — the [runtime](runtime) owns those and calls the XML helper.
 * Agent config and credential lookup — the caller injects `auth_id`, `auth_token`, and `base_url`.
 
 <Note>
@@ -190,7 +190,7 @@ The package deliberately does not do these things. Its callers do.
 
 ## Related
 
-* [Telephony model](../../guides/concepts/telephony-model.md) — applications, numbers, and call direction
-* [Telephony agents](../clients/telephony.md) — connecting a number to an agent
-* [Adding a telephony provider](../guides/adding-a-telephony-provider.md)
-* [Telephony troubleshooting](../../guides/troubleshooting/telephony.md)
+* [Telephony model](../../guides/concepts/telephony-model) — applications, numbers, and call direction
+* [Telephony agents](../clients/telephony) — connecting a number to an agent
+* [Adding a telephony provider](../guides/adding-a-telephony-provider)
+* [Telephony troubleshooting](../../guides/troubleshooting/telephony)

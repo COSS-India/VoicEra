@@ -30,7 +30,7 @@ apps/telephony/providers/<name>/
 **Only legitimate exception:** `apps/runtime/requirements.txt`, if your frame serializer needs a Pipecat extra not already installed.
 
 <Note>
-Read [Telephony model](../../guides/concepts/telephony-model.md) first for what an application, an answer URL, and a frame serializer are. This page assumes those.
+Read [Telephony model](../../guides/concepts/telephony-model) first for what an application, an answer URL, and a frame serializer are. This page assumes those.
 </Note>
 
 <Note>
@@ -104,7 +104,7 @@ class VobizConfig(VobizAuth, VobizSettings, BaseTelephonyConfig):
 Three details that matter:
 
 * **`@register_telephony` decorates the class, not a function.** It reads the `provider` field's default and puts the class into `TELEPHONY_CONFIGS`. Registering the same id twice raises `ValueError` at import.
-* **Both credential fields are `secret: True`.** They land in `ProviderAuth`, Fernet-encrypted with `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Provider credentials](../reference/provider-auth.md).
+* **Both credential fields are `secret: True`.** They land in `ProviderAuth`, Fernet-encrypted with `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Provider credentials](../reference/provider-auth).
 * **`integration_model` names the legacy credential key.** Copy the pattern for a new vendor: `"integration_model": "AcmeAuthId"`.
 
 `base_url` belongs on Settings, never on Auth. Ship a `DEFAULT_*_API_BASE_URL` constant so the field is optional, and set `allow_custom_input=True` if the vendor has regional endpoints.
@@ -330,8 +330,8 @@ There is no CI. Run these yourself before opening a pull request, and test a rea
 
 ## Related
 
-* [Telephony model](../../guides/concepts/telephony-model.md)
-* [Telephony service](../services/telephony.md)
-* [Adding an AI provider](adding-a-provider.md)
-* [Public voice URLs](../../guides/deployment/public-voice-urls.md)
-* [Testing](testing.md)
+* [Telephony model](../../guides/concepts/telephony-model)
+* [Telephony service](../services/telephony)
+* [Adding an AI provider](adding-a-provider)
+* [Public voice URLs](../../guides/deployment/public-voice-urls)
+* [Testing](testing)

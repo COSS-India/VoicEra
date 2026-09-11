@@ -5,7 +5,7 @@ description: Discover which providers exist and what each one accepts.
 
 ## Configuration
 
-`apps/api/app/routers/configuration.py`, prefix `/api/v1/configuration`. The self-describing provider catalogue. Everything here is generated from the registry at runtime, so a newly added provider appears without a code change here. See [Provider registry](../developer/reference/provider-registry.md).
+`apps/api/app/routers/configuration.py`, prefix `/api/v1/configuration`. The self-describing provider catalogue. Everything here is generated from the registry at runtime, so a newly added provider appears without a code change here. See [Provider registry](../developer/reference/provider-registry).
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
@@ -62,6 +62,6 @@ These ids are what `config.language.primary` accepts. Which of them a given prov
 
 ## Related
 
-* [Endpoints cheatsheet](endpoints-cheatsheet.md) — every route on one page
-* [Authentication](authentication.md) — tokens, headers, and roles
-* [Errors](errors.md) — status codes and error shapes
+* [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page
+* [Authentication](authentication) — tokens, headers, and roles
+* [Errors](errors) — status codes and error shapes

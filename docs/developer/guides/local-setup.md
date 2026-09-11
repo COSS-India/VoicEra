@@ -6,7 +6,7 @@ description: Run VoicEra from source for development.
 How to run the API, the runtime, the ARQ worker, and the campaign orchestrator as host processes against a containerised database. This is the setup you want when you are editing Python and need a fast feedback loop.
 
 <Note>
-If you only want to *use* VoicEra, run the whole stack in Docker instead — see [Install and run](../../guides/quickstart/install-and-run.md). This page is for changing the code.
+If you only want to *use* VoicEra, run the whole stack in Docker instead — see [Install and run](../../guides/quickstart/install-and-run). This page is for changing the code.
 </Note>
 
 ## What you need
@@ -30,7 +30,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Put the first into `SECRET_KEY` and again into `INTERNAL_API_KEY`, and the Fernet key into `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Environment variables](../reference/environment-variables.md) for what each one does.
+Put the first into `SECRET_KEY` and again into `INTERNAL_API_KEY`, and the Fernet key into `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Environment variables](../reference/environment-variables) for what each one does.
 
 <Note>
 There is exactly **one** `.env`, at the repository root, plus a separate `model-server/.env` for the optional model stack. There are no per-app env files. `apps/api/app/config.py` resolves the root `.env` four directories up from itself, so running `uvicorn` from inside `apps/api` still picks it up.
@@ -39,7 +39,7 @@ There is exactly **one** `.env`, at the repository root, plus a separate `model-
 ## Repository layout in brief
 
 ```text
-voicera/
+VoicEra/
 ├── apps/
 │   ├── api/        FastAPI REST surface, ARQ worker, campaign orchestrator
 │   ├── runtime/    Answer webhook and the Pipecat audio pipeline
@@ -50,7 +50,7 @@ voicera/
 └── docker-compose.yaml
 ```
 
-The full map, including the files that are intentionally empty, is in [Repository layout](repository-layout.md).
+The full map, including the files that are intentionally empty, is in [Repository layout](repository-layout).
 
 ## The PYTHONPATH and the apps namespace
 
@@ -228,13 +228,13 @@ It sets `line-length = 100`, `target-version = "py312"`, and selects `E`, `F`, `
 There is no ruff, black, or isort configuration covering `apps/`. Match the surrounding style: `from __future__ import annotations` at the top of every module, PEP 8, and type hints on public functions.
 
 <Note>
-There is no CI. Nothing runs lint or tests on a push. Run [the test suites](testing.md) and `ruff check .` yourself before opening a pull request.
+There is no CI. Nothing runs lint or tests on a push. Run [the test suites](testing) and `ruff check .` yourself before opening a pull request.
 </Note>
 
 ## Related
 
-* [Repository layout](repository-layout.md)
-* [Testing](testing.md)
-* [Contributing](contributing-guide.md)
-* [Environment variables](../reference/environment-variables.md)
-* [Architecture](../../guides/concepts/architecture.md)
+* [Repository layout](repository-layout)
+* [Testing](testing)
+* [Contributing](contributing-guide)
+* [Environment variables](../reference/environment-variables)
+* [Architecture](../../guides/concepts/architecture)

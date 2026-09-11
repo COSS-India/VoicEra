@@ -3,7 +3,7 @@ title: Code of conduct
 description: The standards expected of everyone participating in the VoicEra project.
 ---
 
-VoicEra follows the code of conduct in [`CODE_OF_CONDUCT.md`](https://github.com/COSS-India/voicera/blob/main/CODE_OF_CONDUCT.md) at the repository root. This page reproduces it for convenience; the repository file is authoritative.
+VoicEra follows the code of conduct in [`CODE_OF_CONDUCT.md`](https://github.com/COSS-India/voicera/blob/main/CODE_OF_CONDUCT) at the repository root. This page reproduces it for convenience; the repository file is authoritative.
 
 ## Our commitment
 
@@ -33,11 +33,11 @@ This code of conduct applies within all project spaces, and also when someone is
 Instances of unacceptable behaviour may be reported privately to the maintainers. All reports are reviewed and investigated, and will result in a response appropriate to the circumstances. Maintainers are obliged to keep the reporter's identity confidential.
 
 <Note>
-Report a **security vulnerability** through the process in the [Security policy](security.md) instead — not as a public issue, and not through this channel.
+Report a **security vulnerability** through the process in the [Security policy](security) instead — not as a public issue, and not through this channel.
 </Note>
 
 ## Related
 
-* [Contributing](../../developer/guides/contributing-guide.md)
-* [Security policy](security.md)
-* [License](license-info.md)
+* [Contributing](../../developer/guides/contributing-guide)
+* [Security policy](security)
+* [License](license-info)

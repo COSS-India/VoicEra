@@ -6,7 +6,7 @@ description: How organisation credentials are stored, encrypted, and handed to t
 `ProviderAuth` is where an organisation's API keys live. One document per organisation per provider, encrypted at rest, never mixed into agent configuration. This page covers what is stored, how it is protected, and how it reaches a live call.
 
 <Note>
-The field names and which of them are secret come from the [provider registry](provider-registry.md) — `ProviderAuth` stores no schema of its own.
+The field names and which of them are secret come from the [provider registry](provider-registry) — `ProviderAuth` stores no schema of its own.
 </Note>
 
 ## Provider-level, not agent-level
@@ -36,7 +36,7 @@ The stored document is small:
 | `auth` | The Fernet ciphertext string, prefixed `enc:v1:` |
 | `created_at`, `updated_at` | ISO timestamps |
 
-Non-secret vendor settings — `base_url`, `region`, `grpc_url` — belong on the agent's provider config, not here. That split is the Auth-versus-Settings boundary described in the [provider registry](provider-registry.md).
+Non-secret vendor settings — `base_url`, `region`, `grpc_url` — belong on the agent's provider config, not here. That split is the Auth-versus-Settings boundary described in the [provider registry](provider-registry).
 
 ## Fernet encryption at rest
 
@@ -58,7 +58,7 @@ The same route returns different data depending on who asks. `_mask_for_user` in
 
 Masking keeps the last four characters and replaces everything before them with asterisks. A value of four characters or fewer becomes `****` outright, and a list of keys is masked element by element. Masking happens after decryption, in `mask_auth_secrets`.
 
-See [Multi-tenancy and roles](multi-tenancy.md) for how roles are assigned.
+See [Multi-tenancy and roles](multi-tenancy) for how roles are assigned.
 
 ## The catalog, configure, use loop
 
@@ -129,9 +129,9 @@ The ciphertext itself is never returned to a client. `upsert_provider_auth` retu
 
 ## Related
 
-* [Provider registry](provider-registry.md) — where the auth field definitions come from
-* [Agents and agent categories](../../guides/concepts/agents.md) — the secret-free half of a provider config
-* [Multi-tenancy and roles](multi-tenancy.md) — who counts as an admin
-* [Runtime (apps/runtime)](../services/runtime.md) — the bot-token consumer
-* [Security hardening](../../guides/deployment/security-hardening.md)
-* [Generated secrets and defaults](../../guides/quickstart/secrets-and-defaults.md)
+* [Provider registry](provider-registry) — where the auth field definitions come from
+* [Agents and agent categories](../../guides/concepts/agents) — the secret-free half of a provider config
+* [Multi-tenancy and roles](multi-tenancy) — who counts as an admin
+* [Runtime (apps/runtime)](../services/runtime) — the bot-token consumer
+* [Security hardening](../../guides/deployment/security-hardening)
+* [Generated secrets and defaults](../../guides/quickstart/secrets-and-defaults)

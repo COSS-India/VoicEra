@@ -18,7 +18,7 @@ Next, name your organisation (this can just be your company or team name) — or
 The first person to sign up for an organisation automatically becomes its **super admin** — the highest level of access.
 
 <Note>
-There's no invite code or approval step to create an organisation. Once it's created, you get a shareable link to bring teammates in — see [Invite a teammate](everyday-tasks.md#invite-a-teammate).
+There's no invite code or approval step to create an organisation. Once it's created, you get a shareable link to bring teammates in — see [Invite a teammate](everyday-tasks#invite-a-teammate).
 </Note>
 
 ![Organisation created, with a shareable invite link](images/signup-invite-link.png)
@@ -67,4 +67,4 @@ Don't have an API key yet? Each vendor's own website is where you get one — se
 
 ## Next
 
-[Create your first agent](create-an-agent.md)
+[Create your first agent](create-an-agent)

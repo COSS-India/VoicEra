@@ -31,7 +31,7 @@ erDiagram
   CallLogs ||--o| CallMetrics : "has"
 ```
 
-Every collection except `Users` is scoped by `org_id`. `Users` is global — one account can hold memberships in many organisations, and the JWT carries whichever one is currently active. See [Multi-tenancy and roles](multi-tenancy.md).
+Every collection except `Users` is scoped by `org_id`. `Users` is global — one account can hold memberships in many organisations, and the JWT carries whichever one is currently active. See [Multi-tenancy and roles](multi-tenancy).
 
 ## Organizations
 
@@ -78,7 +78,7 @@ Signup writes the `super_admin` membership. `POST /api/v1/members/invite` writes
 
 ## ProviderAuth
 
-Encrypted credentials for one provider in one organisation. Documented in full at [Provider credentials (ProviderAuth)](provider-auth.md).
+Encrypted credentials for one provider in one organisation. Documented in full at [Provider credentials (ProviderAuth)](provider-auth).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -112,7 +112,7 @@ One document per agent. The behaviour and AI configuration live in a nested `con
 | `created_at` | string | UTC ISO 8601. |
 | `updated_at` | string | UTC ISO 8601. |
 
-The `config` blob holds `schema_version`, `prompts`, `behaviour`, `language`, `models`, `knowledge_base`, and `custom_variables`. Every field of it — the full `AgentBehaviour` knob list, the STT, TTS, and LLM config shapes, and the knowledge-base attachment — is documented in [Agent configuration](agent-configuration.md).
+The `config` blob holds `schema_version`, `prompts`, `behaviour`, `language`, `models`, `knowledge_base`, and `custom_variables`. Every field of it — the full `AgentBehaviour` knob list, the STT, TTS, and LLM config shapes, and the knowledge-base attachment — is documented in [Agent configuration](agent-configuration).
 
 `hangup_url` is optional on the telephony attachment for agents provisioned before hangup URLs were always set.
 
@@ -256,7 +256,7 @@ Metadata for an uploaded PDF. The vectors themselves live in per-organisation Ch
 | `error_message` | string or null | Set when `status` is `failed`. |
 | `created_at`, `updated_at` | string | UTC ISO 8601. |
 
-Ingest runs as a FastAPI background task, so `POST /api/v1/knowledge/upload` returns `processing` immediately. See [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag.md).
+Ingest runs as a FastAPI background task, so `POST /api/v1/knowledge/upload` returns `processing` immediately. See [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag).
 
 ## Enumerations
 
@@ -276,7 +276,7 @@ Every enumeration is a `Literal` in `apps/api/app/models/schemas.py` unless note
 
 `Role` is mirrored as constants in `apps/api/app/database_init.py` (`ROLE_SUPER_ADMIN`, `ROLE_ADMIN`, `ROLE_MEMBER`, and the `VALID_ROLES` frozenset), which is what the routers compare against.
 
-`TelephonyProvider` is aliased to plain `str`, not a `Literal`. Valid values come from the telephony registry at runtime — call `GET /api/v1/configuration/telephony` to enumerate them. See [Provider registry](provider-registry.md).
+`TelephonyProvider` is aliased to plain `str`, not a `Literal`. Valid values come from the telephony registry at runtime — call `GET /api/v1/configuration/telephony` to enumerate them. See [Provider registry](provider-registry).
 
 The `QueuedRuns.state` values — `queued`, `processing`, `processed`, `failed` — are string literals in the campaign services, not a declared `Literal` type.
 
@@ -328,9 +328,9 @@ Every organisation-scoped read is served by an `org_id` prefix, which is what ke
 
 ## Related
 
-* [Agent configuration](agent-configuration.md)
-* [Data store (FerretDB)](data-store.md)
-* [Multi-tenancy and roles](multi-tenancy.md)
-* [Campaigns](../../guides/concepts/campaigns.md)
-* [Calls and call artifacts](../../guides/concepts/calls.md)
-* [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet.md)
+* [Agent configuration](agent-configuration)
+* [Data store (FerretDB)](data-store)
+* [Multi-tenancy and roles](multi-tenancy)
+* [Campaigns](../../guides/concepts/campaigns)
+* [Calls and call artifacts](../../guides/concepts/calls)
+* [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet)

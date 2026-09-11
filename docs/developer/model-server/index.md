@@ -13,24 +13,24 @@ The model server is **optional**. VoicEra runs fine against cloud providers alon
 
 | Page | What it answers |
 | --- | --- |
-| [Overview](overview.md) | What it is, what it replaces, and its current state. |
-| [Slots and models](slots-and-models.md) | The slot/model split, and switching models with one line. |
-| [Gateway API](gateway-api.md) | Every endpoint, including `WS /v1/asr/ws`. |
+| [Overview](overview) | What it is, what it replaces, and its current state. |
+| [Slots and models](slots-and-models) | The slot/model split, and switching models with one line. |
+| [Gateway API](gateway-api) | Every endpoint, including `WS /v1/asr/ws`. |
 
 ## The models
 
 | Page | Covers |
 | --- | --- |
-| [STT models](stt-models.md) | `indic-conformer`, `indic-transcribe`, and partial transcripts versus streaming. |
-| [TTS models](tts-models.md) | `indic-parler`, `orpheus`, `indic-mio`, and audio format negotiation. |
-| [LLM models](llm-models.md) | `qwen3.5-4b` and the model-id agreement across files. |
+| [STT models](stt-models) | `indic-conformer`, `indic-transcribe`, and partial transcripts versus streaming. |
+| [TTS models](tts-models) | `indic-parler`, `orpheus`, `indic-mio`, and audio format negotiation. |
+| [LLM models](llm-models) | `qwen3.5-4b` and the model-id agreement across files. |
 
 ## Operating it
 
 | Page | Covers |
 | --- | --- |
-| [Adding a model](adding-a-model.md) | The container contract, and the two steps to add one. |
-| [Running on GPUs](gpu-operations.md) | Device selection, MPS, shared HuggingFace cache, disk. |
+| [Adding a model](adding-a-model) | The container contract, and the two steps to add one. |
+| [Running on GPUs](gpu-operations) | Device selection, MPS, shared HuggingFace cache, disk. |
 
 ## Honest status
 
@@ -40,5 +40,5 @@ Two gaps are documented rather than hidden. The LLM slot has not yet been run on
 
 ## Related
 
-* [Self-hosted models](../../guides/deployment/self-hosted-models.md) — wiring the model server to the runtime
-* [Provider registry](../reference/provider-registry.md) — how agents select a provider
+* [Self-hosted models](../../guides/deployment/self-hosted-models) — wiring the model server to the runtime
+* [Provider registry](../reference/provider-registry) — how agents select a provider
