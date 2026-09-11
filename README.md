@@ -39,14 +39,6 @@ VoicEra is an open infrastructure layer that puts those choices back with the op
 
 ## Quick start
 
-One command, no clone needed:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/COSS-India/voicERA/main/scripts/install.sh | bash
-```
-
-Or clone the repo:
-
 ```bash
 git clone https://github.com/COSS-India/VoicEra.git
 cd VoicEra
@@ -54,7 +46,7 @@ cd VoicEra
 make application-up
 ```
 
-Both create the environment, generate required secrets, and start the stack.
+`make application-up` creates the environment, generates required secrets, and starts the stack.
 
 > **Important:** use `make application-up` instead of a bare `docker compose up`. Some services require the generated `SECRET_KEY`.
 
