@@ -259,4 +259,3 @@ VoicEra ships no CLI. There is no `voicerctl`; `scripts/` contains only `start-a
 * [Running a campaign](../guides/operator/running-a-campaign)
 * [Daily operations](../guides/operator/operations)
 * [FAQ](../guides/operator/faq)
-</content>
