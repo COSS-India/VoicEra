@@ -13,12 +13,13 @@ Work through this page before [Install and run](install-and-run.md). Most of it 
 | Docker Compose | v2 | Invoked as `docker compose`, not `docker-compose` |
 | Git | any recent | To clone the repository |
 | Python 3 | 3.11+ | Only for running from source. `start-application-services.sh` also uses it to generate the encryption key. |
+| `make` | any recent (GNU Make) | Runs every `make application-*` and `make model-server-*` command. Not preinstalled on Windows outside WSL2. |
 
 <Tabs>
 <Tab title="Ubuntu">
 ```bash
 sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-v2 git python3 python3-pip
+sudo apt-get install -y docker.io docker-compose-v2 git python3 python3-pip make
 
 # Run docker without sudo
 sudo usermod -aG docker $USER
@@ -30,14 +31,21 @@ newgrp docker
 Install [Docker Desktop](https://www.docker.com/products/docker-desktop), then:
 
 ```bash
+xcode-select --install   # provides make
 brew install git python@3.11
 ```
 </Tab>
 
 <Tab title="Windows">
+**Only WSL2 is supported.** Git Bash (the MINGW64 shell Git for Windows opens by default) and plain PowerShell cannot run `make application-up` — the Makefile requires GNU Make and `/bin/bash`, and neither exists in those shells.
+
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop) with the WSL2 backend.
 2. Enable WSL2 in Windows Features and restart.
-3. Run all commands from inside a WSL2 shell, not PowerShell.
+3. Open a WSL2 (Ubuntu) shell and install `make` there:
+   ```bash
+   sudo apt-get update && sudo apt-get install -y make
+   ```
+4. Run every command in this guide from inside that WSL2 shell — not PowerShell, not Git Bash.
 </Tab>
 </Tabs>
 
@@ -47,6 +55,7 @@ Verify:
 docker --version
 docker compose version
 docker run --rm hello-world
+make --version
 ```
 
 <Note>
@@ -134,6 +143,7 @@ PostgreSQL and Redis are **not** published. All ports are overridable — see [P
 ## Checklist
 
 - [ ] Docker Engine and Compose v2 installed and working
+- [ ] `make` installed and on PATH
 - [ ] `python3` with `cryptography` available
 - [ ] 20 GB+ free disk
 - [ ] Credentials for at least one STT, one TTS, and one LLM provider
