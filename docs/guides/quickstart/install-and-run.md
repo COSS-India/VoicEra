@@ -69,6 +69,8 @@ Ten containers:
 curl -s localhost:8000/health
 ```
 
+Expected output (nothing to run here — this is what a healthy API returns):
+
 ```json
 {"status": "ok", "database": "up"}
 ```
@@ -97,21 +99,31 @@ Open the dashboard at [http://localhost:3000](http://localhost:3000), or drive t
 
 There is no seeded account. Signup creates a user, an organisation, and makes you its `super_admin`:
 
+Edit the email, password, name, and org below, then run it — `jq` pulls the `access_token` straight into `$TOKEN`, no copy-paste. If signup fails (duplicate email, weak password, ...), `$TOKEN` stays empty instead of silently becoming the literal string `null`, and the real error prints:
+
 ```bash
-curl -X POST http://localhost:8000/api/v1/users/signup \
+RESPONSE=$(curl -s -X POST http://localhost:8000/api/v1/users/signup \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "you@example.com",
-    "password": "change-me",
-    "full_name": "Your Name",
-    "organisation_name": "Your Org"
-  }'
+    "email": "<EMAIL-ID>",
+    "password": "<PASSWORD>",
+    "full_name": "<USER NAME FULL>",
+    "organisation_name": "<ORG NAME>"
+  }')
+
+export TOKEN=$(echo "$RESPONSE" | jq -r '.access_token // empty')
+
+if [ -z "$TOKEN" ]; then
+  echo "Signup failed:"
+  echo "$RESPONSE" | jq .
+else
+  echo "Token exported."
+fi
 ```
 
-The response carries an `access_token`. Keep it:
+Verify it worked — this should print your new user, not an error:
 
 ```bash
-export TOKEN="paste-the-token"
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/users/me
 ```
 
