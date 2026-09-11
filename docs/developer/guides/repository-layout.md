@@ -12,7 +12,7 @@ For the runtime relationship between these directories — which process talks t
 ## Top level
 
 ```text
-voicera/
+VoicEra/
 ├── apps/                  Application code — four Python packages
 ├── frontend/              Next.js dashboard — the web console
 ├── model-server/          Optional self-hosted STT, TTS, and LLM stack

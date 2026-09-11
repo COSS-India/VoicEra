@@ -41,7 +41,7 @@ VoicEra is an open infrastructure layer that puts those choices back with the op
 
 ```bash
 git clone https://github.com/COSS-India/VoicEra.git
-cd voicera
+cd VoicEra
 
 make application-up
 ```
@@ -181,7 +181,7 @@ See the [provider registry](https://voicera.mintlify.app/docs/developer/referenc
 ## Repository
 
 ```text
-voicera/
+VoicEra/
 ├── apps/
 │   ├── api/            FastAPI control plane
 │   ├── runtime/        Pipecat real-time voice runtime

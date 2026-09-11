@@ -9,7 +9,7 @@ Gets the whole stack running on one machine in a few minutes. Complete the [prer
 
 ```bash
 git clone https://github.com/COSS-India/VoicEra.git
-cd voicera
+cd VoicEra
 ```
 
 ## 2. Start

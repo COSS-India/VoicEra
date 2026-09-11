@@ -7,7 +7,7 @@ full guide lives in [`docs/developer/guides/contributing-guide.md`](docs/develop
 
 ```bash
 git clone https://github.com/COSS-India/VoicEra.git
-cd voicera
+cd VoicEra
 
 make application-up
 ```

@@ -39,7 +39,7 @@ There is exactly **one** `.env`, at the repository root, plus a separate `model-
 ## Repository layout in brief
 
 ```text
-voicera/
+VoicEra/
 ├── apps/
 │   ├── api/        FastAPI REST surface, ARQ worker, campaign orchestrator
 │   ├── runtime/    Answer webhook and the Pipecat audio pipeline
