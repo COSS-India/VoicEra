@@ -34,7 +34,7 @@ services:
       - --gpu-memory-utilization=${MIO_VLLM_GPU_MEMORY_UTILIZATION:-0.06}
     environment:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
-      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${TTS_HF_TOKEN:-${HF_TOKEN:-}}
     volumes:
       - hf_cache:/root/.cache/huggingface
     networks: [model_net]

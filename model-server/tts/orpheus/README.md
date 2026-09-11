@@ -57,13 +57,43 @@ chunk-boundary handling, which is width-dependent: a sample split across two
 HTTP reads desynchronises everything after it, and a 2-byte model re-opens that
 bug if the width is hardcoded to 4.
 
-## No `fetch.sh`
+## Weights
 
-vLLM downloads the weights from HuggingFace into the `hf_cache` volume on first
-start, as with the LLM slot. First start therefore takes several minutes with
-nothing on `/health` — watch `docker compose logs -f tts` rather than assuming it
-has hung. `/health` returns **503 while loading** and 200 once warmup and CUDA
-graph capture have finished, which is exactly what the gateway's probe wants.
+`./fetch.sh` downloads [bodhan-ai/indic-speak](https://huggingface.co/bodhan-ai/indic-speak)
+into `models/`, which `compose.extra.yml` bind-mounts read-only at `/models`.
+The repo is **gated** — accept the licence on the model page, then supply
+`HF_TOKEN`, or `TTS_HF_TOKEN` if this slot has a token of its own. Run it before
+`up -d`: Docker creates a missing bind-mount source as an empty root-owned
+directory, so starting first gets you a model-path error rather than a clear one.
+
+This section previously said there was no fetcher because *"vLLM downloads the
+weights from HuggingFace into the `hf_cache` volume on first start"*. That was
+not true of the shipped config. `ORPHEUS_MODEL_PATH` defaults to a directory
+inside a read-only bind mount, and vLLM only auto-downloads when given a repo
+id — so nothing was ever fetched. The weights came from a Google Drive folder of
+raw training output, assembled by hand; `UPSTREAM-README.md` still documents
+that, with the folder URL left as a placeholder. What *does* download on its own
+is the SNAC codec, `hubertsiuzdak/snac_24khz`, which is a repo id — probably why
+the claim went unchallenged.
+
+First start still takes several minutes with nothing on `/health` — watch
+`docker compose logs -f tts` rather than assuming it has hung. `/health` returns
+**503 while loading** and 200 once warmup and CUDA graph capture have finished,
+which is exactly what the gateway's probe wants.
+
+### The decoder is not yet the one this checkpoint wants
+
+`indic-speak` uses SNAC only as a **quantizer** — its card gives the pipeline as
+`LM -> SNAC codes -> quantizer.from_codes -> z_q [B,768,L] -> Vocos -> 24 kHz`,
+with a fine-tuned Vocos decoder (`vocos/best.pt`) replacing SNAC's decoder
+entirely. `codec.py` here calls `SNAC.decode`, which runs quantizer *and* SNAC
+decoder.
+
+The token contract is unchanged, so this works: same codebook, same code space,
+intelligible speech out. It is simply not the decoder the checkpoint was tuned
+for, so fidelity is the open question — compare against the previous checkpoint
+by ear before assuming the swap is neutral. `fetch.sh` pulls `vocos/` down with
+everything else so wiring it up needs no second download.
 
 ## Beyond the OpenAI endpoint
 

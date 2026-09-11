@@ -47,8 +47,17 @@ def test_the_declared_roster_matches_the_checkpoint_in_the_catalogue():
     for entry in yaml.safe_load(CATALOGUE.read_text(encoding="utf-8"))["tts"]:
         if entry["id"] == "orpheus":
             notes = str(entry.get("notes", ""))
-    if "indic-speak-preview-v2" not in notes:
-        pytest.skip("models.yaml does not record a v2 checkpoint for orpheus")
+    # Matches indic-speak-preview-v2 and the released indic-speak alike. Pinning
+    # the preview's exact name meant that recording the release in models.yaml
+    # turned this check into a skip -- the guard disappearing at precisely the
+    # moment the checkpoint changed, which is when it is worth having.
+    #
+    # The release is assumed to keep v2's roster: same 23 languages, same style
+    # vocabulary. That is an assumption, not a verified fact -- the repo is
+    # gated and its voices.md was not read. If a caller reports an unknown voice
+    # or a silently ignored style, this is the first thing to check.
+    if "indic-speak" not in notes:
+        pytest.skip("models.yaml does not record an indic-speak checkpoint for orpheus")
     assert declared_roster() == "voices-v2.json", (
         f"models.yaml records the v2 checkpoint but compose defaults to "
         f"{declared_roster()!r}. The v1 roster has no Bhili voices and a "

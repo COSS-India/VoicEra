@@ -121,8 +121,13 @@ services:
     build:
       context: ./stt/${STT_MODEL:-indic-conformer}
       additional_contexts:
-        # A named context is only fetched when a Dockerfile references it, so
-        # models that do not need the AI4Bharat NeMo fork ignore this.
+        # Only stt/indic-conformer's Dockerfile references this, via
+        # `COPY --from=nemo`. That does NOT make it free for everyone else:
+        # buildx resolves every declared context up front, so a stale or
+        # personal path here fails the build for models that never touch it --
+        # "failed to get build context nemo: stat ...". This said the opposite
+        # and was believed. start-model-server.sh now guarantees the value
+        # names a directory that exists.
         #
         # Relative paths here resolve against this file's directory, NOT the
         # build context above -- so this stays ../../ even though the context
@@ -139,7 +144,7 @@ services:
       INDIC_NEMO_PATH: ${INDIC_NEMO_PATH:-/app/models/IndicConformer.nemo}
       BHILI_ENABLE: ${BHILI_ENABLE:-no}
       BHILI_NEMO_PATH: ${BHILI_NEMO_PATH:-}
-      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${STT_HF_TOKEN:-${HF_TOKEN:-}}
     volumes:
       # Source and weights both live in the model folder; setup.sh downloads
       # IndicConformer.nemo into it. Bind-mounting also means editing server.py
@@ -181,7 +186,7 @@ services:
       # pointing at a cache that already holds those files.
       HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
       TRANSFORMERS_OFFLINE: ${HF_HUB_OFFLINE:-0}
-      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${TTS_HF_TOKEN:-${HF_TOKEN:-}}
     volumes:
       - ./tts/${TTS_MODEL:-indic-parler}:/app
       - hf_cache:/root/.cache/huggingface
@@ -221,7 +226,7 @@ services:
       GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.10}
       MAX_MODEL_LEN: ${VLLM_MAX_MODEL_LEN:-8192}
       MAX_NUM_SEQS: ${VLLM_MAX_NUM_SEQS:-20}
-      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${LLM_HF_TOKEN:-${HF_TOKEN:-}}
     volumes:
       - hf_cache:/root/.cache/huggingface
     # A model container that is loading, wedged or serving a dead worker used to
