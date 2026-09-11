@@ -7,7 +7,7 @@
 Build telephony agents in Indian languages — with **your infrastructure, your data, and your choice of models and carriers.**
 <br>
 
-[![MIT License](https://img.shields.io/badge/license-MIT-111827?style=flat-square)](LICENSE)
+[![Apache 2.0 License](https://img.shields.io/badge/license-Apache%202.0-111827?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-111827?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-ready-111827?style=flat-square&logo=docker&logoColor=white)](docker-compose.yaml)
 [![Docs](https://img.shields.io/badge/docs-read-111827?style=flat-square)](https://voicera.mintlify.app/docs/guides)
@@ -32,7 +32,7 @@ VoicEra is an open infrastructure layer that puts those choices back with the op
 - **Self-hosted by design** — run the platform on infrastructure you control.
 - **Provider neutral** — swap STT, TTS, LLM, and telephony providers without rewriting the platform.
 - **Data ownership** — call media, transcripts, and recordings stay in your infrastructure.
-- **Public-good friendly** — MIT licensed, transparent, forkable, and deployable without a VoicEra-managed service.
+- **Public-good friendly** — Apache 2.0 licensed, transparent, forkable, and deployable without a VoicEra-managed service.
 - **Composable** — use cloud APIs, local models, or a mix of both.
 
 > **VoicEra is platform you own, not another AI vendor.**
@@ -108,7 +108,7 @@ VoicEra follows principles that matter for Digital Public Goods:
 
 | Principle | VoicEra |
 |---|---|
-| **Open source** | MIT-licensed source code |
+| **Open source** | Apache 2.0-licensed source code |
 | **Self-hostable** | Deploy on infrastructure you control |
 | **Interoperable** | Provider registries and defined integration contracts |
 | **No platform lock-in** | Swap model and telephony providers |
@@ -228,7 +228,7 @@ Security issues should be reported privately according to [SECURITY.md](SECURITY
 
 ## License
 
-VoicEra is released under the [MIT License](LICENSE).
+VoicEra is released under the [Apache License 2.0](LICENSE).
 
 <div align="center">
 

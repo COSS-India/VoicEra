@@ -1,26 +1,30 @@
 ---
 title: License
-description: VoicEra is distributed under the MIT License.
+description: VoicEra is distributed under the Apache License 2.0.
 ---
 
-VoicEra is open source under the **MIT License**, Copyright (c) 2026 COSS India. The authoritative text is the [`LICENSE`](https://github.com/COSS-India/voicera/blob/main/LICENSE) file at the repository root.
+VoicEra is open source under the **Apache License 2.0**, Copyright (c) 2026 COSS India. The authoritative text is the [`LICENSE`](https://github.com/COSS-India/voicera/blob/main/LICENSE) file at the repository root.
 
-## What the MIT License permits
+## What the Apache License 2.0 permits
 
 You may use, copy, modify, merge, publish, distribute, sublicense, and sell copies of the software — including commercially and in closed-source products — provided that:
 
-* The copyright notice and permission notice appear in all copies or substantial portions of the software.
+* You include a copy of the license in any distribution.
+* Modified files carry prominent notices stating that you changed them.
+* You retain existing copyright, patent, trademark, and attribution notices from the source.
 * You accept that the software is provided "as is", without warranty of any kind.
+
+Apache 2.0 also grants an express patent license from contributors, and terminates that patent grant for anyone who initiates patent litigation over the software.
 
 There is no copyleft obligation. You do not have to open source work that builds on VoicEra.
 
 <Note>
-Do not describe VoicEra as proprietary or "all rights reserved" anywhere. The repository licence is MIT only.
+Do not describe VoicEra as proprietary or "all rights reserved" anywhere. The repository licence is Apache 2.0 only.
 </Note>
 
 ## What the licence does not cover
 
-The MIT grant applies to **this repository's source code**. It does not extend to:
+The Apache 2.0 grant applies to **this repository's source code**. It does not extend to:
 
 | Thing | Governed by |
 | --- | --- |
@@ -36,7 +40,7 @@ Model weights are the most common surprise. A permissive platform licence does n
 
 ## Contributions
 
-Contributions are accepted under the same MIT terms. By opening a pull request you agree your contribution may be distributed under the project licence. See [Contributing](../../developer/guides/contributing-guide.md).
+Contributions are accepted under the same Apache 2.0 terms. By opening a pull request you agree your contribution may be distributed under the project licence. See [Contributing](../../developer/guides/contributing-guide.md).
 
 ## Related
 
