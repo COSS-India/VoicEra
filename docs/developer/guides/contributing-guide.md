@@ -14,7 +14,7 @@ Contributions are welcome. This page covers the workflow; [Local setup](local-se
 ## Setting up
 
 ```bash
-git clone https://github.com/COSS-India/voicera.git
+git clone https://github.com/COSS-India/VoicEra.git
 cd voicera
 make application-up
 ```

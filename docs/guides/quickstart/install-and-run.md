@@ -8,7 +8,7 @@ Gets the whole stack running on one machine in a few minutes. Complete the [prer
 ## 1. Clone
 
 ```bash
-git clone https://github.com/COSS-India/voicera.git
+git clone https://github.com/COSS-India/VoicEra.git
 cd voicera
 ```
 

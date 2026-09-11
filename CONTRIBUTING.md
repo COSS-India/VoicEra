@@ -6,7 +6,7 @@ full guide lives in [`docs/developer/guides/contributing-guide.md`](docs/develop
 ## 🚀 Getting started
 
 ```bash
-git clone https://github.com/COSS-India/voicera.git
+git clone https://github.com/COSS-India/VoicEra.git
 cd voicera
 
 make application-up
@@ -69,9 +69,9 @@ Adding a provider or telephony vendor should not require touching shared code:
 ## 📚 Documentation
 
 Docs live in `docs/` and are built with [Mintlify](https://mintlify.com).
-Navigation is defined in [`docs.json`](docs.json). A hosted docs site is not
-live yet — until it is, read the Markdown in the repo. If you change behaviour,
-update the page that documents it.
+Navigation is defined in [`docs.json`](docs.json). The hosted docs site is
+live at [voicera.mintlify.app](https://voicera.mintlify.app). If you change
+behaviour, update the page that documents it.
 
 There are three tabs: Guides, Developer, and API Reference. Add a new page to the
 matching group in `docs.json`, or it will not appear in the sidebar.
