@@ -51,6 +51,10 @@ brew install git python@3.11
 
 Verify:
 
+<Note>
+Installing Docker Desktop is not enough — it must also be **running** (the whale icon in your menu bar / system tray). `docker run --rm hello-world` fails with "Cannot connect to the Docker daemon" if Docker Desktop hasn't been launched yet.
+</Note>
+
 ```bash
 docker --version
 docker compose version
