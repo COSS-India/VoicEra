@@ -26,7 +26,7 @@ voicera/
 ├── CONTRIBUTING.md        Contributor entry point
 ├── SECURITY.md            Vulnerability reporting policy
 ├── CODE_OF_CONDUCT.md     Community standards and enforcement
-├── LICENSE                MIT
+├── LICENSE                Apache 2.0
 ├── Makefile               Wrappers for the start/stop scripts — `make help` lists them
 ├── pyproject.toml         Placeholder — empty
 └── __init__.py            Empty; makes the checkout importable as a package

@@ -90,7 +90,7 @@ Participation is governed by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## ⚖️ Licence
 
-Contributions are accepted under the MIT licence. See [LICENSE](LICENSE).
+Contributions are accepted under the Apache License 2.0. See [LICENSE](LICENSE).
 
 ---
 

@@ -112,7 +112,7 @@ Participation is governed by the [Code of conduct](../../guides/legal/code-of-co
 
 ## Licence
 
-Contributions are accepted under the MIT licence. By opening a pull request you agree your contribution may be distributed under it. See [License](../../guides/legal/license-info.md).
+Contributions are accepted under the Apache License 2.0. By opening a pull request you agree your contribution may be distributed under it. See [License](../../guides/legal/license-info.md).
 
 ## Related
 
