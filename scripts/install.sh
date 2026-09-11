@@ -2,10 +2,10 @@
 # One-command Voicera install: fetches the compose stack + helper scripts
 # from GitHub and starts it. No git clone needed.
 #
-#   curl -fsSL https://raw.githubusercontent.com/COSS-India/VoicEra/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/COSS-India/voicERA/main/scripts/install.sh | bash
 set -euo pipefail
 
-REPO="COSS-India/VoicEra"
+REPO="COSS-India/voicERA"
 BRANCH="${VOICERA_BRANCH:-main}"
 RAW="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 DIR="${VOICERA_DIR:-voicera}"

@@ -42,7 +42,7 @@ VoicEra is an open infrastructure layer that puts those choices back with the op
 One command, no clone needed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/COSS-India/VoicEra/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/COSS-India/voicERA/main/scripts/install.sh | bash
 ```
 
 Or clone the repo:
