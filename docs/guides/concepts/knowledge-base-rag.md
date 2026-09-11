@@ -141,7 +141,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://localhost:8000/api/v1/knowledge/$DOCUMENT_ID
 ```
 
-See [Managing knowledge documents](../operator/managing-knowledge.md).
+See [Managing knowledge documents](../operator/managing-knowledge).
 
 ## Requirements and limits
 
@@ -154,7 +154,7 @@ See [Managing knowledge documents](../operator/managing-knowledge.md).
 | **Vectors are on a volume** | `voicera_oss_chroma_data`. Losing it means re-ingesting everything. |
 
 <Note>
-The dashboard's Knowledge Base screen is backed by the API — it lists, previews, uploads, and deletes documents through `/knowledge`. The API remains the complete surface; the screen covers the common operations. See [Dashboard tour](../../developer/frontend/dashboard-tour.md).
+The dashboard's Knowledge Base screen is backed by the API — it lists, previews, uploads, and deletes documents through `/knowledge`. The API remains the complete surface; the screen covers the common operations. See [Dashboard tour](../../developer/frontend/dashboard-tour).
 </Note>
 
 ## Tuning retrieval quality
@@ -168,7 +168,7 @@ The dashboard's Knowledge Base screen is backed by the API — it lists, preview
 
 ## Related
 
-* [Agent configuration](../../developer/reference/agent-configuration.md)
-* [Managing knowledge documents](../operator/managing-knowledge.md)
-* [Data flow](data-flow.md)
-* [Agents](agents.md)
+* [Agent configuration](../../developer/reference/agent-configuration)
+* [Managing knowledge documents](../operator/managing-knowledge)
+* [Data flow](data-flow)
+* [Agents](agents)

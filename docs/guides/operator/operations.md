@@ -3,7 +3,7 @@ title: Daily operations
 description: Health checks, logs, backups, and capacity.
 ---
 
-Keeping a running VoicEra stack healthy: what to probe, which logs answer which question, what to back up, and how to bring it back. Everything here assumes the reference [Docker Compose](../deployment/docker-compose.md) stack.
+Keeping a running VoicEra stack healthy: what to probe, which logs answer which question, what to back up, and how to bring it back. Everything here assumes the reference [Docker Compose](../deployment/docker-compose) stack.
 
 The loop this page describes:
 
@@ -46,7 +46,7 @@ curl 'http://localhost:7860/answer?agent_id=YOUR_AGENT_ID&org_id=YOUR_ORG_ID'
 
 Expect XML containing a `<Stream>` URL. An error here is a real fault; `/health` would not have shown it.
 
-The gateway reports `degraded` when a deployed slot's upstream fails its check, and names which one in `upstreams`. It is a separate Compose project — see [Overview](../../developer/model-server/overview.md).
+The gateway reports `degraded` when a deployed slot's upstream fails its check, and names which one in `upstreams`. It is a separate Compose project — see [Overview](../../developer/model-server/overview).
 
 Compose's own healthchecks cover only `postgres`, `minio`, and `redis`. `api`, `runtime`, `arq-worker`, and `campaign-orchestrator` have **no** `healthcheck:` block, so `docker compose ps` shows them as running whether or not they are working. Probe them yourself:
 
@@ -71,7 +71,7 @@ Every long-lived service uses the `json-file` driver with `max-size: 10m` and `m
 | Is the database reachable? | `ferretdb`, `postgres` | `docker compose logs ferretdb postgres` |
 | Did an artifact upload fail? | `minio` | `docker compose logs minio` |
 
-Campaigns need both worker containers, and they answer different questions. The orchestrator decides *when* a batch runs; the ARQ worker *runs* it. A campaign stuck at zero progress is usually the worker; a campaign that stopped mid-list is usually the orchestrator. See [Workers and orchestrator](../../developer/services/workers.md).
+Campaigns need both worker containers, and they answer different questions. The orchestrator decides *when* a batch runs; the ARQ worker *runs* it. A campaign stuck at zero progress is usually the worker; a campaign that stopped mid-list is usually the orchestrator. See [Workers and orchestrator](../../developer/services/workers).
 
 For a live call, follow both sides at once — the runtime logs the pipeline, the API logs what the runtime asked it for:
 
@@ -79,7 +79,7 @@ For a live call, follow both sides at once — the runtime logs the pipeline, th
 docker compose logs -f runtime api
 ```
 
-Turn up verbosity by setting `DEBUG=true` in the root `.env` and recreating the stack. `DEBUG` reaches the API through `env_file` only and is deliberately not interpolated in `docker-compose.yaml`; the reason is in [Environment variables](../../developer/reference/environment-variables.md).
+Turn up verbosity by setting `DEBUG=true` in the root `.env` and recreating the stack. `DEBUG` reaches the API through `env_file` only and is deliberately not interpolated in `docker-compose.yaml`; the reason is in [Environment variables](../../developer/reference/environment-variables).
 
 ## Backups
 
@@ -187,7 +187,7 @@ Three generated secrets, three very different rotation stories.
 
 Rotating the Fernet key has no migration path in the code: `apps/api/app/services/secret_crypto.py` decrypts with exactly one key and raises `Failed to decrypt ProviderAuth credentials` for anything the current key cannot open. To rotate deliberately, export the credentials you need first (`GET /api/v1/auth/{provider}` returns secrets unmasked to an admin), change the key, restart, and re-upsert.
 
-Infrastructure passwords — `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, `REDIS_PASSWORD` — need coordinated changes because Compose interpolates each into more than one place. `MONGODB_PASSWORD` is also `POSTGRES_PASSWORD`, and changing it against an initialised Postgres volume does not change the existing database user. `REDIS_PASSWORD` is the easy one: Compose rebuilds `REDIS_URL` from it, so changing it and recreating is enough. Details in [Security hardening](../deployment/security-hardening.md).
+Infrastructure passwords — `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, `REDIS_PASSWORD` — need coordinated changes because Compose interpolates each into more than one place. `MONGODB_PASSWORD` is also `POSTGRES_PASSWORD`, and changing it against an initialised Postgres volume does not change the existing database user. `REDIS_PASSWORD` is the easy one: Compose rebuilds `REDIS_URL` from it, so changing it and recreating is enough. Details in [Security hardening](../deployment/security-hardening).
 
 ## Capacity signals
 
@@ -203,7 +203,7 @@ VoicEra exposes no metrics endpoint. Capacity is read from the API, from Docker,
 | MinIO disk | `docker system df -v` | Recordings dominate. Nothing prunes them — there is no retention policy in the code. |
 | Postgres volume size | `docker system df -v` | Call logs grow without bound. |
 
-Scale in this order, because it matches where the load actually lands: runtime first (one WebSocket per live call), then the ARQ worker, then the API. The campaign orchestrator does **not** scale — see [Production deployment](../deployment/production.md).
+Scale in this order, because it matches where the load actually lands: runtime first (one WebSocket per live call), then the ARQ worker, then the API. The campaign orchestrator does **not** scale — see [Production deployment](../deployment/production).
 
 Neither recordings nor call logs are ever deleted by VoicEra. Budget disk for the full retention you intend, and prune deliberately.
 
@@ -251,8 +251,8 @@ If the API will not start, read its logs first. The failure is almost always one
 
 ## Related
 
-* [Docker Compose](../deployment/docker-compose.md)
-* [Production deployment](../deployment/production.md)
-* [Security hardening](../deployment/security-hardening.md)
-* [Ports and defaults](../../developer/reference/ports-and-defaults.md)
-* [Deployment troubleshooting](../troubleshooting/deployment.md)
+* [Docker Compose](../deployment/docker-compose)
+* [Production deployment](../deployment/production)
+* [Security hardening](../deployment/security-hardening)
+* [Ports and defaults](../../developer/reference/ports-and-defaults)
+* [Deployment troubleshooting](../troubleshooting/deployment)

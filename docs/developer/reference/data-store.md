@@ -6,7 +6,7 @@ description: Why VoicEra speaks the MongoDB wire protocol to a PostgreSQL databa
 VoicEra stores its documents in **FerretDB**, which speaks the MongoDB wire protocol on top of PostgreSQL. Application code uses `pymongo` and never knows the difference; operationally, your data lives in Postgres.
 
 <Note>
-This page explains the arrangement and the two things that surprise people: the port numbers and the empty `MONGODB_AUTH_SOURCE`. For field-level detail see [Data model](data-model.md).
+This page explains the arrangement and the two things that surprise people: the port numbers and the empty `MONGODB_AUTH_SOURCE`. For field-level detail see [Data model](data-model).
 </Note>
 
 ## FerretDB in one paragraph
@@ -96,7 +96,7 @@ mongodb://admin:admin123@mongodb:27017/voicera
 Setting `MONGODB_AUTH_SOURCE=admin` — correct for real MongoDB, and what the old mono repo used — appends `?authSource=admin` and authentication fails. Leave it empty unless you have pointed VoicEra at an actual MongoDB server.
 </Note>
 
-The same values become `POSTGRES_USER` and `POSTGRES_PASSWORD`, so one credential pair covers both layers. Change them in [Security hardening](../../guides/deployment/security-hardening.md).
+The same values become `POSTGRES_USER` and `POSTGRES_PASSWORD`, so one credential pair covers both layers. Change them in [Security hardening](../../guides/deployment/security-hardening).
 
 ## Connecting by hand
 
@@ -138,7 +138,7 @@ Leave the authentication database blank.
 
 Collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, `QueuedRuns`.
 
-Fields and indexes are documented in [Data model](data-model.md).
+Fields and indexes are documented in [Data model](data-model).
 
 <Note>
 There is no Alembic or migration tool. Schema is enforced by Pydantic models at the edge, and indexes are reconciled at startup.
@@ -156,7 +156,7 @@ docker exec voicera_oss_postgres pg_dump -U admin postgres | gzip > voicera-$(da
 gunzip -c voicera-2026-09-01.sql.gz | docker exec -i voicera_oss_postgres psql -U admin -d postgres
 ```
 
-The volume `voicera_oss_ferretdb_postgres_data` is the other thing to snapshot. A full backup also needs MinIO (recordings and transcripts) and the Chroma volume (RAG vectors) — see [Daily operations](../../guides/operator/operations.md).
+The volume `voicera_oss_ferretdb_postgres_data` is the other thing to snapshot. A full backup also needs MinIO (recordings and transcripts) and the Chroma volume (RAG vectors) — see [Daily operations](../../guides/operator/operations).
 
 ## Differences from MongoDB you may hit
 
@@ -166,7 +166,7 @@ FerretDB implements most of the wire protocol, not all of it. Known limits relev
 | --- | --- |
 | Transactions | Multi-document ACID transactions are not fully supported. VoicEra does not rely on them. |
 | Aggregation | Common stages work; exotic operators may not. Campaign reporting stays within basic stages for this reason. |
-| Change streams | Not available. VoicEra uses Redis pub/sub for eventing instead — see [Campaigns](../../guides/concepts/campaigns.md). |
+| Change streams | Not available. VoicEra uses Redis pub/sub for eventing instead — see [Campaigns](../../guides/concepts/campaigns). |
 | `$where`, server-side JS | Not supported. |
 | Index types | Standard and compound indexes work; specialised types may differ. |
 
@@ -174,7 +174,7 @@ If you swap in real MongoDB, set `MONGODB_AUTH_SOURCE=admin` and point `MONGODB_
 
 ## Related
 
-* [Data model](data-model.md) — collections, fields, enumerations
-* [Environment variables](environment-variables.md) — every `MONGODB_*` setting
-* [Ports and defaults](ports-and-defaults.md)
-* [Architecture](../../guides/concepts/architecture.md)
+* [Data model](data-model) — collections, fields, enumerations
+* [Environment variables](environment-variables) — every `MONGODB_*` setting
+* [Ports and defaults](ports-and-defaults)
+* [Architecture](../../guides/concepts/architecture)

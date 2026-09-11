@@ -6,7 +6,7 @@ description: Upload, list, and delete knowledge documents.
 Knowledge documents ground an agent's answers in your own PDFs. This page covers the whole lifecycle over the API: upload, check ingest status, attach to an agent, and delete.
 
 <Note>
-Prefer clicking? [Upload a document](../dashboard/everyday-tasks.md#upload-a-document) covers this same workflow from the dashboard's **Knowledge Base** screen — no `curl` required. This page uses HTTP throughout, which is the complete surface and what you want for scripting.
+Prefer clicking? [Upload a document](../dashboard/everyday-tasks#upload-a-document) covers this same workflow from the dashboard's **Knowledge Base** screen — no `curl` required. This page uses HTTP throughout, which is the complete surface and what you want for scripting.
 </Note>
 
 ## What a knowledge document is
@@ -53,7 +53,7 @@ curl -X POST "$API/api/v1/knowledge/upload" \
 }
 ```
 
-`201` with `status: "processing"` means the file is stored and ingest is scheduled. It does not mean the document is searchable yet. Poll the list route until `status` is `ready`. Failure codes are in [Knowledge and RAG](../../api-reference/knowledge-and-rag.md#post-knowledgeupload).
+`201` with `status: "processing"` means the file is stored and ingest is scheduled. It does not mean the document is searchable yet. Poll the list route until `status` is `ready`. Failure codes are in [Knowledge and RAG](../../api-reference/knowledge-and-rag#post-knowledgeupload).
 
 Ingest failures never surface as an HTTP error, because ingest happens after the response. They land on the document as `status: "failed"` with an `error_message`. The ones you will see:
 
@@ -160,7 +160,7 @@ Pick this when documents answer a minority of questions, and requires an LLM tha
 </Tab>
 </Tabs>
 
-Both modes call the same retrieval path: `POST /api/v1/rag/retrieve`, authenticated with `X-API-Key` rather than a JWT, because the runtime is a service and not a user. That route is not for operators — it takes an explicit `org_id` in the body and is documented in [Knowledge base (RAG)](../concepts/knowledge-base-rag.md).
+Both modes call the same retrieval path: `POST /api/v1/rag/retrieve`, authenticated with `X-API-Key` rather than a JWT, because the runtime is a service and not a user. That route is not for operators — it takes an explicit `org_id` in the body and is documented in [Knowledge base (RAG)](../concepts/knowledge-base-rag).
 
 Retrieval scoping: when `document_ids` is set, the query asks Chroma for up to four times `top_k` candidates (capped at 25) and then filters to the named documents, so narrowing to one document still returns a full set of hits. An empty `document_ids` list on the retrieve request returns zero chunks; omitting the field searches everything.
 
@@ -189,11 +189,11 @@ Two environment variables are required for anything to work:
 
 Changing `KB_EMBEDDING_MODEL` after documents exist does not re-embed them. Old chunks keep their original embeddings while new queries are embedded with the new model, and comparing across two embedding spaces gives meaningless distances. Re-upload every document after a model change.
 
-Chroma is embedded in the API process, not a separate service. It persists to the `voicera_oss_chroma_data` volume, which must be in your backup set — see [Daily operations](operations.md).
+Chroma is embedded in the API process, not a separate service. It persists to the `voicera_oss_chroma_data` volume, which must be in your backup set — see [Daily operations](operations).
 
 ## Related
 
-* [Knowledge base (RAG)](../concepts/knowledge-base-rag.md)
-* [Agent configuration](../../developer/reference/agent-configuration.md)
-* [Environment variables](../../developer/reference/environment-variables.md)
-* [Operating via the API](../../api-reference/recipes.md)
+* [Knowledge base (RAG)](../concepts/knowledge-base-rag)
+* [Agent configuration](../../developer/reference/agent-configuration)
+* [Environment variables](../../developer/reference/environment-variables)
+* [Operating via the API](../../api-reference/recipes)

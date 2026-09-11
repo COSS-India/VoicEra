@@ -171,11 +171,11 @@ There is no Apple Metal path. **MPS throughout this repository means NVIDIA's Mu
 
 Nothing in `model-server` targets Apple silicon. The GPU reservations name `driver: nvidia`, the images are built on CUDA bases, and `scripts/start-model-server.sh` requires `nvidia-smi` when any slot is selected. The `indic-conformer` folder notes that CPU inference works but is far too slow for a live call, which is the closest thing to a non-NVIDIA path here.
 
-To develop on a Mac, run the test suite — it needs no GPU — and point an agent at cloud providers via the [provider registry](../reference/provider-registry.md) instead of self-hosting.
+To develop on a Mac, run the test suite — it needs no GPU — and point an agent at cloud providers via the [provider registry](../reference/provider-registry) instead of self-hosting.
 
 ## Related
 
-* [Overview](overview.md)
-* [Slots and models](slots-and-models.md)
-* [Self-hosted models](../../guides/deployment/self-hosted-models.md)
-* [Environment variables](../reference/environment-variables.md)
+* [Overview](overview)
+* [Slots and models](slots-and-models)
+* [Self-hosted models](../../guides/deployment/self-hosted-models)
+* [Environment variables](../reference/environment-variables)

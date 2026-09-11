@@ -3,7 +3,7 @@ title: Calls
 description: Place calls, register them, and fetch recordings and transcripts.
 ---
 
-`apps/api/app/routers/calls.py`, prefix `/api/v1/calls`. See [Calls and call artifacts](../guides/concepts/calls.md).
+`apps/api/app/routers/calls.py`, prefix `/api/v1/calls`. See [Calls and call artifacts](../guides/concepts/calls).
 
 ## `POST /calls/outbound`
 
@@ -21,7 +21,7 @@ Bearer. `201`. Places a call and registers a `CallLog` with status `initiated`.
 }
 ```
 
-`from_number` is an optional caller-ID override. `custom_variables` are merged over the agent's defaults at call time and substituted into the prompts — see [Agent configuration](../developer/reference/agent-configuration.md).
+`from_number` is an optional caller-ID override. `custom_variables` are merged over the agent's defaults at call time and substituted into the prompts — see [Agent configuration](../developer/reference/agent-configuration).
 
 Returns `OutboundCallResponse`: `call_id`, `status`, `provider_call_sid`, `from_number`, `to_number`, `agent_id`, `custom_variables`.
 
@@ -145,6 +145,6 @@ Bearer. One `CallLogResponse`, active organisation only. Bot JWTs work here.
 
 ## Related
 
-* [Endpoints cheatsheet](endpoints-cheatsheet.md) — every route on one page
-* [Authentication](authentication.md) — tokens, headers, and roles
-* [Errors](errors.md) — status codes and error shapes
+* [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page
+* [Authentication](authentication) — tokens, headers, and roles
+* [Errors](errors) — status codes and error shapes

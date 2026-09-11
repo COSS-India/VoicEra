@@ -211,8 +211,8 @@ Three variables have no usable default. `SECRET_KEY` is the only one Compose enf
 
 ## Related
 
-* [Ports and defaults](ports-and-defaults.md)
-* [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet.md)
-* [Docker Compose](../../guides/deployment/docker-compose.md)
-* [Security hardening](../../guides/deployment/security-hardening.md)
-* [Generated secrets and defaults](../../guides/quickstart/secrets-and-defaults.md)
+* [Ports and defaults](ports-and-defaults)
+* [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet)
+* [Docker Compose](../../guides/deployment/docker-compose)
+* [Security hardening](../../guides/deployment/security-hardening)
+* [Generated secrets and defaults](../../guides/quickstart/secrets-and-defaults)

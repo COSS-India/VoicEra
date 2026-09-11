@@ -2,161 +2,236 @@
 
 # 🎙️ VoicEra
 
-**Open-source, self-hosted voice AI for real-time telephony agents in Indian languages.**
+**Open-source infrastructure for self-hosted, real-time voice AI.**
 
-*Your servers. Your call audio. Your rules.*
+Build telephony agents in Indian languages — with **your infrastructure, your data, and your choice of models and carriers.**
+<br>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Docker Compose](https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yaml)
-[![Docs](https://img.shields.io/badge/docs-Mintlify-3884FF.svg)](https://voicera.mintlify.app/docs/guides)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Apache 2.0 License](https://img.shields.io/badge/license-Apache%202.0-111827?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-111827?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-ready-111827?style=flat-square&logo=docker&logoColor=white)](docker-compose.yaml)
+[![Docs](https://img.shields.io/badge/docs-read-111827?style=flat-square)](https://voicera.mintlify.app/docs/guides)
+[![Contributions](https://img.shields.io/badge/contributions-welcome-111827?style=flat-square)](CONTRIBUTING.md)
 
-[Quick start](#quick-start) · [Documentation](https://voicera.mintlify.app/docs/guides) · [Architecture](#architecture) · [Contributing](CONTRIBUTING.md)
+<br>
+
+**[Quick Start](#quick-start)** &nbsp; · &nbsp;
+**[Architecture](#architecture)** &nbsp; · &nbsp;
+**[Low-Resource Languages](#built-for-low-resource-languages)** &nbsp; · &nbsp;
+**[Contributing](#contributing)**
 
 </div>
 
----
 
-VoicEra wires speech-to-text, large language models, text-to-speech, and telephony into one stack you run yourself, and gives you a REST API to drive it.
+## Why VoicEra?
 
-Use it for inbound helplines, outbound calling campaigns, and IVR replacements, without sending call audio anywhere outside infrastructure you control.
+Voice AI is increasingly powerful, but production deployments can create lock-in around **models, telephony, data, and infrastructure**.
 
-## 🚀 Quick start
+VoicEra is an open infrastructure layer that puts those choices back with the operator.
+
+- **Self-hosted by design** — run the platform on infrastructure you control.
+- **Provider neutral** — swap STT, TTS, LLM, and telephony providers without rewriting the platform.
+- **Data ownership** — call media, transcripts, and recordings stay in your infrastructure.
+- **Public-good friendly** — Apache 2.0 licensed, transparent, forkable, and deployable without a VoicEra-managed service.
+- **Composable** — use cloud APIs, local models, or a mix of both.
+
+> **VoicEra is platform you own, not another AI vendor.**
+
+## Quick start
 
 ```bash
-git clone https://github.com/COSS-India/voicera.git
-cd voicera
+git clone https://github.com/COSS-India/VoicEra.git
+cd VoicEra
 
 make application-up
 ```
 
-`make application-up` creates `.env`, generates the required secrets, and starts the stack.
+`make application-up` creates the environment, generates required secrets, and starts the stack.
 
-> [!IMPORTANT]
-> Use `make application-up`, not a bare `docker compose up`. Three services refuse to start without a generated `SECRET_KEY`.
+> **Important:** use `make application-up` instead of a bare `docker compose up`. Some services require the generated `SECRET_KEY`.
 
-Once it is up:
+Once running:
 
 | Service | URL |
-| --- | --- |
-| Dashboard | `localhost:3000` |
-| API | `localhost:8000` |
-| OpenAPI console | `localhost:8000/docs` |
-| Runtime | `localhost:7860` |
-| MinIO console | `localhost:9001` |
-| FerretDB | `localhost:27018` |
+|---|---|
+| Dashboard | `http://localhost:3000` |
+| API | `http://localhost:8000` |
+| OpenAPI | `http://localhost:8000/docs` |
+| Runtime | `http://localhost:7860` |
+| MinIO | `http://localhost:9001` |
+| FerretDB | `http://localhost:27018` |
 
-Stop with `make application-down`.
+```bash
+make application-down
+```
 
-## 🏗️ Architecture
+See the [documentation](https://voicera.mintlify.app/docs/guides) for production deployment and configuration.
+
+You bring the models and telephony account. VoicEra connects them into a deployable system.
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  User(["You"])
-  Caller(["Caller"])
+  C["Caller"] <--> T["Telephony<br/>Vobiz · Plivo"]
 
-  FE["Dashboard<br/>:3000"]
-  Tel["Telephony<br/>Vobiz · Plivo"]
+  T -->|"audio"| R["Voice Runtime<br/>Pipecat"]
+  R <--> P["AI Providers<br/>STT · LLM · TTS"]
 
-  API["API<br/>:8000"]
-  RT["Runtime<br/>:7860"]
-  W["Workers<br/>ARQ · orchestrator"]
+  U["Operator"] --> D["Dashboard"]
+  D --> A["API"]
+  A --> R
 
-  DB[("FerretDB")]
-  Q[("Redis")]
-  S3[("MinIO")]
-  AI["AI providers"]
+  A --> DB[("FerretDB<br/>PostgreSQL")]
+  A --> S[("MinIO<br/>Media & artifacts")]
+  A --> Q[("Redis")]
+  Q --> W["Workers"]
 
-  User --> FE --> API
-  FE -->|"browser call"| RT
-  Caller <--> Tel
-  Tel -->|"/answer + audio"| RT
-  API -->|"dial out"| Tel
-
-  RT <--> API
-  RT --> AI
-
-  API --> DB
-  API --> S3
-  API -->|"enqueue"| Q
-  Q -->|"jobs · events"| W
+  R --> S
   W --> DB
-  RT --> S3
 ```
 
-Two services carry traffic: the **API** handles configuration and control, the **runtime** handles live audio. The **dashboard** is a browser client of both. Behind them sit FerretDB on PostgreSQL, Redis, MinIO, and two workers built from the API image.
+The platform separates **control plane** from **real-time execution**:
 
-Full picture: [Architecture](https://voicera.mintlify.app/docs/guides/concepts/architecture).
+- **API** — agents, configuration, campaigns, authentication, and orchestration.
+- **Runtime** — live call audio and model interaction.
+- **Dashboard** — operator interface.
+- **Workers** — asynchronous jobs and campaign execution.
+- **Storage** — self-hosted database, object storage, and queue.
+- **Providers** — interchangeable AI and telephony integrations.
 
-## 📚 Documentation
+[Read the architecture guide →](https://voicera.mintlify.app/docs/guides/concepts/architecture)
 
-Live at [voicera.mintlify.app](https://voicera.mintlify.app/docs/guides), built with [Mintlify](https://mintlify.com) from [`docs/`](docs/) in this repo, navigation defined in [`docs.json`](docs.json).
+## Designed for digital public infrastructure
 
-## 🗂️ Repository layout
+VoicEra follows principles that matter for Digital Public Goods:
+
+| Principle | VoicEra |
+|---|---|
+| **Open source** | Apache 2.0-licensed source code |
+| **Self-hostable** | Deploy on infrastructure you control |
+| **Interoperable** | Provider registries and defined integration contracts |
+| **No platform lock-in** | Swap model and telephony providers |
+| **Data sovereignty** | Operators control call data and storage |
+| **Reusable** | API-driven components and provider adapters |
+| **Inclusive** | First-class support for Indian languages and low-resource deployments |
+| **Transparent** | Public source, documentation, and contribution process |
+
+VoicEra is intended to be **reused, adapted, and independently operated** — including by governments, NGOs, public-interest organisations, and other open-source projects.
+
+
+## Extending VoicEra
+
+Integrations live behind stable interfaces, so adding a provider should not require changing the core runtime.
+
+### Add an AI provider
+
+Create a provider under:
 
 ```text
-voicera/
-├── apps/
-│   ├── api/            FastAPI — auth, agents, campaigns, knowledge   :8000
-│   ├── runtime/        Pipecat — /answer webhook, call WebSocket      :7860
-│   ├── providers/      STT · TTS · LLM registry — 23+ languages
-│   └── telephony/      Vobiz · Plivo clients, answer XML, serializers
-├── frontend/           Next.js dashboard — the web console            :3000
-├── model-server/       Optional self-hosted models behind one gateway :8100
-├── scripts/            start-application-services.sh · stop-application-services.sh
-└── docs/               Mintlify source — guides · developer · api-reference
+apps/providers/{cloud,adapters,local}/
 ```
 
-`apps/api` runs as **three** containers off one image: the API itself, an ARQ worker, and the campaign orchestrator. `apps/providers` and `apps/telephony` are libraries, imported by both services.
+STT, TTS, and LLM providers register through the provider registry.
 
-## 🔌 Extending VoicEra
+[Add an AI provider →](https://voicera.mintlify.app/docs/developer/guides/adding-a-provider)
 
-Every vendor — AI provider, telephony carrier, or self-hosted model — is a new folder, never a patch to shared code.
+### Add a telephony provider
 
-| | |
-| --- | --- |
-| **Add an AI provider** | STT, TTS, or LLM vendor. New folder under `apps/providers/{cloud,adapters,local}/`, registers itself via decorator. [Guide](https://voicera.mintlify.app/docs/developer/guides/adding-a-provider) |
-| **Add a telephony vendor** | New folder under `apps/telephony/providers/`, ten-module contract, both existing vendors (Vobiz, Plivo) as templates. [Guide](https://voicera.mintlify.app/docs/developer/guides/adding-a-telephony-provider) |
-| **Run models locally** | Swap in self-hosted STT/TTS/LLM behind one gateway — one `.env` line per slot, no code change. [Model server](https://voicera.mintlify.app/docs/developer/model-server) |
+Implement the telephony contract under:
 
-## 🎒 What you need to bring
+```text
+apps/telephony/providers/
+```
 
-VoicEra provides neither telephony nor models.
+Existing Vobiz and Plivo integrations provide reference implementations.
 
-- **Model credentials** — at least one STT, one TTS, and one LLM provider. One vendor can cover all three, or self-host with the [model server](https://voicera.mintlify.app/docs/developer/model-server).
-- **A telephony account** — [Vobiz or Plivo](https://voicera.mintlify.app/docs/guides/concepts/telephony-model), for real phone calls. Not needed to test in a browser.
+[Add a telephony provider →](https://voicera.mintlify.app/docs/developer/guides/adding-a-telephony-provider)
 
-26 providers ship out of the box — 22 cloud vendors, two first-party adapters (Bhashini, Kenpath), and two local providers reached through the model server gateway (`indic_orpheus` TTS, `indic_nemotron` STT). See [Provider registry](https://voicera.mintlify.app/docs/developer/reference/provider-registry) for the full list.
+### Run models locally
 
-## ✨ Why VoicEra
+Use the optional model server to expose self-hosted STT, TTS, or LLMs through a common gateway.
 
-- **Call audio stays on infrastructure you control.** The runtime terminates the media stream, and recordings and transcripts land in your own MinIO bucket. Nothing routes through a VoicEra-operated service — there isn't one.
-- **Indian languages are the design centre, not an afterthought.** The optional [model server](https://voicera.mintlify.app/docs/developer/model-server) runs AI4Bharat Indic Conformer and Indic-Transcribe for STT across 23+ Indian languages, and Indic Parler for TTS. The Bhashini (Dhruva STT and NVCF TTS) and Kenpath Vistaar (Marathi, Bhili LLM) adapters are built in.
-- **Swap any provider without touching shared code.** STT, TTS, LLM, and telephony vendors all register through a decorator-based registry. See [Extending VoicEra](#extending-voicera).
-- **Cloud or self-hosted, per slot.** Mix them: a cloud LLM with self-hosted Indic STT, or all three from one vendor. The choice is per agent, stored as configuration.
-- **MIT, with no per-minute pricing.** You pay your model and telephony vendors directly. There is no seat count and no metered layer in between.
+```text
+Agent
+  ↓
+VoicEra
+  ↓
+Model Server
+  ├── STT
+  ├── TTS
+  └── LLM
+```
 
-More questions: [operator FAQ](https://voicera.mintlify.app/docs/guides/operator/faq).
+## Built for low-resource languages
 
-## ⚙️ Configuration
+VoicEra is designed to make voice AI more accessible for **low-resource and underserved languages** — where commercial models, tooling, and high-quality training data are often limited.
 
-A single root `.env` file configures the API, the runtime, and the Docker stack — start from [`.env.example`](.env.example). The model server is configured separately, through its own `model-server/.env`.
+It brings together open and interoperable integrations across speech and language technologies, including:
 
-See the full [environment variable reference](https://voicera.mintlify.app/docs/developer/reference/environment-variables) for every setting.
+* **Bhashini** — Indian-language STT and TTS
+* **AI4Bharat** — Indic speech and language models
+* **Kenpath Vistaar** — LLM support for underserved languages
+* **Cloud providers** — additional STT, TTS, and LLM options
 
-## 🤝 Contributing
+The architecture makes it possible to combine these models, self-host them, or replace them as better language technologies emerge.
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+See the [provider registry](https://voicera.mintlify.app/docs/developer/reference/provider-registry) for the current list.
 
-There is no CI pipeline yet, so run the test suites locally first — see [Testing](https://voicera.mintlify.app/docs/developer/guides/testing) for all five. Found a security issue? Report it privately per [SECURITY.md](SECURITY.md) rather than opening a public issue.
+## Repository
 
-## 📄 License
+```text
+VoicEra/
+├── apps/
+│   ├── api/            FastAPI control plane
+│   ├── runtime/        Pipecat real-time voice runtime
+│   ├── providers/      STT · TTS · LLM integrations
+│   └── telephony/      Telephony integrations
+├── frontend/           Next.js dashboard
+├── model-server/       Optional self-hosted model gateway
+├── scripts/             Service lifecycle scripts
+└── docs/                Mintlify documentation
+```
 
-VoicEra is released under the [MIT License](LICENSE).
+## Bring your own infrastructure
+
+VoicEra does not provide telephony accounts or AI inference.
+
+For a real phone deployment, you need:
+
+1. **STT, TTS, and LLM access** — cloud providers or self-hosted models.
+2. **A telephony provider** — currently Vobiz or Plivo.
+3. **Infrastructure** to run VoicEra and store your data.
+
+For browser-based testing, telephony is not required.
+
+## Documentation
+
+- [Getting started](https://voicera.mintlify.app/docs/guides)
+- [Architecture](https://voicera.mintlify.app/docs/guides/concepts/architecture)
+- [Provider registry](https://voicera.mintlify.app/docs/developer/reference/provider-registry)
+- [Environment variables](https://voicera.mintlify.app/docs/developer/reference/environment-variables)
+- [Model server](https://voicera.mintlify.app/docs/developer/model-server)
+- [Operator FAQ](https://voicera.mintlify.app/docs/guides/operator/faq)
+
+## Contributing
+
+VoicEra is built in the open.
+
+```text
+Use → Adapt → Integrate → Contribute
+```
+
+Before opening a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Security issues should be reported privately according to [SECURITY.md](SECURITY.md).
+
+## License
+
+VoicEra is released under the [Apache License 2.0](LICENSE).
 
 <div align="center">
 
-*Built for the languages the rest of the industry treats as an afterthought.*
+**Build voice infrastructure. Keep control.**
 
 </div>

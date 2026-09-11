@@ -154,7 +154,7 @@ sequenceDiagram
 
 `tests/test_partial_transcripts.py` pins the client-side path, which is what production runs today. It checks that the emitter exists and is called from the audio path, that it fires on elapsed audio rather than on the segment ending, that it is skipped while a transcription is already in flight so a slow model cannot queue a backlog of stale partials, and that both STT models go through it. The interval is read from the real source, so lengthening it to something a caller would notice fails the test.
 
-The catalogue records a third field for `indic-conformer`: `realtime_endpoint: true`, meaning `WS /v1/realtime?intent=transcription`. That is a different protocol from `/v1/asr/ws`, and the gateway relays both. See [Gateway API](gateway-api.md).
+The catalogue records a third field for `indic-conformer`: `realtime_endpoint: true`, meaning `WS /v1/realtime?intent=transcription`. That is a different protocol from `/v1/asr/ws`, and the gateway relays both. See [Gateway API](gateway-api).
 
 ## Benchmarks and load tests
 
@@ -207,7 +207,7 @@ Budget ~30 GB of disk for this model: ~14 GB image, 4.9 GB HF checkpoint, 4.6 GB
 
 ## Related
 
-* [TTS models](tts-models.md)
-* [Gateway API](gateway-api.md)
-* [Running on GPUs](gpu-operations.md)
-* [Voice pipeline](../../guides/concepts/voice-pipeline.md)
+* [TTS models](tts-models)
+* [Gateway API](gateway-api)
+* [Running on GPUs](gpu-operations)
+* [Voice pipeline](../../guides/concepts/voice-pipeline)

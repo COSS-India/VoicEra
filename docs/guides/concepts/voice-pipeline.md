@@ -8,7 +8,7 @@ Every live call in VoicEra runs one [Pipecat](https://github.com/pipecat-ai/pipe
 The pipeline is not one function. It is nine modules and three subpackages under `apps/runtime/services/pipecat/`, each owning one concern, wired together by `run_pipeline()` in `pipeline.py`. Read that file alongside this page — it is short, and it is the authority.
 
 <Note>
-The pipeline is shared. Telephony calls and browser WebSocket sessions run the same `run_pipeline()`; only the frame serializer, sample rate, and whether a `CallLog` gets finalised differ. See [Runtime](../../developer/services/runtime.md).
+The pipeline is shared. Telephony calls and browser WebSocket sessions run the same `run_pipeline()`; only the frame serializer, sample rate, and whether a `CallLog` gets finalised differ. See [Runtime](../../developer/services/runtime).
 </Note>
 
 ## The pipeline in one picture
@@ -30,7 +30,7 @@ flowchart TB
   IN --> STT --> UA --> KB --> LLM --> TTS --> OUT --> AB --> AA
 ```
 
-Two details are worth calling out. The knowledge-base processor is inserted **only** when `configure_knowledge_base()` returns one — see [Knowledge base (RAG)](knowledge-base-rag.md). And `audiobuffer` sits *after* `transport.output()`, so the recording it produces contains both sides of the conversation as they were actually sent.
+Two details are worth calling out. The knowledge-base processor is inserted **only** when `configure_knowledge_base()` returns one — see [Knowledge base (RAG)](knowledge-base-rag). And `audiobuffer` sits *after* `transport.output()`, so the recording it produces contains both sides of the conversation as they were actually sent.
 
 The transport is a `FastAPIWebsocketTransport` with `audio_in_enabled=True`, `audio_out_enabled=True`, and `add_wav_header=False`. Voice activity detection is a `SileroVADAnalyzer` configured with `stop_secs=0.4`, `min_volume=0.5`, `confidence=0.3`, and `start_secs=0.1`.
 
@@ -42,7 +42,7 @@ Before any processor exists, `run_pipeline()` calls `build_ai_services(agent)` f
 2. For each, calls `backend_client.get_provider_auth(provider, org_id)` and merges the returned secrets over the non-secret config blob.
 3. Validates the merged result as an `AgentConfig` and calls `create_stt_service()`, `create_tts_service()`, and `create_llm_service()` from `apps.providers`.
 
-Secrets never live on the agent document. They come from [`ProviderAuth`](../../developer/reference/provider-auth.md) at call time, which is why rotating a key takes effect on the next call without editing any agent. Which providers are available and what each config blob accepts is in the [provider registry](../../developer/reference/provider-registry.md).
+Secrets never live on the agent document. They come from [`ProviderAuth`](../../developer/reference/provider-auth) at call time, which is why rotating a key takes effect on the next call without editing any agent. Which providers are available and what each config blob accepts is in the [provider registry](../../developer/reference/provider-registry).
 
 ## Prompts and custom variables
 
@@ -57,7 +57,7 @@ Values are resolved by `resolve_custom_variables()`, which merges two dictionari
 | Agent config | `config.custom_variables` | Defaults |
 | Call log | `custom_variables` on the call | Wins on conflict |
 
-So an agent can define `{"customer_name": ""}` as a default and an outbound call or [campaign](campaigns.md) row can override it per call.
+So an agent can define `{"customer_name": ""}` as a default and an outbound call or [campaign](campaigns) row can override it per call.
 
 The system prompt, if non-empty, becomes the first message of the `LLMContext`. The greeting is not part of the context — it is queued as a `TTSSpeakFrame` when the client connects, which is why the agent speaks first without consuming an LLM turn.
 
@@ -83,12 +83,12 @@ The behaviour fields are defined on `AgentBehaviour` in `apps/api/app/models/sch
 | `automatic_call_ending` | `AutomaticCallEnding` | `{enabled: false, graceful_llm_call_ending: false}` | — | Lets the LLM hang up itself. See [Automatic call ending](#automatic-call-ending). |
 
 <Note>
-`call_timeout_seconds` is accepted and stored by the API but no code in `apps/runtime` reads it. There is currently no hard call-duration cap enforced by the pipeline. Cap call length at your telephony provider, or by [campaign](campaigns.md) controls, until this lands.
+`call_timeout_seconds` is accepted and stored by the API but no code in `apps/runtime` reads it. There is currently no hard call-duration cap enforced by the pipeline. Cap call length at your telephony provider, or by [campaign](campaigns) controls, until this lands.
 </Note>
 
 The runtime coerces missing values rather than rejecting them. `user_online_detection_seconds` falls back to `10`, `user_online_detection_repeats` to `1`, and `user_silence_hangup_seconds` to `0` — see `online_detection_from_behaviour()` in `idle.py`.
 
-Full field-by-field configuration guidance is in [Agent configuration](../../developer/reference/agent-configuration.md).
+Full field-by-field configuration guidance is in [Agent configuration](../../developer/reference/agent-configuration).
 
 ## Hold messages
 
@@ -154,9 +154,9 @@ This is a second, independent end-call path — it does not use `automatic_call_
 | `register_recording_handlers` | `events/recording.py` | `audiobuffer` | `on_audio_data` — wraps PCM in a WAV header and uploads. No-op without a `call_id`. |
 | `register_transport_handlers` | `events/transport.py` | Transport | `on_client_connected` queues the greeting; `on_client_disconnected` cancels the hold timer and cancels the worker. |
 
-Two of these are gated on `call_id`. A browser WebSocket session gets one — supplied by the client or registered by the runtime — so it records transcripts and audio like any telephony call. Only a session that fails to register one produces nothing durable. See [Calls and call artifacts](calls.md).
+Two of these are gated on `call_id`. A browser WebSocket session gets one — supplied by the client or registered by the runtime — so it records transcripts and audio like any telephony call. Only a session that fails to register one produces nothing durable. See [Calls and call artifacts](calls).
 
-Call metrics are registered separately, not through `register_all_handlers()`. When `call_id` is set, `run_pipeline()` builds a `CallMetricsWriter` and calls `register_call_metrics()` (`metrics/observers.py`), which attaches a Pipecat transport-timing observer and a `UserBotLatencyObserver`. They record per-turn duration and interruptions, first-bot-speech latency, and each user-to-bot round trip. `lifecycle.py` flushes the writer during teardown, which `PUT`s the whole payload to `/calls/{call_id}/metrics` — see [Calls](../../api-reference/calls.md) for its shape. Writes are once per call: a second `PUT` for the same `call_id` returns the existing document unchanged.
+Call metrics are registered separately, not through `register_all_handlers()`. When `call_id` is set, `run_pipeline()` builds a `CallMetricsWriter` and calls `register_call_metrics()` (`metrics/observers.py`), which attaches a Pipecat transport-timing observer and a `UserBotLatencyObserver`. They record per-turn duration and interruptions, first-bot-speech latency, and each user-to-bot round trip. `lifecycle.py` flushes the writer during teardown, which `PUT`s the whole payload to `/calls/{call_id}/metrics` — see [Calls](../../api-reference/calls) for its shape. Writes are once per call: a second `PUT` for the same `call_id` returns the existing document unchanged.
 
 ## Session lifecycle
 
@@ -205,12 +205,12 @@ Sample rate is chosen by the entry point in `runners.py` and read from the envir
 | Telephony | `run_telephony_bot()` | `SAMPLE_RATE` | `8000` | `create_frame_serializer(provider, …)` |
 | Browser WebSocket | `run_websocket_bot()` | `WEBSOCKET_SAMPLE_RATE` | `16000` | `ProtobufFrameSerializer()` |
 
-8 kHz is what PSTN carries, so raising `SAMPLE_RATE` gains nothing on a phone call and risks breaking the provider's frame format. Browser sessions run at 16 kHz because the browser can supply it and STT accuracy improves. Per-provider serializer details are in [Telephony model](telephony-model.md).
+8 kHz is what PSTN carries, so raising `SAMPLE_RATE` gains nothing on a phone call and risks breaking the provider's frame format. Browser sessions run at 16 kHz because the browser can supply it and STT accuracy improves. Per-provider serializer details are in [Telephony model](telephony-model).
 
 ## Related
 
-* [Architecture](architecture.md) — where the pipeline sits in the whole system
-* [Agents and agent categories](agents.md) — what a `telephony` versus `websocket` agent is
-* [Agent configuration](../../developer/reference/agent-configuration.md) — every config field
-* [Calls and call artifacts](calls.md) — transcripts, recordings, and call logs
-* [Runtime (apps/runtime)](../../developer/services/runtime.md) — the service that hosts the pipeline
+* [Architecture](architecture) — where the pipeline sits in the whole system
+* [Agents and agent categories](agents) — what a `telephony` versus `websocket` agent is
+* [Agent configuration](../../developer/reference/agent-configuration) — every config field
+* [Calls and call artifacts](calls) — transcripts, recordings, and call logs
+* [Runtime (apps/runtime)](../../developer/services/runtime) — the service that hosts the pipeline

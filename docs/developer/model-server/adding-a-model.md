@@ -20,7 +20,7 @@ model-server/<slot>/<id>/
 
 **Never touch:** `compose.model-server.yml`, `gateway/`, `scripts/start-model-server.sh` — the model picker menu is built by listing folders, not hand-maintained.
 
-**To also make it selectable by an agent** (STT/TTS/LLM vendor, not just the raw container): see [Adding an AI provider — Local providers](../guides/adding-a-provider.md#local-providers-one-extra-registration-call). The model-server folder and the `apps/providers/local/<name>/` folder are two separate steps — this page only covers the former.
+**To also make it selectable by an agent** (STT/TTS/LLM vendor, not just the raw container): see [Adding an AI provider — Local providers](../guides/adding-a-provider#local-providers-one-extra-registration-call). The model-server folder and the `apps/providers/local/<name>/` folder are two separate steps — this page only covers the former.
 
 ## The two steps
 
@@ -56,7 +56,7 @@ The container is the contract. Whatever is inside the folder, the image it build
 
 The image must also honour `PORT`, so the folder is not welded to the slot's numbering. That is the one change every vendored model folder gets.
 
-Nothing is mandated about *what* a TTS model sends, only that it says so. Two TTS models here disagree on the wire — Indic Parler streams 44.1 kHz float32 under the name `pcm_f32le`, Orpheus streams 24 kHz signed 16-bit under OpenAI's own name `pcm` — and the client decodes whichever arrives by reading the headers. A format the client cannot decode produces a clear error naming it, never silence or noise. See [TTS models](tts-models.md).
+Nothing is mandated about *what* a TTS model sends, only that it says so. Two TTS models here disagree on the wire — Indic Parler streams 44.1 kHz float32 under the name `pcm_f32le`, Orpheus streams 24 kHz signed 16-bit under OpenAI's own name `pcm` — and the client decodes whichever arrives by reading the headers. A format the client cannot decode produces a clear error naming it, never silence or noise. See [TTS models](tts-models).
 
 The STT row is the same principle pointed the other way. Uploads are a real audio file, not a bare PCM stream: `soundfile`-based models answer `415` to headerless bytes, and headerless bytes cannot state their own sample rate anyway. VoicEra was the off-spec side here — OpenAI's transcriptions endpoint takes files — so the client wraps its buffer in a 44-byte WAV header, which costs nothing and every model reads.
 
@@ -109,7 +109,7 @@ volumes:
   - ${CORE_ARTIFACTS_DIR:-./stt/indic-transcribe/artifacts}:/artifacts
 ```
 
-A folder may also carry its own `compose.mps.yml`, added alongside the shared one only when a daemon is really there. See [Running on GPUs](gpu-operations.md).
+A folder may also carry its own `compose.mps.yml`, added alongside the shared one only when a daemon is really there. See [Running on GPUs](gpu-operations).
 
 ## What the tests enforce
 
@@ -134,7 +134,7 @@ For a new model specifically:
 <Note>
 `test_client_selection.py` targets a `voice_2_voice_server/api/services.py` path that does not exist in this repo, so every test in that module is skipped here (`pytest.mark.skipif`), not run. It documents an older client convention (`<catalogue id>-<slot>` naming) that has since been superseded.
 
-The check that actually matters today — "will an agent be able to select this local model" — lives in `apps/providers/local/<name>/service.py`'s `register_local(provider_id, gateway_model_id)` call, which `is_authenticated()` uses to poll the gateway's `/models` list. See [Local providers](../guides/adding-a-provider.md#local-providers-one-extra-registration-call).
+The check that actually matters today — "will an agent be able to select this local model" — lives in `apps/providers/local/<name>/service.py`'s `register_local(provider_id, gateway_model_id)` call, which `is_authenticated()` uses to poll the gateway's `/models` list. See [Local providers](../guides/adding-a-provider#local-providers-one-extra-registration-call).
 </Note>
 
 `test_model_switching`, `test_model_extras` and `test_mps` shell out to `docker compose config`, which interpolates without needing a running daemon; they skip if the `docker` CLI is absent.
@@ -160,6 +160,6 @@ One thing `scripts/start-model-server.sh` still knows about a specific model: th
 
 ## Related
 
-* [Slots and models](slots-and-models.md)
-* [Gateway API](gateway-api.md)
-* [Provider registry](../reference/provider-registry.md)
+* [Slots and models](slots-and-models)
+* [Gateway API](gateway-api)
+* [Provider registry](../reference/provider-registry)

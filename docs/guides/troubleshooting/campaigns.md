@@ -155,7 +155,7 @@ docker exec -it voicera_oss_redis redis-cli -a "$REDIS_PASSWORD"
 
 ## Related
 
-* [Campaigns](../concepts/campaigns.md)
-* [Call concurrency](../../developer/reference/call-concurrency.md)
-* [Workers and orchestrator](../../developer/services/workers.md)
-* [Running a campaign](../operator/running-a-campaign.md)
+* [Campaigns](../concepts/campaigns)
+* [Call concurrency](../../developer/reference/call-concurrency)
+* [Workers and orchestrator](../../developer/services/workers)
+* [Running a campaign](../operator/running-a-campaign)

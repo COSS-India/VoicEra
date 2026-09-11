@@ -13,10 +13,10 @@ A public number that answers immediately, in the caller's language, at any hour.
 
 | What you configure | Where |
 | --- | --- |
-| A `telephony` agent with your prompts and greeting | [Create your first agent](../dashboard/create-an-agent.md) |
-| A phone number attached to it | [Agents](../concepts/agents.md) |
-| Documents it may answer from | [Knowledge base](../concepts/knowledge-base-rag.md) |
-| A public HTTPS and WSS address | [Public voice URLs](../deployment/public-voice-urls.md) |
+| A `telephony` agent with your prompts and greeting | [Create your first agent](../dashboard/create-an-agent) |
+| A phone number attached to it | [Agents](../concepts/agents) |
+| Documents it may answer from | [Knowledge base](../concepts/knowledge-base-rag) |
+| A public HTTPS and WSS address | [Public voice URLs](../deployment/public-voice-urls) |
 
 Callers reach an agent that answers on the first ring and never queues. Every call is transcribed and recorded, so escalations have a record.
 
@@ -28,10 +28,10 @@ Dial a list of numbers, hold the same short conversation with each, and record w
 
 | What you configure | Where |
 | --- | --- |
-| A contact CSV | [Running a campaign](../operator/running-a-campaign.md) |
-| Retry policy — how often, how long apart | [Campaigns](../concepts/campaigns.md) |
-| Calling hours, so you do not dial at night | [Campaigns](../concepts/campaigns.md) |
-| A concurrency ceiling | [Call concurrency](../../developer/reference/call-concurrency.md) |
+| A contact CSV | [Running a campaign](../operator/running-a-campaign) |
+| Retry policy — how often, how long apart | [Campaigns](../concepts/campaigns) |
+| Calling hours, so you do not dial at night | [Campaigns](../concepts/campaigns) |
+| A concurrency ceiling | [Call concurrency](../../developer/reference/call-concurrency) |
 
 The orchestrator paces the run, retries the numbers worth retrying, and **stops the campaign on its own** if the failure rate crosses your threshold — so a misconfigured agent burns a handful of calls, not the whole list.
 
@@ -44,7 +44,7 @@ Replace a menu tree with a question.
 Instead of navigating options, the caller says what they want and the agent routes or answers directly. Configuration is the same as an inbound helpline; the difference is in the prompt — describe what the agent can help with rather than enumerating branches.
 
 <Note>
-Callers interrupt menus constantly. Barge-in is on by default, and `interruption_min_words` tunes how eagerly the agent yields. See [Agent configuration](../../developer/reference/agent-configuration.md).
+Callers interrupt menus constantly. Barge-in is on by default, and `interruption_min_words` tunes how eagerly the agent yields. See [Agent configuration](../../developer/reference/agent-configuration).
 </Note>
 
 ## Document-grounded support
@@ -53,7 +53,7 @@ An agent that answers from your PDFs rather than from what the model happens to 
 
 **Typical of:** scheme eligibility rules, policy documents, product manuals, admissions criteria.
 
-Upload the documents, attach them to the agent, and pick a retrieval mode: `context` prepends relevant passages to every turn, `tool` lets the model decide when to look something up. See [Knowledge base](../concepts/knowledge-base-rag.md).
+Upload the documents, attach them to the agent, and pick a retrieval mode: `context` prepends relevant passages to every turn, `tool` lets the model decide when to look something up. See [Knowledge base](../concepts/knowledge-base-rag).
 
 ## Multilingual service line
 
@@ -71,7 +71,7 @@ Everything above, with nothing leaving your network.
 
 **Typical of:** government deployments and anyone whose call content cannot go to a third-party API.
 
-Run the [model server](../../developer/model-server/overview.md) on your own GPUs so speech and language processing stay in-house. Your telephony provider still carries the audio — that is unavoidable for phone calls — but no model vendor sees it. See [Self-hosted models](../deployment/self-hosted-models.md).
+Run the [model server](../../developer/model-server/overview) on your own GPUs so speech and language processing stay in-house. Your telephony provider still carries the audio — that is unavoidable for phone calls — but no model vendor sees it. See [Self-hosted models](../deployment/self-hosted-models).
 
 ## Testing and development
 
@@ -83,6 +83,6 @@ Browser sessions are recorded too — the API registers a `call_type: web` call 
 
 ## Where next
 
-* [Prerequisites](../quickstart/prerequisites.md)
-* [Create your first agent](../dashboard/create-an-agent.md)
-* [Running a campaign](../operator/running-a-campaign.md)
+* [Prerequisites](../quickstart/prerequisites)
+* [Create your first agent](../dashboard/create-an-agent)
+* [Running a campaign](../operator/running-a-campaign)

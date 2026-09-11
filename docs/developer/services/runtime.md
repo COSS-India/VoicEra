@@ -3,10 +3,10 @@ title: Runtime (apps/runtime)
 description: The voice runtime — answer webhook, WebSocket transport, and the Pipecat pipeline.
 ---
 
-`apps/runtime` is the FastAPI service on port 7860 that answers telephony calls and runs the real-time audio pipeline. One WebSocket connection carries one call. It holds no database of its own — every document it needs comes from the [API](api.md) over REST.
+`apps/runtime` is the FastAPI service on port 7860 that answers telephony calls and runs the real-time audio pipeline. One WebSocket connection carries one call. It holds no database of its own — every document it needs comes from the [API](api) over REST.
 
 <Note>
-This page covers the service: its routes, how it reaches the API, and what it writes. The turn-by-turn mechanics of the audio loop are in [Voice pipeline](../../guides/concepts/voice-pipeline.md).
+This page covers the service: its routes, how it reaches the API, and what it writes. The turn-by-turn mechanics of the audio loop are in [Voice pipeline](../../guides/concepts/voice-pipeline).
 </Note>
 
 ## Responsibilities
@@ -14,7 +14,7 @@ This page covers the service: its routes, how it reaches the API, and what it wr
 1. Serve `GET|POST /answer?agent_id=&org_id=` for **telephony** agents and return Stream XML, with the provider read from `agent.telephony.provider`.
 2. Accept `WS /agent/{org_id}/{agent_id}` for both agent categories.
 3. Load agent config and provider credentials from the API on port 8000.
-4. Build and run a Pipecat pipeline — STT → LLM → TTS — through [`apps/providers`](providers.md).
+4. Build and run a Pipecat pipeline — STT → LLM → TTS — through [`apps/providers`](providers).
 5. Upload the transcript and recording to MinIO and link them on the CallLog.
 
 ## Routes
@@ -25,7 +25,7 @@ This page covers the service: its routes, how it reaches the API, and what it wr
 | GET, POST | `/answer` | Provider Stream XML, or 400 / 502 as text |
 | WS | `/agent/{org_id}/{agent_id}` | Media stream, optional `?call_id=` query parameter |
 
-`/answer` requires both `agent_id` and `org_id` as query parameters; either missing returns 400. The webhook body is parsed by `decode_webhook_body()` from [`apps/telephony`](telephony.md), which accepts JSON or `x-www-form-urlencoded`, then merged with the query string.
+`/answer` requires both `agent_id` and `org_id` as query parameters; either missing returns 400. The webhook body is parsed by `decode_webhook_body()` from [`apps/telephony`](telephony), which accepts JSON or `x-www-form-urlencoded`, then merged with the query string.
 
 If the parsed event is a hangup, the runtime patches the CallLog with `end_time_utc` and `status: "completed"` (plus a mapped `call_response` where one applies), optionally notifies campaign call status, and returns 200 with no XML. Otherwise it fetches the agent, rejects a non-telephony agent with 400, registers an inbound CallLog when the payload carries a provider call SID, and returns the Stream XML built by `build_answer_stream_xml(provider, websocket_url, sample_rate=...)`.
 
@@ -62,7 +62,7 @@ Browser clients connect directly to:
 wss://{VOICE_SERVER_BASE_URL}/agent/{org_id}/{agent_id}
 ```
 
-Use the Pipecat JS client with `@pipecat-ai/websocket-transport` and protobuf frames. No `/answer` webhook is involved, and no `start` event is expected. See [Browser WebSocket agents](../clients/browser-websocket.md).
+Use the Pipecat JS client with `@pipecat-ai/websocket-transport` and protobuf frames. No `/answer` webhook is involved, and no `start` event is expected. See [Browser WebSocket agents](../clients/browser-websocket).
 
 Browser websocket sessions register a `call_type: web` CallLog on connect — either auto-created via `POST /api/v1/calls/web`, or reused from a `call_id` query parameter — so they produce transcripts and recordings under the same MinIO paths as telephony calls.
 </Tab>
@@ -104,12 +104,12 @@ The cached token is reused for 25 minutes (`_TOKEN_TTL_SECONDS`), a little short
 | `idle.py` | User-online detection and idle handling |
 | `call_ending.py` | Graceful call ending through Pipecat function calling |
 | `events/` | `logging.py`, `recording.py`, `transport.py` — turn logging, recording capture, connect and disconnect handlers |
-| `metrics/` | `observers.py`, `writer.py` — Pipecat observers that measure per-turn and user-to-bot latency, and a writer that `PUT`s the result to [`/calls/{call_id}/metrics`](../../api-reference/calls.md) during teardown. Created only when the call has a `call_id`. |
+| `metrics/` | `observers.py`, `writer.py` — Pipecat observers that measure per-turn and user-to-bot latency, and a writer that `PUT`s the result to [`/calls/{call_id}/metrics`](../../api-reference/calls) during teardown. Created only when the call has a `call_id`. |
 | `termination/` | Empty package. Nothing imports it. |
 
-`services/knowledge/` adds RAG to a call: `setup.py`, `config.py`, `tool.py`, `context_processor.py`, and `formatting.py` wire the API's `POST /rag/retrieve` into the LLM context. See [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag.md).
+`services/knowledge/` adds RAG to a call: `setup.py`, `config.py`, `tool.py`, `context_processor.py`, and `formatting.py` wire the API's `POST /rag/retrieve` into the LLM context. See [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag).
 
-How these fit together during a live call — frame flow, interruption, VAD, and turn-taking — is covered in [Voice pipeline](../../guides/concepts/voice-pipeline.md).
+How these fit together during a live call — frame flow, interruption, VAD, and turn-taking — is covered in [Voice pipeline](../../guides/concepts/voice-pipeline).
 
 ## Call artifacts
 
@@ -147,10 +147,10 @@ Raw objects are browsable in the MinIO console at `http://localhost:9001`.
 
 MinIO access is read straight from the environment by `object_storage.py`: `MINIO_ENDPOINT` (default `localhost:9000`), `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_SECURE`, and `MINIO_BUCKET` (default `voicera-calls`). `RUNTIME_HOST` and `RUNTIME_PORT` control the bind address when the module is run directly.
 
-All variables live in the repository root `.env`. Inside Compose, `API_BASE_URL` and `MINIO_ENDPOINT` are overridden for in-network service discovery — `http://api:8000/api/v1` and `minio:9000`. Full list in [Environment variables](../reference/environment-variables.md).
+All variables live in the repository root `.env`. Inside Compose, `API_BASE_URL` and `MINIO_ENDPOINT` are overridden for in-network service discovery — `http://api:8000/api/v1` and `minio:9000`. Full list in [Environment variables](../reference/environment-variables).
 
 <Warning>
-Telephony providers must reach your public answer and WebSocket URLs, so `VOICE_SERVER_BASE_URL` has to be a routable HTTPS host, not `localhost`. The API uses the same variable when it provisions telephony agents. See [Public voice URLs](../../guides/deployment/public-voice-urls.md).
+Telephony providers must reach your public answer and WebSocket URLs, so `VOICE_SERVER_BASE_URL` has to be a routable HTTPS host, not `localhost`. The API uses the same variable when it provisions telephony agents. See [Public voice URLs](../../guides/deployment/public-voice-urls).
 </Warning>
 
 ## Running it standalone
@@ -183,7 +183,7 @@ The image is `python:3.11-slim` with `gcc`, and pins `pipecat-ai[deepgram,cartes
 
 ## Related
 
-* [Voice pipeline](../../guides/concepts/voice-pipeline.md) — inside a live call
-* [API (apps/api)](api.md) — the service the runtime authenticates to
-* [Providers (apps/providers)](providers.md) · [Telephony (apps/telephony)](telephony.md)
-* [Calls and call artifacts](../../guides/concepts/calls.md) · [Voice and audio troubleshooting](../../guides/troubleshooting/voice-and-audio.md)
+* [Voice pipeline](../../guides/concepts/voice-pipeline) — inside a live call
+* [API (apps/api)](api) — the service the runtime authenticates to
+* [Providers (apps/providers)](providers) · [Telephony (apps/telephony)](telephony)
+* [Calls and call artifacts](../../guides/concepts/calls) · [Voice and audio troubleshooting](../../guides/troubleshooting/voice-and-audio)

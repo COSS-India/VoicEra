@@ -3,13 +3,13 @@ title: Install and run
 description: Clone the repository, start the Docker stack, and verify every service is healthy.
 ---
 
-Gets the whole stack running on one machine in a few minutes. Complete the [prerequisites](prerequisites.md) first.
+Gets the whole stack running on one machine in a few minutes. Complete the [prerequisites](prerequisites) first.
 
 ## 1. Clone
 
 ```bash
-git clone https://github.com/COSS-India/voicera.git
-cd voicera
+git clone https://github.com/COSS-India/VoicEra.git
+cd VoicEra
 ```
 
 ## 2. Start
@@ -78,7 +78,7 @@ curl -s localhost:7860/health
 ```
 
 <Warning>
-`/health` returns HTTP **200 even when the database is down** — check the body, not the status code. See [Daily operations](../operator/operations.md#health-endpoints) for every endpoint and response shape.
+`/health` returns HTTP **200 even when the database is down** — check the body, not the status code. See [Daily operations](../operator/operations#health-endpoints) for every endpoint and response shape.
 </Warning>
 
 Open the dashboard at [http://localhost:3000](http://localhost:3000), or drive the API directly from the interactive console at [http://localhost:8000/docs](http://localhost:8000/docs).
@@ -135,7 +135,7 @@ make application-down
 That is `docker compose down` — containers stop, data survives.
 
 <Warning>
-`make application-down ARGS="-- -v"` (or `docker compose down -v`) also deletes the volumes: your database, recordings, RAG vectors, and queue. There is no undo. Back up first — see [Daily operations](../operator/operations.md).
+`make application-down ARGS="-- -v"` (or `docker compose down -v`) also deletes the volumes: your database, recordings, RAG vectors, and queue. There is no undo. Back up first — see [Daily operations](../operator/operations).
 </Warning>
 
 ## Running the API on your host instead
@@ -155,17 +155,17 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Point `.env` at the published database port — `MONGODB_HOST=localhost`, `MONGODB_PORT=27018`. See [Local setup](../../developer/guides/local-setup.md).
+Point `.env` at the published database port — `MONGODB_HOST=localhost`, `MONGODB_PORT=27018`. See [Local setup](../../developer/guides/local-setup).
 
 ## Troubleshooting
 
 | Symptom | Page |
 | --- | --- |
-| `SECRET_KEY must be set` | [Common issues](../troubleshooting/common-issues.md) |
-| Port already in use | [Ports and defaults](../../developer/reference/ports-and-defaults.md) |
-| Database connection errors on first boot | [Common issues](../troubleshooting/common-issues.md) |
+| `SECRET_KEY must be set` | [Common issues](../troubleshooting/common-issues) |
+| Port already in use | [Ports and defaults](../../developer/reference/ports-and-defaults) |
+| Database connection errors on first boot | [Common issues](../troubleshooting/common-issues) |
 
 ## Next
 
-* [Create your first agent](../dashboard/create-an-agent.md) — no terminal required from here on
-* [Recipes](../../api-reference/recipes.md) — the same tasks over `curl`
+* [Create your first agent](../dashboard/create-an-agent) — no terminal required from here on
+* [Recipes](../../api-reference/recipes) — the same tasks over `curl`

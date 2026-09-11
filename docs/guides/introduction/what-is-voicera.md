@@ -84,12 +84,12 @@ flowchart LR
 
 * **Not a hosted service.** You run it. There is no VoicEra cloud to sign up for.
 * **Not a telephony carrier.** You bring a Vobiz or Plivo account.
-* **Not a no-code product.** The core stack is API-first. A web dashboard exists — see [Frontend overview](../../developer/frontend/overview.md).
+* **Not a no-code product.** The core stack is API-first. A web dashboard exists — see [Frontend overview](../../developer/frontend/overview).
 * **Not a model provider.** You supply API keys or hardware.
 
 ## Where next
 
-* [How it works](how-it-works.md) — the call path in more detail
-* [Use cases](use-cases.md) — what people build with it
-* [Prerequisites](../quickstart/prerequisites.md) — what you need before installing
-* [Architecture](../concepts/architecture.md) — the engineering view
+* [How it works](how-it-works) — the call path in more detail
+* [Use cases](use-cases) — what people build with it
+* [Prerequisites](../quickstart/prerequisites) — what you need before installing
+* [Architecture](../concepts/architecture) — the engineering view

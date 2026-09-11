@@ -42,6 +42,6 @@ Every organisation-scoped route reads `org_id` from the token, not from the requ
 
 ## Related
 
-* [Users and organisations](users-and-orgs.md) — the routes that issue and swap tokens
-* [Multi-tenancy and roles](../developer/reference/multi-tenancy.md) — the model behind this
-* [Errors](errors.md)
+* [Users and organisations](users-and-orgs) — the routes that issue and swap tokens
+* [Multi-tenancy and roles](../developer/reference/multi-tenancy) — the model behind this
+* [Errors](errors)

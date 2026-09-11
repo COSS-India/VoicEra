@@ -55,7 +55,7 @@ Both produce a call with dead air rather than an error, so they are worth knowin
 
 `llm/qwen3.5-4b/` contains a `Dockerfile` and a `README.md`. There is no code, because there is nothing to write: vLLM already serves `/v1/chat/completions`, `/v1/models` and `/health` in the shape the gateway forwards.
 
-That is the clearest demonstration of what the [container contract](adding-a-model.md) actually asks for. Some model folders are a full server — `tts/indic-parler/` carries a paged-KV-cache engine. This one is about 30 lines of Dockerfile. Both satisfy the same interface.
+That is the clearest demonstration of what the [container contract](adding-a-model) actually asks for. Some model folders are a full server — `tts/indic-parler/` carries a paged-KV-cache engine. This one is about 30 lines of Dockerfile. Both satisfy the same interface.
 
 Adding another vLLM model is copying the folder, changing `MODEL_ID`, `SERVED_NAME` and `EXTRA_ARGS`, adding the id to `models.yaml`, and setting `LLM_MODEL` to the new folder name. It appears in `scripts/start-model-server.sh`'s menu on its own. Nothing in `compose.model-server.yml` or `gateway/` changes.
 
@@ -86,7 +86,7 @@ Treat the deployment as untried. Start it on its own, watch `docker compose logs
 
 ## Related
 
-* [Gateway API](gateway-api.md)
-* [Adding a model](adding-a-model.md)
-* [Running on GPUs](gpu-operations.md)
-* [Provider registry](../reference/provider-registry.md)
+* [Gateway API](gateway-api)
+* [Adding a model](adding-a-model)
+* [Running on GPUs](gpu-operations)
+* [Provider registry](../reference/provider-registry)

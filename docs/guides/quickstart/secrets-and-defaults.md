@@ -67,7 +67,7 @@ Changing database credentials after the volume exists does not update the Postgr
 | `MINIO_BUCKET` | `voicera-calls` | Recordings and transcripts |
 | `DEBUG` | `False` | Verbose logging |
 
-Full list in [Environment variables](../../developer/reference/environment-variables.md).
+Full list in [Environment variables](../../developer/reference/environment-variables).
 
 ## Before you expose this
 
@@ -80,10 +80,10 @@ Full list in [Environment variables](../../developer/reference/environment-varia
 - [ ] Stopped publishing the MinIO console publicly
 - [ ] Put TLS in front of the API and runtime
 
-Full guidance: [Security hardening](../deployment/security-hardening.md).
+Full guidance: [Security hardening](../deployment/security-hardening).
 
 ## Related
 
-* [Environment variables](../../developer/reference/environment-variables.md)
-* [Multi-tenancy and roles](../../developer/reference/multi-tenancy.md)
-* [Provider credentials](../../developer/reference/provider-auth.md)
+* [Environment variables](../../developer/reference/environment-variables)
+* [Multi-tenancy and roles](../../developer/reference/multi-tenancy)
+* [Provider credentials](../../developer/reference/provider-auth)

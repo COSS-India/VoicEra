@@ -6,13 +6,13 @@ description: A map of the VoicEra monorepo.
 Where everything lives, what owns what, and which files are placeholders you should not read anything into.
 
 <Note>
-For the runtime relationship between these directories — which process talks to which — read [Architecture](../../guides/concepts/architecture.md) first. This page is about the tree on disk.
+For the runtime relationship between these directories — which process talks to which — read [Architecture](../../guides/concepts/architecture) first. This page is about the tree on disk.
 </Note>
 
 ## Top level
 
 ```text
-voicera/
+VoicEra/
 ├── apps/                  Application code — four Python packages
 ├── frontend/              Next.js dashboard — the web console
 ├── model-server/          Optional self-hosted STT, TTS, and LLM stack
@@ -26,7 +26,7 @@ voicera/
 ├── CONTRIBUTING.md        Contributor entry point
 ├── SECURITY.md            Vulnerability reporting policy
 ├── CODE_OF_CONDUCT.md     Community standards and enforcement
-├── LICENSE                MIT
+├── LICENSE                Apache 2.0
 ├── Makefile               Wrappers for the start/stop scripts — `make help` lists them
 ├── pyproject.toml         Placeholder — empty
 └── __init__.py            Empty; makes the checkout importable as a package
@@ -36,7 +36,7 @@ voicera/
 | --- | --- |
 | `docs.json` | Mintlify site config: tabs (Guides, Developer, API Reference), groups, and redirects. |
 | `docker-compose.yaml` | Ten services: `postgres`, `ferretdb`, `api`, `arq-worker`, `campaign-orchestrator`, `runtime`, `frontend`, `redis`, `minio`, `minio-init`. Container and volume names are prefixed `voicera_oss_`; the network is `app-network`. |
-| `.env.example` | The one environment template. Copy it to `.env` at the root. See [Environment variables](../reference/environment-variables.md). |
+| `.env.example` | The one environment template. Copy it to `.env` at the root. See [Environment variables](../reference/environment-variables). |
 | `scripts/start-application-services.sh` | Creates a root `.env` if one doesn't exist, generating `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` if missing, then starts the stack. Run it via `make application-up` rather than calling it directly or using a bare `docker compose up`. |
 | `scripts/stop-application-services.sh` | Stops the stack. |
 | `Makefile` | Thin wrappers over those scripts and the Compose commands: `application-up`, `application-down`, `restart`, `application-logs`, `application-ps`, the five `model-server-*` equivalents, and `down-all`. Run `make help` for the list. |
@@ -79,7 +79,7 @@ apps/api/
 └── tests/              20 test modules plus conftest.py
 ```
 
-One package, **three containers**. `api`, `arq-worker`, and `campaign-orchestrator` all build from `apps/api/Dockerfile` and differ only in their `command:`. See [Workers and orchestrator](../services/workers.md).
+One package, **three containers**. `api`, `arq-worker`, and `campaign-orchestrator` all build from `apps/api/Dockerfile` and differ only in their `command:`. See [Workers and orchestrator](../services/workers).
 
 ### apps/runtime
 
@@ -116,7 +116,7 @@ apps/providers/
 └── tests/          5 test modules
 ```
 
-Every STT/TTS vendor folder is three files: `catalog.py` (with `*_CAPABILITIES`), `config.py`, `service.py`. LLM-only vendors may keep an empty stub `languages.py`. See [Adding an AI provider](adding-a-provider.md).
+Every STT/TTS vendor folder is three files: `catalog.py` (with `*_CAPABILITIES`), `config.py`, `service.py`. LLM-only vendors may keep an empty stub `languages.py`. See [Adding an AI provider](adding-a-provider).
 
 ### apps/telephony
 
@@ -137,7 +137,7 @@ apps/telephony/
 └── tests/              6 test modules
 ```
 
-The package-root `xml.py`, `calls.py`, and `serializers.py` are dispatch facades. They contain no provider `if`/`elif` chains and must not grow any. See [Adding a telephony provider](adding-a-telephony-provider.md).
+The package-root `xml.py`, `calls.py`, and `serializers.py` are dispatch facades. They contain no provider `if`/`elif` chains and must not grow any. See [Adding a telephony provider](adding-a-telephony-provider).
 
 <Note>
 `apps/telephony/README.md` documents the package's public API and is current.
@@ -164,7 +164,7 @@ model-server/
 └── hindi.wav                      Fixture for the GPU smoke script
 ```
 
-Three **slots** — STT, TTS, LLM — each filled by naming a folder in `STT_MODEL`, `TTS_MODEL`, or `LLM_MODEL`. See [Model server overview](../model-server/overview.md).
+Three **slots** — STT, TTS, LLM — each filled by naming a folder in `STT_MODEL`, `TTS_MODEL`, or `LLM_MODEL`. See [Model server overview](../model-server/overview).
 
 ## scripts
 
@@ -174,7 +174,7 @@ Four shell scripts, all meant to be run from the repository root.
 | --- | --- |
 | `start-application-services.sh` | Creates or updates the root `.env`, generating the three secrets if they are missing, then brings the application stack up detached. |
 | `stop-application-services.sh` | Brings the application stack down. |
-| `start-model-server.sh` | Runs the model-server setup: picks a model per slot, fetches weights, builds images, and starts the model-server stack. See [Model server overview](../model-server/overview.md). |
+| `start-model-server.sh` | Runs the model-server setup: picks a model per slot, fetches weights, builds images, and starts the model-server stack. See [Model server overview](../model-server/overview). |
 | `stop-model-server.sh` | Stops the model-server stack. |
 
 ## Where tests live
@@ -189,7 +189,7 @@ Tests sit inside the package they cover. There is no top-level `tests/` director
 | `apps/providers/tests` | 1 | The registry and the catalog dump. |
 | `model-server/tests` | 20 | Catalogue, gateway streaming, slot behaviour, audio parity. |
 
-Full instructions in [Testing](testing.md).
+Full instructions in [Testing](testing).
 
 ## Files that are intentionally empty
 
@@ -205,12 +205,12 @@ Several files exist so tooling and GitHub find them, but hold no content yet. Do
 There is also **no `.github/` directory**, and therefore no CI, no workflows, no issue templates, and no pull-request template. Nothing runs automatically on a push. Every check is something you run locally before opening a pull request.
 
 <Note>
-Because there is no CI, a green local run is the only signal a change has. Run the relevant [test suites](testing.md) and `ruff check .` in `model-server/` yourself.
+Because there is no CI, a green local run is the only signal a change has. Run the relevant [test suites](testing) and `ruff check .` in `model-server/` yourself.
 </Note>
 
 ## Related
 
-* [Local setup](local-setup.md)
-* [Testing](testing.md)
-* [Architecture](../../guides/concepts/architecture.md)
-* [Services overview](../services/index.md)
+* [Local setup](local-setup)
+* [Testing](testing)
+* [Architecture](../../guides/concepts/architecture)
+* [Services overview](../services/index)

@@ -39,7 +39,7 @@ Every command below assumes you are at the repository root and the root is on `P
 export PYTHONPATH="$PWD"
 ```
 
-`apps/providers`, `apps/telephony`, and `apps/runtime` import each other as `apps.*`, so this is not optional. See [Local setup](local-setup.md#the-pythonpath-and-the-apps-namespace).
+`apps/providers`, `apps/telephony`, and `apps/runtime` import each other as `apps.*`, so this is not optional. See [Local setup](local-setup#the-pythonpath-and-the-apps-namespace).
 
 <Note>
 Run the suites in **separate `pytest` invocations**, one per package. Passing them all to a single command fails at collection with `ModuleNotFoundError: No module named 'app.auth'` and similar: `apps/api` imports a top-level `app.*` package via its `conftest.py`, and `model-server/tests` puts its own tree on `sys.path`, so whichever is collected first claims the name. Each suite passes on its own.
@@ -114,7 +114,7 @@ Five model-server modules shell out to `docker compose config`: `test_model_swit
 `test_gpu_placement.py::test_the_model_matches_real_compose` **fails** rather than skips on a Docker Desktop install. The `skipif` guard resolves `docker` on the full `PATH`, but the subprocess is then launched with a hardcoded `env={"PATH": "/usr/bin:/bin"}`. Docker Desktop puts the binary in `/usr/local/bin`, so the call raises `FileNotFoundError` before reaching the `returncode != 0` check that was meant to skip. Passing the inherited `PATH` through fixes it.
 </Note>
 
-No other suite touches Docker. The database-only Compose stack described in [Local setup](local-setup.md#database-only-compose) is for running the services by hand, not for testing.
+No other suite touches Docker. The database-only Compose stack described in [Local setup](local-setup#database-only-compose) is for running the services by hand, not for testing.
 
 ## Why the model-server suite needs no GPU
 
@@ -179,7 +179,7 @@ The `sys.modules` assignment has to happen before `apps.runtime.app` is imported
 
 ### apps/providers
 
-Five modules. `test_provider_schemas.py` tests the registry as a whole rather than each vendor: it pins the union member counts (13 STT, 15 TTS, 10 LLM), asserts every registered config has a creator and the reverse, and walks every provider asserting the catalog dump contains no `$defs`, `$ref`, or `anyOf`, that every secret field is marked and carries no `input_mode`, and that every language id emitted exists in the canonical `LANGUAGES` map. `test_availability.py`, `test_capabilities.py`, `test_scoped_settings.py`, and `test_settings_by_model_language.py` cover which providers are reachable, what each declares it can do, and how per-model and per-language settings resolve. See [Adding an AI provider](adding-a-provider.md#testing).
+Five modules. `test_provider_schemas.py` tests the registry as a whole rather than each vendor: it pins the union member counts (13 STT, 15 TTS, 10 LLM), asserts every registered config has a creator and the reverse, and walks every provider asserting the catalog dump contains no `$defs`, `$ref`, or `anyOf`, that every secret field is marked and carries no `input_mode`, and that every language id emitted exists in the canonical `LANGUAGES` map. `test_availability.py`, `test_capabilities.py`, `test_scoped_settings.py`, and `test_settings_by_model_language.py` cover which providers are reachable, what each declares it can do, and how per-model and per-language settings resolve. See [Adding an AI provider](adding-a-provider#testing).
 
 ### apps/telephony
 
@@ -238,8 +238,8 @@ Until that is done, treat the model-server suite's pass count as covering the se
 
 ## Related
 
-* [Local setup](local-setup.md)
-* [Repository layout](repository-layout.md)
-* [Contributing](contributing-guide.md)
-* [Adding an AI provider](adding-a-provider.md)
-* [Adding a telephony provider](adding-a-telephony-provider.md)
+* [Local setup](local-setup)
+* [Repository layout](repository-layout)
+* [Contributing](contributing-guide)
+* [Adding an AI provider](adding-a-provider)
+* [Adding a telephony provider](adding-a-telephony-provider)

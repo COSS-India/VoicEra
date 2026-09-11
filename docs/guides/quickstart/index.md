@@ -13,16 +13,16 @@ Total time is roughly 20 minutes, most of it Docker pulling images. You need Doc
 
 | Step | Page | What you end with |
 | --- | --- | --- |
-| 1 | [Prerequisites](prerequisites.md) | A machine that can run the stack, and the accounts you need. |
-| 2 | [Install and run](install-and-run.md) | Ten containers up, API answering on `:8000`, dashboard on `:3000`. |
-| 3 | [Generated secrets and defaults](secrets-and-defaults.md) | Knowing what was generated for you and what to change. |
+| 1 | [Prerequisites](prerequisites) | A machine that can run the stack, and the accounts you need. |
+| 2 | [Install and run](install-and-run) | Ten containers up, API answering on `:8000`, dashboard on `:3000`. |
+| 3 | [Generated secrets and defaults](secrets-and-defaults) | Knowing what was generated for you and what to change. |
 
 Once the stack is up, build your first agent and place your first call from the dashboard — no terminal needed:
 
-* [Create your first agent](../dashboard/create-an-agent.md)
-* [Test and call with your agent](../dashboard/make-a-call.md)
+* [Create your first agent](../dashboard/create-an-agent)
+* [Test and call with your agent](../dashboard/make-a-call)
 
-Prefer the API? See [Recipes](../../api-reference/recipes.md).
+Prefer the API? See [Recipes](../../api-reference/recipes).
 
 ## Before you start
 
@@ -36,6 +36,6 @@ Run `make application-up`, not a bare `docker compose up`. It generates `SECRET_
 
 Once a call works:
 
-* [Architecture](../concepts/architecture.md) — what you just started
-* [Running a campaign](../operator/running-a-campaign.md) — outbound at volume
-* [Security hardening](../deployment/security-hardening.md) — before anyone else can reach it
+* [Architecture](../concepts/architecture) — what you just started
+* [Running a campaign](../operator/running-a-campaign) — outbound at volume
+* [Security hardening](../deployment/security-hardening) — before anyone else can reach it

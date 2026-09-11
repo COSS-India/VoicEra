@@ -6,7 +6,7 @@ description: Every self-hosted model in one place, behind one gateway.
 `model-server` is the self-hosted half of VoicEra's AI providers. It runs speech-to-text, text-to-speech and a language model on your own GPUs, and puts all three behind a single OpenAI-compatible gateway on port `8100`. This page is the orientation: what the layout is, how to start it, and what state each piece is actually in.
 
 <Note>
-If you only want to point an agent at self-hosted models, read [Self-hosted models](../../guides/deployment/self-hosted-models.md) first. This section is about the model server itself.
+If you only want to point an agent at self-hosted models, read [Self-hosted models](../../guides/deployment/self-hosted-models) first. This section is about the model server itself.
 </Note>
 
 ## Why one gateway
@@ -50,7 +50,7 @@ model-server/
 └── tests/                 run without a GPU
 ```
 
-Adding a model is adding a folder — no service, no port, no gateway change, which is what makes swapping one a one-line edit rather than a project. See [Adding a model](adding-a-model.md).
+Adding a model is adding a folder — no service, no port, no gateway change, which is what makes swapping one a one-line edit rather than a project. See [Adding a model](adding-a-model).
 
 ## Running it
 
@@ -82,7 +82,7 @@ Driving Compose by hand with only the base file skips the overlays a model or ho
 docker compose $(sh model-server/compose-files.sh) --project-directory model-server up -d
 ```
 
-First build takes 20-40 minutes. See [Running on GPUs](gpu-operations.md) for GPU selection and disk requirements.
+First build takes 20-40 minutes. See [Running on GPUs](gpu-operations) for GPU selection and disk requirements.
 
 ## What it replaces
 
@@ -116,7 +116,7 @@ Two things are **not** verified on hardware, and `model-server/README.md` is exp
 **The LLM slot has not been run on hardware at all.** `llm/qwen3.5-4b/` is written but has never been built or started, so the vLLM flags in it are unverified against a live model. The numbers above cover STT and TTS only.
 </Note>
 
-Per-model status is recorded in `model-server/models.yaml` and summarised on [STT models](stt-models.md), [TTS models](tts-models.md) and [LLM models](llm-models.md).
+Per-model status is recorded in `model-server/models.yaml` and summarised on [STT models](stt-models), [TTS models](tts-models) and [LLM models](llm-models).
 
 ## Relationship to apps/providers
 
@@ -124,11 +124,11 @@ There are **two separate naming layers**, easy to conflate but not interchangeab
 
 **Inside the model server**, `tests/test_client_selection.py` pins the convention `<catalogue id>-<slot>` — the folder `orpheus` under `tts/` is nameable as `orpheus-tts` by an OpenAI-shaped client talking to the gateway directly. This is a model-server-internal test convention, not a lookup: the catalogue doesn't record the client-facing name, so the test asserts every `ready` model is nameable this way and every name the client accepts has a model behind it. That test exists because the failure has no symptom until a call drops — a model can be catalogued, built, healthy, and listed at `/models` while the runtime has never heard of its name.
 
-**Inside `apps/providers`**, a self-hosted model is exposed to agents through its own `local/<name>/` provider — `indic_orpheus` (TTS) and `indic_nemotron` (STT) today, see [Providers → The local providers](../services/providers.md#the-local-providers). Its provider id (`indic_orpheus`) and model id (`orpheus-indic`) are independent of the `<catalogue id>-<slot>` convention above; the only thing they share with the model server is the gateway slot id (`GATEWAY_MODEL_ID = "orpheus"` in the provider's `catalog.py`), which is what `register_local()` polls `GET /models` for to decide whether the provider shows as `authenticated`. An agent selects a self-hosted STT/TTS model the same way it selects any other provider — `{"provider": "indic_orpheus", "model": "orpheus-indic", ...}` — not by the model-server-internal `<catalogue id>-<slot>` name. No local LLM provider exists yet, so a self-hosted LLM is still reached the older way, through a cloud `openai` config with a custom `base_url` — see [Self-hosted models](../../guides/deployment/self-hosted-models.md).
+**Inside `apps/providers`**, a self-hosted model is exposed to agents through its own `local/<name>/` provider — `indic_orpheus` (TTS) and `indic_nemotron` (STT) today, see [Providers → The local providers](../services/providers#the-local-providers). Its provider id (`indic_orpheus`) and model id (`orpheus-indic`) are independent of the `<catalogue id>-<slot>` convention above; the only thing they share with the model server is the gateway slot id (`GATEWAY_MODEL_ID = "orpheus"` in the provider's `catalog.py`), which is what `register_local()` polls `GET /models` for to decide whether the provider shows as `authenticated`. An agent selects a self-hosted STT/TTS model the same way it selects any other provider — `{"provider": "indic_orpheus", "model": "orpheus-indic", ...}` — not by the model-server-internal `<catalogue id>-<slot>` name. No local LLM provider exists yet, so a self-hosted LLM is still reached the older way, through a cloud `openai` config with a custom `base_url` — see [Self-hosted models](../../guides/deployment/self-hosted-models).
 
 ## Related
 
-* [Slots and models](slots-and-models.md)
-* [Gateway API](gateway-api.md)
-* [Self-hosted models](../../guides/deployment/self-hosted-models.md)
-* [Ports and defaults](../reference/ports-and-defaults.md)
+* [Slots and models](slots-and-models)
+* [Gateway API](gateway-api)
+* [Self-hosted models](../../guides/deployment/self-hosted-models)
+* [Ports and defaults](../reference/ports-and-defaults)

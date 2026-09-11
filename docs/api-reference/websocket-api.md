@@ -6,7 +6,7 @@ description: The runtime WebSocket endpoints and their two modes.
 VoicEra has one media WebSocket, served by the runtime, and it behaves differently depending on the agent it resolves. This page documents that route in both modes, the connection lifecycle, and the close codes you will see. It closes with the model-server's own transcription sockets, which are a separate surface.
 
 <Note>
-For the client-side view — how to write a browser page or what a provider sends — see [Browser WebSocket agents](../developer/clients/browser-websocket.md) and [Telephony agents](../developer/clients/telephony.md). This page is the protocol reference.
+For the client-side view — how to write a browser page or what a provider sends — see [Browser WebSocket agents](../developer/clients/browser-websocket) and [Telephony agents](../developer/clients/telephony). This page is the protocol reference.
 </Note>
 
 ## `WS /agent/{org_id}/{agent_id}`
@@ -24,7 +24,7 @@ Declared in `apps/runtime/routes/agent.py` and mounted with no prefix on the run
 The handler accepts the socket **before** it looks anything up. It then fetches the agent with `backend_client.get_agent(agent_id, org_id)` and branches on `agent_category`. Everything about the session — sample rate, serializer, whether artifacts are persisted — follows from that one field.
 
 <Warning>
-There is no authentication on this route. No token, no header, no origin check. The runtime resolves the organisation and the agent entirely from the URL path, so anyone who can reach port `7860` and knows an `org_id` and `agent_id` can open a session and consume your provider quota. Keep the runtime behind a reverse proxy — see [Security hardening](../guides/deployment/security-hardening.md).
+There is no authentication on this route. No token, no header, no origin check. The runtime resolves the organisation and the agent entirely from the URL path, so anyone who can reach port `7860` and knows an `org_id` and `agent_id` can open a session and consume your provider quota. Keep the runtime behind a reverse proxy — see [Security hardening](../guides/deployment/security-hardening).
 </Warning>
 
 ## Telephony mode
@@ -57,7 +57,7 @@ Selected when `agent_category` is `websocket`. Entered through `run_websocket_bo
 | `call_id` | From `?call_id=` when valid, otherwise registered via `POST /api/v1/calls/web` |
 | Artifacts | `CallLog` with `call_type: web`, plus transcript and recording in MinIO |
 
-Every message in both directions is a binary protobuf `Frame` with a `oneof` over `TextFrame`, `AudioRawFrame`, `TranscriptionFrame`, `MessageFrame`, and `InterruptionFrame`. Audio is signed 16-bit little-endian PCM in `AudioRawFrame.audio`, with `sample_rate` and `num_channels` alongside it. `MessageFrame.data` carries RTVI events as a JSON string. The full schema is reproduced in [Browser WebSocket agents](../developer/clients/browser-websocket.md).
+Every message in both directions is a binary protobuf `Frame` with a `oneof` over `TextFrame`, `AudioRawFrame`, `TranscriptionFrame`, `MessageFrame`, and `InterruptionFrame`. Audio is signed 16-bit little-endian PCM in `AudioRawFrame.audio`, with `sample_rate` and `num_channels` alongside it. `MessageFrame.data` carries RTVI events as a JSON string. The full schema is reproduced in [Browser WebSocket agents](../developer/clients/browser-websocket).
 
 A supplied `call_id` is accepted only if its `call_type` is `web` and its `agent_id` matches the path; otherwise it is discarded with a warning and a fresh one is registered.
 
@@ -65,7 +65,7 @@ A supplied `call_id` is accepted only if its `call_type` is `web` and its `agent
 
 ## Connecting
 
-A minimal connection in browser mode — open the socket, send one audio frame, read frames back. This is the bare protocol; for a working capture-and-playback client see [Browser WebSocket agents](../developer/clients/browser-websocket.md), which covers the full protobuf `Frame` schema, sample rates, and the audio pipeline.
+A minimal connection in browser mode — open the socket, send one audio frame, read frames back. This is the bare protocol; for a working capture-and-playback client see [Browser WebSocket agents](../developer/clients/browser-websocket), which covers the full protobuf `Frame` schema, sample rates, and the audio pipeline.
 
 <CodeGroup>
 
@@ -118,7 +118,7 @@ asyncio.run(main())
 
 Both examples connect to a `websocket`-category agent — no handshake message is required, and the agent speaks its greeting first. A `telephony`-category agent instead requires a text `start` event as the first message, sent by the telephony provider, not by an integrator's client; see [Telephony mode](#telephony-mode).
 
-There is no official SDK for either language. Both snippets use each ecosystem's standard WebSocket client (`WebSocket` in the browser, [`websockets`](https://websockets.readthedocs.io/) in Python) plus a protobuf library to encode and decode `Frame` messages against the schema in [Browser WebSocket agents](../developer/clients/browser-websocket.md#protobuf-and-rtvi-frames).
+There is no official SDK for either language. Both snippets use each ecosystem's standard WebSocket client (`WebSocket` in the browser, [`websockets`](https://websockets.readthedocs.io/) in Python) plus a protobuf library to encode and decode `Frame` messages against the schema in [Browser WebSocket agents](../developer/clients/browser-websocket#protobuf-and-rtvi-frames).
 
 ## Connection lifecycle
 
@@ -158,7 +158,7 @@ Failures **before** the branch happen after `accept()`, so a client sees a succe
 
 ## The model-server ASR sockets
 
-The optional [model server](../developer/model-server/overview.md) publishes its own gateway on port `8100`, entirely separate from the runtime. It exposes two streaming transcription sockets, both declared in `model-server/gateway/app/main.py`.
+The optional [model server](../developer/model-server/overview) publishes its own gateway on port `8100`, entirely separate from the runtime. It exposes two streaming transcription sockets, both declared in `model-server/gateway/app/main.py`.
 
 | Route | Protocol |
 | --- | --- |
@@ -192,9 +192,9 @@ Query strings are passed through to the upstream unchanged, so `?language=hi` an
 
 ## Related
 
-* [Browser WebSocket agents](../developer/clients/browser-websocket.md)
-* [Telephony agents](../developer/clients/telephony.md)
-* [Endpoints cheatsheet](endpoints-cheatsheet.md)
-* [REST API](overview.md)
-* [Voice pipeline](../guides/concepts/voice-pipeline.md)
-* [Gateway API](../developer/model-server/gateway-api.md)
+* [Browser WebSocket agents](../developer/clients/browser-websocket)
+* [Telephony agents](../developer/clients/telephony)
+* [Endpoints cheatsheet](endpoints-cheatsheet)
+* [REST API](overview)
+* [Voice pipeline](../guides/concepts/voice-pipeline)
+* [Gateway API](../developer/model-server/gateway-api)
