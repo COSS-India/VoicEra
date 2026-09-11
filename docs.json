@@ -17,7 +17,7 @@
     "primary": {
       "type": "button",
       "label": "Open App",
-      "href": "https://app.voicera.world"
+      "href": "https://sandbox.voicera.world"
     }
   },
   "navigation": {
