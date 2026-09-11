@@ -17,7 +17,7 @@ model:
   # ORPHEUS_MODEL_PATH — local directory, or a HuggingFace repo id.
   # Relative paths resolve against the repository root. See the Readme for how to
   # obtain the checkpoint and where to place it.
-  path: models/orpheus-indic-5679
+  path: models/indic-speak
 
   # ORPHEUS_DTYPE — 'auto' lets vLLM choose: bfloat16 on Ampere and newer,
   # float16 on older cards. Only set this explicitly to override that choice.

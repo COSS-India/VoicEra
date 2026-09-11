@@ -50,7 +50,12 @@ services:
       # ---- model -------------------------------------------------------
       # A directory under the mount below, or a HuggingFace repo id, in which
       # case vLLM fetches into hf_cache instead and the mount goes unused.
-      ORPHEUS_MODEL_PATH: ${ORPHEUS_MODEL_PATH:-/models/orpheus-indic-5679}
+      # bodhan-ai/indic-speak, fetched by this folder's fetch.sh into models/.
+      # Was /models/orpheus-indic-5679 -- the v1 Drive checkpoint -- while the
+      # deployment ran preview-v2 from an .env override, the same declared-is-not-
+      # running defect the roster note below records. The default now names what
+      # fetch.sh actually puts there.
+      ORPHEUS_MODEL_PATH: ${ORPHEUS_MODEL_PATH:-/models/indic-speak}
       ORPHEUS_MODEL_NAME: ${ORPHEUS_MODEL_NAME:-orpheus-indic}
       ORPHEUS_DTYPE: ${ORPHEUS_DTYPE:-auto}
       # fp8 needs compute capability >= 8.9. H200 is 9.0, so this is fine here;

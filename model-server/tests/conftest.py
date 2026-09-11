@@ -37,16 +37,24 @@ def serve(app, port: int):
 
 
 def find_setup() -> Path | None:
-    """Locate setup.sh, which has lived in two places.
+    """Locate the model-server setup script, which has lived in three places.
 
     It sat at the repository root while model-server was one folder inside a
-    larger tree; it now sits inside model-server/ so the stack is self-contained.
-    Tests that pin its behaviour should not care which, and hardcoding either
-    turns a move into six silent skips -- the suite stays green while the checks
-    are simply not running.
+    larger tree; then inside model-server/ so the stack was self-contained; it
+    now sits in scripts/ with every other runnable, as start-model-server.sh.
+    Tests that pin its behaviour should not care which, and hardcoding one of
+    them turns a move into silent skips -- which is what happened: the move to
+    scripts/ landed while this function still named the old two paths, so it
+    returned None and the nineteen tests that read the script stopped running
+    while the suite went on reporting green.
     """
     root = Path(__file__).resolve().parent.parent
-    for candidate in (root / "setup.sh", root.parent / "setup.sh"):
+    candidates = (
+        root.parent / "scripts" / "start-model-server.sh",
+        root / "setup.sh",
+        root.parent / "setup.sh",
+    )
+    for candidate in candidates:
         if candidate.is_file():
             return candidate
     return None
