@@ -114,12 +114,16 @@ export TOKEN=$(echo "$RESPONSE" | jq -r '.access_token // empty')
 if [ -z "$TOKEN" ]; then
   echo "Signup failed:"
   echo "$RESPONSE" | jq .
-else
-  echo "Token exported."
 fi
 ```
 
-Verify it worked — this should print your new user, not an error:
+Verify it worked:
+
+```bash
+echo "$TOKEN"
+```
+
+An empty line means signup failed — check the error printed above. Otherwise, confirm the token is valid:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/users/me
