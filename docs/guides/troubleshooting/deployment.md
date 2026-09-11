@@ -71,7 +71,7 @@ Something ran `docker compose down -v`. All four volumes are deleted together an
 docker volume ls | grep voicera_oss
 ```
 
-Restore from backup. See [Daily operations](../operator/operations.md).
+Restore from backup. See [Daily operations](../operator/operations).
 
 ### Permission denied on a volume
 
@@ -120,7 +120,7 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 | Cannot share the GPU | The GPU is in Exclusive Process mode; MPS needs Default mode |
 | Model will not download | `ai4bharat/indic-parler-tts` is gated — supply a token with access |
 
-See [Running on GPUs](../../developer/model-server/gpu-operations.md).
+See [Running on GPUs](../../developer/model-server/gpu-operations).
 
 ## Cross-replica problems
 
@@ -134,15 +134,15 @@ Live calls hold a WebSocket on one instance and do not survive its restart. Drai
 
 ### A campaign dials twice
 
-More than one campaign orchestrator. Run exactly one — see [Campaigns](campaigns.md).
+More than one campaign orchestrator. Run exactly one — see [Campaigns](campaigns).
 
 ## Health checks
 
-Endpoints, response shapes, and the "200 even when degraded" gotcha are in [Daily operations](../operator/operations.md#health-endpoints).
+Endpoints, response shapes, and the "200 even when degraded" gotcha are in [Daily operations](../operator/operations#health-endpoints).
 
 ## Related
 
-* [Production deployment](../deployment/production.md)
-* [Docker Compose](../deployment/docker-compose.md)
-* [Security hardening](../deployment/security-hardening.md)
-* [Common issues](common-issues.md)
+* [Production deployment](../deployment/production)
+* [Docker Compose](../deployment/docker-compose)
+* [Security hardening](../deployment/security-hardening)
+* [Common issues](common-issues)

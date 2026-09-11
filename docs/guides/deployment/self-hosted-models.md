@@ -35,7 +35,7 @@ curl -s localhost:8100/health
 curl -s localhost:8100/v1/models
 ```
 
-Full detail in [Model server overview](../../developer/model-server/overview.md) and [Slots and models](../../developer/model-server/slots-and-models.md).
+Full detail in [Model server overview](../../developer/model-server/overview) and [Slots and models](../../developer/model-server/slots-and-models).
 
 <Tip>
 Weights are **not** in the repository. `stt/indic-conformer/models/IndicConformer.nemo` and `tts/indic-parler/checkpoints/` are gitignored, and `ai4bharat/indic-parler-tts` is a **gated** HuggingFace repo — you need a token with access, or a pre-populated cache. Build one image at a time on a tight disk; parallel builds double peak usage at the export stage, which is where they fail.
@@ -77,7 +77,7 @@ STT and TTS have first-class local providers — pick them like any other provid
 }
 ```
 
-Both read the gateway address from environment variables at service-creation time, not from agent config — set `MODEL_SERVER_URL` (`indic_orpheus`, OpenAI-shaped HTTP) and `MODEL_SERVER_WS_URL` (`indic_nemotron`, raw WebSocket) on the runtime. See [Providers → The local providers](../../developer/services/providers.md#the-local-providers) for the field reference.
+Both read the gateway address from environment variables at service-creation time, not from agent config — set `MODEL_SERVER_URL` (`indic_orpheus`, OpenAI-shaped HTTP) and `MODEL_SERVER_WS_URL` (`indic_nemotron`, raw WebSocket) on the runtime. See [Providers → The local providers](../../developer/services/providers#the-local-providers) for the field reference.
 
 No local LLM provider exists yet, so an LLM still has to go through an OpenAI-compatible `base_url` on the `openai` provider:
 
@@ -131,15 +131,15 @@ docker compose logs -f runtime
 | --- | --- |
 | A real call through the runtime to the gateway | **Not tested** |
 | The LLM slot | **Never built or started**; its vLLM flags are unverified; no `apps/providers/local/` LLM provider exists to select it |
-| `apps/providers/local/` STT/TTS | Two providers ship: `indic_nemotron` (STT), `indic_orpheus` (TTS) — see [Providers → The local providers](../../developer/services/providers.md#the-local-providers) |
+| `apps/providers/local/` STT/TTS | Two providers ship: `indic_nemotron` (STT), `indic_orpheus` (TTS) — see [Providers → The local providers](../../developer/services/providers#the-local-providers) |
 | Model catalog sharing | `models.yaml` is the model server's own catalogue; the platform's provider catalog is separate. The two share a slot id (`GATEWAY_MODEL_ID` in each local provider's `catalog.py`), not a provider id |
 
-The per-model pages under [Model server](../../developer/model-server/overview.md) state what has and has not run on hardware. Read them before choosing a model — `ready` in `models.yaml` means "the folder exists with a Dockerfile", not "tested".
+The per-model pages under [Model server](../../developer/model-server/overview) state what has and has not run on hardware. Read them before choosing a model — `ready` in `models.yaml` means "the folder exists with a Dockerfile", not "tested".
 
 ## Related
 
-* [Model server overview](../../developer/model-server/overview.md)
-* [Gateway API](../../developer/model-server/gateway-api.md)
-* [Running on GPUs](../../developer/model-server/gpu-operations.md)
-* [Provider registry](../../developer/reference/provider-registry.md)
-* [Environment variables](../../developer/reference/environment-variables.md)
+* [Model server overview](../../developer/model-server/overview)
+* [Gateway API](../../developer/model-server/gateway-api)
+* [Running on GPUs](../../developer/model-server/gpu-operations)
+* [Provider registry](../../developer/reference/provider-registry)
+* [Environment variables](../../developer/reference/environment-variables)

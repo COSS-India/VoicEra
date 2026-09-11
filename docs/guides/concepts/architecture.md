@@ -32,11 +32,11 @@ flowchart TB
 
 | Actor | Role |
 | --- | --- |
-| API consumer | Anything driving VoicEra over REST — your own console, a script, or the [dashboard](../../developer/frontend/overview.md). |
+| API consumer | Anything driving VoicEra over REST — your own console, a script, or the [dashboard](../../developer/frontend/overview). |
 | Caller | The person on the phone, inbound or outbound. |
-| Telephony providers | [Vobiz or Plivo](telephony-model.md). They own the numbers and stream the audio. |
-| AI providers | 22 cloud vendors plus the Bhashini and Kenpath adapters, reachable through the [provider registry](../../developer/reference/provider-registry.md). |
-| Model server | Optional [self-hosted models](../../developer/model-server/overview.md) behind one gateway. |
+| Telephony providers | [Vobiz or Plivo](telephony-model). They own the numbers and stream the audio. |
+| AI providers | 22 cloud vendors plus the Bhashini and Kenpath adapters, reachable through the [provider registry](../../developer/reference/provider-registry). |
+| Model server | Optional [self-hosted models](../../developer/model-server/overview) behind one gateway. |
 
 ## Level 2 — Containers
 
@@ -107,14 +107,14 @@ flowchart LR
 | Runtime | FastAPI + Pipecat | The `/answer` webhook and the real-time audio pipeline, one WebSocket per call. |
 | ARQ worker | ARQ | Executes campaign batches and CSV source syncs off the request path. |
 | Campaign orchestrator | Python daemon | Listens on Redis pub/sub, schedules the next batch, detects completion. |
-| FerretDB | FerretDB 2.7 | MongoDB wire protocol on top of PostgreSQL. See [Data store](../../developer/reference/data-store.md). |
+| FerretDB | FerretDB 2.7 | MongoDB wire protocol on top of PostgreSQL. See [Data store](../../developer/reference/data-store). |
 | PostgreSQL | postgres-documentdb 17 | The actual storage engine behind FerretDB. Not published. |
 | Redis | Redis 7 | ARQ job queue, campaign event bus, concurrency slots and rate limiting. Not published. |
 | MinIO | MinIO | S3-compatible store for recordings and transcripts. |
 | Chroma | Chroma | Per-organisation vector store for RAG, persisted to a volume. |
 
 <Note>
-`apps/api` is one Python package but **three containers** — `api`, `arq-worker`, and `campaign-orchestrator` all build from `apps/api/Dockerfile` and differ only in their `command`. See [Workers and orchestrator](../../developer/services/workers.md).
+`apps/api` is one Python package but **three containers** — `api`, `arq-worker`, and `campaign-orchestrator` all build from `apps/api/Dockerfile` and differ only in their `command`. See [Workers and orchestrator](../../developer/services/workers).
 </Note>
 
 ### Start-up order
@@ -182,7 +182,7 @@ flowchart TB
   S1 --> MN
 ```
 
-Routers stay thin; the service layer owns the rules. Full route list in the [REST API reference](../../api-reference/overview.md).
+Routers stay thin; the service layer owns the rules. Full route list in the [REST API reference](../../api-reference/overview).
 
 ## Level 3 — Inside the runtime
 
@@ -221,7 +221,7 @@ flowchart TB
   LC --> ST
 ```
 
-The pipeline is nine modules plus three subpackages rather than one function. See [Voice pipeline](voice-pipeline.md).
+The pipeline is nine modules plus three subpackages rather than one function. See [Voice pipeline](voice-pipeline).
 
 ## Deployment topology
 
@@ -234,7 +234,7 @@ The reference `docker-compose.yaml` runs everything on one host. For production:
 | Postgres, Redis, MinIO | In-stack containers | Managed or dedicated instances |
 | TLS | None | Terminate at a reverse proxy; telephony needs public HTTPS and WSS |
 
-See [Production deployment](../deployment/production.md) and [Public voice URLs](../deployment/public-voice-urls.md).
+See [Production deployment](../deployment/production) and [Public voice URLs](../deployment/public-voice-urls).
 
 ## What changed from the mono repo
 
@@ -245,17 +245,17 @@ VoicEra replaces the earlier `voicera_mono_repository`. If you know the old syst
 | MongoDB on `:27017` | FerretDB on PostgreSQL, `27018` host / `27017` container |
 | `voicera_backend` | `apps/api` |
 | `voice_2_voice_server` | `apps/runtime` |
-| `ai4bharat_stt_server`, `ai4bharat_tts_server`, `llm_server` | One [model server](../../developer/model-server/overview.md), three slots |
+| `ai4bharat_stt_server`, `ai4bharat_tts_server`, `llm_server` | One [model server](../../developer/model-server/overview), three slots |
 | A `.env` per service | One root `.env`, plus `model-server/.env` |
-| Integrations documents | [`ProviderAuth`](../../developer/reference/provider-auth.md), Fernet-encrypted |
-| Vobiz only | Vobiz and Plivo, [provider-agnostic](telephony-model.md) |
+| Integrations documents | [`ProviderAuth`](../../developer/reference/provider-auth), Fernet-encrypted |
+| Vobiz only | Vobiz and Plivo, [provider-agnostic](telephony-model) |
 | No queue | Redis, ARQ worker, and campaign orchestrator |
-| Hard-coded provider list | Self-describing [provider registry](../../developer/reference/provider-registry.md) |
-| Dashboard assumed | API-first — the [dashboard](../../developer/frontend/overview.md) is one client of the REST API, not a privileged surface |
+| Hard-coded provider list | Self-describing [provider registry](../../developer/reference/provider-registry) |
+| Dashboard assumed | API-first — the [dashboard](../../developer/frontend/overview) is one client of the REST API, not a privileged surface |
 
 ## Related
 
-* [Data flow](data-flow.md) — what moves where, per scenario
-* [Voice pipeline](voice-pipeline.md) — inside a live call
-* [Services overview](../../developer/services/index.md) — containers versus packages
-* [Ports and defaults](../../developer/reference/ports-and-defaults.md)
+* [Data flow](data-flow) — what moves where, per scenario
+* [Voice pipeline](voice-pipeline) — inside a live call
+* [Services overview](../../developer/services/index) — containers versus packages
+* [Ports and defaults](../../developer/reference/ports-and-defaults)

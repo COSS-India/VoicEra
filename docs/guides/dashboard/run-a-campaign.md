@@ -3,7 +3,7 @@ title: Run a calling campaign
 description: Upload a list of phone numbers and have your agent call all of them.
 ---
 
-A campaign has your agent call a list of people automatically — reminders, surveys, follow-ups — instead of one call at a time. You need an agent that's already connected to a phone number (see [Add a phone number](make-a-call.md#add-a-phone-number)).
+A campaign has your agent call a list of people automatically — reminders, surveys, follow-ups — instead of one call at a time. You need an agent that's already connected to a phone number (see [Add a phone number](make-a-call#add-a-phone-number)).
 
 ## Prepare your contact list
 
@@ -23,7 +23,7 @@ phone_number,customer_name,account_id
 ```
 
 <Note>
-If your agent's script should mention a column like `customer_name`, someone technical needs to add it to the agent's configuration first — see [Agent configuration](../../developer/reference/agent-configuration.md).
+If your agent's script should mention a column like `customer_name`, someone technical needs to add it to the agent's configuration first — see [Agent configuration](../../developer/reference/agent-configuration).
 </Note>
 
 ## Create the campaign
@@ -52,17 +52,17 @@ If too many calls in a row fail to connect, VoicEra pauses the campaign on its o
 
 ## After it finishes
 
-Open the campaign to see how each individual call went — reach a person, no answer, busy, and so on. From [call history](everyday-tasks.md#check-call-history), you can also listen to recordings and read transcripts for any of the calls the campaign made.
+Open the campaign to see how each individual call went — reach a person, no answer, busy, and so on. From [call history](everyday-tasks#check-call-history), you can also listen to recordings and read transcripts for any of the calls the campaign made.
 
 ## If something isn't working
 
 | Problem | What it usually means |
 | --- | --- |
-| The campaign won't create | The agent you picked probably isn't a phone-connected agent yet, or has no number attached — see [Add a phone number](make-a-call.md#add-a-phone-number). |
+| The campaign won't create | The agent you picked probably isn't a phone-connected agent yet, or has no number attached — see [Add a phone number](make-a-call#add-a-phone-number). |
 | Your CSV won't upload | Check every number starts with `+` and there's a `phone_number` column with that exact name. |
 | The campaign paused itself | Too many calls in a row failed — see the tip above. |
-| A column like a name isn't showing up in calls | It needs to be wired into the agent's script first — ask someone technical, or see [Agent configuration](../../developer/reference/agent-configuration.md). |
+| A column like a name isn't showing up in calls | It needs to be wired into the agent's script first — ask someone technical, or see [Agent configuration](../../developer/reference/agent-configuration). |
 
 ## Next
 
-[Everyday tasks](everyday-tasks.md) — documents, call history, and your team.
+[Everyday tasks](everyday-tasks) — documents, call history, and your team.

@@ -6,7 +6,7 @@ description: End-to-end curl workflows for operating VoicEra, built on the endpo
 Everything an operator does — creating agents, attaching numbers, placing calls, reading transcripts, running campaigns — is an HTTP request. The dashboard is one way to make them; this page is the working set for doing it directly, which is what you want for anything scripted or reproducible.
 
 <Note>
-The stack also ships a [dashboard](../developer/frontend/overview.md) covering most of this. Nothing on this page depends on it. For exploring routes interactively, use the console described in [API overview](overview.md).
+The stack also ships a [dashboard](../developer/frontend/overview) covering most of this. Nothing on this page depends on it. For exploring routes interactively, use the console described in [API overview](overview).
 </Note>
 
 The shape of a first run, before the detail:
@@ -31,7 +31,7 @@ sequenceDiagram
 
 ## Getting a token
 
-Token mechanics, lifetime, and roles are covered in [Authentication](authentication.md). The one call you need to start:
+Token mechanics, lifetime, and roles are covered in [Authentication](authentication). The one call you need to start:
 
 ```bash
 export API=http://localhost:8000
@@ -42,7 +42,7 @@ export TOKEN=$(curl -s -X POST "$API/api/v1/users/signup" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 ```
 
-The first signup creates the organisation and makes you its `super_admin`. On later runs, log in instead of signing up again — see [Authentication](authentication.md) for the login call, token expiry, and the service-to-service bot-token path.
+The first signup creates the organisation and makes you its `super_admin`. On later runs, log in instead of signing up again — see [Authentication](authentication) for the login call, token expiry, and the service-to-service bot-token path.
 
 A re-login helper for long sessions:
 
@@ -61,7 +61,7 @@ Each recipe assumes `$API` and `$TOKEN` are set. Placeholders are `YOUR_AGENT_ID
 
 ### Add provider credentials
 
-Do this first — agents validate their model configuration against configured providers. See [Provider credentials](provider-auth.md) for the field contract; the flow is catalog, store, verify:
+Do this first — agents validate their model configuration against configured providers. See [Provider credentials](provider-auth) for the field contract; the flow is catalog, store, verify:
 
 ```bash
 curl "$API/api/v1/auth/catalog/openai" -H "Authorization: Bearer $TOKEN"
@@ -76,7 +76,7 @@ curl "$API/api/v1/auth/configured" -H "Authorization: Bearer $TOKEN"
 
 ### Create an agent
 
-Browse the catalogs first — they are generated from the [provider registry](../developer/reference/provider-registry.md), so they are always current:
+Browse the catalogs first — they are generated from the [provider registry](../developer/reference/provider-registry), so they are always current:
 
 ```bash
 curl "$API/api/v1/configuration/stt" -H "Authorization: Bearer $TOKEN"
@@ -111,7 +111,7 @@ curl -X POST "$API/api/v1/agents" \
   }'
 ```
 
-The `agents` path has **no trailing slash**. `422` means config validation failed — the message names the field. Full field reference in [Agent configuration](../developer/reference/agent-configuration.md) and [Agents](agents.md).
+The `agents` path has **no trailing slash**. `422` means config validation failed — the message names the field. Full field reference in [Agent configuration](../developer/reference/agent-configuration) and [Agents](agents).
 
 ### Attach a number
 
@@ -179,11 +179,11 @@ curl -X POST "$API/api/v1/members/invite" \
   -d '{"email": "colleague@example.com", "password": "THEIR_INITIAL_PASSWORD"}'
 ```
 
-The invite sets the member's initial password directly; there is no email invitation flow. Requires `admin` or `super_admin`. See [Multi-tenancy and roles](../developer/reference/multi-tenancy.md) for who can promote or remove members.
+The invite sets the member's initial password directly; there is no email invitation flow. Requires `admin` or `super_admin`. See [Multi-tenancy and roles](../developer/reference/multi-tenancy) for who can promote or remove members.
 
 ### Start a campaign
 
-Three calls: upload, create, start. Field contract, retry/circuit-breaker config, and reports are in [Campaigns](campaigns.md) and [Running a campaign](../guides/operator/running-a-campaign.md).
+Three calls: upload, create, start. Field contract, retry/circuit-breaker config, and reports are in [Campaigns](campaigns) and [Running a campaign](../guides/operator/running-a-campaign).
 
 ```bash
 curl -X POST "$API/api/v1/campaign/upload" \
@@ -254,9 +254,9 @@ VoicEra ships no CLI. There is no `voicerctl`; `scripts/` contains only `start-a
 
 ## Related
 
-* [API overview](overview.md)
-* [Endpoints cheatsheet](endpoints-cheatsheet.md)
-* [Running a campaign](../guides/operator/running-a-campaign.md)
-* [Daily operations](../guides/operator/operations.md)
-* [FAQ](../guides/operator/faq.md)
+* [API overview](overview)
+* [Endpoints cheatsheet](endpoints-cheatsheet)
+* [Running a campaign](../guides/operator/running-a-campaign)
+* [Daily operations](../guides/operator/operations)
+* [FAQ](../guides/operator/faq)
 </content>

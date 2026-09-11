@@ -6,7 +6,7 @@ description: Connecting a browser to a websocket agent with the Pipecat JS clien
 A `websocket` agent talks to a browser directly. There is no telephony provider, no answer webhook, and no phone number — the page opens one WebSocket to the runtime and exchanges Pipecat protobuf frames over it. This page covers the URL, the wire format, and a minimal client.
 
 <Note>
-The runtime dispatches on the agent's `agent_category`, not on the path. Browser and telephony clients use the same route. See [Agents and agent categories](../../guides/concepts/agents.md).
+The runtime dispatches on the agent's `agent_category`, not on the path. Browser and telephony clients use the same route. See [Agents and agent categories](../../guides/concepts/agents).
 </Note>
 
 ## The URL
@@ -95,7 +95,7 @@ message Frame {
 
 You send `audio` frames carrying signed 16-bit little-endian PCM. You receive `audio` frames to play, and `transcription`, `text`, and `message` frames to render. `MessageFrame.data` is a JSON string carrying RTVI events.
 
-The supported client library is `@pipecat-ai/websocket-transport` (with `@pipecat-ai/client-js` / `@pipecat-ai/client-react`). The dashboard uses that stack — see [Browser test calls](../frontend/test-calls.md) and `frontend/src/lib/pipecat/createBrowserClient.ts`.
+The supported client library is `@pipecat-ai/websocket-transport` (with `@pipecat-ai/client-js` / `@pipecat-ai/client-react`). The dashboard uses that stack — see [Browser test calls](../frontend/test-calls) and `frontend/src/lib/pipecat/createBrowserClient.ts`.
 
 ## Sample rate
 
@@ -135,7 +135,7 @@ The dashboard connects through the Next rewrite (`ws(s)://{host}/agent/...`) aft
 The runtime WebSocket has **no authentication**. `apps/runtime/routes/agent.py` accepts the socket before doing anything else, and resolves the organisation and agent purely from the path. There is no token, no header check, and no origin check. Anyone who can reach port `7860` and knows an `org_id` and `agent_id` can hold a conversation with your agent and spend your provider credits.
 </Warning>
 
-Treat the runtime as an internal service and put a reverse proxy in front of it. Terminate TLS there, restrict by origin or source address, and add your own authentication if the page is public. See [Security hardening](../../guides/deployment/security-hardening.md).
+Treat the runtime as an internal service and put a reverse proxy in front of it. Terminate TLS there, restrict by origin or source address, and add your own authentication if the page is public. See [Security hardening](../../guides/deployment/security-hardening).
 
 CORS does not apply to WebSockets, so there is nothing to configure for the media connection. The REST calls your page makes alongside it — fetching the agent list, for example — hit the API on `:8000`, whose `CORSMiddleware` in `apps/api/app/main.py` is configured with `allow_origins=["*"]`. That is convenient for local development and too permissive for production.
 
@@ -203,8 +203,8 @@ The greeting is queued the moment the transport connects, before the first micro
 
 ## Related
 
-* [Connecting a client](index.md)
-* [Telephony agents](telephony.md)
-* [WebSocket API](../../api-reference/websocket-api.md)
-* [Agent configuration](../reference/agent-configuration.md)
-* [Browser test calls](../frontend/test-calls.md)
+* [Connecting a client](index)
+* [Telephony agents](telephony)
+* [WebSocket API](../../api-reference/websocket-api)
+* [Agent configuration](../reference/agent-configuration)
+* [Browser test calls](../frontend/test-calls)

@@ -3,10 +3,10 @@ title: Campaigns
 description: How outbound campaigns are scheduled, dispatched, retried, and halted.
 ---
 
-A campaign turns a CSV of phone numbers into a controlled stream of outbound calls placed by one [telephony agent](agents.md). This page explains the moving parts — the orchestrator, the ARQ worker, the dispatcher, retries, and the circuit breaker — and what each of them reads and writes.
+A campaign turns a CSV of phone numbers into a controlled stream of outbound calls placed by one [telephony agent](agents). This page explains the moving parts — the orchestrator, the ARQ worker, the dispatcher, retries, and the circuit breaker — and what each of them reads and writes.
 
 <Note>
-If you only want to run one, start with [Running a campaign](../operator/running-a-campaign.md). This page is the mechanism behind it.
+If you only want to run one, start with [Running a campaign](../operator/running-a-campaign). This page is the mechanism behind it.
 </Note>
 
 ## What a campaign is
@@ -74,7 +74,7 @@ There is no transition out of `failed`. A campaign that a batch pushed to `faile
 
 ## The orchestrator and the worker
 
-Two containers do the work off the request path: `campaign-orchestrator` decides *when* the next batch should be enqueued and *when* a campaign is finished, and `arq-worker` runs the batches themselves against a Redis event bus. Neither places a call directly with an HTTP request — the dispatcher inside the worker does that. The mechanics of both processes — the event loop, `WorkerSettings`, scaling, and restart behaviour — are in [Workers and orchestrator](../../developer/services/workers.md).
+Two containers do the work off the request path: `campaign-orchestrator` decides *when* the next batch should be enqueued and *when* a campaign is finished, and `arq-worker` runs the batches themselves against a Redis event bus. Neither places a call directly with an HTTP request — the dispatcher inside the worker does that. The mechanics of both processes — the event loop, `WorkerSettings`, scaling, and restart behaviour — are in [Workers and orchestrator](../../developer/services/workers).
 
 The end-to-end path for one contact:
 
@@ -111,7 +111,7 @@ Claiming is atomic. `claim_queued_runs_for_processing` issues one `find_one_and_
 For each claimed run the dispatcher then:
 
 1. Waits on the per-second token bucket (`rate_limiter.acquire_token`) polling every 50 ms.
-2. Acquires a concurrency slot with `CONCURRENT_SLOT_TIMEOUT = 120.0` seconds — see [Call concurrency](../../developer/reference/call-concurrency.md).
+2. Acquires a concurrency slot with `CONCURRENT_SLOT_TIMEOUT = 120.0` seconds — see [Call concurrency](../../developer/reference/call-concurrency).
 3. Resolves a caller ID and places the call.
 4. Marks the run `processed` with the resulting `call_id` and increments `processed_rows`.
 
@@ -174,11 +174,11 @@ stateDiagram-v2
   paused --> closed: "resume"
 ```
 
-The self-transition is the normal case: an outcome is recorded, the window still sits under `min_calls_in_window` or below the failure threshold, and the breaker stays closed. A campaign paused by the breaker stays paused until you resume it. The Redis keys, the Lua scripts, and exactly when the breaker is evaluated are in [Workers and orchestrator](../../developer/services/workers.md).
+The self-transition is the normal case: an outcome is recorded, the window still sits under `min_calls_in_window` or below the failure threshold, and the breaker stays closed. A campaign paused by the breaker stays paused until you resume it. The Redis keys, the Lua scripts, and exactly when the breaker is evaluated are in [Workers and orchestrator](../../developer/services/workers).
 
 ## Completion detection
 
-There is no "last row" signal, so completion is inferred: the orchestrator sweeps every `running` campaign on a timer and marks one `completed` once no batch is in progress, no work is pending, and there has been no activity for an hour. That one-hour idle window exists so a pending retry — which may be scheduled up to an hour out — is not mistaken for an empty queue. The sweep interval, the exact fallback timestamps, and restart behaviour are in [Workers and orchestrator](../../developer/services/workers.md).
+There is no "last row" signal, so completion is inferred: the orchestrator sweeps every `running` campaign on a timer and marks one `completed` once no batch is in progress, no work is pending, and there has been no activity for an hour. That one-hour idle window exists so a pending retry — which may be scheduled up to an hour out — is not mistaken for an empty queue. The sweep interval, the exact fallback timestamps, and restart behaviour are in [Workers and orchestrator](../../developer/services/workers).
 
 ## Progress and reporting
 
@@ -193,7 +193,7 @@ There is no "last row" signal, so completion is inferred: the orchestrator sweep
 
 The CSV report is capped at 500 rows in `apps/api/app/routers/campaign.py`. For a larger campaign, page through `GET /campaign/{id}/runs` instead.
 
-The full route list is in the [REST API reference](../../api-reference/overview.md), and `/docs` on a running API is always current.
+The full route list is in the [REST API reference](../../api-reference/overview), and `/docs` on a running API is always current.
 
 ## Redial
 
@@ -207,9 +207,9 @@ Because the rows already exist, `start_campaign` detects `parent_campaign_id` an
 
 ## Related
 
-* [Running a campaign](../operator/running-a-campaign.md) — the operator walkthrough
-* [Workers and orchestrator](../../developer/services/workers.md) — the two containers this page depends on
-* [Call concurrency and rate limiting](../../developer/reference/call-concurrency.md) — the slot the dispatcher waits for
-* [Calls and call artifacts](calls.md) — what a dispatched call produces
-* [Data model](../../developer/reference/data-model.md) — `Campaigns` and `QueuedRuns` in full
-* [Campaign troubleshooting](../troubleshooting/campaigns.md)
+* [Running a campaign](../operator/running-a-campaign) — the operator walkthrough
+* [Workers and orchestrator](../../developer/services/workers) — the two containers this page depends on
+* [Call concurrency and rate limiting](../../developer/reference/call-concurrency) — the slot the dispatcher waits for
+* [Calls and call artifacts](calls) — what a dispatched call produces
+* [Data model](../../developer/reference/data-model) — `Campaigns` and `QueuedRuns` in full
+* [Campaign troubleshooting](../troubleshooting/campaigns)

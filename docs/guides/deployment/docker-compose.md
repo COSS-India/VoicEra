@@ -6,7 +6,7 @@ description: The reference Compose stack, service by service.
 `docker-compose.yaml` at the repository root is the reference deployment: ten containers, four volumes, one network. This page explains each part and how to change it.
 
 <Warning>
-This stack is built for evaluation and development. It bind-mounts source, runs the API with `--reload`, allows all CORS origins, and ships default passwords. Read [Production deployment](production.md) before exposing it.
+This stack is built for evaluation and development. It bind-mounts source, runs the API with `--reload`, allows all CORS origins, and ships default passwords. Read [Production deployment](production) before exposing it.
 </Warning>
 
 ## Starting
@@ -76,7 +76,7 @@ flowchart TB
 | `minio` | `minio/minio:latest` | `9000`, `9001` | `server /data --console-address ":9001"` |
 | `minio-init` | `minio/mc:latest` | — | creates the bucket, exits |
 
-Three services build from **one image** (`apps/api/Dockerfile`) and differ only by `command`. See [Workers and orchestrator](../../developer/services/workers.md).
+Three services build from **one image** (`apps/api/Dockerfile`) and differ only by `command`. See [Workers and orchestrator](../../developer/services/workers).
 
 <Note>
 `minio-init` exiting with code 0 is correct — it creates the bucket and stops. It is not a crash.
@@ -92,12 +92,12 @@ Three services build from **one image** (`apps/api/Dockerfile`) and differ only 
 | `voicera_oss_redis_data` | Queue, events, slots | Safe to lose; in-flight batches interrupted |
 
 <Warning>
-`docker compose down -v` deletes all four at once. Back up before running it — see [Daily operations](../operator/operations.md).
+`docker compose down -v` deletes all four at once. Back up before running it — see [Daily operations](../operator/operations).
 </Warning>
 
 ## Network and the mongodb alias
 
-One bridge network, `app-network`. The `ferretdb` service publishes the alias `mongodb`, so in-stack services connect to `mongodb:27017` and nothing refers to FerretDB by name. See [Data store](../../developer/reference/data-store.md).
+One bridge network, `app-network`. The `ferretdb` service publishes the alias `mongodb`, so in-stack services connect to `mongodb:27017` and nothing refers to FerretDB by name. See [Data store](../../developer/reference/data-store).
 
 ## Environment precedence
 
@@ -144,7 +144,7 @@ MINIO_API_PORT=9010
 MINIO_CONSOLE_PORT=9011
 ```
 
-Container-side ports do not change. See [Ports and defaults](../../developer/reference/ports-and-defaults.md).
+Container-side ports do not change. See [Ports and defaults](../../developer/reference/ports-and-defaults).
 
 ## Logs
 
@@ -176,7 +176,7 @@ make application-down ARGS="-- -v"
 
 ## Related
 
-* [Production deployment](production.md)
-* [Security hardening](security-hardening.md)
-* [Services overview](../../developer/services/index.md)
-* [Environment variables](../../developer/reference/environment-variables.md)
+* [Production deployment](production)
+* [Security hardening](security-hardening)
+* [Services overview](../../developer/services/index)
+* [Environment variables](../../developer/reference/environment-variables)

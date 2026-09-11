@@ -3,13 +3,13 @@ title: Contributing
 description: How to propose changes to VoicEra.
 ---
 
-Contributions are welcome. This page covers the workflow; [Local setup](local-setup.md) covers getting the code running.
+Contributions are welcome. This page covers the workflow; [Local setup](local-setup) covers getting the code running.
 
 ## Before you start
 
 * Open an issue first for anything substantial. A design discussion is cheaper than a rejected pull request.
-* Read [Repository layout](repository-layout.md) so your change lands in the right package.
-* Adding a provider or a telephony vendor? Follow [Adding an AI provider](adding-a-provider.md) or [Adding a telephony provider](adding-a-telephony-provider.md) — both are designed as extension points, so you should not need to touch shared code.
+* Read [Repository layout](repository-layout) so your change lands in the right package.
+* Adding a provider or a telephony vendor? Follow [Adding an AI provider](adding-a-provider) or [Adding a telephony provider](adding-a-telephony-provider) — both are designed as extension points, so you should not need to touch shared code.
 
 ## Setting up
 
@@ -81,7 +81,7 @@ python -m pytest apps/providers/tests
 cd model-server && python -m pytest tests
 ```
 
-The model-server suite needs no GPU. See [Testing](testing.md) for what each suite protects.
+The model-server suite needs no GPU. See [Testing](testing) for what each suite protects.
 
 ## Opening a pull request
 
@@ -104,18 +104,18 @@ New page? Add it to the matching tab and group in `docs.json`, or Mintlify will 
 
 ## Reporting security issues
 
-Do **not** open a public issue for a vulnerability. Follow the [Security policy](../../guides/legal/security.md).
+Do **not** open a public issue for a vulnerability. Follow the [Security policy](../../guides/legal/security).
 
 ## Code of conduct
 
-Participation is governed by the [Code of conduct](../../guides/legal/code-of-conduct.md). Be respectful, assume good faith, and keep criticism on the work.
+Participation is governed by the [Code of conduct](../../guides/legal/code-of-conduct). Be respectful, assume good faith, and keep criticism on the work.
 
 ## Licence
 
-Contributions are accepted under the Apache License 2.0. By opening a pull request you agree your contribution may be distributed under it. See [License](../../guides/legal/license-info.md).
+Contributions are accepted under the Apache License 2.0. By opening a pull request you agree your contribution may be distributed under it. See [License](../../guides/legal/license-info).
 
 ## Related
 
-* [Local setup](local-setup.md)
-* [Testing](testing.md)
-* [Repository layout](repository-layout.md)
+* [Local setup](local-setup)
+* [Testing](testing)
+* [Repository layout](repository-layout)

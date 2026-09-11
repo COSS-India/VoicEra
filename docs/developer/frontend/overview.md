@@ -6,14 +6,14 @@ description: The VoicEra dashboard — the web console for agents, campaigns, an
 The dashboard is a Next.js web console that sits on top of the VoicEra REST API. It gives you a browser interface for creating agents, wiring provider credentials, attaching phone numbers, and reviewing call history — work you would otherwise do with HTTP requests against `/docs`.
 
 <Warning>
-The dashboard container runs Next.js in **development** mode with the source bind-mounted. That is right for local work and wrong for anything user-facing — see [Production deployment](../../guides/deployment/production.md).
+The dashboard container runs Next.js in **development** mode with the source bind-mounted. That is right for local work and wrong for anything user-facing — see [Production deployment](../../guides/deployment/production).
 </Warning>
 
 ## What it is
 
 A single-page-feel Next.js App Router application under `frontend/` — 119 files, all client-rendered behind an auth gate. It holds no state of its own: it authenticates against `POST /users/login`, stores the bearer token in browser `localStorage` (`frontend/src/lib/auth-storage.ts`), and every screen is a view onto an API call.
 
-Because it is a browser client, it can do one thing the API alone cannot: place a live microphone call to a `websocket` agent through the runtime. See [Browser test calls](test-calls.md).
+Because it is a browser client, it can do one thing the API alone cannot: place a live microphone call to a `websocket` agent through the runtime. See [Browser test calls](test-calls).
 
 ## Status
 
@@ -78,7 +78,7 @@ Every request is built in `frontend/src/lib/api-client.ts` or `frontend/src/lib/
 | Module | Endpoints it calls | API router |
 | --- | --- | --- |
 | `api-client.ts` (agents) | `GET /agents`, `GET /agents/{id}`, `POST /agents`, `PATCH /agents/{id}`, `DELETE /agents/{id}` | agents |
-| `api-client.ts` (provider auth) | `GET /auth/catalog`, `GET /auth/configured`, `POST /auth`, `GET /auth/{provider}`, `DELETE /auth/{provider}` | [ProviderAuth](../reference/provider-auth.md) |
+| `api-client.ts` (provider auth) | `GET /auth/catalog`, `GET /auth/configured`, `POST /auth`, `GET /auth/{provider}`, `DELETE /auth/{provider}` | [ProviderAuth](../reference/provider-auth) |
 | `api-client.ts` (catalogs) | `GET /languages`, `GET /configuration/{stt,tts,llm,telephony}`, `GET /configuration/{stt,tts}/setting/{provider}`, `GET /configuration/llm/setting/{provider}` | configuration |
 | `api/users.ts` | `POST /users/login`, `POST /users/signup`, `GET /users/me`, `GET /users/organisations`, `POST /users/switch-organisation`, `GET /users/check/{email}`, `GET /users/{email}`, `POST /users/forgot-password`, `POST /users/reset-password` | users |
 | `api/members.ts` | `POST /members/invite`, `GET /members/{org_id}`, `POST /members/assign-admin`, `POST /members/remove` | members |
@@ -98,18 +98,18 @@ Recordings and transcripts come back as blobs rather than JSON, because `<audio 
 | --- | --- |
 | Placing a browser microphone test call | Dashboard — the API has no way to do this |
 | Reading a provider's exact credential fields before filling them | Dashboard — it renders `GET /auth/catalog` as a form |
-| Building an agent config without hand-writing the nested JSON | Dashboard — [the wizard](agent-wizard.md) assembles it |
+| Building an agent config without hand-writing the nested JSON | Dashboard — [the wizard](agent-wizard) assembles it |
 | Listening to a recording next to its transcript | Dashboard — the call detail view aligns both |
 | Running campaigns | Either — the Campaigns screen covers upload, create, start, pause, resume, and redial |
 | Uploading knowledge documents | Either — the Knowledge Base screen lists, uploads, and deletes |
-| Anything scripted, scheduled, or reproducible | API — see [REST API](../../api-reference/overview.md) |
+| Anything scripted, scheduled, or reproducible | API — see [REST API](../../api-reference/overview) |
 
 Treat the dashboard as a convenience layer for exploration and one-off setup. Production operations belong on the API.
 
 ## Related
 
-* [Running the dashboard](running.md)
-* [Agent creation wizard](agent-wizard.md)
-* [Browser test calls](test-calls.md)
-* [Agents and agent categories](../../guides/concepts/agents.md)
-* [REST API](../../api-reference/overview.md)
+* [Running the dashboard](running)
+* [Agent creation wizard](agent-wizard)
+* [Browser test calls](test-calls)
+* [Agents and agent categories](../../guides/concepts/agents)
+* [REST API](../../api-reference/overview)

@@ -28,7 +28,7 @@ Bearer. `201`.
 With `agent_id` the number is added to the inventory, linked at the provider, and written to `Agents.linked_phone_number`. Omit `agent_id` to import into inventory only, with no provider link. Returns `SuccessResponse`.
 
 <Note>
-The uniqueness index on `phone_number` has no `org_id` component, so a number already held by another organisation fails on a duplicate key rather than with a clear conflict message. See [Data model](../developer/reference/data-model.md).
+The uniqueness index on `phone_number` has no `org_id` component, so a number already held by another organisation fails on a duplicate key rather than with a clear conflict message. See [Data model](../developer/reference/data-model).
 </Note>
 
 ## `DELETE /phone-numbers/detach`
@@ -41,6 +41,6 @@ Bearer. Numbers held in the organisation's account **at the provider**, which is
 
 ## Related
 
-* [Endpoints cheatsheet](endpoints-cheatsheet.md) — every route on one page
-* [Authentication](authentication.md) — tokens, headers, and roles
-* [Errors](errors.md) — status codes and error shapes
+* [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page
+* [Authentication](authentication) — tokens, headers, and roles
+* [Errors](errors) — status codes and error shapes

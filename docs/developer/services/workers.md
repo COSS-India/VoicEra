@@ -3,9 +3,9 @@ title: Workers and orchestrator
 description: The ARQ worker and the campaign orchestrator.
 ---
 
-Two containers run campaign work off the request path: `arq-worker` executes batches, and `campaign-orchestrator` decides when the next batch should run and when a campaign is finished. Neither serves HTTP. Both build from the same image as the [API](api.md).
+Two containers run campaign work off the request path: `arq-worker` executes batches, and `campaign-orchestrator` decides when the next batch should run and when a campaign is finished. Neither serves HTTP. Both build from the same image as the [API](api).
 
-This page is about the two processes — what they run, how they coordinate, and how to scale them. Campaign semantics — states, retries, scheduling windows, the circuit breaker — are in [Campaigns](../../guides/concepts/campaigns.md).
+This page is about the two processes — what they run, how they coordinate, and how to scale them. Campaign semantics — states, retries, scheduling windows, the circuit breaker — are in [Campaigns](../../guides/concepts/campaigns).
 
 ## Two containers, one image
 
@@ -128,7 +128,7 @@ Both processes share one Redis instance, addressed by `REDIS_URL`.
 | `concurrent_calls_fleet` | `call_concurrency/rate_limiter.py` | Fleet-wide slot set across organisations. |
 | `rate_limit:{scope}` | `call_concurrency/rate_limiter.py` | Sliding-window rate limit, 2s TTL. |
 
-Slot and rate-limit keys are manipulated by Lua scripts so acquisition is atomic across processes. See [Call concurrency and rate limiting](../reference/call-concurrency.md).
+Slot and rate-limit keys are manipulated by Lua scripts so acquisition is atomic across processes. See [Call concurrency and rate limiting](../reference/call-concurrency).
 
 ## Scaling
 
@@ -162,7 +162,7 @@ Both containers carry `restart: unless-stopped`, and both gate on `ferretdb` sta
 The orchestrator handles `SIGTERM` and `SIGINT`, sets `_running` to false, cancels its task, unsubscribes, and closes the Redis client — so `docker compose stop` is a clean shutdown, not a kill.
 
 <Note>
-The 60-second sweep is the only recovery path for events missed during an orchestrator restart. A campaign can therefore stall for up to a minute after the container comes back. If it stalls for longer, check the logs below before assuming the campaign is broken — see [Campaign troubleshooting](../../guides/troubleshooting/campaigns.md).
+The 60-second sweep is the only recovery path for events missed during an orchestrator restart. A campaign can therefore stall for up to a minute after the container comes back. If it stalls for longer, check the logs below before assuming the campaign is broken — see [Campaign troubleshooting](../../guides/troubleshooting/campaigns).
 </Note>
 
 ## Logs to watch
@@ -187,7 +187,7 @@ A worker with no `Processing batch` lines while a campaign sits in `running` usu
 
 ## Related
 
-* [Campaigns](../../guides/concepts/campaigns.md) — states, retries, scheduling, and the circuit breaker
-* [API (apps/api)](api.md) — the same package, running as HTTP
-* [Call concurrency and rate limiting](../reference/call-concurrency.md)
-* [Running a campaign](../../guides/operator/running-a-campaign.md) · [Campaign troubleshooting](../../guides/troubleshooting/campaigns.md)
+* [Campaigns](../../guides/concepts/campaigns) — states, retries, scheduling, and the circuit breaker
+* [API (apps/api)](api) — the same package, running as HTTP
+* [Call concurrency and rate limiting](../reference/call-concurrency)
+* [Running a campaign](../../guides/operator/running-a-campaign) · [Campaign troubleshooting](../../guides/troubleshooting/campaigns)

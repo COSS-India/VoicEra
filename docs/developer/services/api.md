@@ -6,7 +6,7 @@ description: The FastAPI backend — routers, service layer, and persistence.
 `apps/api` is the FastAPI application that owns every document in VoicEra: users, organisations, agents, phone numbers, call logs, campaigns, and knowledge documents. It listens on port 8000 and is the only service that talks to FerretDB.
 
 <Note>
-The same package also runs as the ARQ worker and the campaign orchestrator, with a different `command`. This page covers the HTTP process only — see [Workers and orchestrator](workers.md) for the other two.
+The same package also runs as the ARQ worker and the campaign orchestrator, with a different `command`. This page covers the HTTP process only — see [Workers and orchestrator](workers) for the other two.
 </Note>
 
 ## Responsibilities
@@ -62,7 +62,7 @@ Service-to-service callers use `POST /users/bot/token` with the internal key and
 | GET | `/configuration/telephony` | Bearer |
 | GET | `/configuration/{kind}/setting/{provider}` | Bearer |
 
-These are generated from [`apps/providers`](providers.md) and [`apps/telephony`](telephony.md) at request time. There is no hand-maintained list in the router.
+These are generated from [`apps/providers`](providers) and [`apps/telephony`](telephony) at request time. There is no hand-maintained list in the router.
 
 ### Provider credentials
 
@@ -77,7 +77,7 @@ Credentials are **provider-level** — one key set is shared across the STT, TTS
 | GET | `/auth/{provider}` | Bearer — stored auth (members see masked secrets) |
 | DELETE | `/auth/{provider}` | Bearer (`admin` or `super_admin`) |
 
-See [Provider credentials (ProviderAuth)](../reference/provider-auth.md).
+See [Provider credentials (ProviderAuth)](../reference/provider-auth).
 
 ### Agents
 
@@ -98,7 +98,7 @@ Set `VOICE_SERVER_BASE_URL` before creating telephony agents. Answer and hangup 
 | PATCH | `/agents/{agent_id}` | Bearer (any org member) — partial update |
 | DELETE | `/agents/{agent_id}` | Bearer (`admin` or `super_admin`) |
 
-`config.models` must include `stt_config`, `tts_config`, and `llm_config`, each with a registered `provider` and non-secret settings only. Full field reference in [Agent configuration](../reference/agent-configuration.md).
+`config.models` must include `stt_config`, `tts_config`, and `llm_config`, each with a registered `provider` and non-secret settings only. Full field reference in [Agent configuration](../reference/agent-configuration).
 
 ### Phone numbers
 
@@ -122,7 +122,7 @@ Omit `agent_id` on attach to import a number into inventory only, with no provid
 | `rag` | `/rag` | `POST /retrieve` |
 | `languages` | — | `GET /languages` |
 
-The recording and transcript routes are authenticated proxies over MinIO — the runtime stores a `minio://` URI and clients never talk to MinIO directly. See [Calls and call artifacts](../../guides/concepts/calls.md) and the full [REST API reference](../../api-reference/overview.md).
+The recording and transcript routes are authenticated proxies over MinIO — the runtime stores a `minio://` URI and clients never talk to MinIO directly. See [Calls and call artifacts](../../guides/concepts/calls) and the full [REST API reference](../../api-reference/overview).
 
 ## Service layer
 
@@ -139,8 +139,8 @@ Routers stay thin. `app/services/` owns the rules:
 | `secret_crypto.py` | Fernet encrypt and decrypt for `ProviderAuth` blobs. |
 | `call_log_service.py`, `inbound_call_service.py`, `outbound_call_service.py` | CallLog creation and updates for each direction. |
 | `knowledge_service.py` | Knowledge document records and MinIO objects. |
-| `call_concurrency/` | Redis-backed concurrency slots and rate limiting. See [Call concurrency](../reference/call-concurrency.md). |
-| `campaign/` | Repository, dispatcher, circuit breaker, event protocol, orchestrator. See [Campaigns](../../guides/concepts/campaigns.md). |
+| `call_concurrency/` | Redis-backed concurrency slots and rate limiting. See [Call concurrency](../reference/call-concurrency). |
+| `campaign/` | Repository, dispatcher, circuit breaker, event protocol, orchestrator. See [Campaigns](../../guides/concepts/campaigns). |
 
 `app/rag/` holds the ingest pipeline: `pdf_to_text.py` → `chunk_text.py` → `embed_chunks.py` → `chroma_store.py`. `app/storage/minio_client.py` wraps the MinIO SDK. `app/models/schemas.py` holds the Pydantic request and response models.
 
@@ -156,7 +156,7 @@ Three stores, each with a different job.
 
 `app/database.py` builds the connection URI from `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USER`, `MONGODB_PASSWORD`, and `MONGODB_DATABASE`. `MONGODB_AUTH_SOURCE` and `MONGODB_AUTH_MECHANISM` default to empty strings because FerretDB authenticates with PostgreSQL users over SCRAM-SHA-256. Connections use `serverSelectionTimeoutMS=5000`.
 
-See [Data store (FerretDB)](../reference/data-store.md) and the [Data model](../reference/data-model.md).
+See [Data store (FerretDB)](../reference/data-store) and the [Data model](../reference/data-model).
 
 ## Startup lifecycle
 
@@ -193,7 +193,7 @@ app.add_middleware(
 ```
 
 <Warning>
-`allow_origins=["*"]` together with `allow_credentials=True` is permissive and suitable for local development only. Restrict origins before exposing the API to the internet — see [Security hardening](../../guides/deployment/security-hardening.md).
+`allow_origins=["*"]` together with `allow_credentials=True` is permissive and suitable for local development only. Restrict origins before exposing the API to the internet — see [Security hardening](../../guides/deployment/security-hardening).
 </Warning>
 
 Interactive docs are served at `/docs` (Swagger UI) and `/redoc` (ReDoc). Both are enabled unconditionally.
@@ -234,7 +234,7 @@ curl -s http://localhost:8000/health
 
 ## Related
 
-* [Workers and orchestrator](workers.md) — the other two containers from this package
-* [Runtime (apps/runtime)](runtime.md) — the only other service that calls this API
-* [Multi-tenancy and roles](../reference/multi-tenancy.md)
-* [REST API reference](../../api-reference/overview.md) · [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet.md)
+* [Workers and orchestrator](workers) — the other two containers from this package
+* [Runtime (apps/runtime)](runtime) — the only other service that calls this API
+* [Multi-tenancy and roles](../reference/multi-tenancy)
+* [REST API reference](../../api-reference/overview) · [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet)

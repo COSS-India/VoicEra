@@ -16,7 +16,7 @@ If you want your agent to answer questions from your own material — a policy d
 2. Click **Upload document** and choose a PDF (up to 25 MB).
 3. Wait for it to finish processing — the file shows as **Indexing**, then **Indexed** once your agent can use it. If something goes wrong, it shows as **Failed**.
 
-Once indexed, attach it to an agent in the [Agent step of the agent wizard](create-an-agent.md#agent-name-greeting-and-instructions) (or the equivalent step when editing an existing agent). Click the preview icon on any document to open and read it without leaving the dashboard.
+Once indexed, attach it to an agent in the [Agent step of the agent wizard](create-an-agent#agent-name-greeting-and-instructions) (or the equivalent step when editing an existing agent). Click the preview icon on any document to open and read it without leaving the dashboard.
 
 ## Check call history
 
@@ -68,5 +68,5 @@ Click your name at the bottom of the sidebar to open **Account**. From there you
 
 You've covered the core of running VoicEra day to day. For anything not covered here:
 
-* [Common problems](../troubleshooting/common-issues.md) — a wider troubleshooting index
+* [Common problems](../troubleshooting/common-issues) — a wider troubleshooting index
 * Ask whoever manages your VoicEra installation — some problems (server logs, provider outages) need their access, not yours

@@ -49,7 +49,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Keep them out of files on disk in production — inject from a secret manager. Every variable the stack reads, not just the security-relevant ones, is in [Environment variables](../../developer/reference/environment-variables.md).
+Keep them out of files on disk in production — inject from a secret manager. Every variable the stack reads, not just the security-relevant ones, is in [Environment variables](../../developer/reference/environment-variables).
 
 ## CORS
 
@@ -107,7 +107,7 @@ ports:
 
 ## TLS
 
-Telephony providers require HTTPS for webhooks and WSS for audio, so TLS is mandatory rather than optional. Terminate at a reverse proxy — see [Production deployment](production.md) for a working nginx configuration, including the WebSocket upgrade headers and the long read timeouts calls need.
+Telephony providers require HTTPS for webhooks and WSS for audio, so TLS is mandatory rather than optional. Terminate at a reverse proxy — see [Production deployment](production) for a working nginx configuration, including the WebSocket upgrade headers and the long read timeouts calls need.
 
 For Redis over TLS use a `rediss://` URL; the ARQ settings enable TLS when they see that scheme.
 
@@ -159,8 +159,8 @@ You hold call recordings, transcripts, and contact lists. That is regulated data
 
 ## Related
 
-* [Production deployment](production.md)
-* [Generated secrets and defaults](../quickstart/secrets-and-defaults.md)
-* [Environment variables](../../developer/reference/environment-variables.md)
-* [Provider credentials](../../developer/reference/provider-auth.md)
-* [Multi-tenancy and roles](../../developer/reference/multi-tenancy.md)
+* [Production deployment](production)
+* [Generated secrets and defaults](../quickstart/secrets-and-defaults)
+* [Environment variables](../../developer/reference/environment-variables)
+* [Provider credentials](../../developer/reference/provider-auth)
+* [Multi-tenancy and roles](../../developer/reference/multi-tenancy)

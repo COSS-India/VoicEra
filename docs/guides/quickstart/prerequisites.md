@@ -3,7 +3,7 @@ title: Prerequisites
 description: Hardware, software, and accounts you need before installing VoicEra.
 ---
 
-Work through this page before [Install and run](install-and-run.md). Most of it is quick; the accounts can take a day if you are procuring a phone number.
+Work through this page before [Install and run](install-and-run). Most of it is quick; the accounts can take a day if you are procuring a phone number.
 
 ## Software
 
@@ -82,7 +82,7 @@ For the core stack — API, runtime, FerretDB, Redis, MinIO — with cloud model
 
 Recordings and transcripts accumulate in MinIO, so size disk for your call volume.
 
-A **GPU is not required** unless you self-host models. If you do, see [Running on GPUs](../../developer/model-server/gpu-operations.md) — model images are large and the first build needs substantial disk.
+A **GPU is not required** unless you self-host models. If you do, see [Running on GPUs](../../developer/model-server/gpu-operations) — model images are large and the first build needs substantial disk.
 
 ## Accounts
 
@@ -99,14 +99,14 @@ curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8000/api/v1/configuration/stt
 ```
 
-The alternative is self-hosting — see [Model server](../../developer/model-server/overview.md).
+The alternative is self-hosting — see [Model server](../../developer/model-server/overview).
 
 ### Telephony — required for phone calls
 
-A [Vobiz](../concepts/telephony-model.md) or Plivo account with at least one number. You need the account credentials and a number you can attach.
+A [Vobiz](../concepts/telephony-model) or Plivo account with at least one number. You need the account credentials and a number you can attach.
 
 <Note>
-You can skip telephony entirely at first. A `websocket` agent runs the same pipeline from a browser, with no telephony account and no call charges. See [Test and call with your agent](../dashboard/make-a-call.md).
+You can skip telephony entirely at first. A `websocket` agent runs the same pipeline from a browser, with no telephony account and no call charges. See [Test and call with your agent](../dashboard/make-a-call).
 </Note>
 
 ### Optional
@@ -129,7 +129,7 @@ For local evaluation, none of this matters. For **real phone calls**, your telep
 | WebSocket upgrade through your proxy | Audio is a WebSocket stream, not HTTP |
 | `VOICE_SERVER_BASE_URL` set to that hostname | Baked into the provider application when an agent is created |
 
-For testing, a tunnel such as `ngrok` or `cloudflared` works. See [Public voice URLs](../deployment/public-voice-urls.md).
+For testing, a tunnel such as `ngrok` or `cloudflared` works. See [Public voice URLs](../deployment/public-voice-urls).
 
 ### Ports
 
@@ -142,7 +142,7 @@ Published on the host by default:
 | `27018` | FerretDB |
 | `9000` / `9001` | MinIO API and console |
 
-PostgreSQL and Redis are **not** published. All ports are overridable — see [Ports and defaults](../../developer/reference/ports-and-defaults.md).
+PostgreSQL and Redis are **not** published. All ports are overridable — see [Ports and defaults](../../developer/reference/ports-and-defaults).
 
 ## Checklist
 
@@ -157,4 +157,4 @@ PostgreSQL and Redis are **not** published. All ports are overridable — see [P
 
 ## Next
 
-[Install and run](install-and-run.md)
+[Install and run](install-and-run)

@@ -6,7 +6,7 @@ description: How VoicEra stays provider-agnostic across Vobiz and Plivo.
 VoicEra speaks to phone networks through `apps/telephony`, a package with no database access, no environment reading, and no vendor `if` statements outside the vendor directories. This page explains how one answer route serves every provider, and where the two shipped providers actually differ.
 
 <Note>
-Credentials are always injected by the caller. `apps/telephony` never looks up [`ProviderAuth`](../../developer/reference/provider-auth.md), FerretDB, or environment variables — `apps/api` resolves the organisation's credentials and hands them in.
+Credentials are always injected by the caller. `apps/telephony` never looks up [`ProviderAuth`](../../developer/reference/provider-auth), FerretDB, or environment variables — `apps/api` resolves the organisation's credentials and hands them in.
 </Note>
 
 ## One /answer route, many providers
@@ -43,7 +43,7 @@ Webhook bodies are parsed by `decode_webhook_body()` in `webhooks.py`, which han
 
 ## Applications and number linking
 
-Every telephony agent owns one provider **application** — the provider-side object that says "when this number rings, fetch XML from this URL". `apps/api` provisions it on agent create and names it after the `agent_id` UUID. See [Agents and agent categories](agents.md).
+Every telephony agent owns one provider **application** — the provider-side object that says "when this number rings, fetch XML from this URL". `apps/api` provisions it on agent create and names it after the `agent_id` UUID. See [Agents and agent categories](agents).
 
 Both clients expose the same six application methods, and both return the same `{status, message, ...}` dict shape built by `success()` and `fail()` in `base.py`:
 
@@ -92,13 +92,13 @@ Note the constructor arguments differ — Vobiz takes `stream_sid`/`call_sid`, P
 
 `initiate_outbound(provider, …)` in `calls.py` builds the provider config, creates the client, and calls `client.initiate_call()`. Both providers hit `POST .../Account/{auth_id}/Call/`.
 
-`apps/api` wraps this in `initiate_outbound_call()`, which creates the `CallLog` **before** dialling, so a dial that fails still leaves a `failed` record with the provider's message in `error_message`. See [Calls and call artifacts](calls.md).
+`apps/api` wraps this in `initiate_outbound_call()`, which creates the `CallLog` **before** dialling, so a dial that fails still leaves a `failed` record with the provider's message in `error_message`. See [Calls and call artifacts](calls).
 
 The provider call SID is extracted from the result by trying `call_uuid`, `request_uuid`, then `uuid`, at the top level and again inside `raw`.
 
 ## Recording retrieval
 
-VoicEra's own recordings come from the Pipecat pipeline, not from the provider — see [Voice pipeline](voice-pipeline.md). The provider recording helpers exist for pulling the carrier-side recording when you want it:
+VoicEra's own recordings come from the Pipecat pipeline, not from the provider — see [Voice pipeline](voice-pipeline). The provider recording helpers exist for pulling the carrier-side recording when you want it:
 
 | Method | Vobiz | Plivo |
 | --- | --- | --- |
@@ -162,7 +162,7 @@ Every one of the four maps is keyed by provider id and holds an entry for each v
 
 `load_providers()` imports `config` and `service` from every package under `providers/`, using `pkgutil`. `load_frame_serializers()` additionally imports `serializer_service`. A missing submodule is skipped, not an error. Duplicate registrations for the same provider id raise at import time, so two providers cannot silently claim the same name.
 
-Adding a provider means adding a directory. Nothing in `xml.py`, `calls.py`, or `serializers.py` changes — the package README is explicit that provider `if`/`elif` chains do not belong in those facades. Step-by-step instructions are in [Adding a telephony provider](../../developer/guides/adding-a-telephony-provider.md), and the same registry pattern for AI vendors is in [Provider registry](../../developer/reference/provider-registry.md).
+Adding a provider means adding a directory. Nothing in `xml.py`, `calls.py`, or `serializers.py` changes — the package README is explicit that provider `if`/`elif` chains do not belong in those facades. Step-by-step instructions are in [Adding a telephony provider](../../developer/guides/adding-a-telephony-provider), and the same registry pattern for AI vendors is in [Provider registry](../../developer/reference/provider-registry).
 
 `registered_providers()` is what `apps/api` calls to validate `telephony_provider` on an agent, and `GET /configuration/telephony` exposes the catalog with defaults and field metadata.
 
@@ -177,9 +177,9 @@ Adding a provider means adding a directory. Nothing in `xml.py`, `calls.py`, or 
 
 ## Related
 
-* [Agents and agent categories](agents.md) — application provisioning and number linking
-* [Calls and call artifacts](calls.md) — what a call writes down
-* [Voice pipeline](voice-pipeline.md) — what happens once the WebSocket is open
-* [Provider registry](../../developer/reference/provider-registry.md) — the same pattern for STT, TTS, and LLM
-* [Telephony (apps/telephony)](../../developer/services/telephony.md) — the package as a service
-* [Public voice URLs](../deployment/public-voice-urls.md) — making `/answer` reachable
+* [Agents and agent categories](agents) — application provisioning and number linking
+* [Calls and call artifacts](calls) — what a call writes down
+* [Voice pipeline](voice-pipeline) — what happens once the WebSocket is open
+* [Provider registry](../../developer/reference/provider-registry) — the same pattern for STT, TTS, and LLM
+* [Telephony (apps/telephony)](../../developer/services/telephony) — the package as a service
+* [Public voice URLs](../deployment/public-voice-urls) — making `/answer` reachable

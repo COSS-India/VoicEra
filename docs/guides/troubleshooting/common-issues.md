@@ -66,7 +66,7 @@ Find the offender:
 lsof -i :8000
 ```
 
-See [Ports and defaults](../../developer/reference/ports-and-defaults.md).
+See [Ports and defaults](../../developer/reference/ports-and-defaults).
 
 ## Database connection failures
 
@@ -89,7 +89,7 @@ Almost always `MONGODB_AUTH_SOURCE`. It must be **empty** for FerretDB:
 MONGODB_AUTH_SOURCE=
 ```
 
-Setting it to `admin` — correct for real MongoDB, and what the old mono repo used — appends `?authSource=admin` and authentication fails. See [Data store](../../developer/reference/data-store.md).
+Setting it to `admin` — correct for real MongoDB, and what the old mono repo used — appends `?authSource=admin` and authentication fails. See [Data store](../../developer/reference/data-store).
 
 ### Connection refused on port 27017
 
@@ -105,7 +105,7 @@ mongosh "mongodb://admin:admin123@localhost:27018/voicera"
 
 Two causes.
 
-**Compose overrides some variables deliberately.** Values under a service's `environment:` beat `env_file`, so `MONGODB_HOST`, `API_BASE_URL`, and `MINIO_ENDPOINT` are pinned to in-network addresses regardless of `.env`. That is intended — see [Environment variables](../../developer/reference/environment-variables.md).
+**Compose overrides some variables deliberately.** Values under a service's `environment:` beat `env_file`, so `MONGODB_HOST`, `API_BASE_URL`, and `MINIO_ENDPOINT` are pinned to in-network addresses regardless of `.env`. That is intended — see [Environment variables](../../developer/reference/environment-variables).
 
 **Containers read `.env` at start.** Restart after editing:
 
@@ -121,14 +121,14 @@ docker compose up -d --force-recreate api runtime
 grep '^SECRET_KEY=' .env
 ```
 
-If it is blank, set it and restart. See [Security hardening](../deployment/security-hardening.md).
+If it is blank, set it and restart. See [Security hardening](../deployment/security-hardening).
 
 ## Authentication and permissions
 
 | Symptom | Cause |
 | --- | --- |
 | `401 Invalid authentication credentials` | Missing, malformed, or expired token. Tokens last 30 minutes by default — log in again. |
-| `403` on a valid token | Your role is too low for that route. Role checks are explicit, so 403 means authenticated but not permitted. See [Multi-tenancy](../../developer/reference/multi-tenancy.md). |
+| `403` on a valid token | Your role is too low for that route. Role checks are explicit, so 403 means authenticated but not permitted. See [Multi-tenancy](../../developer/reference/multi-tenancy). |
 | `404` for a resource you know exists | It belongs to a different organisation. Existence is never leaked across tenants — switch with `POST /users/switch-organisation`. |
 | `401 Missing API key` | An internal route needs `X-API-Key: $INTERNAL_API_KEY`. |
 | `500 Internal API key not configured` | `INTERNAL_API_KEY` is empty in `.env`. |
@@ -151,11 +151,11 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ### Creating a telephony agent fails
 
-`VOICE_SERVER_BASE_URL` must be set before creating telephony agents — the API bakes the answer URL into the provider application at create time. You also need credentials stored for that telephony provider. See [Public voice URLs](../deployment/public-voice-urls.md).
+`VOICE_SERVER_BASE_URL` must be set before creating telephony agents — the API bakes the answer URL into the provider application at create time. You also need credentials stored for that telephony provider. See [Public voice URLs](../deployment/public-voice-urls).
 
 ### `422 Unprocessable Entity` on agent create
 
-The config blob failed validation. The response body names the offending field path. Common causes: an unregistered `provider`, or **API keys placed in `config.models`** — those belong in `ProviderAuth`, and only non-secret settings go on the agent. See [Agent configuration](../../developer/reference/agent-configuration.md).
+The config blob failed validation. The response body names the offending field path. Common causes: an unregistered `provider`, or **API keys placed in `config.models`** — those belong in `ProviderAuth`, and only non-secret settings go on the agent. See [Agent configuration](../../developer/reference/agent-configuration).
 
 ## Import errors when running from source
 
@@ -170,15 +170,15 @@ cd /path/to/voicera
 PYTHONPATH=. python -m apps.runtime.app
 ```
 
-There is no `pip install -e .` — `pyproject.toml` is an empty placeholder. Install per app with `pip install -r apps/<app>/requirements.txt`. See [Local setup](../../developer/guides/local-setup.md).
+There is no `pip install -e .` — `pyproject.toml` is an empty placeholder. Install per app with `pip install -r apps/<app>/requirements.txt`. See [Local setup](../../developer/guides/local-setup).
 
 ## Checking health
 
-Endpoints, response shapes, and the "200 even when degraded" gotcha are in [Daily operations](../operator/operations.md#health-endpoints).
+Endpoints, response shapes, and the "200 even when degraded" gotcha are in [Daily operations](../operator/operations#health-endpoints).
 
 ## Where next
 
-* [Voice and audio](voice-and-audio.md)
-* [Telephony](telephony.md)
-* [Campaigns](campaigns.md)
-* [Deployment](deployment.md)
+* [Voice and audio](voice-and-audio)
+* [Telephony](telephony)
+* [Campaigns](campaigns)
+* [Deployment](deployment)

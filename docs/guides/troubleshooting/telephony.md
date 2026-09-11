@@ -37,7 +37,7 @@ curl -X PATCH http://localhost:8000/api/v1/agents/$AGENT_ID \
   -d '{"name": "Support Line"}'
 ```
 
-A PATCH re-provisions the application against the current value. Otherwise delete and recreate the agent. See [Public voice URLs](../deployment/public-voice-urls.md).
+A PATCH re-provisions the application against the current value. Otherwise delete and recreate the agent. See [Public voice URLs](../deployment/public-voice-urls).
 
 ## `400` from `/answer`
 
@@ -143,7 +143,7 @@ Inbound registration is idempotent — the same SID twice returns the existing r
 
 ## Related
 
-* [Telephony model](../concepts/telephony-model.md)
-* [Public voice URLs](../deployment/public-voice-urls.md)
-* [Calls and call artifacts](../concepts/calls.md)
-* [Voice and audio](voice-and-audio.md)
+* [Telephony model](../concepts/telephony-model)
+* [Public voice URLs](../deployment/public-voice-urls)
+* [Calls and call artifacts](../concepts/calls)
+* [Voice and audio](voice-and-audio)

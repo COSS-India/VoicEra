@@ -6,7 +6,7 @@ description: A tour of the dashboard's pages.
 Every screen in the dashboard, what it shows, and which API endpoints back it. A few screens are still stubs or sample data — this page says which, so you do not mistake either for your own.
 
 <Warning>
-The dashboard container runs Next.js in **development** mode with the source bind-mounted. That is right for local work and wrong for anything user-facing — see [Production deployment](../../guides/deployment/production.md).
+The dashboard container runs Next.js in **development** mode with the source bind-mounted. That is right for local work and wrong for anything user-facing — see [Production deployment](../../guides/deployment/production).
 </Warning>
 
 ## The layout shell
@@ -50,7 +50,7 @@ Each card shows the agent's name, its purpose (derived from the first sentence o
 The card's test action branches on that same field, and this is the most useful thing to understand about the page:
 
 * A **`telephony`** agent opens `TestCallSheet.tsx` — you type an E.164 number and it fires `POST /calls/outbound`, placing a real phone call from the agent's linked number.
-* A **`websocket`** agent opens `AgentTestModal.tsx` — a live browser microphone call over the runtime WebSocket. See [Browser test calls](test-calls.md).
+* A **`websocket`** agent opens `AgentTestModal.tsx` — a live browser microphone call over the runtime WebSocket. See [Browser test calls](test-calls).
 
 The page can also duplicate an agent (`GET /agents/{id}` then `POST /agents` with the copied config) and delete one (`DELETE /agents/{id}`). A **History** item on the same card menu routes to [`/history?agent={agent_id}`](#history), pre-filtered to that agent's calls.
 
@@ -58,11 +58,11 @@ The page can also duplicate an agent (`GET /agents/{id}` then `POST /agents` wit
 
 Loads one agent with `GET /agents/{agent_id}`, runs it through `agentToForm()` to rebuild the wizard's flat form shape, and renders the same step components the wizard uses — `NameStep`, `LanguageProvidersStep`, `DeliveryStep`, `PromptKnowledgeStep`, and `ReviewStep`, with `SectionNav` down the side. `ReviewStep` does the saving, calling `updateAgent()` for an existing agent, which sends `PATCH /agents/{agent_id}`.
 
-Because it shares the wizard's mapper, it shares the wizard's gaps. See [Agent creation wizard](agent-wizard.md).
+Because it shares the wizard's mapper, it shares the wizard's gaps. See [Agent creation wizard](agent-wizard).
 
 ## agent-creation
 
-The six-step wizard. It has its own page: [Agent creation wizard](agent-wizard.md).
+The six-step wizard. It has its own page: [Agent creation wizard](agent-wizard).
 
 ## numbers
 
@@ -75,7 +75,7 @@ Phone number inventory, rendered by `PhoneNumbers.tsx` over the `usePhoneNumbers
 | Import a number, optionally linking it to an agent | `POST /phone-numbers/attach` |
 | Unlink from its agent and from the provider | `DELETE /phone-numbers/detach` |
 
-Each row carries an audit line built from `last_link_action`, `last_link_by_email`, and `last_link_at` — who attached, detached, or imported the number and when. Detaching keeps the inventory row; it only breaks the agent link and the provider-side binding. Background in [Telephony model](../../guides/concepts/telephony-model.md).
+Each row carries an audit line built from `last_link_action`, `last_link_by_email`, and `last_link_at` — who attached, detached, or imported the number and when. Detaching keeps the inventory row; it only breaks the agent link and the provider-side binding. Background in [Telephony model](../../guides/concepts/telephony-model).
 
 ## batches
 
@@ -85,7 +85,7 @@ It lists `GET /campaign/`, uploads a contact CSV with `POST /campaign/upload` (p
 
 Because dialling runs server-side, the hook polls the list so progress bars and states stay live without a reload.
 
-Background: [Running a campaign](../../guides/operator/running-a-campaign.md) and [Campaigns](../../guides/concepts/campaigns.md).
+Background: [Running a campaign](../../guides/operator/running-a-campaign) and [Campaigns](../../guides/concepts/campaigns).
 
 ## history
 
@@ -116,7 +116,7 @@ Ingestion and embedding happen server-side, so the hook polls while any document
 
 The wizard's knowledge-base picker calls the same `GET /knowledge`, so the documents you attach to an agent are your real ones.
 
-Background: [Managing knowledge documents](../../guides/operator/managing-knowledge.md) and [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag.md).
+Background: [Managing knowledge documents](../../guides/operator/managing-knowledge) and [Knowledge base (RAG)](../../guides/concepts/knowledge-base-rag).
 
 ## members
 
@@ -129,7 +129,7 @@ Fully wired, over the `useMembers` hook and `frontend/src/lib/api/members.ts`.
 | Promote to admin | `POST /members/assign-admin` | `super_admin` |
 | Remove from the organisation | `POST /members/remove` | `super_admin` |
 
-Cards sort highest-rank-first: `super_admin`, then `admin`, then `member`. There is no accept-invite step — `POST /members/invite` creates the account directly in your active organisation with a password you set, so you hand the credentials over yourself. The "add member" link the modal generates points at `/add-member/{uid}`, a shareable page identifier; the organisation context travels in query parameters. Roles are explained in [Multi-tenancy and roles](../reference/multi-tenancy.md).
+Cards sort highest-rank-first: `super_admin`, then `admin`, then `member`. There is no accept-invite step — `POST /members/invite` creates the account directly in your active organisation with a password you set, so you hand the credentials over yourself. The "add member" link the modal generates points at `/add-member/{uid}`, a shareable page identifier; the organisation context travels in query parameters. Roles are explained in [Multi-tenancy and roles](../reference/multi-tenancy).
 
 ## integrations
 
@@ -139,7 +139,7 @@ The credential manager, rendered by `Integrations.tsx`. It is the screen you nee
 
 A second filter row sits above the list: provider type tabs (`cloud`, `adapter`, `local`), built from whatever `catalog.provider_type` values are actually present, on top of the existing kind filter. Both narrow the same connected/available/telephony lists together.
 
-Saving a provider sends `POST /auth` with `{ provider, auth }`. `GET /auth/{provider}` reads a stored entry back and `DELETE /auth/{provider}` removes it. Secret fields render behind a show/hide toggle. Credentials are encrypted at rest by the API — see [Provider credentials (ProviderAuth)](../reference/provider-auth.md).
+Saving a provider sends `POST /auth` with `{ provider, auth }`. `GET /auth/{provider}` reads a stored entry back and `DELETE /auth/{provider}` removes it. Secret fields render behind a show/hide toggle. Credentials are encrypted at rest by the API — see [Provider credentials (ProviderAuth)](../reference/provider-auth).
 
 Because the form is generated from the catalog rather than hand-written, it always matches what the API accepts. That makes this screen genuinely more reliable than reading credential field names out of documentation.
 
@@ -162,7 +162,7 @@ The layout is four stat tiles over two panels:
 
 **Download PDF**, top right, builds a real PDF client-side with `frontend/src/lib/report.ts` (a thin `jsPDF` wrapper) — vector bars for Agent Performance, Connection Breakdown, and Model Usage, not a screenshot or `window.print()`. Every exported PDF and CSV in the app opens with the same organisation / downloaded-by / generated-at header from that same module, so a report is traceable back to who pulled it.
 
-One caveat worth knowing before reading the numbers: the figures are **all-time**, with no date-range or per-agent filter anywhere on the screen. And "connected" counts only calls whose `call_response` is `answered`, which is also the population the duration figures average over — so Avg Call Duration is per answered call, not per attempt. See [`GET /calls/org/{org_id}/analytics`](../../api-reference/calls.md) for the response shape.
+One caveat worth knowing before reading the numbers: the figures are **all-time**, with no date-range or per-agent filter anywhere on the screen. And "connected" counts only calls whose `call_response` is `answered`, which is also the population the duration figures average over — so Avg Call Duration is per answered call, not per attempt. See [`GET /calls/org/{org_id}/analytics`](../../api-reference/calls) for the response shape.
 
 For per-call pipeline latency rather than volume, use [telemetry](#telemetry).
 
@@ -170,7 +170,7 @@ For per-call pipeline latency rather than volume, use [telemetry](#telemetry).
 
 ## telemetry
 
-Per-call pipeline latency, rendered by `Telemetry.tsx` from the [CallMetrics](../../api-reference/calls.md) the runtime writes at the end of every call.
+Per-call pipeline latency, rendered by `Telemetry.tsx` from the [CallMetrics](../../api-reference/calls) the runtime writes at the end of every call.
 
 Pick a call — or deep-link one with `?call={call_id}` — and the screen fetches `GET /calls/{call_id}` and `GET /calls/{call_id}/metrics`, with `GET /calls/org/{org_id}` behind the picker. It shows four averages as stat tiles, each tinted against a threshold and compared against the previous call:
 
@@ -220,15 +220,15 @@ Being blunt about it, because the sidebar gives all of these equal weight:
 * **Genuine, but not API-backed:** the onboarding walkthrough (`WalkthroughOverlay.tsx`) — a real, fully-built six-step tour triggered on first login/signup and replayable from the sidebar. It is client-only: everything it needs lives in `localStorage`, with no server persistence and no route of its own. See [walkthrough](#walkthrough) above.
 * **Screens that look complete but are sample data:** the language map (`Languages.tsx`), which renders a convincing bubble chart from a hardcoded array and is not currently reachable from any screen. Do not read it as your data.
 * **Placeholders:** the `/walkthrough` route — a single card admitting the feature is not built at that URL. Do not confuse it with the real overlay above; they share a name and nothing else.
-* **Developer scaffolding:** `/components` is a UI-kit page, self-described as such. It is unlinked from the sidebar and safe to ignore. The standalone `/library` prompt-module browser was removed; the same nine modules are still reachable from the wizard's [prompt library dialog](agent-wizard.md#the-prompt-library).
+* **Developer scaffolding:** `/components` is a UI-kit page, self-described as such. It is unlinked from the sidebar and safe to ignore. The standalone `/library` prompt-module browser was removed; the same nine modules are still reachable from the wizard's [prompt library dialog](agent-wizard#the-prompt-library).
 
 One more piece of scaffolding worth knowing about: `frontend/src/app/api/` contains three Next.js route handlers (`/api/agents`, `/api/auth/login`, `/api/auth/signup`) whose own comments call them "a UI-kit demo, not wired to a real database" — one keeps agents in a module-level array that resets on restart, the others return a mock user and a fake token. The live dashboard does not call them; real auth goes to the API's `/users/login` and `/users/signup`. Do not mistake them for a backend.
 
 ## Related
 
-* [Overview](overview.md)
-* [Running the dashboard](running.md)
-* [Agent creation wizard](agent-wizard.md)
-* [Browser test calls](test-calls.md)
-* [Calls and call artifacts](../../guides/concepts/calls.md)
-* [REST API](../../api-reference/overview.md)
+* [Overview](overview)
+* [Running the dashboard](running)
+* [Agent creation wizard](agent-wizard)
+* [Browser test calls](test-calls)
+* [Calls and call artifacts](../../guides/concepts/calls)
+* [REST API](../../api-reference/overview)

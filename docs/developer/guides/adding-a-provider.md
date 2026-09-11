@@ -26,7 +26,7 @@ Which of `cloud/`, `adapters/`, `local/` you pick **is** the `provider_type` —
 **Only legitimate exception:** `apps/runtime/requirements.txt`, if your vendor needs a Pipecat extra not already installed.
 
 <Note>
-This page is the how-to. For *why* the registry works this way — discriminated unions, the catalog dump, and where credentials live — read [Provider registry](../reference/provider-registry.md).
+This page is the how-to. For *why* the registry works this way — discriminated unions, the catalog dump, and where credentials live — read [Provider registry](../reference/provider-registry).
 </Note>
 
 ## Before you start
@@ -46,9 +46,9 @@ Check two things first:
 | --- | --- | --- |
 | `cloud/<vendor>/` | `cloud` | Pipecat already ships a service class for the vendor and you are configuring it. 22 vendors live here. |
 | `adapters/<vendor>/` | `adapter` | You are writing the Pipecat service subclass yourself. Two examples: `adapters/bhashini/` (`tts.py`, NVCF gRPC) and `adapters/kenpath/` (`llm.py`, JWT-signed Vistaar HTTP). |
-| `local/<vendor>/` | `local` | The vendor is VoicEra's own [model server](../model-server/overview.md) gateway, not a third-party API. Two examples: `local/indic_orpheus/` (TTS) and `local/indic_nemotron/` (STT). |
+| `local/<vendor>/` | `local` | The vendor is VoicEra's own [model server](../model-server/overview) gateway, not a third-party API. Two examples: `local/indic_orpheus/` (TTS) and `local/indic_nemotron/` (STT). |
 
-Kenpath's two LLM services also carry a provider-specific hangup convention — they end the call when their own streamed text contains the word "goodbye", instead of the config-driven `automatic_call_ending` tool. See [Voice pipeline → Provider-specific call ending: Kenpath](../../guides/concepts/voice-pipeline.md#provider-specific-call-ending-kenpath).
+Kenpath's two LLM services also carry a provider-specific hangup convention — they end the call when their own streamed text contains the word "goodbye", instead of the config-driven `automatic_call_ending` tool. See [Voice pipeline → Provider-specific call ending: Kenpath](../../guides/concepts/voice-pipeline#provider-specific-call-ending-kenpath).
 
 Put the folder in the wrong place and `_provider_type()` raises with a message telling you exactly that.
 
@@ -240,7 +240,7 @@ Registering the same provider id twice for one kind raises `ValueError` at impor
 
 ## Local providers: one extra registration call
 
-A `local/<vendor>/` provider talks to VoicEra's own [model server](../model-server/overview.md) gateway instead of a third-party API. It follows the same catalog/config/service shape as cloud and adapter providers, but `service.py` makes one additional call before the `@register_*` decorator runs:
+A `local/<vendor>/` provider talks to VoicEra's own [model server](../model-server/overview) gateway instead of a third-party API. It follows the same catalog/config/service shape as cloud and adapter providers, but `service.py` makes one additional call before the `@register_*` decorator runs:
 
 ```python
 # apps/providers/local/indic_orpheus/service.py
@@ -272,7 +272,7 @@ def create_tts(cfg: IndicOrpheusTTSConfig):
 * **Cloud / adapter**: `authenticated` means "this organisation has stored `ProviderAuth` credentials for this provider id."
 * **Local**: `authenticated` means "the model server currently reports this model id as deployed." `is_authenticated()` looks `provider_id` up in the `register_local()` map; if found, it does a 10-second-cached `GET {MODEL_SERVER_URL}/models` and checks whether `gateway_model_id` is in the response's `data[].id` list, instead of checking stored credentials at all.
 
-`gateway_model_id` is the model server's own catalogue id for the slot (`GATEWAY_MODEL_ID` in the local provider's `catalog.py`, matching the folder name under `model-server/<slot>/` — see [Adding a model](../model-server/adding-a-model.md)). It is a separate namespace from the `apps/providers` provider id: `indic_orpheus` (provider id) points at the gateway id `"orpheus"`; `indic_nemotron` points at `"indic-nemotron"`. They don't have to match, and usually won't.
+`gateway_model_id` is the model server's own catalogue id for the slot (`GATEWAY_MODEL_ID` in the local provider's `catalog.py`, matching the folder name under `model-server/<slot>/` — see [Adding a model](../model-server/adding-a-model)). It is a separate namespace from the `apps/providers` provider id: `indic_orpheus` (provider id) points at the gateway id `"orpheus"`; `indic_nemotron` points at `"indic-nemotron"`. They don't have to match, and usually won't.
 
 Because there is no third-party SDK to configure, a local provider's own transport client is hand-written, the same way an adapter's is:
 
@@ -341,7 +341,7 @@ Bump the number for the kinds you added. That failure is the test doing its job 
 Add a vendor-specific test only where your provider does something the generic checks cannot see, such as a non-obvious vendor code inversion. `test_elevenlabs_stt_odia_vendor_code_in_schema` and `test_sarvam_stt_auto_detect_vendor_code_is_unknown` are the models to follow.
 
 <Note>
-There is no CI. Run the suite yourself before opening a pull request. See [Testing](testing.md).
+There is no CI. Run the suite yourself before opening a pull request. See [Testing](testing).
 </Note>
 
 ## A worked example
@@ -474,8 +474,8 @@ If your vendor also needs a Pipecat extra, add it to the extras list in `apps/ru
 
 ## Related
 
-* [Provider registry](../reference/provider-registry.md)
-* [Provider credentials (ProviderAuth)](../reference/provider-auth.md)
-* [Adding a telephony provider](adding-a-telephony-provider.md)
-* [Providers service](../services/providers.md)
-* [Testing](testing.md)
+* [Provider registry](../reference/provider-registry)
+* [Provider credentials (ProviderAuth)](../reference/provider-auth)
+* [Adding a telephony provider](adding-a-telephony-provider)
+* [Providers service](../services/providers)
+* [Testing](testing)

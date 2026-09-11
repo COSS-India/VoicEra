@@ -87,7 +87,7 @@ Public. Body `{ "token": "…", "new_password": "…" }`. Returns `{status, mess
 
 ## Members
 
-`apps/api/app/routers/members.py`, prefix `/api/v1/members`. Members are the join between a user and an organisation, carrying a role. See [Multi-tenancy and roles](../developer/reference/multi-tenancy.md).
+`apps/api/app/routers/members.py`, prefix `/api/v1/members`. Members are the join between a user and an organisation, carrying a role. See [Multi-tenancy and roles](../developer/reference/multi-tenancy).
 
 ### `POST /members/invite`
 
@@ -125,6 +125,6 @@ There is no create-organisation endpoint — only `POST /users/signup` makes one
 
 ## Related
 
-* [Endpoints cheatsheet](endpoints-cheatsheet.md) — every route on one page
-* [Authentication](authentication.md) — tokens, headers, and roles
-* [Errors](errors.md) — status codes and error shapes
+* [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page
+* [Authentication](authentication) — tokens, headers, and roles
+* [Errors](errors) — status codes and error shapes

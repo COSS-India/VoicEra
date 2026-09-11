@@ -53,19 +53,19 @@ The Apache 2.0 grant applies to **this repository's source code**. It does not e
 
 | Thing | Governed by |
 | --- | --- |
-| Models you download and run | Each model's own licence — several are gated and carry their own terms. See [Model server](../../developer/model-server/overview.md). |
+| Models you download and run | Each model's own licence — several are gated and carry their own terms. See [Model server](../../developer/model-server/overview). |
 | Cloud AI provider usage | Your contract with that vendor. |
 | Telephony provider usage | Your contract with Vobiz, Plivo, or another carrier. |
 | Container base images and Python dependencies | Their own licences. |
 | Call recordings, transcripts, and contact data | You. VoicEra is self-hosted, so this data is yours and your obligation. |
 
 <Tip>
-Model weights are the most common surprise. A permissive platform licence does not make a restrictively licensed model redistributable. Check each model's terms before deploying it — the per-model pages under [Model server](../../developer/model-server/overview.md) note where weights are gated.
+Model weights are the most common surprise. A permissive platform licence does not make a restrictively licensed model redistributable. Check each model's terms before deploying it — the per-model pages under [Model server](../../developer/model-server/overview) note where weights are gated.
 </Tip>
 
 ## Contributions
 
-Contributions are accepted under the same Apache 2.0 terms. By opening a pull request you agree your contribution may be distributed under the project licence. See [Contributing](../../developer/guides/contributing-guide.md).
+Contributions are accepted under the same Apache 2.0 terms. By opening a pull request you agree your contribution may be distributed under the project licence. See [Contributing](../../developer/guides/contributing-guide).
 
 ## Full license text
 
@@ -280,6 +280,6 @@ Contributions are accepted under the same Apache 2.0 terms. By opening a pull re
 
 ## Related
 
-* [Code of conduct](code-of-conduct.md)
-* [Security policy](security.md)
-* [Contributing](../../developer/guides/contributing-guide.md)
+* [Code of conduct](code-of-conduct)
+* [Security policy](security)
+* [Contributing](../../developer/guides/contributing-guide)

@@ -163,13 +163,13 @@ curl -i -N \
 <Warning>
 `/answer` and `/agent/{org_id}/{agent_id}` have **no authentication** — they must be publicly reachable for telephony to work, and the runtime resolves everything from the path. Anyone who learns an org and agent id pair can open a pipeline session and consume your model credits.
 
-Mitigate with rate limiting at the proxy, and IP-allowlist your provider's ranges where they publish them. See [Security hardening](security-hardening.md).
+Mitigate with rate limiting at the proxy, and IP-allowlist your provider's ranges where they publish them. See [Security hardening](security-hardening).
 </Warning>
 
 ## Related
 
-* [Telephony model](../concepts/telephony-model.md)
-* [Telephony clients](../../developer/clients/telephony.md)
-* [Troubleshooting telephony](../troubleshooting/telephony.md)
-* [Production deployment](production.md)
-* [Environment variables](../../developer/reference/environment-variables.md)
+* [Telephony model](../concepts/telephony-model)
+* [Telephony clients](../../developer/clients/telephony)
+* [Troubleshooting telephony](../troubleshooting/telephony)
+* [Production deployment](production)
+* [Environment variables](../../developer/reference/environment-variables)

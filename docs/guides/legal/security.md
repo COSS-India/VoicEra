@@ -7,7 +7,7 @@ description: How to report a security vulnerability in VoicEra.
 
 **Do not open a public issue.** Report privately, so a fix can ship before the problem is widely known.
 
-Email the maintainers at the address in [`SECURITY.md`](https://github.com/COSS-India/voicera/blob/main/SECURITY.md) at the repository root, or use GitHub's private security advisory flow on the repository.
+Email the maintainers at the address in [`SECURITY.md`](https://github.com/COSS-India/voicera/blob/main/SECURITY) at the repository root, or use GitHub's private security advisory flow on the repository.
 
 Please include:
 
@@ -30,7 +30,7 @@ Out of scope:
 | Cloud AI provider vulnerabilities | That vendor |
 | Telephony provider vulnerabilities | That vendor |
 | Third-party dependencies | Upstream, though tell us if VoicEra is affected |
-| Your own deployment's configuration | See [Security hardening](../deployment/security-hardening.md) |
+| Your own deployment's configuration | See [Security hardening](../deployment/security-hardening) |
 | Model weights and their licences | The model publisher |
 
 ## Known design characteristics
@@ -47,7 +47,7 @@ These are documented properties, not undisclosed vulnerabilities. Reporting them
 | An unset `SECRET_KEY` generates a temporary key rather than failing | Set it explicitly. |
 | `GET /health` returns 200 even when degraded | Probes must parse the body. |
 
-Each is covered in [Security hardening](../deployment/security-hardening.md).
+Each is covered in [Security hardening](../deployment/security-hardening).
 
 ## Secrets and your data
 
@@ -63,6 +63,6 @@ The project has not cut a tagged release. Security fixes land on `dev` and flow 
 
 ## Related
 
-* [Security hardening](../deployment/security-hardening.md)
-* [Provider credentials](../../developer/reference/provider-auth.md)
-* [Code of conduct](code-of-conduct.md)
+* [Security hardening](../deployment/security-hardening)
+* [Provider credentials](../../developer/reference/provider-auth)
+* [Code of conduct](code-of-conduct)

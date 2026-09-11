@@ -6,7 +6,7 @@ description: Where every piece of data lives and how it moves between services.
 This page traces the paths data actually takes: a call arriving, a call going out, a campaign running, a document being ingested, and credentials reaching the runtime. Each is a separate scenario because each touches a different set of stores.
 
 <Note>
-For the static picture — which container talks to which — see [Architecture](architecture.md). This page is about movement over time.
+For the static picture — which container talks to which — see [Architecture](architecture). This page is about movement over time.
 </Note>
 
 ## Inbound call
@@ -40,7 +40,7 @@ sequenceDiagram
   RT->>API: PATCH /calls/{call_id} with minio:// URIs
 ```
 
-The runtime never holds long-lived credentials of its own. It mints a bot token with `INTERNAL_API_KEY`, and the API returns decrypted provider keys for that organisation only. See [Provider credentials](../../developer/reference/provider-auth.md).
+The runtime never holds long-lived credentials of its own. It mints a bot token with `INTERNAL_API_KEY`, and the API returns decrypted provider keys for that organisation only. See [Provider credentials](../../developer/reference/provider-auth).
 
 Inbound registration is idempotent — `register_inbound_call` returns the existing record if the same `provider_call_sid` arrives twice, so a provider retry does not create a duplicate call log.
 
@@ -69,7 +69,7 @@ sequenceDiagram
 ```
 
 <Note>
-This path takes **no concurrency slot**. `initiate_outbound_call()` never touches Redis — only `CampaignCallDispatcher` acquires and releases slots, so an organisation's ceiling constrains campaigns, not direct `POST /calls/outbound` requests. See [Call concurrency](../../developer/reference/call-concurrency.md).
+This path takes **no concurrency slot**. `initiate_outbound_call()` never touches Redis — only `CampaignCallDispatcher` acquires and releases slots, so an organisation's ceiling constrains campaigns, not direct `POST /calls/outbound` requests. See [Call concurrency](../../developer/reference/call-concurrency).
 </Note>
 
 ## Campaign call
@@ -106,7 +106,7 @@ sequenceDiagram
   ORCH->>ORCH: Schedule the next batch, or detect completion
 ```
 
-Nothing polls the database in a loop: the orchestrator reacts to Redis events and only falls back to a timed sweep to catch stalls. See [Campaigns](campaigns.md).
+Nothing polls the database in a loop: the orchestrator reacts to Redis events and only falls back to a timed sweep to catch stalls. See [Campaigns](campaigns).
 
 ## Knowledge ingest
 
@@ -123,7 +123,7 @@ flowchart LR
   PDF --> MD
 ```
 
-The document's metadata and status live in FerretDB; the vectors live in Chroma, on the `voicera_oss_chroma_data` volume. At call time the runtime retrieves chunks either as a tool the LLM can call or as prepended context. See [Knowledge base](knowledge-base-rag.md).
+The document's metadata and status live in FerretDB; the vectors live in Chroma, on the `voicera_oss_chroma_data` volume. At call time the runtime retrieves chunks either as a tool the LLM can call or as prepended context. See [Knowledge base](knowledge-base-rag).
 
 ## Call artifacts
 
@@ -189,12 +189,12 @@ Secrets are written once and read at call time. They are never stored on the age
 | Uploaded CSVs | MinIO | `voicera_oss_minio_data` | Yes, unless `-v` |
 
 <Warning>
-`docker compose down -v` deletes every volume — all four stores at once. A backup means Postgres, MinIO, and Chroma together; see [Daily operations](../operator/operations.md).
+`docker compose down -v` deletes every volume — all four stores at once. A backup means Postgres, MinIO, and Chroma together; see [Daily operations](../operator/operations).
 </Warning>
 
 ## Related
 
-* [Architecture](architecture.md)
-* [Voice pipeline](voice-pipeline.md)
-* [Campaigns](campaigns.md)
-* [Calls and call artifacts](calls.md)
+* [Architecture](architecture)
+* [Voice pipeline](voice-pipeline)
+* [Campaigns](campaigns)
+* [Calls and call artifacts](calls)

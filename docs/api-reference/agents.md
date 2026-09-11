@@ -3,7 +3,7 @@ title: Agents
 description: Create, read, update, and delete voice agents.
 ---
 
-`apps/api/app/routers/agents.py`, prefix `/api/v1/agents`. The full shape of the nested `config` object is documented in [Agent configuration](../developer/reference/agent-configuration.md); this section covers the routes around it.
+`apps/api/app/routers/agents.py`, prefix `/api/v1/agents`. The full shape of the nested `config` object is documented in [Agent configuration](../developer/reference/agent-configuration); this section covers the routes around it.
 
 ## `POST /agents`
 
@@ -70,6 +70,6 @@ Bearer, `admin` or `super_admin`. Unlinks any attached number, removes the provi
 
 ## Related
 
-* [Endpoints cheatsheet](endpoints-cheatsheet.md) — every route on one page
-* [Authentication](authentication.md) — tokens, headers, and roles
-* [Errors](errors.md) — status codes and error shapes
+* [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page
+* [Authentication](authentication) — tokens, headers, and roles
+* [Errors](errors) — status codes and error shapes

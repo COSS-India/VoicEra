@@ -97,7 +97,7 @@ sequenceDiagram
   API-->>U: invited
 ```
 
-Signup always creates an organisation and makes the signer its `super_admin`. There is no seeded default account — see [Generated secrets and defaults](../../guides/quickstart/secrets-and-defaults.md).
+Signup always creates an organisation and makes the signer its `super_admin`. There is no seeded default account — see [Generated secrets and defaults](../../guides/quickstart/secrets-and-defaults).
 
 Check whether an address is already known before inviting:
 
@@ -128,7 +128,7 @@ sequenceDiagram
 The returned token carries role `admin` in the requested organisation. An unknown `org_id` returns **404**.
 
 <Warning>
-`INTERNAL_API_KEY` is a single shared secret with organisation-wide reach. Treat it like a root credential: never send it from a browser, and rotate it as described in [Security hardening](../../guides/deployment/security-hardening.md).
+`INTERNAL_API_KEY` is a single shared secret with organisation-wide reach. Treat it like a root credential: never send it from a browser, and rotate it as described in [Security hardening](../../guides/deployment/security-hardening).
 </Warning>
 
 ## How scoping is enforced
@@ -142,7 +142,7 @@ A request for an object in another organisation returns **404**, not 403 — exi
 
 ## Related
 
-* [Provider credentials](provider-auth.md) — how secrets are stored and masked
-* [Agents](../../guides/concepts/agents.md) — what a member can configure
-* [REST API](../../api-reference/overview.md) — auth column for every route
-* [Security hardening](../../guides/deployment/security-hardening.md)
+* [Provider credentials](provider-auth) — how secrets are stored and masked
+* [Agents](../../guides/concepts/agents) — what a member can configure
+* [REST API](../../api-reference/overview) — auth column for every route
+* [Security hardening](../../guides/deployment/security-hardening)

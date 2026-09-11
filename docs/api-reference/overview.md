@@ -32,20 +32,20 @@ Send `Content-Type: application/json` on every request with a body. Two routes t
 
 | Page | Covers |
 | --- | --- |
-| [Agents](agents.md) | Create and manage voice agents |
-| [Calls](calls.md) | Place calls, register them, fetch artifacts |
-| [Campaigns](campaigns.md) | Outbound campaigns end to end |
-| [Phone numbers](phone-numbers.md) | Number inventory and agent attachment |
-| [Knowledge and RAG](knowledge-and-rag.md) | Documents and retrieval |
-| [Configuration catalogs](configuration.md) | Which providers exist and what they accept |
-| [Provider credentials](provider-auth.md) | Storing encrypted API keys |
-| [Users and organisations](users-and-orgs.md) | Signup, login, membership, roles |
+| [Agents](agents) | Create and manage voice agents |
+| [Calls](calls) | Place calls, register them, fetch artifacts |
+| [Campaigns](campaigns) | Outbound campaigns end to end |
+| [Phone numbers](phone-numbers) | Number inventory and agent attachment |
+| [Knowledge and RAG](knowledge-and-rag) | Documents and retrieval |
+| [Configuration catalogs](configuration) | Which providers exist and what they accept |
+| [Provider credentials](provider-auth) | Storing encrypted API keys |
+| [Users and organisations](users-and-orgs) | Signup, login, membership, roles |
 
-Prefer one flat list? See the [Endpoints cheatsheet](endpoints-cheatsheet.md).
+Prefer one flat list? See the [Endpoints cheatsheet](endpoints-cheatsheet).
 
 ## Related
 
-* [Authentication](authentication.md) — tokens, headers, and roles
-* [Errors](errors.md) — status codes and error shapes
-* [WebSocket API](websocket-api.md) — the media protocol
-* [Recipes](recipes.md) — task-shaped recipes
+* [Authentication](authentication) — tokens, headers, and roles
+* [Errors](errors) — status codes and error shapes
+* [WebSocket API](websocket-api) — the media protocol
+* [Recipes](recipes) — task-shaped recipes

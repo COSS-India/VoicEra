@@ -15,7 +15,7 @@ Browser websocket sessions create a `call_type: web` CallLog, so they produce tr
 
 | Value | Created by | When |
 | --- | --- | --- |
-| `outbound` | `initiate_outbound_call()` | You call `POST /api/v1/calls/outbound`, or a [campaign](campaigns.md) dispatches a row. |
+| `outbound` | `initiate_outbound_call()` | You call `POST /api/v1/calls/outbound`, or a [campaign](campaigns) dispatches a row. |
 | `inbound` | `register_inbound_call()` | The runtime's `/answer` webhook fires for a call it has no `call_id` for. |
 | `web` | Browser websocket session | Registered on connect via `POST /api/v1/calls/web`, or reused from a `call_id` query parameter. |
 
@@ -77,7 +77,7 @@ If `call_status` says nothing useful, `hangup_cause` is tried: `USER_BUSY` or `B
 | `from_number`, `to_number` | `str` | Normalised to E.164-style on outbound; `"unknown"` is possible on inbound. |
 | `telephony_provider` | `str \| null` | Copied from the agent's telephony attachment. |
 | `provider_call_sid` | `str \| null` | `null` until the provider accepts an outbound dial. |
-| `custom_variables` | `dict` | Per-call overrides; `{}` for inbound. See [Voice pipeline](voice-pipeline.md). |
+| `custom_variables` | `dict` | Per-call overrides; `{}` for inbound. See [Voice pipeline](voice-pipeline). |
 | `created_at`, `updated_at` | `str \| null` | ISO 8601 UTC. |
 | `start_time_utc`, `end_time_utc` | `str \| null` | `end_time_utc` is set once and never overwritten. |
 | `duration` | `float \| null` | Seconds, computed on the first `end_time_utc` patch. |
@@ -139,7 +139,7 @@ The eight call routes are:
 | `GET` | `/api/v1/calls/org/{org_id}` | List call logs, newest first. `limit` 1–500 (default 50), `offset` from 0. |
 | `GET` | `/api/v1/calls/{call_id}` | Fetch one call log. Bot JWT supported. |
 
-`GET /calls/org/{org_id}` accepts an organisation other than your active one, but only if you hold a membership in it. The full route reference is in [REST API](../../api-reference/overview.md).
+`GET /calls/org/{org_id}` accepts an organisation other than your active one, but only if you hold a membership in it. The full route reference is in [REST API](../../api-reference/overview).
 
 Raw objects are browsable in the MinIO console at `http://localhost:9001` when you need to check what was written.
 
@@ -162,12 +162,12 @@ The practical consequence is that web calls are ordinary call logs: they appear 
 A session that fails to register a `call_id` still runs; it just produces nothing durable, since every artifact handler is gated on a truthy `call_id`.
 </Note>
 
-See [Browser WebSocket agents](../../developer/clients/browser-websocket.md).
+See [Browser WebSocket agents](../../developer/clients/browser-websocket).
 
 ## Related
 
-* [Agents and agent categories](agents.md) — what a call runs on
-* [Voice pipeline](voice-pipeline.md) — where the transcript and recording come from
-* [Telephony model](telephony-model.md) — inbound webhooks and outbound dispatch
-* [Campaigns](campaigns.md) — bulk outbound calls and their logs
-* [Data model](../../developer/reference/data-model.md) — every collection
+* [Agents and agent categories](agents) — what a call runs on
+* [Voice pipeline](voice-pipeline) — where the transcript and recording come from
+* [Telephony model](telephony-model) — inbound webhooks and outbound dispatch
+* [Campaigns](campaigns) — bulk outbound calls and their logs
+* [Data model](../../developer/reference/data-model) — every collection

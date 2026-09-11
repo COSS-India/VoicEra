@@ -6,7 +6,7 @@ description: How a telephony provider becomes a client of the runtime.
 When a call reaches a `telephony` agent, the provider is the client. It fetches an answer document over HTTP, then opens a WebSocket and streams audio. This page is the wire-level view: what the provider sends, what it gets back, and how to exercise it without a phone.
 
 <Note>
-This page does not explain the provider abstraction — how Vobiz and Plivo are registered, how applications are provisioned, how credentials are resolved. That is [Telephony model](../../guides/concepts/telephony-model.md). Read it first if you are adding a provider rather than debugging a call.
+This page does not explain the provider abstraction — how Vobiz and Plivo are registered, how applications are provisioned, how credentials are resolved. That is [Telephony model](../../guides/concepts/telephony-model). Read it first if you are adding a provider rather than debugging a call.
 </Note>
 
 ## The answer webhook
@@ -75,7 +75,7 @@ After the pipeline ends, the runtime patches the `CallLog` with `end_time_utc`, 
 
 Telephony audio runs at `SAMPLE_RATE`, which defaults to `8000` in `.env.example`. It is read in `apps/runtime/constants.py` and used in three places that must agree: the `contentType` in the answer XML, the frame serializer, and the Pipecat pipeline's input and output rates. Change it in one place — the root `.env` — and all three follow.
 
-Browser sessions use a separate variable, `WEBSOCKET_SAMPLE_RATE`, default `16000`. See [Browser WebSocket agents](browser-websocket.md).
+Browser sessions use a separate variable, `WEBSOCKET_SAMPLE_RATE`, default `16000`. See [Browser WebSocket agents](browser-websocket).
 
 ## Provider dispatch
 
@@ -125,13 +125,13 @@ What this tells you:
 There is no equivalent one-liner for the media WebSocket — driving it means sending a `start` frame and then provider-encoded audio. Use a browser `websocket` agent to exercise the pipeline itself, and use this curl to verify only the answer path.
 
 <Warning>
-For a real call the provider must reach both URLs from the public internet, over HTTPS and WSS. `VOICE_SERVER_BASE_URL` must be your public host, not `localhost`, and neither route is authenticated. See [Public voice URLs](../../guides/deployment/public-voice-urls.md) and [Security hardening](../../guides/deployment/security-hardening.md).
+For a real call the provider must reach both URLs from the public internet, over HTTPS and WSS. `VOICE_SERVER_BASE_URL` must be your public host, not `localhost`, and neither route is authenticated. See [Public voice URLs](../../guides/deployment/public-voice-urls) and [Security hardening](../../guides/deployment/security-hardening).
 </Warning>
 
 ## Related
 
-* [Connecting a client](index.md)
-* [Telephony model](../../guides/concepts/telephony-model.md)
-* [Browser WebSocket agents](browser-websocket.md)
-* [WebSocket API](../../api-reference/websocket-api.md)
-* [Telephony troubleshooting](../../guides/troubleshooting/telephony.md)
+* [Connecting a client](index)
+* [Telephony model](../../guides/concepts/telephony-model)
+* [Browser WebSocket agents](browser-websocket)
+* [WebSocket API](../../api-reference/websocket-api)
+* [Telephony troubleshooting](../../guides/troubleshooting/telephony)

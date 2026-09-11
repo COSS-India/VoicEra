@@ -44,5 +44,5 @@ A `404` on a resource you know exists usually means your token's active organisa
 
 ## Related
 
-* [Authentication](authentication.md)
-* [Troubleshooting](../guides/troubleshooting/index.md)
+* [Authentication](authentication)
+* [Troubleshooting](../guides/troubleshooting/index)

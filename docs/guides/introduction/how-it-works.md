@@ -3,7 +3,7 @@ title: How it works
 description: What happens, end to end, when a call reaches a VoicEra agent.
 ---
 
-This page follows one call from the moment a phone rings to the moment the transcript lands in storage. It is the narrative version; [Data flow](../concepts/data-flow.md) has the rigorous diagrams and [Voice pipeline](../concepts/voice-pipeline.md) walks through how the pipeline itself is built.
+This page follows one call from the moment a phone rings to the moment the transcript lands in storage. It is the narrative version; [Data flow](../concepts/data-flow) has the rigorous diagrams and [Voice pipeline](../concepts/voice-pipeline) walks through how the pipeline itself is built.
 
 ## The four moving parts
 
@@ -55,11 +55,11 @@ An inbound call triggers a webhook to the runtime's `/answer` endpoint, carrying
 
 ### 2. The runtime loads the agent
 
-Before answering, the runtime asks the API for the agent's configuration and the organisation's provider credentials. It has no standing credentials of its own: it authenticates with a shared internal key, receives a short-lived token, and gets back only what that organisation is entitled to. See [Provider credentials](../../developer/reference/provider-auth.md).
+Before answering, the runtime asks the API for the agent's configuration and the organisation's provider credentials. It has no standing credentials of its own: it authenticates with a shared internal key, receives a short-lived token, and gets back only what that organisation is entitled to. See [Provider credentials](../../developer/reference/provider-auth).
 
 ### 3. The pipeline starts
 
-With config in hand, the runtime builds three services — speech-to-text, a language model, and text-to-speech — from the [provider registry](../../developer/reference/provider-registry.md), and assembles them into a Pipecat pipeline. Audio flows in one side, audio flows out the other.
+With config in hand, the runtime builds three services — speech-to-text, a language model, and text-to-speech — from the [provider registry](../../developer/reference/provider-registry), and assembles them into a Pipecat pipeline. Audio flows in one side, audio flows out the other.
 
 The agent usually speaks first, with the greeting from its prompts.
 
@@ -72,7 +72,7 @@ Each turn is the same loop, running continuously rather than in discrete steps:
 * The language model streams its reply token by token.
 * Text-to-speech begins speaking before the full reply exists.
 
-That overlap is what keeps the response at sub-2-second latency. If the caller interrupts, playback stops and the agent listens — see barge-in in [Voice pipeline](../concepts/voice-pipeline.md).
+That overlap is what keeps the response at sub-2-second latency. If the caller interrupts, playback stops and the agent listens — see barge-in in [Voice pipeline](../concepts/voice-pipeline).
 
 ### 5. The call ends
 
@@ -80,9 +80,9 @@ When either side hangs up — or the agent decides it is done — the runtime wr
 
 ## Outbound calls
 
-Outbound reverses only the first step. Something asks the API to place a call; the API checks the organisation is not already running its max number of simultaneous calls — a [concurrency slot](../../developer/reference/call-concurrency.md) — records the call, and asks the provider to dial. When the callee answers, the provider hits `/answer` and everything proceeds identically.
+Outbound reverses only the first step. Something asks the API to place a call; the API checks the organisation is not already running its max number of simultaneous calls — a [concurrency slot](../../developer/reference/call-concurrency) — records the call, and asks the provider to dial. When the callee answers, the provider hits `/answer` and everything proceeds identically.
 
-Campaigns are outbound calls at volume, with a queue, retries, and an automatic cutoff in front: once enough calls have been placed to judge, if too many of them are failing the campaign pauses itself instead of burning through the rest of the list. See [Campaigns](../concepts/campaigns.md).
+Campaigns are outbound calls at volume, with a queue, retries, and an automatic cutoff in front: once enough calls have been placed to judge, if too many of them are failing the campaign pauses itself instead of burning through the rest of the list. See [Campaigns](../concepts/campaigns).
 
 ## Where your data lives
 
@@ -95,7 +95,7 @@ Everything stays on infrastructure you control:
 | Knowledge-base vectors | Chroma, on your disk |
 | Provider credentials | FerretDB, Fernet-encrypted |
 
-The only data that leaves your network is the audio and text sent to whichever model vendors you choose, one turn at a time. Run the [model server](../../developer/model-server/overview.md) on your own hardware and even that stays in-house.
+The only data that leaves your network is the audio and text sent to whichever model vendors you choose, one turn at a time. Run the [model server](../../developer/model-server/overview) on your own hardware and even that stays in-house.
 
 ## Where the models run
 
@@ -109,7 +109,7 @@ The choice is per agent, and changing it is a configuration edit. You can also r
 
 ## Where next
 
-* [Use cases](use-cases.md)
-* [Install and run](../quickstart/install-and-run.md)
-* [Architecture](../concepts/architecture.md)
-* [Voice pipeline](../concepts/voice-pipeline.md)
+* [Use cases](use-cases)
+* [Install and run](../quickstart/install-and-run)
+* [Architecture](../concepts/architecture)
+* [Voice pipeline](../concepts/voice-pipeline)

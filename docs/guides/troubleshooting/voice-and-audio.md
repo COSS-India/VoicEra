@@ -17,8 +17,8 @@ docker compose logs runtime --tail 100
 
 | What the logs show | Cause |
 | --- | --- |
-| No `/answer` request | The provider never reached you. See [Telephony](telephony.md). |
-| `/answer` served, no WebSocket | The provider could not open the WSS URL — usually TLS or a proxy that does not upgrade. See [Public voice URLs](../deployment/public-voice-urls.md). |
+| No `/answer` request | The provider never reached you. See [Telephony](telephony). |
+| `/answer` served, no WebSocket | The provider could not open the WSS URL — usually TLS or a proxy that does not upgrade. See [Public voice URLs](../deployment/public-voice-urls). |
 | WebSocket opened, then an exception | The pipeline failed to build. Read on. |
 
 ### The pipeline fails to build
@@ -57,7 +57,7 @@ Almost always a **sample-rate mismatch**. VoicEra uses two different rates on pu
 
 Audio played at the wrong rate sounds too fast and high (played faster than recorded) or too slow and deep. If you changed either value, change it back — `8000` is what telephony carriers deliver, and raising it does not add detail that was never there.
 
-Self-hosted TTS adds a second possibility: the model returned a format the runtime did not expect. See [TTS models](../../developer/model-server/tts-models.md).
+Self-hosted TTS adds a second possibility: the model returned a format the runtime did not expect. See [TTS models](../../developer/model-server/tts-models).
 
 ## Interruption problems
 
@@ -69,7 +69,7 @@ Barge-in is gated by `interruption_min_words` — the caller must produce at lea
 
 `ignore_user_speech_before_greeting` exists for exactly this: on noisy lines, the greeting's own audio or line noise can register as speech. Set it `true` to protect the greeting.
 
-See [Agent configuration](../../developer/reference/agent-configuration.md) for the full behaviour table.
+See [Agent configuration](../../developer/reference/agent-configuration) for the full behaviour table.
 
 ## Hold messages never play
 
@@ -95,7 +95,7 @@ Expected budget is sub-2-second latency per turn. When it is worse:
 | --- | --- |
 | The language model | Largest single contributor. Try a smaller or faster model. |
 | Provider region | A vendor endpoint far from your server adds a round trip per turn. |
-| Self-hosted models | A cold model is slow on the first call. Check GPU utilisation — see [Running on GPUs](../../developer/model-server/gpu-operations.md). |
+| Self-hosted models | A cold model is slow on the first call. Check GPU utilisation — see [Running on GPUs](../../developer/model-server/gpu-operations). |
 | Knowledge base | `context` mode retrieves on every turn; `tool` mode only when the model asks. |
 
 ## No transcript or recording
@@ -118,6 +118,6 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ## Where next
 
-* [Voice pipeline](../concepts/voice-pipeline.md)
-* [Agent configuration](../../developer/reference/agent-configuration.md)
-* [Telephony](telephony.md)
+* [Voice pipeline](../concepts/voice-pipeline)
+* [Agent configuration](../../developer/reference/agent-configuration)
+* [Telephony](telephony)

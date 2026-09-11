@@ -5,7 +5,7 @@ description: Build a phone agent step by step, no config files.
 
 An "agent" is one phone assistant — its own voice, its own script, its own phone number if you want one. You can create as many as you need (one per department, one per language, whatever fits).
 
-Make sure you've [connected at least one AI service](sign-up.md#2-connect-your-ai-services) first, or several steps below will have nothing to choose from.
+Make sure you've [connected at least one AI service](sign-up#2-connect-your-ai-services) first, or several steps below will have nothing to choose from.
 
 ## Start the wizard
 
@@ -33,7 +33,7 @@ This step also has a toggle for whether the agent should ignore anything the cal
 Pick the language(s) your agent should speak, then choose which connected provider handles the transcriber (speech-to-text), the language model, and the voice (text-to-speech).
 
 <Note>
-Only vendors you connected on the [Integrations page](sign-up.md#2-connect-your-ai-services) show up here. If a dropdown looks empty, go back and connect a vendor for that role first.
+Only vendors you connected on the [Integrations page](sign-up#2-connect-your-ai-services) show up here. If a dropdown looks empty, go back and connect a vendor for that role first.
 </Note>
 
 ![Engine step: language, transcriber, language model, voice](images/wizard-engine-step.png)
@@ -44,7 +44,7 @@ Choose how this agent will be reached: a telephony provider like Plivo, or **Web
 
 ![Delivery step: Plivo, Vobiz, or WebSocket](images/wizard-delivery-step.png)
 
-You can always change this later — see [Add a phone number](make-a-call.md#add-a-phone-number).
+You can always change this later — see [Add a phone number](make-a-call#add-a-phone-number).
 
 ## Call: timing and hold behavior
 
@@ -60,16 +60,16 @@ Read back everything you've set up. When it looks right, click **Finish** — th
 
 ![Review step, with a live test call ready to start](images/wizard-review-step.png)
 
-See [Test and call with your agent](make-a-call.md) for what to expect from that test call.
+See [Test and call with your agent](make-a-call) for what to expect from that test call.
 
 ## If something isn't working
 
 | Problem | What it usually means |
 | --- | --- |
-| A dropdown for AI services is empty | You haven't connected a vendor for that role — see [Sign up and get set up](sign-up.md#2-connect-your-ai-services). |
+| A dropdown for AI services is empty | You haven't connected a vendor for that role — see [Sign up and get set up](sign-up#2-connect-your-ai-services). |
 | The "Next" button stays greyed out | A required field on that step is still empty — the page usually tells you which one. |
 | You picked a template but still can't save | Templates set the script and language, but not AI services — go back to the Engine step and choose them. |
 
 ## Next
 
-[Test and call with your agent](make-a-call.md)
+[Test and call with your agent](make-a-call)
