@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ...registry import register_llm, register_stt, register_tts, llm_settings
 from .config import SarvamLLMConfig, SarvamSTTConfig, SarvamTTSConfig
+from .catalog import DEFAULT_LLM_BASE_URL
 
 
 @register_stt
@@ -37,6 +38,7 @@ def create_llm(cfg: SarvamLLMConfig):
 
     return SarvamLLMService(
         api_key=cfg.api_key,
-        settings=SarvamLLMSettings(**llm_settings(cfg)),
+        base_url=DEFAULT_LLM_BASE_URL,
+        settings=SarvamLLMSettings(**llm_settings(cfg))
     )
 

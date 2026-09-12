@@ -10,6 +10,7 @@ from ...capabilities import expand_settings
 # Do NOT add a model here that the service rejects — it causes hard failures at pipeline start.
 LLM_MODELS: tuple[str, ...] = ("sarvam-105b",)
 DEFAULT_LLM_MODEL = "sarvam-105b"
+DEFAULT_LLM_BASE_URL = "https://api.sarvam.ai/v1"
 
 # --- STT ---
 _SAARIKA_LANGUAGES = {
