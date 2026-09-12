@@ -212,6 +212,13 @@ async def _run_vi_session(
             cli,
             dni,
         )
+        logger.info(
+            "VI pipeline starting: agent={} org_id={} call_log_id={} provider_call_sid={}",
+            agent_id,
+            org_id,
+            call_id,
+            call_sid,
+        )
 
         await run_telephony_bot(
             websocket,
@@ -222,6 +229,12 @@ async def _run_vi_session(
             call_id=call_id,
             agent=agent,
             sample_rate=VI_SAMPLE_RATE,
+        )
+        logger.info(
+            "VI pipeline finished: agent={} call_id={} room_id={}",
+            agent_id,
+            call_sid,
+            stream_sid,
         )
 
     except (asyncio.TimeoutError, TimeoutError):

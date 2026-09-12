@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -33,6 +34,8 @@ from apps.telephony.providers.vi.obd_client import (
 logger = logging.getLogger(__name__)
 
 CONCURRENT_SLOT_TIMEOUT = 120.0
+VI_STATUS_POLL_SECS = int(os.environ.get("VI_OBD_STATUS_POLL_SECS", "30"))
+VI_STATUS_POLL_MAX_ROUNDS = int(os.environ.get("VI_OBD_STATUS_POLL_MAX_ROUNDS", "120"))
 
 
 class CampaignCallDispatcher:
@@ -127,9 +130,19 @@ class CampaignCallDispatcher:
             limit=claim_limit,
         )
         if not queued_runs:
+            logger.info(
+                "Campaign %s: no queued runs to process (provider=%s)",
+                campaign_id,
+                provider,
+            )
             return 0
 
         if provider == "vi":
+            logger.info(
+                "VI campaign %s: processing batch of %d queued runs",
+                campaign_id[:8],
+                len(queued_runs),
+            )
             return await self._process_vi_batch(campaign, queued_runs)
 
         processed_count = 0
@@ -221,12 +234,25 @@ class CampaignCallDispatcher:
 
         msisdns = [m for _, m in valid]
         window_hours = max(1.0, math.ceil(len(msisdns) / 50.0))
+        logger.info(
+            "VI campaign %s: starting OBD for %d contacts (window_hours=%.1f)",
+            campaign_id[:8],
+            len(msisdns),
+            window_hours,
+        )
 
         def _obd_run() -> dict[str, Any]:
             client = ViObdClient.from_env()
             token, _ = client.get_auth_token()
             flow_id = get_flow_id()
             dni, dni_source, _ = client.resolve_dni(token, flow_id)
+            logger.info(
+                "VI campaign %s: resolved DNI %s via %s for %d contacts",
+                campaign_id[:8],
+                dni,
+                dni_source,
+                len(msisdns),
+            )
             create_response = client.create_campaign(
                 token,
                 flow_id=flow_id,
@@ -235,17 +261,26 @@ class CampaignCallDispatcher:
                 window_hours=window_hours,
             )
             campain_key = ViObdClient._campain_key_from_response(create_response)
+            campaign_ref_id = create_response.get("campaign_Ref_ID")
+            logger.info(
+                "VI campaign %s: createCampaign ok campaign_Ref_ID=%s campainKey=%s",
+                campaign_id[:8],
+                campaign_ref_id,
+                campain_key,
+            )
             client.upload_call_list_bulk(token, campain_key, dni, msisdns)
             return {
                 "dni": dni,
                 "dni_source": dni_source,
                 "campainKey": campain_key,
-                "campaign_Ref_ID": create_response.get("campaign_Ref_ID"),
+                "campaign_Ref_ID": campaign_ref_id,
+                "token": token,
             }
 
         try:
             obd_result = await asyncio.to_thread(_obd_run)
         except ViObdError as exc:
+            logger.error("VI campaign %s worker failed: %s", campaign_id[:8], exc)
             for queued_run, _ in valid:
                 repo.update_queued_run(
                     str(queued_run["queued_run_id"]),
@@ -253,17 +288,32 @@ class CampaignCallDispatcher:
                     processed_at=datetime.now(timezone.utc).isoformat(),
                 )
             raise OutboundCallError(str(exc), status_code=502) from exc
+        except Exception as exc:
+            logger.error(
+                "VI campaign %s worker unexpected error: %s", campaign_id[:8], exc
+            )
+            await self._return_unprocessed_claims(queued_runs, set())
+            raise
 
         campaign_ref = obd_result.get("campaign_Ref_ID")
+        campain_key = obd_result.get("campainKey")
         dni = str(obd_result.get("dni") or "")
         now = datetime.now(timezone.utc).isoformat()
         processed_count = 0
 
         metadata = dict(campaign.get("orchestrator_metadata") or {})
         metadata["vi_campaign_ref_id"] = campaign_ref
-        metadata["vi_campain_key"] = obd_result.get("campainKey")
+        metadata["vi_campain_key"] = campain_key
         metadata["vi_dni"] = dni
+        metadata["vi_current_status"] = "Created"
         repo.update_campaign(campaign_id, orchestrator_metadata=metadata)
+
+        logger.info(
+            "VI campaign %s: campaign_Ref_ID=%s ingested %d numbers",
+            campaign_id[:8],
+            campaign_ref,
+            len(msisdns),
+        )
 
         for queued_run, msisdn in valid:
             qid = str(queued_run["queued_run_id"])
@@ -319,6 +369,14 @@ class CampaignCallDispatcher:
                     processed_at=now,
                 )
                 processed_count += 1
+                logger.info(
+                    "VI campaign %s: CallLog created call_id=%s msisdn=%s "
+                    "campaign_Ref_ID=%s",
+                    campaign_id[:8],
+                    call_id,
+                    msisdn,
+                    campaign_ref,
+                )
             except Exception as exc:
                 logger.warning("VI campaign CallLog failed for %s: %s", qid, exc)
                 repo.update_queued_run(
@@ -329,13 +387,140 @@ class CampaignCallDispatcher:
 
         current_processed = int(campaign.get("processed_rows") or 0) + processed_count
         repo.update_campaign(campaign_id, processed_rows=current_processed)
-        logger.info(
-            "VI campaign %s: campaign_Ref_ID=%s ingested %d numbers",
-            campaign_id[:8],
-            campaign_ref,
-            processed_count,
+
+        await self._poll_vi_campaign_status(
+            campaign_id=campaign_id,
+            campaign_ref_id=campaign_ref,
+            campain_key=str(campain_key or ""),
+            expected_count=len(msisdns),
+            token=str(obd_result.get("token") or ""),
         )
+
         return processed_count
+
+    async def _poll_vi_campaign_status(
+        self,
+        *,
+        campaign_id: str,
+        campaign_ref_id: Any,
+        campain_key: str,
+        expected_count: int,
+        token: str,
+    ) -> None:
+        """Poll VI campaignstatus and log dial progress (mono BatchWorker parity)."""
+        if campaign_ref_id is None and not campain_key:
+            logger.warning(
+                "VI campaign %s: skipping status poll (no campaign_Ref_ID/campainKey)",
+                campaign_id[:8],
+            )
+            return
+
+        if VI_STATUS_POLL_MAX_ROUNDS <= 0:
+            logger.info(
+                "VI campaign %s: status poll disabled (VI_OBD_STATUS_POLL_MAX_ROUNDS=%s)",
+                campaign_id[:8],
+                VI_STATUS_POLL_MAX_ROUNDS,
+            )
+            return
+
+        logger.info(
+            "VI campaign %s: starting status poll campaign_Ref_ID=%s "
+            "(interval=%ss max_rounds=%s expected=%d)",
+            campaign_id[:8],
+            campaign_ref_id,
+            VI_STATUS_POLL_SECS,
+            VI_STATUS_POLL_MAX_ROUNDS,
+            expected_count,
+        )
+
+        def _status_once() -> tuple[dict[str, Any], str]:
+            client = ViObdClient.from_env()
+            auth_token = token
+            if not auth_token:
+                auth_token, _ = client.get_auth_token()
+            try:
+                return client.get_campaign_status_with_fallback(
+                    auth_token,
+                    campaign_ref_id,
+                    campain_key=campain_key or None,
+                )
+            except ViObdError:
+                # Token may have expired during a long poll — refresh once.
+                auth_token, _ = client.get_auth_token()
+                return client.get_campaign_status_with_fallback(
+                    auth_token,
+                    campaign_ref_id,
+                    campain_key=campain_key or None,
+                )
+
+        for round_idx in range(1, VI_STATUS_POLL_MAX_ROUNDS + 1):
+            latest = repo.get_campaign_by_id(campaign_id) or {}
+            state = str(latest.get("state") or "")
+            if state in ("paused", "stopped", "failed", "completed", "cancelled"):
+                logger.info(
+                    "VI campaign %s: stopping status poll early (state=%s)",
+                    campaign_id[:8],
+                    state,
+                )
+                return
+
+            try:
+                status_body, id_kind = await asyncio.to_thread(_status_once)
+            except ViObdError as exc:
+                logger.warning(
+                    "VI campaign %s status poll failed (round=%d): %s",
+                    campaign_id[:8],
+                    round_idx,
+                    exc,
+                )
+            else:
+                data = status_body.get("data") or {}
+                base_details = data.get("baseDetails") or {}
+                current_status = data.get("currentStatus")
+                attempted = int(base_details.get("totalCallInitiated") or 0)
+                successful = int(base_details.get("totalCallsConnected") or 0)
+                failed = int(base_details.get("totalCallsNotConnected") or 0)
+                remaining = int(base_details.get("remainingNumbersInQueue") or 0)
+
+                logger.info(
+                    "VI campaign %s status: round=%d id_kind=%s currentStatus=%s "
+                    "initiated=%s connected=%s not_connected=%s remaining=%s",
+                    campaign_id[:8],
+                    round_idx,
+                    id_kind,
+                    current_status,
+                    attempted,
+                    successful,
+                    failed,
+                    remaining,
+                )
+
+                metadata = dict(latest.get("orchestrator_metadata") or {})
+                metadata["vi_current_status"] = current_status
+                metadata["vi_base_details"] = base_details
+                metadata["vi_attempted_calls"] = max(attempted, expected_count)
+                metadata["vi_successful_calls"] = successful
+                metadata["vi_failed_calls"] = failed
+                repo.update_campaign(campaign_id, orchestrator_metadata=metadata)
+
+                if remaining == 0 and attempted >= expected_count:
+                    logger.info(
+                        "VI campaign %s: OBD dialing finished "
+                        "(initiated=%s connected=%s not_connected=%s)",
+                        campaign_id[:8],
+                        attempted,
+                        successful,
+                        failed,
+                    )
+                    return
+
+            await asyncio.sleep(VI_STATUS_POLL_SECS)
+
+        logger.warning(
+            "VI campaign %s: status poll reached max rounds (%s) without completion",
+            campaign_id[:8],
+            VI_STATUS_POLL_MAX_ROUNDS,
+        )
 
     async def _return_unprocessed_claims(
         self,
@@ -371,6 +556,14 @@ class CampaignCallDispatcher:
         if from_number is None:
             raise PhoneNumberPoolExhaustedError(organization_id=org_id)
 
+        logger.info(
+            "Campaign %s: dispatching call queued_run=%s to=%s from=%s",
+            campaign_id[:8],
+            queued_run_id,
+            phone_number,
+            from_number,
+        )
+
         variables = {k: v for k, v in context.items() if k != "phone_number"}
         variables.update(
             {
@@ -403,8 +596,22 @@ class CampaignCallDispatcher:
                 await rate_limiter.store_call_from_number_mapping(
                     call_id, org_id, from_number, pool_scope
                 )
+            logger.info(
+                "Campaign %s: outbound triggered call_id=%s queued_run=%s to=%s",
+                campaign_id[:8],
+                call_id,
+                queued_run_id,
+                phone_number,
+            )
             return result
-        except Exception:
+        except Exception as exc:
+            logger.error(
+                "Campaign %s: dispatch failed queued_run=%s to=%s error=%s",
+                campaign_id[:8],
+                queued_run_id,
+                phone_number,
+                exc,
+            )
             if slot_bound and call_id:
                 await call_concurrency.release_call_slot(call_id)
             else:

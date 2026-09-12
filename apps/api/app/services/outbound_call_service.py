@@ -144,9 +144,22 @@ async def _dial_vi_outbound(
     try:
         queued = await asyncio.to_thread(_run)
     except ViObdError as exc:
+        logger.error(
+            "VI OBD dial failed: agent=%s to_number=%s error=%s",
+            agent_id,
+            to_number,
+            exc,
+        )
         raise OutboundCallError(str(exc), status_code=502) from exc
 
     campaign_ref = queued.get("campaign_Ref_ID")
+    logger.info(
+        "VI OBD call queued: agent=%s msisdn=%s campaign_Ref_ID=%s dni=%s",
+        agent_id,
+        queued.get("msisdn") or to_number,
+        campaign_ref,
+        queued.get("dni"),
+    )
     return {
         "status": "success",
         "message": queued.get("message") or "VI outbound queued",
@@ -173,6 +186,7 @@ async def initiate_outbound_call(
         raise OutboundCallError(str(exc), status_code=404) from exc
 
     provider = _require_telephony_agent(agent)
+    logger.info("Outbound provider=%s agent_id=%s", provider, agent_id)
     normalized_to = _normalize_phone(to_number, field="to_number")
     normalized_from = _resolve_from_number(
         org_id, agent_id, agent, from_number, provider=provider
@@ -184,6 +198,14 @@ async def initiate_outbound_call(
 
     call_id = str(uuid.uuid4())
     now = _now_iso()
+    logger.info(
+        "Outbound call initiated: call_id=%s agent=%s to=%s from=%s provider=%s",
+        call_id,
+        agent_id,
+        normalized_to,
+        normalized_from,
+        provider,
+    )
 
     call_doc: dict[str, Any] = {
         "call_id": call_id,
@@ -213,6 +235,12 @@ async def initiate_outbound_call(
         try:
             result = await _dial_vi_outbound(agent_id=agent_id, to_number=normalized_to)
         except OutboundCallError as exc:
+            logger.error(
+                "Outbound call failed: call_id=%s agent=%s provider=vi error=%s",
+                call_id,
+                agent_id,
+                exc.message,
+            )
             call_log_service.update_call_log(
                 call_id,
                 {
@@ -224,6 +252,12 @@ async def initiate_outbound_call(
             raise
         except Exception as exc:
             message = str(exc) or "VI OBD dial failed"
+            logger.error(
+                "Outbound call failed: call_id=%s agent=%s provider=vi error=%s",
+                call_id,
+                agent_id,
+                message,
+            )
             call_log_service.update_call_log(
                 call_id,
                 {
@@ -249,6 +283,15 @@ async def initiate_outbound_call(
                 "provider_call_sid": provider_call_sid,
                 "from_number": normalized_from,
             },
+        )
+        logger.info(
+            "Outbound call queued/ringing: call_id=%s provider_call_sid=%s "
+            "agent=%s to=%s from=%s",
+            call_id,
+            provider_call_sid,
+            agent_id,
+            normalized_to,
+            normalized_from,
         )
         return {
             "call_id": call_id,
@@ -312,6 +355,16 @@ async def initiate_outbound_call(
             "status": "ringing",
             "provider_call_sid": provider_call_sid,
         },
+    )
+    logger.info(
+        "Outbound call ringing: call_id=%s provider=%s provider_call_sid=%s "
+        "agent=%s to=%s from=%s",
+        call_id,
+        provider,
+        provider_call_sid,
+        agent_id,
+        normalized_to,
+        normalized_from,
     )
 
     return {

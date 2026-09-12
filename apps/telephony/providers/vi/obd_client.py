@@ -431,6 +431,13 @@ class ViObdClient:
 
         total_rows = 0
         chunk_results: list[dict] = []
+        logger.info(
+            "VI OBD bulk ingest start: campainKey=%s dni=%s numbers=%d chunks=%d",
+            campain_key,
+            dni,
+            len(normalized),
+            len(chunks),
+        )
         for index, chunk in enumerate(chunks):
             payload = self._build_bulk_ingestion_payload(campain_key, dni, chunk)
             body, status = self._request(
@@ -465,7 +472,20 @@ class ViObdClient:
             data = body.get("data") or {}
             rows = data.get("rowsAffected")
             total_rows += int(rows) if isinstance(rows, int) else len(chunk)
+            logger.info(
+                "VI OBD bulk ingest chunk %d/%d ok: rows=%s (HTTP %s)",
+                index + 1,
+                len(chunks),
+                rows if rows is not None else len(chunk),
+                status,
+            )
 
+        logger.info(
+            "VI OBD bulk ingest complete: campainKey=%s total_msisdns=%d rowsAffected=%d",
+            campain_key,
+            len(normalized),
+            total_rows,
+        )
         return {
             "data": {"rowsAffected": total_rows, "status": "success"},
             "_chunks": chunk_results,
@@ -553,6 +573,11 @@ class ViObdClient:
         window_hours: float = 1.0,
     ) -> dict:
         """Auth → resolve DNI → createCampaign → ingest one number."""
+        logger.info(
+            "VI OBD place_single_outbound_call start: agent=%s msisdn=%s",
+            agent_id,
+            msisdn,
+        )
         token, _auth = self.get_auth_token()
         flow = flow_id or get_flow_id()
         dni, dni_source, dni_list = self.resolve_dni(token, flow)
@@ -563,17 +588,38 @@ class ViObdClient:
         campaign_name = name or (
             f"test-{agent_id}-{datetime.now(IST).strftime('%Y%m%d-%H%M%S')}"
         )
+        logger.info(
+            "VI OBD createCampaign: agent=%s name=%s flow_id=%s dni=%s (%s) msisdn=%s",
+            agent_id,
+            campaign_name,
+            flow,
+            dni,
+            dni_source,
+            msisdn_norm,
+        )
         create_response = self.create_campaign(
             token,
             flow_id=flow,
             name=campaign_name,
             window_hours=window_hours,
         )
+        campaign_ref = create_response.get("campaign_Ref_ID")
+        logger.info(
+            "VI OBD createCampaign ok: campaign_Ref_ID=%s campainKey=%s",
+            campaign_ref,
+            create_response.get("campainKey") or create_response.get("campaignKey"),
+        )
         ingest_response, payload_shape = self.upload_call_list_with_fallback(
             token,
             create_response,
             dni,
             msisdn_norm,
+        )
+        logger.info(
+            "VI OBD ingest ok: campaign_Ref_ID=%s msisdn=%s payload_shape=%s",
+            campaign_ref,
+            msisdn_norm,
+            payload_shape,
         )
 
         return {
@@ -585,7 +631,7 @@ class ViObdClient:
             "dni_source": dni_source,
             "dni_list": dni_list,
             "campainKey": create_response.get("campainKey"),
-            "campaign_Ref_ID": create_response.get("campaign_Ref_ID"),
+            "campaign_Ref_ID": campaign_ref,
             "payload_shape": payload_shape,
             "message": (
                 "Call queued in VI OBD campaign — VI will dial within the active time window."

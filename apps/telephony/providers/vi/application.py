@@ -8,11 +8,14 @@ so agent provisioning and number attach can succeed without ProviderAuth.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
 from apps.telephony.base import fail, success
 from apps.telephony.providers.vi.obd_client import ViObdClient, ViObdError
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from apps.telephony.providers.vi.client import ViClient
@@ -117,6 +120,11 @@ async def initiate_call(
     """Queue a single outbound via VI OBD (1-row campaign)."""
     del client, from_number, answer_method, hangup_url, hangup_method
     agent_id = _agent_id_from_answer_url(answer_url)
+    logger.info(
+        "VI application.initiate_call: agent=%s to_number=%s",
+        agent_id,
+        to_number,
+    )
 
     def _run() -> dict:
         obd = ViObdClient.from_env()
@@ -125,9 +133,22 @@ async def initiate_call(
     try:
         result = await asyncio.to_thread(_run)
     except ViObdError as exc:
+        logger.error(
+            "VI application.initiate_call failed: agent=%s to_number=%s error=%s",
+            agent_id,
+            to_number,
+            exc,
+        )
         return fail(str(exc))
 
     campaign_ref = result.get("campaign_Ref_ID")
+    logger.info(
+        "VI OBD call queued: agent=%s msisdn=%s campaign_Ref_ID=%s dni=%s",
+        agent_id,
+        result.get("msisdn") or to_number,
+        campaign_ref,
+        result.get("dni"),
+    )
     return success(
         str(result.get("message") or "VI outbound queued"),
         call_uuid=str(campaign_ref) if campaign_ref is not None else None,
