@@ -84,6 +84,17 @@ def validate_persisted_model_config(kind: Kind, data: dict[str, Any]) -> dict[st
     return {key: value for key, value in dumped.items() if value is not None}
 
 
+def _validate_agent_models(models: AgentModels, *, label: str) -> AgentModels:
+    try:
+        return AgentModels(
+            stt_config=validate_persisted_model_config(Kind.STT, models.stt_config),
+            tts_config=validate_persisted_model_config(Kind.TTS, models.tts_config),
+            llm_config=validate_persisted_model_config(Kind.LLM, models.llm_config),
+        )
+    except AgentConfigValidationError as exc:
+        raise AgentConfigValidationError(f"{label}: {exc}") from exc
+
+
 def _validate_knowledge_base(
     kb: AgentKnowledgeBase,
     *,
@@ -140,19 +151,34 @@ def validate_agent_config(
                 "custom_variables keys must be non-empty strings"
             )
 
-    models = AgentModels(
-        stt_config=validate_persisted_model_config(
-            Kind.STT, config.models.stt_config
-        ),
-        tts_config=validate_persisted_model_config(
-            Kind.TTS, config.models.tts_config
-        ),
-        llm_config=validate_persisted_model_config(
-            Kind.LLM, config.models.llm_config
-        ),
-    )
+    # model_validator already normalized language_models ↔ models.
+    language_models = config.language_models or {}
+    if not language_models:
+        raise AgentConfigValidationError(
+            "language_models (or legacy models) is required"
+        )
 
-    llm_provider = str(models.llm_config.get("provider") or "")
+    if primary not in language_models:
+        raise AgentConfigValidationError(
+            f"language_models must include an entry for primary language {primary!r}"
+        )
+
+    # Secondary languages without a language_models entry are allowed for
+    # legacy agents (models-only payloads). Runtime switch_language rejects
+    # those ids — it never silently falls back.
+    validated_language_models: dict[str, AgentModels] = {}
+    for lang_id, stack in language_models.items():
+        cleaned = (lang_id or "").strip()
+        if not cleaned:
+            raise AgentConfigValidationError(
+                "language_models keys must be non-empty language ids"
+            )
+        validated_language_models[cleaned] = _validate_agent_models(
+            stack, label=f"language_models[{cleaned!r}]"
+        )
+
+    primary_models = validated_language_models[primary]
+    llm_provider = str(primary_models.llm_config.get("provider") or "")
     knowledge_base = _validate_knowledge_base(
         config.knowledge_base,
         org_id=org_id,
@@ -165,7 +191,8 @@ def validate_agent_config(
                 update={"greeting_message": greeting}
             ),
             "language": config.language.model_copy(update={"primary": primary}),
-            "models": models,
+            "language_models": validated_language_models,
+            "models": primary_models,
             "knowledge_base": knowledge_base,
         }
     )

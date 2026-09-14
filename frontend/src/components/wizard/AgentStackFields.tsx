@@ -35,6 +35,8 @@ export interface StackFieldsValue {
   /** Values for the selected LLM model's own extra fields (temperature, max_tokens, base_url, …). */
   llmExtra: Record<string, unknown>;
   voice: string;
+  /** Per-language TTS voice ids keyed by canonical language id. */
+  voicesByLang: Record<string, string>;
 }
 
 /** Same searchable, fixed-width dropdown used for provider pickers — plain
@@ -239,11 +241,15 @@ export function AgentStackFields({
   const sttModels = modelOptionsFromSettings(catalogs.sttSettings);
   const ttsModels = modelOptionsFromSettings(catalogs.ttsSettings);
   // Provider settings can vary by (model, language) via `capabilities` — the
-  // primary language is what everything below resolves against.
+  // primary language is what shared STT/LLM knobs resolve against.
   const primaryLang = value.langs[0];
-  const voices = voiceOptionsFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
-  const voiceField = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
-  const voiceIsFreeText = voiceFieldIsFreeText(catalogs.ttsSettings, value.ttsModel, primaryLang);
+  const primaryVoices = voiceOptionsFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
+  const primaryVoiceField = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
+  const primaryVoiceIsFreeText = voiceFieldIsFreeText(
+    catalogs.ttsSettings,
+    value.ttsModel,
+    primaryLang,
+  );
   // Each provider's chosen model's own extra fields — rendered as a second
   // tier of controls once a model is picked. TTS excludes "voice" since that
   // gets its own dedicated picker/input above instead of the generic renderer.
@@ -252,6 +258,12 @@ export function AgentStackFields({
     ([key]) => key !== "voice",
   );
   const llmModelFields = resolvedModelFields(catalogs.llmSettings, value.llmModel, primaryLang);
+
+  const setVoiceForLang = (lang: string, voiceId: string) => {
+    const next = { ...value.voicesByLang, [lang]: voiceId };
+    onChange("voicesByLang", next);
+    if (lang === primaryLang) onChange("voice", voiceId);
+  };
 
   const langSummary =
     value.langs.length === 0
@@ -476,28 +488,79 @@ export function AgentStackFields({
             </label>
           ) : null}
 
-          {voices.length > 0 ? (
+          {value.langs.length > 1 ? (
+            <div className="flex flex-col gap-3">
+              <span className="text-[13px] font-medium">
+                Voice per language
+                <span className="ml-1.5 font-light text-v-muted">
+                  Each language keeps its own TTS voice when switching mid-call.
+                </span>
+              </span>
+              {value.langs.map((lang) => {
+                const voices = voiceOptionsFromSettings(catalogs.ttsSettings, value.ttsModel, lang);
+                const voiceField = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, lang);
+                const voiceIsFreeText = voiceFieldIsFreeText(
+                  catalogs.ttsSettings,
+                  value.ttsModel,
+                  lang,
+                );
+                const current =
+                  value.voicesByLang[lang] || (lang === primaryLang ? value.voice : "") || "";
+                const label = `${languageLabel(catalogs.languages, lang)}${
+                  lang === primaryLang ? " (primary)" : ""
+                }`;
+                return (
+                  <label key={lang} className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    {label}
+                    {voices.length > 0 ? (
+                      <Select value={current} onChange={(e) => setVoiceForLang(lang, e.target.value)}>
+                        <option value="">Select voice…</option>
+                        {voices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : voiceIsFreeText ? (
+                      <Input
+                        value={current}
+                        onChange={(e) => setVoiceForLang(lang, e.target.value)}
+                        placeholder={voiceField?.default ? String(voiceField.default) : "Voice id…"}
+                      />
+                    ) : (
+                      <span className="text-xs font-light text-v-muted">
+                        No voices listed for this language with the current model.
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          ) : primaryVoices.length > 0 ? (
             <label className="flex flex-col gap-1.5 text-[13px] font-medium">
               Voice
-              <Select value={value.voice} onChange={(e) => onChange("voice", e.target.value)}>
+              <Select
+                value={value.voice}
+                onChange={(e) => setVoiceForLang(primaryLang ?? "", e.target.value)}
+              >
                 <option value="">Select voice…</option>
-                {voices.map((v) => (
+                {primaryVoices.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
                   </option>
                 ))}
               </Select>
             </label>
-          ) : voiceIsFreeText ? (
+          ) : primaryVoiceIsFreeText ? (
             <label className="flex flex-col gap-1.5 text-[13px] font-medium">
               Voice ID
               <Input
                 value={value.voice}
-                onChange={(e) => onChange("voice", e.target.value)}
-                placeholder={voiceField?.default ? String(voiceField.default) : "Voice id…"}
+                onChange={(e) => setVoiceForLang(primaryLang ?? "", e.target.value)}
+                placeholder={primaryVoiceField?.default ? String(primaryVoiceField.default) : "Voice id…"}
               />
-              {voiceField?.description ? (
-                <span className="text-xs font-light text-v-muted">{voiceField.description}</span>
+              {primaryVoiceField?.description ? (
+                <span className="text-xs font-light text-v-muted">{primaryVoiceField.description}</span>
               ) : null}
             </label>
           ) : null}

@@ -113,17 +113,31 @@ export default function AgentCreationPage() {
 
   useEffect(() => {
     if (catalogs.ttsSettings) {
-      // Voice options are per (model, language) via `capabilities` — omitting
-      // these resolved against the wrong (arbitrary first) language, so a
-      // validly-picked voice for the real language kept getting judged "not
-      // in the list" and silently reset on every render.
-      const voices = voiceOptionsFromSettings(catalogs.ttsSettings, form.ttsModel, form.langs[0]);
-      if (voices.length && !form.voice) onChange("voice", voices[0]!.id);
-      else if (form.voice && !voices.some((v) => v.id === form.voice) && voices[0]) {
-        onChange("voice", voices[0].id);
-      }
+      // Voice options are per (model, language) via `capabilities`. Keep a
+      // distinct voice for every selected language so mid-call switching
+      // restores the correct TTS voice.
+      setForm((f) => {
+        let changed = false;
+        const nextVoices = { ...f.voicesByLang };
+        let nextPrimaryVoice = f.voice;
+        for (const lang of f.langs) {
+          const voices = voiceOptionsFromSettings(catalogs.ttsSettings, f.ttsModel, lang);
+          if (!voices.length) continue;
+          const current = nextVoices[lang] || (lang === f.langs[0] ? nextPrimaryVoice : "");
+          if (!current || !voices.some((v) => v.id === current)) {
+            nextVoices[lang] = voices[0]!.id;
+            changed = true;
+          }
+          if (lang === f.langs[0] && nextVoices[lang] && nextVoices[lang] !== nextPrimaryVoice) {
+            nextPrimaryVoice = nextVoices[lang]!;
+            changed = true;
+          }
+        }
+        if (!changed) return f;
+        return { ...f, voicesByLang: nextVoices, voice: nextPrimaryVoice };
+      });
     }
-  }, [catalogs.ttsSettings, form.voice, form.ttsModel, form.langs]);
+  }, [catalogs.ttsSettings, form.ttsModel, form.langs]);
 
   useEffect(() => {
     if (catalogs.sttSettings) {

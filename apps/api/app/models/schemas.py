@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 Role = Literal["super_admin", "admin", "member"]
 
@@ -302,7 +302,11 @@ class AgentConfigPayload(BaseModel):
     prompts: AgentPrompts
     behaviour: AgentBehaviour = AgentBehaviour()
     language: AgentLanguage
-    models: AgentModels
+    # Preferred: per-language STT/TTS/LLM (keyed by canonical language id).
+    language_models: dict[str, AgentModels] | None = None
+    # Legacy single-stack config. Still accepted; normalized to/from
+    # language_models[primary] so older agents and readers keep working.
+    models: AgentModels | None = None
     knowledge_base: AgentKnowledgeBase = AgentKnowledgeBase()
     custom_variables: dict[str, Any] = Field(
         default_factory=dict,
@@ -311,6 +315,50 @@ class AgentConfigPayload(BaseModel):
             "overridden by per-call custom_variables on outbound calls."
         ),
     )
+
+    @model_validator(mode="after")
+    def normalize_language_models(self) -> AgentConfigPayload:
+        """Ensure ``language_models`` and ``models`` stay in sync.
+
+        * New agents should send ``language_models`` for every configured
+          language (primary + secondary).
+        * Legacy agents that only send ``models`` are accepted: we treat that
+          blob as the primary language's stack.
+        * ``models`` is always mirrored from the primary entry so analytics and
+          older clients that read ``config.models`` keep working.
+        """
+        primary = (self.language.primary or "").strip()
+        if not primary:
+            return self
+
+        explicit = bool(self.language_models)
+        object.__setattr__(self, "_language_models_explicit", explicit)
+
+        if self.language_models:
+            if primary not in self.language_models:
+                raise ValueError(
+                    f"language_models must include an entry for primary language {primary!r}"
+                )
+            if explicit:
+                missing = [
+                    lang
+                    for lang in [primary, *self.language.secondary]
+                    if (lang or "").strip() and (lang or "").strip() not in self.language_models
+                ]
+                if missing:
+                    raise ValueError(
+                        "language_models missing entries for configured languages: "
+                        + ", ".join(missing)
+                    )
+            # Keep legacy alias populated from the primary language stack.
+            object.__setattr__(self, "models", self.language_models[primary])
+            return self
+
+        if self.models is not None:
+            object.__setattr__(self, "language_models", {primary: self.models})
+            return self
+
+        raise ValueError("config must include language_models or models")
 
 
 class AgentCreateRequest(BaseModel):
@@ -347,6 +395,27 @@ class AgentCreateRequest(BaseModel):
                             },
                         },
                         "language": {"primary": "en", "secondary": []},
+                        "language_models": {
+                            "en": {
+                                "stt_config": {
+                                    "provider": "deepgram",
+                                    "model": "nova-3-general",
+                                    "language": "en",
+                                },
+                                "tts_config": {
+                                    "provider": "cartesia",
+                                    "model": "sonic-3.5",
+                                    "language": "en",
+                                    "voice": "3faa81ae-d3d8-4ab1-9e44-e50e46d33c30",
+                                    "speed": 1.0,
+                                    "volume": 1.0,
+                                },
+                                "llm_config": {
+                                    "provider": "openai",
+                                    "model": "gpt-4.1",
+                                },
+                            }
+                        },
                         "models": {
                             "stt_config": {
                                 "provider": "deepgram",

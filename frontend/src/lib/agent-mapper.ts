@@ -3,26 +3,55 @@ import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
 import { buildModelConfigsFromCatalogs } from "@/lib/use-wizard-catalogs";
 import { DEFAULT_FORM, type AgentForm } from "@/lib/wizard-data";
 
+/** Resolve the primary-language model stack from either schema shape. */
+export function primaryModelsFromAgent(agent: AgentApiResponse): AgentApiResponse["config"]["models"] {
+  const primary = agent.config.language.primary;
+  const fromLang = agent.config.language_models?.[primary];
+  if (fromLang) return fromLang;
+  return agent.config.models;
+}
+
 export function formToAgentCreatePayload(
   form: AgentForm,
   catalogs: Pick<WizardCatalogs, "sttSettings" | "ttsSettings" | "llmSettings">,
 ): AgentCreatePayload {
   const primary = form.langs[0] ?? "en";
   const secondary = form.langs.slice(1);
+  const langs = [primary, ...secondary].filter(Boolean);
 
-  const { stt, tts, llm } = buildModelConfigsFromCatalogs(catalogs, {
-    llmModel: form.llmModel,
-    sttModel: form.sttModel,
-    ttsModel: form.ttsModel,
-    voice: form.voice,
-    primaryLang: primary,
-    sttExtra: form.sttExtra,
-    ttsExtra: form.ttsExtra,
-    llmExtra: form.llmExtra,
-  });
+  const language_models: NonNullable<AgentCreatePayload["config"]["language_models"]> = {};
 
-  if (!stt || !tts || !llm) {
-    throw new Error("Provider settings are still loading. Wait a moment and try again.");
+  for (const lang of langs) {
+    const voiceForLang =
+      form.voicesByLang[lang] ||
+      (lang === primary ? form.voice : "") ||
+      form.voice;
+
+    const { stt, tts, llm } = buildModelConfigsFromCatalogs(catalogs, {
+      llmModel: form.llmModel,
+      sttModel: form.sttModel,
+      ttsModel: form.ttsModel,
+      voice: voiceForLang,
+      primaryLang: lang,
+      sttExtra: form.sttExtra,
+      ttsExtra: form.ttsExtra,
+      llmExtra: form.llmExtra,
+    });
+
+    if (!stt || !tts || !llm) {
+      throw new Error("Provider settings are still loading. Wait a moment and try again.");
+    }
+
+    language_models[lang] = {
+      stt_config: stt,
+      tts_config: tts,
+      llm_config: llm,
+    };
+  }
+
+  const primaryStack = language_models[primary];
+  if (!primaryStack) {
+    throw new Error("Primary language model configuration is missing.");
   }
 
   const isTelephony = Boolean(form.delivery?.trim());
@@ -56,11 +85,9 @@ export function formToAgentCreatePayload(
         },
       },
       language: { primary, secondary },
-      models: {
-        stt_config: stt,
-        tts_config: tts,
-        llm_config: llm,
-      },
+      language_models,
+      // Legacy alias — mirrors primary so older readers keep working.
+      models: primaryStack,
       knowledge_base: {
         // The backend rejects enabled:true with zero document_ids — guard here
         // so flipping the "Use knowledge base" switch on before attaching any
@@ -78,8 +105,22 @@ export function formToAgentCreatePayload(
 
 /** Reverse of `formToAgentCreatePayload` — reconstructs the wizard's form shape from a saved agent. */
 export function agentToForm(agent: AgentApiResponse): AgentForm {
-  const { prompts, behaviour, language, models, knowledge_base } = agent.config;
+  const { prompts, behaviour, language, knowledge_base } = agent.config;
+  const models = primaryModelsFromAgent(agent);
   const { stt_config: stt, tts_config: tts, llm_config: llm } = models;
+
+  const langs = [language.primary, ...language.secondary].filter(Boolean);
+  const voicesByLang: Record<string, string> = {};
+  for (const lang of langs) {
+    const stack = agent.config.language_models?.[lang] ?? (lang === language.primary ? models : undefined);
+    const voice = stack?.tts_config?.voice;
+    if (typeof voice === "string" && voice) {
+      voicesByLang[lang] = voice;
+    }
+  }
+  if (!voicesByLang[language.primary] && typeof tts.voice === "string") {
+    voicesByLang[language.primary] = String(tts.voice);
+  }
 
   return {
     ...DEFAULT_FORM,
@@ -89,7 +130,7 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
     prompt: prompts.system_prompt ?? DEFAULT_FORM.prompt,
     customVariables: agent.config.custom_variables ?? {},
     ignoreGreetingSpeech: Boolean(behaviour.ignore_user_speech_before_greeting),
-    langs: [language.primary, ...language.secondary].filter(Boolean),
+    langs,
     sttProvider: String(stt.provider ?? ""),
     sttModel: String(stt.model ?? ""),
     sttExtra: Object.fromEntries(
@@ -97,7 +138,8 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
     ),
     ttsProvider: String(tts.provider ?? ""),
     ttsModel: String(tts.model ?? ""),
-    voice: String(tts.voice ?? ""),
+    voice: String(tts.voice ?? voicesByLang[language.primary] ?? ""),
+    voicesByLang,
     ttsExtra: Object.fromEntries(
       Object.entries(tts).filter(([key]) => !["provider", "model", "language", "voice"].includes(key)),
     ),

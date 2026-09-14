@@ -225,7 +225,10 @@ export interface AgentForm {
   langs: string[];
   ttsProvider: string;
   ttsModel: string;
+  /** Primary-language voice (kept for templates / single-lang UX). */
   voice: string;
+  /** Per-language TTS voice ids keyed by canonical language id. */
+  voicesByLang: Record<string, string>;
   /** Values picked for the selected TTS model's own extra fields (speed, volume, …), excluding voice. */
   ttsExtra: Record<string, unknown>;
   sttProvider: string;
@@ -265,6 +268,7 @@ export const DEFAULT_FORM: AgentForm = {
   ttsProvider: "",
   ttsModel: "",
   voice: "",
+  voicesByLang: {},
   ttsExtra: {},
   sttProvider: "",
   sttModel: "",

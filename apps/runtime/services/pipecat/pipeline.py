@@ -6,7 +6,10 @@ from typing import Any
 
 from starlette.websockets import WebSocket
 
-from apps.runtime.services.ai_service_factory import build_ai_services
+from apps.runtime.services.ai_service_factory import (
+    build_ai_services,
+    merge_language_models_with_auth,
+)
 from apps.runtime.services.pipecat.audio import prompts
 from apps.runtime.services.pipecat.config import pipeline_config_from_behaviour
 from apps.runtime.services.pipecat.events import register_all_handlers
@@ -30,7 +33,13 @@ async def run_pipeline(
     finalize_call: bool = False,
 ) -> None:
     """Shared Pipecat pipeline for telephony and browser WebSocket agents."""
-    stt, tts, llm = await build_ai_services(agent)
+    language_models = await merge_language_models_with_auth(agent)
+    primary = str(
+        ((agent.get("config") or {}).get("language") or {}).get("primary") or ""
+    ).strip()
+    stt, tts, llm = await build_ai_services(
+        agent, language=primary or None, language_models=language_models
+    )
     if call_id and hasattr(llm, "set_call_id"):
         llm.set_call_id(call_id)
     system_prompt, greeting = prompts(agent, custom_variables=custom_variables)
@@ -58,6 +67,7 @@ async def run_pipeline(
         agent=agent,
         org_id=org_id,
         behaviour=behaviour,
+        language_models=language_models,
     )
 
     if call_id:

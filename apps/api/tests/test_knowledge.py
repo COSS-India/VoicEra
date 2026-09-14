@@ -94,16 +94,19 @@ def test_validate_kb_tool_mode_rejects_unsupported_llm():
         document_ids=["doc-1"],
         mode="tool",
     )
+    assert config.models is not None
+    updated_models = config.models.model_copy(
+        update={
+            "llm_config": {
+                "provider": "openrouter",
+                "model": "gpt-4o-mini",
+            }
+        }
+    )
     config = config.model_copy(
         update={
-            "models": config.models.model_copy(
-                update={
-                    "llm_config": {
-                        "provider": "openrouter",
-                        "model": "gpt-4o-mini",
-                    }
-                }
-            )
+            "models": updated_models,
+            "language_models": {config.language.primary: updated_models},
         }
     )
     with pytest.raises(AgentConfigValidationError, match="function calling"):

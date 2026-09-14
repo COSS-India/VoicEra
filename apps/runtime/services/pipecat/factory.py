@@ -27,6 +27,7 @@ from starlette.websockets import WebSocket
 from apps.runtime.services.knowledge.setup import configure_knowledge_base
 from apps.runtime.services.pipecat.call_ending import configure_call_ending
 from apps.runtime.services.pipecat.config import PipelineConfig
+from apps.runtime.services.pipecat.language_switch import configure_language_switching
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
@@ -43,6 +44,7 @@ class PipelineComponents:
     context: LLMContext
     transcript_writer: TranscriptWriter | None = None
     metrics_writer: CallMetricsWriter | None = None
+    language_switcher: Any | None = None
 
 
 def build_pipeline_components(
@@ -58,6 +60,7 @@ def build_pipeline_components(
     agent: dict[str, Any],
     org_id: str,
     behaviour: dict[str, Any],
+    language_models: dict[str, dict[str, Any]] | None = None,
 ) -> PipelineComponents:
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
@@ -121,6 +124,12 @@ def build_pipeline_components(
         context=context,
         agent_id=agent.get("agent_id"),
     )
+    language_switcher = configure_language_switching(
+        agent,
+        context=context,
+        llm=llm,
+        language_models=language_models,
+    )
 
     pipeline_processors = [
         transport.input(),
@@ -163,4 +172,5 @@ def build_pipeline_components(
         llm=llm,
         audiobuffer=audiobuffer,
         context=context,
+        language_switcher=language_switcher,
     )

@@ -76,6 +76,16 @@ export interface AgentApiResponse {
       primary: string;
       secondary: string[];
     };
+    /** Per-language STT/TTS/LLM stacks (keyed by canonical language id). */
+    language_models?: Record<
+      string,
+      {
+        stt_config: Record<string, unknown>;
+        tts_config: Record<string, unknown>;
+        llm_config: Record<string, unknown>;
+      }
+    >;
+    /** Legacy primary-language stack; still returned for older clients. */
     models: {
       stt_config: Record<string, unknown>;
       tts_config: Record<string, unknown>;
