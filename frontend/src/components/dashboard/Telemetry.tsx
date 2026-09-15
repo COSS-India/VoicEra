@@ -420,7 +420,7 @@ function CallMetricsDetail({
         />
         <StatCard
           label="Avg Latency"
-          tip="Average LLM + TTS pipeline time per turn (STT excluded)."
+          tip="Average user-to-bot latency per turn (VAD silence → first bot speech), from Pipecat."
           value={formatMs(metrics.avgLatencyMs)}
           tone={thresholdTone(metrics.avgLatencyMs, AVG_LATENCY_WARN_MS, AVG_LATENCY_BAD_MS)}
         />

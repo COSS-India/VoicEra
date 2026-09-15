@@ -19,9 +19,9 @@ export interface NormalizedCallMetrics {
   avgSttMs?: number;
   avgLlmTtfbMs?: number;
   avgTtsMs?: number;
-  /** Server-computed (avg_llm_secs + avg_tts_secs), whichever of those are
-   * available — LLM + TTS pipeline latency per turn (STT excluded), distinct
-   * from roundTripAvgMs (the runtime's own end-to-end measurement). */
+  /** Pipecat UserBotLatencyObserver average (`user_bot_latency_avg_secs`) —
+   * VAD silence → first bot speech, end-to-end per turn. Same source as
+   * roundTripAvgMs. */
   avgLatencyMs?: number;
   maxSttMs?: number;
   maxLlmTtfbMs?: number;
@@ -130,7 +130,9 @@ export function normalizeCallMetrics(metrics: CallMetricsResponse): NormalizedCa
         ? metrics.summary.user_bot_latency_max_secs * 1000
         : undefined,
     avgLatencyMs:
-      metrics.summary.avg_latency_secs != null ? metrics.summary.avg_latency_secs * 1000 : undefined,
+      metrics.summary.user_bot_latency_avg_secs !== undefined
+        ? metrics.summary.user_bot_latency_avg_secs * 1000
+        : undefined,
   };
 }
 
