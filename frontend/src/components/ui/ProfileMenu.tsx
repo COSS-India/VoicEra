@@ -5,6 +5,7 @@ import { Check, ChevronRight, ChevronUp } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
 import { getUserOrganisations, switchOrganisation } from "@/lib/api/users";
 import { saveSession } from "@/lib/auth-storage";
+import { formatUserRole } from "@/lib/format";
 import type { OrganisationSummary } from "@/lib/api-types";
 
 interface ProfileMenuProps {
@@ -128,7 +129,7 @@ export function ProfileMenu({
             <span className="flex min-w-0 flex-col gap-0.5 text-left">
               <span className="truncate text-[12.5px] font-semibold text-v-fg">{name}</span>
               <span className="truncate font-mono text-[10.5px] text-v-dim">
-                {org} · {role}
+                {org} · {formatUserRole(role)}
               </span>
             </span>
             <ChevronUp
@@ -179,7 +180,7 @@ export function ProfileMenu({
                     >
                       <span className="flex min-w-0 flex-col gap-0.5">
                         <span className="truncate text-[13.5px] font-medium">{o.name}</span>
-                        <span className="text-[11px] text-v-muted">{o.role}</span>
+                        <span className="text-[11px] text-v-muted">{formatUserRole(o.role)}</span>
                       </span>
                       {busy ? (
                         <Spinner light={false} />
@@ -206,7 +207,7 @@ export function ProfileMenu({
               )}
               <span className="flex flex-col gap-0.5 px-4 py-3">
                 <span className="font-mono text-[9.5px] uppercase tracking-[.14em] text-v-muted">Role</span>
-                <span className="text-[13.5px] font-medium">{role}</span>
+                <span className="text-[13.5px] font-medium">{formatUserRole(role)}</span>
               </span>
             </div>
           )}
