@@ -49,6 +49,17 @@ RUN test -x "$CUDA_HOME/bin/nvcc" || { \
 COPY *.py ./
 COPY static ./static
 
+# Installed, not merely copied, and this is the one thing here that a container
+# restart cannot pick up. vLLM runs its EngineCore in a spawned process, so a
+# model registration made in the server process never reaches the worker that
+# loads the weights; entry points in the vllm.general_plugins group are loaded
+# by every vLLM process instead. See rumik_vllm_plugin.py.
+#
+# --no-deps: the dependencies are already pinned in requirements.txt above, and
+# resolving them again here would let pip move a version out from under them.
+COPY pyproject.toml ./
+RUN pip install --no-deps .
+
 # Non-root, and portable: this image does NOT need root. The MPS wrinkle that
 # forces tts/orpheus to run as uid 0 — an MPS client must match the daemon's
 # user, and on a root-owned daemon a uid-1000 CUDA init blocks in the handshake

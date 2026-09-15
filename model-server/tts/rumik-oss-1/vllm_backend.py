@@ -34,19 +34,27 @@ parameter:
 and the stop head is simply not used.
 
 --------------------------------------------------------------------------
-What hf_overrides does, and what it does not
+How the checkpoint is resolved, after two wrong turns
 
-`hf_overrides={"architectures": ["Cohere2ForCausalLM"]}` is what makes vLLM
-resolve this checkpoint to its own `commandr` implementation instead of looking
-for a `RumikOSSForCausalLM` it has never heard of. That part works, and it is
-why no model class had to be written.
+`rumik_vllm_plugin` registers `RumikOSSForCausalLM` with vLLM as a subclass of
+its Cohere2 implementation that drops the checkpoint's stop-head tensors. Both
+halves of that were learned the hard way:
 
-`trust_remote_code=True` is still required, and the first attempt without it
-failed at startup. The override is applied AFTER the config is loaded; the
-refusal happens DURING loading, because config.json carries an `auto_map` and
-transformers gates any such repo behind the flag before an override can reach
-it. So the flag is not optional here -- it is the price of reading the config
-at all.
+1. Rewriting `architectures` to `Cohere2ForCausalLM` via `hf_overrides`
+   resolved fine and then failed loading weights -- `there is no module or
+   parameter named 'stop_predictor'`. vLLM's loader raises on any name the
+   module does not have.
+2. Registering the class from this process would not have helped either.
+   vLLM runs EngineCore in a SPAWNED process ("We must use the `spawn`
+   multiprocessing start method ... CUDA is initialized"), which never imports
+   our server. Hence an entry point, and hence this folder being pip-installed.
+
+`trust_remote_code=True` is required on top, and not optional: config.json
+carries an `auto_map`, and transformers refuses to read such a repo without the
+flag -- before any override could reach it. It is narrower than it sounds. The
+only remote file imported is `configuration_rumik_oss.py`, a `Cohere2Config`
+subclass adding five integers; `modeling_rumik_oss.py`, with the hand-written
+decode loop and the stop head, is never imported.
 
 It is narrower than it sounds. With `architectures` overridden, the only
 remote file transformers imports is `configuration_rumik_oss.py`, a
@@ -102,13 +110,16 @@ class VllmTokenSource:
             max_num_seqs=cfg.max_num_seqs,
             enforce_eager=cfg.enforce_eager,
             # Required, not preferred -- see the module docstring. config.json
-            # has an auto_map, and transformers refuses to read such a repo
-            # without this, before hf_overrides can be applied. Only the config
-            # class is imported; the architecture override below is what keeps
-            # vLLM on its own Cohere2 implementation rather than the
-            # checkpoint's decode loop.
+            # carries an auto_map, and transformers refuses to read such a repo
+            # without this. Only the config class is imported; the modeling code
+            # is not.
             trust_remote_code=True,
-            hf_overrides={"architectures": ["Cohere2ForCausalLM"]},
+            # No hf_overrides. The first attempt rewrote `architectures` to
+            # Cohere2ForCausalLM, which resolved correctly and then failed
+            # loading weights on the checkpoint's stop head. rumik_vllm_plugin
+            # now registers RumikOSSForCausalLM under its real name, as a
+            # subclass of vLLM's Cohere2 that drops those tensors -- so the
+            # architecture in config.json is honoured rather than disguised.
         )
         log.info(
             "starting vLLM: %s dtype=%s max_len=%d gpu_util=%.2f max_seqs=%d eager=%s",
