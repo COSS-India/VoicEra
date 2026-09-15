@@ -55,6 +55,10 @@ Field names, defaults, and bounds come from `AgentConfigPayload` and its nested 
 | `user_online_detection_seconds` | float or null | `null` | `>= 0` | Seconds of silence after bot speech before the online-detection prompt. |
 | `user_online_detection_repeats` | int or null | `null` | `>= 1` | How many times to speak the online-detection prompt in one silence cycle. |
 | `user_online_detection_closing_message` | string | `""` | — | Spoken after the last online-detection prompt, before hangup. |
+| `vad_stop_secs` | float or null | `null` | `>= 0` | Seconds of silence before the caller is treated as done speaking (null = pipeline default). |
+| `vad_min_volume` | float or null | `null` | `0 … 1` | Minimum audio volume for a frame to count as speech (null = pipeline default). |
+| `vad_confidence` | float or null | `null` | `0 … 1` | Minimum speech-probability for a frame to count as speech (null = pipeline default). |
+| `vad_start_secs` | float or null | `null` | `>= 0` | Seconds of speech before the caller is treated as speaking (null = pipeline default). |
 | `automatic_call_ending` | `AutomaticCallEnding` | `{enabled: false, graceful_llm_call_ending: false}` | — | Graceful call ending via LLM tool. |
 
 ### How the runtime reads them
@@ -67,6 +71,10 @@ The Pydantic defaults are not always the effective defaults. `pipeline_config_fr
 | `user_silence_hangup_seconds` | `0` |
 | `user_online_detection_seconds` | `10` |
 | `user_online_detection_repeats` | `1` |
+| `vad_stop_secs` | `0.4` |
+| `vad_min_volume` | `0.5` |
+| `vad_confidence` | `0.3` |
+| `vad_start_secs` | `0.1` |
 
 The idle timeout the pipeline uses is `user_online_detection_seconds` when online detection is enabled, and `user_silence_hangup_seconds` otherwise (`PipelineConfig.user_idle_timeout`). The two settings share one timer — you cannot have both.
 
@@ -75,6 +83,10 @@ The idle timeout the pipeline uses is `user_online_detection_seconds` when onlin
 Hold messages need **both** halves: `hold_from_behaviour()` returns nothing unless `hold_message_timeout_seconds` is non-null and greater than zero **and** `hold_messages` contains at least one non-blank string. One message is chosen at random per inference, and only one is played per turn.
 
 Online detection speaks `user_online_detection_message` up to `user_online_detection_repeats` times; on the next idle it speaks `user_online_detection_closing_message` and ends the call. With detection disabled, a single idle timeout speaks the closing message and ends the call directly.
+
+The four `vad_*` fields are passed straight to Pipecat's `VADParams` in `build_pipeline_components()` and work in two tiers. `vad_confidence` and `vad_min_volume` are per-chunk gates: Silero scores each ~32 ms chunk, and the chunk counts as speech only if it clears the confidence threshold **and** the volume threshold. `vad_start_secs` and `vad_stop_secs` are debounce timers over those per-chunk decisions — enough consecutive speech chunks starts the turn, enough consecutive silent ones ends it. Both timers quantise to the chunk size, so `0.4` is really 12 chunks (384 ms) and a single speech chunk mid-pause resets the stop timer.
+
+`vad_min_volume` is **not** a 0–1 amplitude: it is normalised BS.1770 loudness mapped from −110…−10 LUFS, so the `0.5` default is about −60 LUFS — well below ordinary telephony speech, making it a coarse "is the line live" gate rather than a real volume threshold. It is measured over a 400 ms rolling window, which also means VAD cannot fire during the first 400 ms of a stream.
 
 `automatic_call_ending` registers an `end_conversation` function tool on the LLM context, but only when **both** `enabled` and `graceful_llm_call_ending` are true — `_call_ending_enabled()` in `apps/runtime/services/pipecat/call_ending.py` requires the pair. The tool ends the call when the model calls it.
 
@@ -99,6 +111,10 @@ Online detection speaks `user_online_detection_message` up to `user_online_detec
   "user_online_detection_seconds": 10,
   "user_online_detection_repeats": 1,
   "user_online_detection_closing_message": "",
+  "vad_stop_secs": 0.4,
+  "vad_min_volume": 0.5,
+  "vad_confidence": 0.3,
+  "vad_start_secs": 0.1,
   "automatic_call_ending": {
     "enabled": true,
     "graceful_llm_call_ending": true

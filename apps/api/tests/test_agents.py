@@ -176,6 +176,29 @@ def test_member_can_create_with_created_by(
 
 
 @patch("app.routers.agents.agent_service.create_agent", side_effect=_create)
+def test_vad_knobs_survive_config_validation(_create_m):
+    """Unknown behaviour keys are dropped by model_dump — VAD must be declared."""
+    client = _make_client(_admin_user)
+    body = _valid_create_body()
+    body["config"]["behaviour"] = {"vad_stop_secs": 1.0, "vad_min_volume": 0}
+    response = client.post("/api/v1/agents", json=body)
+    assert response.status_code == 201
+    behaviour = response.json()["config"]["behaviour"]
+    assert behaviour["vad_stop_secs"] == 1.0
+    assert behaviour["vad_min_volume"] == 0
+    assert behaviour["vad_confidence"] is None
+    assert behaviour["vad_start_secs"] is None
+
+
+@patch("app.routers.agents.agent_service.create_agent", side_effect=_create)
+def test_create_rejects_out_of_range_vad_knobs(_create_m):
+    client = _make_client(_admin_user)
+    body = _valid_create_body()
+    body["config"]["behaviour"] = {"vad_confidence": 1.5}
+    assert client.post("/api/v1/agents", json=body).status_code == 422
+
+
+@patch("app.routers.agents.agent_service.create_agent", side_effect=_create)
 def test_create_rejects_secret_fields(_create_m):
     client = _make_client(_admin_user)
     body = _valid_create_body()

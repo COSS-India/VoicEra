@@ -62,10 +62,10 @@ def build_pipeline_components(
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
         params=VADParams(
-            stop_secs=0.4,
-            min_volume=0.5,
-            confidence=0.3,
-            start_secs=0.1,
+            stop_secs=config.vad_stop_secs,
+            min_volume=config.vad_min_volume,
+            confidence=config.vad_confidence,
+            start_secs=config.vad_start_secs,
         ),
     )
 

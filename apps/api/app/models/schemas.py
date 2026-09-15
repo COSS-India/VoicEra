@@ -206,6 +206,10 @@ class AgentBehaviour(BaseModel):
                     "user_online_detection_seconds": 10,
                     "user_online_detection_repeats": 1,
                     "user_online_detection_closing_message": "",
+                    "vad_stop_secs": 0.4,
+                    "vad_min_volume": 0.5,
+                    "vad_confidence": 0.3,
+                    "vad_start_secs": 0.1,
                     "automatic_call_ending": {
                         "enabled": True,
                         "graceful_llm_call_ending": True,
@@ -264,6 +268,28 @@ class AgentBehaviour(BaseModel):
     user_online_detection_closing_message: str = Field(
         default="",
         description="Spoken after the last online-detection prompt, before hangup.",
+    )
+    vad_stop_secs: float | None = Field(
+        default=None,
+        ge=0,
+        description="Seconds of silence before the caller is treated as done speaking (null = pipeline default).",
+    )
+    vad_min_volume: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="Minimum audio volume for a frame to count as speech (null = pipeline default).",
+    )
+    vad_confidence: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="Minimum speech-probability for a frame to count as speech (null = pipeline default).",
+    )
+    vad_start_secs: float | None = Field(
+        default=None,
+        ge=0,
+        description="Seconds of speech before the caller is treated as speaking (null = pipeline default).",
     )
     automatic_call_ending: AutomaticCallEnding = AutomaticCallEnding()
 

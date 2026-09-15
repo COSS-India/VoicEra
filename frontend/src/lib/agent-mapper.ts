@@ -50,6 +50,10 @@ export function formToAgentCreatePayload(
         user_online_detection_seconds: form.onlineDetectionSeconds,
         user_online_detection_repeats: form.onlineDetectionRepeats,
         user_online_detection_closing_message: form.onlineDetectionClosingMessage,
+        vad_stop_secs: form.vadStopSecs,
+        vad_min_volume: form.vadMinVolume,
+        vad_confidence: form.vadConfidence,
+        vad_start_secs: form.vadStartSecs,
         automatic_call_ending: {
           enabled: form.autoCallEndingEnabled,
           graceful_llm_call_ending: form.autoCallEndingGraceful,
@@ -138,6 +142,12 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
       (behaviour.automatic_call_ending as { graceful_llm_call_ending?: boolean } | undefined)
         ?.graceful_llm_call_ending,
     ),
+    // Agents saved before these knobs existed have no vad_* keys — fall back to
+    // the runtime defaults so the sliders still show what a call would use.
+    vadStopSecs: Number(behaviour.vad_stop_secs ?? DEFAULT_FORM.vadStopSecs),
+    vadMinVolume: Number(behaviour.vad_min_volume ?? DEFAULT_FORM.vadMinVolume),
+    vadConfidence: Number(behaviour.vad_confidence ?? DEFAULT_FORM.vadConfidence),
+    vadStartSecs: Number(behaviour.vad_start_secs ?? DEFAULT_FORM.vadStartSecs),
   };
 }
 

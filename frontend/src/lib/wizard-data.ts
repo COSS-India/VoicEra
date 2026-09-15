@@ -204,6 +204,11 @@ export const TIPS: Record<string, string> = {
   onlineClosing: "Said right before hanging up, after the last unanswered check.",
   autoEnding: "Lets the agent end the call itself once it detects the conversation is done.",
   autoEndingGraceful: "Says a closing line and waits a beat before hanging up, instead of ending abruptly.",
+  vad: "Always running — the defaults suit most lines. Change these only if callers are being cut off mid-sentence or aren't being heard.",
+  vadStop: "How long a caller can pause mid-sentence before the agent assumes they've finished.",
+  vadStart: "How long a sound must last before it counts as speech rather than a cough or a door.",
+  vadConfidence: "How sure the agent must be that a sound is speech.",
+  vadMinVolume: "How loud a sound must be to count as speech.",
 };
 
 export interface AgentForm {
@@ -246,6 +251,10 @@ export interface AgentForm {
   onlineDetectionClosingMessage: string;
   autoCallEndingEnabled: boolean;
   autoCallEndingGraceful: boolean;
+  vadStopSecs: number;
+  vadMinVolume: number;
+  vadConfidence: number;
+  vadStartSecs: number;
 }
 
 export const DEFAULT_FORM: AgentForm = {
@@ -283,6 +292,12 @@ export const DEFAULT_FORM: AgentForm = {
   onlineDetectionClosingMessage: "I'll end the call now. Goodbye.",
   autoCallEndingEnabled: false,
   autoCallEndingGraceful: false,
+  // Mirrors DEFAULT_VAD_* in apps/runtime/services/pipecat/config.py, so an
+  // untouched agent is saved with exactly the values the runtime would apply.
+  vadStopSecs: 0.4,
+  vadMinVolume: 0.5,
+  vadConfidence: 0.3,
+  vadStartSecs: 0.1,
 };
 
 export const TPL_CATS = [

@@ -59,6 +59,12 @@ function NumberField({
   step?: number;
   onChange: (value: number) => void;
 }) {
+  // The API's bounds are wider than the ranges offered here, so a saved agent
+  // can hold a value this slider cannot represent. Widen to fit it rather than
+  // let the range input clamp the thumb while the readout shows the real value.
+  const sliderMin = Math.min(min, value);
+  const sliderMax = Math.max(max, value);
+
   return (
     <label className="flex flex-col gap-1.5 text-[13px] font-semibold">
       <span className="flex items-center justify-between gap-1.5">
@@ -73,8 +79,8 @@ function NumberField({
       </span>
       <input
         type="range"
-        min={min}
-        max={max}
+        min={sliderMin}
+        max={sliderMax}
         step={step}
         value={value}
         onChange={(e) => onChange(roundToStep(Number(e.target.value), step))}
@@ -251,6 +257,54 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
             </label>
           </div>
         ) : null}
+      </div>
+
+      <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5">
+        <SectionHeader
+          title="Voice detection"
+          subtitle="Always on — these decide when the agent hears the caller start and finish speaking."
+          tip={TIPS.vad}
+        />
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <NumberField
+            label="End-of-speech pause"
+            tipKey="vadStop"
+            unit="s"
+            value={form.vadStopSecs}
+            min={0.1}
+            max={3}
+            step={0.1}
+            onChange={(v) => onChange("vadStopSecs", v)}
+          />
+          <NumberField
+            label="Start-of-speech delay"
+            tipKey="vadStart"
+            unit="s"
+            value={form.vadStartSecs}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => onChange("vadStartSecs", v)}
+          />
+          <NumberField
+            label="Speech confidence"
+            tipKey="vadConfidence"
+            value={form.vadConfidence}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => onChange("vadConfidence", v)}
+          />
+          <NumberField
+            label="Minimum volume"
+            tipKey="vadMinVolume"
+            value={form.vadMinVolume}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => onChange("vadMinVolume", v)}
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5">

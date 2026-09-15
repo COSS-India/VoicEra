@@ -126,7 +126,12 @@ The resulting body:
       "user_online_detection_message": "Are you still there?",
       "user_online_detection_seconds": 90,
       "user_online_detection_repeats": 1,
-      "user_online_detection_closing_message": "I'll end the call now. Goodbye."
+      "user_online_detection_closing_message": "I'll end the call now. Goodbye.",
+      "vad_stop_secs": 0.4,
+      "vad_min_volume": 0.5,
+      "vad_confidence": 0.3,
+      "vad_start_secs": 0.1,
+      "automatic_call_ending": { "enabled": false, "graceful_llm_call_ending": false }
     },
     "language": { "primary": "hi", "secondary": [] },
     "models": {
