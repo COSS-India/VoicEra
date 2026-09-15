@@ -70,9 +70,23 @@
 const els = id => document.getElementById(id);
 const status = msg => { els('status').textContent = msg; };
 
+// Where this page is served from decides where its API is, and relative URLs
+// cannot straddle the two. Direct on the TTS container the page is at /demo and
+// the routes sit at the root. Through the gateway it is at /demo/tts -- and
+// there a relative 'v1/voices' resolves to /demo/v1/voices, which the gateway
+// reads as a slot named "demo" and answers 404, while a POST to
+// /demo/v1/audio/speech hits its catch-all, which is GET-only, and answers 405.
+//
+// So both are named absolutely. /v1/audio/speech is a route the gateway owns by
+// name, so it is the same either way; everything else a model publishes is
+// reachable only under its slot prefix.
+const VIA_GATEWAY = /\/demo\/[a-z]+\/?$/.test(location.pathname);
+const VOICES_URL = VIA_GATEWAY ? '/tts/v1/voices' : '/v1/voices';
+const SPEECH_URL = '/v1/audio/speech';
+
 async function loadVoices() {
   try {
-    const r = await fetch('v1/voices');
+    const r = await fetch(VOICES_URL);
     const body = await r.json();
     const sel = els('voice');
     for (const v of body.data) {
@@ -83,7 +97,7 @@ async function loadVoices() {
     }
     if (!body.data.length) status('The model is still loading — reload in a moment.');
   } catch {
-    status('Could not reach /v1/voices.');
+    status(`Could not reach ${VOICES_URL}.`);
   }
 }
 
@@ -102,7 +116,7 @@ async function run() {
   let carry = new Uint8Array(0);
 
   try {
-    const response = await fetch('v1/audio/speech', {
+    const response = await fetch(SPEECH_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
