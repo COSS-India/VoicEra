@@ -3,9 +3,9 @@
   "name": "VoicEra",
   "theme": "mint",
   "colors": {
-    "primary": "#4f46e5",
-    "light": "#a5b4fc",
-    "dark": "#312e81"
+    "primary": "#248F8F",
+    "light": "#8B7FE8",
+    "dark": "#5B4FCF"
   },
   "navbar": {
     "links": [
