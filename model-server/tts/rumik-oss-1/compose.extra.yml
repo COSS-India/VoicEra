@@ -1,0 +1,127 @@
+# What rumik-oss-1 needs from the slot beyond a build context.
+#
+# Two things, and one deliberate absence.
+#
+# 1. THE WEIGHTS NEED SOMEWHERE TO ARRIVE. The slot mounts only the model folder
+#    itself at /app, so RUMIK_MODEL_PATH=/models/... would point at a path
+#    nothing provides and the load would fail on a missing directory, minutes
+#    into a first start. fetch.sh downloads into this folder's models/ dir; the
+#    mount below is what makes it visible at /models.
+#
+# 2. EVERY KNOB IS DECLARED HERE. Not documentation -- Compose passes a variable
+#    into a container only if the service's `environment:` block names it, so a
+#    value set in .env that is missing from this list is inert: the operator
+#    sets it, restarts, and the code silently keeps the fallback written in
+#    config.py. tests/test_engine_env_surface.py fails the build for exactly
+#    that, and the comment at the top of that file is worth reading before
+#    deleting a line here.
+#
+# THE ABSENCE: HF_HUB_OFFLINE is NOT pinned, unlike tts/orpheus, which pins it
+# to "0" because its SNAC codec lives in a SEPARATE HuggingFace repo that is
+# fetched at startup -- so an .env carrying HF_HUB_OFFLINE=1 for
+# stt/indic-transcribe would hang that container in a socket read. This model's
+# Mimi codec ships INSIDE the same repo, in codec/, which fetch.sh has already
+# put on local disk. So this folder runs correctly airgapped and should inherit
+# whatever the deployment sets. The one case that needs the network is
+# RUMIK_MODEL_PATH naming a HuggingFace repo id instead of a path, which makes
+# the load call snapshot_download; do not combine that with offline mode.
+
+services:
+  tts:
+    # A 20-second utterance is a 20-second generation. The default 10s SIGKILL
+    # cuts in-flight streams mid-word on every deploy; uvicorn drains cleanly
+    # given the room.
+    stop_grace_period: 60s
+    environment:
+      # ---- model -------------------------------------------------------
+      # A directory under the mount below, or a HuggingFace repo id -- in which
+      # case the load fetches into HF_HOME instead and the mount goes unused.
+      RUMIK_MODEL_PATH: ${RUMIK_MODEL_PATH:-/models/rumik-oss-1}
+      # The id this server reports at /v1/models and /health. Kept equal to the
+      # folder and catalogue id: the voice pipeline selects a local model by the
+      # name the gateway lists, so three spellings of one model is how a
+      # deployment ends up healthy and unreachable.
+      RUMIK_MODEL_NAME: ${RUMIK_MODEL_NAME:-rumik-oss-1}
+      RUMIK_DEVICE: ${RUMIK_DEVICE:-cuda}
+      # bfloat16 is what the checkpoint was saved in (config.json: dtype
+      # bfloat16). float16 would load and would quietly change the audio.
+      RUMIK_DTYPE: ${RUMIK_DTYPE:-bfloat16}
+      # sdpa is what their own server asks for. 'eager' is the fallback on a
+      # stack where sdpa's kernels are unavailable; flash_attention_2 needs the
+      # package and is unverified here.
+      RUMIK_ATTN_IMPLEMENTATION: ${RUMIK_ATTN_IMPLEMENTATION:-sdpa}
+
+      # ---- capacity, sized for a shared card ---------------------------
+      # An admission limit, and a low one on purpose. This model has NO
+      # continuous batching: generation is a hand-written per-token Python loop
+      # over a 3B model, so realtime (100 tokens/sec of speech) is borderline at
+      # one stream and does not hold at several. Each concurrent stream also
+      # holds its own KV cache -- about 1.2 GB at the full 8192 context. Raise it
+      # only with a measurement of X-RTF in hand.
+      RUMIK_MAX_CONCURRENCY: ${RUMIK_MAX_CONCURRENCY:-2}
+      RUMIK_MAX_INPUT_CHARS: ${RUMIK_MAX_INPUT_CHARS:-1000}
+
+      # ---- server ------------------------------------------------------
+      # PORT is set by the slot, not here; see config.py on why there is no
+      # RUMIK_PORT.
+      RUMIK_HOST: ${RUMIK_HOST:-0.0.0.0}
+      RUMIK_LOG_LEVEL: ${RUMIK_LOG_LEVEL:-INFO}
+      RUMIK_CORS_ORIGINS: ${RUMIK_CORS_ORIGINS:-}
+
+      # ---- synthesis defaults ------------------------------------------
+      # Restated from the model card's inference example (t 0.8, top_k 30,
+      # 2048 new tokens) rather than inherited from their server.py, which is
+      # not the file this deployment runs.
+      RUMIK_DEFAULT_VOICE: ${RUMIK_DEFAULT_VOICE:-Ira}
+      # Empty means no <description=...> prefix at all, which is NOT the same as
+      # an empty description -- the model would condition on that. Set a house
+      # style here (e.g. "neutral, steady pace") to give every caller one by
+      # default.
+      RUMIK_DEFAULT_INSTRUCTIONS: ${RUMIK_DEFAULT_INSTRUCTIONS:-}
+      RUMIK_TEMPERATURE: ${RUMIK_TEMPERATURE:-0.8}
+      RUMIK_TOP_K: ${RUMIK_TOP_K:-30}
+      # Their server's floor. Below one frame's worth of tokens the stop head
+      # can fire before any complete frame exists and the response is empty.
+      RUMIK_MIN_NEW_TOKENS: ${RUMIK_MIN_NEW_TOKENS:-8}
+      # Eight tokens make one 80 ms frame, so 2048 is ~20 s of speech. The cap
+      # is also bounded at request time by what is left of the 8192-position
+      # context after the prompt.
+      RUMIK_MAX_NEW_TOKENS_DEFAULT: ${RUMIK_MAX_NEW_TOKENS_DEFAULT:-2048}
+      RUMIK_MAX_NEW_TOKENS_LIMIT: ${RUMIK_MAX_NEW_TOKENS_LIMIT:-2048}
+
+      # ---- streaming decode --------------------------------------------
+      # Emit every 2 frames = 160 ms of audio. Smaller chunks cut
+      # time-to-first-audio and cost one Mimi decode each.
+      RUMIK_DECODE_CHUNK_FRAMES: ${RUMIK_DECODE_CHUNK_FRAMES:-2}
+      # Left context per decode, in frames. Mimi in transformers has no
+      # streaming state to carry between calls, so each chunk is decoded with
+      # the preceding frames as context and only the new samples are kept. 32
+      # frames is 2.56 s, generous for a convolutional decoder with local
+      # attention -- and NOT yet verified against a single whole-clip decode.
+      # See the README for that check. Too small shows up as a click or a seam
+      # at every chunk boundary, not as an error.
+      RUMIK_DECODE_CONTEXT_FRAMES: ${RUMIK_DECODE_CONTEXT_FRAMES:-32}
+      # Set to cpu to keep the codec off the GPU. It is small (384 MB) and the
+      # decode is short, so this mostly trades GPU memory for a PCIe copy per
+      # chunk.
+      RUMIK_DECODER_DEVICE: ${RUMIK_DECODER_DEVICE:-cuda}
+
+      # ---- warmup ------------------------------------------------------
+      # One short synthesis at startup. It also proves the sampling tap that
+      # streaming and cancellation both depend on is still wired -- see
+      # engine.install_tap. Disabling it moves that check to the first real
+      # request, where a broken tap looks like a wedged GPU.
+      RUMIK_WARMUP_ENABLED: ${RUMIK_WARMUP_ENABLED:-true}
+      RUMIK_WARMUP_TOKENS: ${RUMIK_WARMUP_TOKENS:-32}
+    volumes:
+      # Read-only: nothing in this stack should ever write a checkpoint. The
+      # path resolves against --project-directory (model-server/), NOT against
+      # this file -- see the note in stt/indic-transcribe/compose.extra.yml,
+      # which learned that the hard way.
+      - ${RUMIK_MODELS_DIR:-./tts/rumik-oss-1/models}:/models:ro
+      # The slot mounts hf_cache at /root/.cache/huggingface, which this image
+      # cannot use: HF_HOME is /hf-cache and the container runs as uid 1000, so
+      # /root is not writable by it. Mounting the same volume where this image
+      # actually reads means anything it does fetch survives a restart instead
+      # of landing in the container layer.
+      - hf_cache:/hf-cache

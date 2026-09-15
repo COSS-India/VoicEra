@@ -1,0 +1,8 @@
+# The checkpoint is ~7.2 GB and is bind-mounted at run time, never baked in.
+# Without this line every build ships the whole thing to the daemon first.
+models/
+.env
+__pycache__/
+*.pyc
+README.md
+UPSTREAM-README.md

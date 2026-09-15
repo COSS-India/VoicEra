@@ -133,6 +133,38 @@ tts:
       picks the language, so `voice` and `language` are not independent.
       Running on ace-h200 GPU 1, on the bodhan-ai/indic-speak checkpoint (the released model; the deployment was on indic-speak-preview-v2 before). Decoded with SNAC's own decoder -- the release ships a fine-tuned Vocos decoder it was actually tuned for, which is not wired up yet.
 
+  - id: rumik-oss-1
+    name: Rumik OSS-1 3B
+    status: ready
+    runtime: transformers          # no vLLM: a per-token loop over a 3B backbone
+    sample_rate: 24000
+    audio_format: pcm              # OpenAI's 16-bit LE mono, like orpheus
+    streaming: true                # chunked while generating, and SSE audio deltas
+    license: cc-by-nc-4.0          # NON-COMMERCIAL. See the note below.
+    voice: {presets: [Ira, Aisha, Siya, Zoya], free_text_description: true, cloning: false}
+    languages: [22 Indian languages, en]
+    notes: >-
+      Cohere2-style 3B backbone emitting Mimi codec tokens, eight per frame at
+      12.5 Hz -- so eight tokens are one 80 ms frame and realtime is 100 tokens
+      per second of speech. The Mimi decoder ships inside the same repo, so
+      unlike orpheus this folder needs no second HuggingFace repo at startup and
+      runs airgapped once fetch.sh has run. Repo is public, not gated.
+      Every voice covers every language, which is the real difference from
+      orpheus, where the speaker name selects the language and `voice` and
+      `language` are therefore not independent. Delivery is a free-text
+      description -- emotion, accent, pace -- carried on `instructions`, as with
+      indic-parler.
+      LICENCE IS CC-BY-NC-4.0 with an acceptable-use addendum: research and
+      non-commercial use only, and a commercial deployment needs separate
+      permission from Rumik. This is the only model in this catalogue with that
+      restriction, which is why `license` appears here at all.
+      Not yet run on hardware. Two things are therefore unverified: the
+      realtime factor, which matters more here than for the vLLM-backed models
+      because there is no continuous batching and no CUDA graphs -- treat
+      concurrency above 1 as unproven -- and the streaming decode's left-context
+      window, which is a chosen 32 frames rather than a measured one. The folder
+      README says what to measure.
+
   - id: omnivoice
     name: k2-fsa OmniVoice 0.6B
     status: planned

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rumik-oss-1 — TTS slot</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; background:#0b1020; color:#eef2ff;
+         max-width: 780px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color:#94a3b8; font-size: 13px; margin: 0 0 24px; }
+  label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+          color:#94a3b8; margin: 16px 0 6px; }
+  select, input, textarea, button {
+    box-sizing:border-box; width:100%; padding:10px 12px; font: inherit;
+    background:#151d33; color:#fff; border:1px solid #34405f; border-radius:8px; }
+  textarea { resize: vertical; }
+  button { background:#f97316; border:0; font-weight:650; cursor:pointer; margin-top:20px; }
+  button:disabled { opacity:.5; cursor:wait; }
+  .row { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
+  #status { min-height:22px; margin-top:14px; font-size:13px; color:#fbbf24; }
+  table { width:100%; border-collapse:collapse; margin-top:18px; font-size:13px; }
+  td { padding:5px 0; border-bottom:1px solid #1f2940; }
+  td:last-child { text-align:right; color:#a5b4fc; font-variant-numeric: tabular-nums; }
+  .hint { color:#64748b; font-size:12px; margin-top:6px; }
+  @media (max-width:520px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>rumik-oss-1</h1>
+<p class="sub">22 Indic languages + English &middot; four voices, each covering all of them
+&middot; 24&nbsp;kHz Mimi codec &middot; streamed as it generates</p>
+
+<label for="voice">Voice</label>
+<select id="voice"></select>
+
+<label for="instructions">Delivery (<code>instructions</code>)</label>
+<input id="instructions" value="happy, Hindi accent, steady pace">
+<p class="hint">Emotion, accent and pace, comma-separated. Becomes the model's
+<code>&lt;description=&hellip;&gt;</code> prefix.</p>
+
+<label for="input">Text (<code>input</code>)</label>
+<textarea id="input" rows="4">नमस्ते, आज आपका दिन कैसा रहा?</textarea>
+<p class="hint">Inline <code>&lt;laugh&gt;</code>, <code>&lt;chuckle&gt;</code> and
+<code>&lt;sigh&gt;</code> work here.</p>
+
+<div class="row">
+  <div><label for="temperature">Temperature</label>
+       <input id="temperature" type="number" value="0.8" step="0.1" min="0" max="2"></div>
+  <div><label for="topk">Top-k</label>
+       <input id="topk" type="number" value="30" min="1"></div>
+  <div><label for="maxtokens">Max tokens</label>
+       <input id="maxtokens" type="number" value="2048" min="8"></div>
+</div>
+
+<button id="go">Synthesize</button>
+<div id="status"></div>
+<table id="timings" hidden>
+  <tr><td>Time to first audio</td><td id="t-ttfa"></td></tr>
+  <tr><td>Audio received</td><td id="t-audio"></td></tr>
+  <tr><td>Wall clock</td><td id="t-wall"></td></tr>
+  <tr><td>Realtime factor</td><td id="t-rtf"></td></tr>
+</table>
+
+<script>
+// Raw PCM is requested rather than mp3 so the page demonstrates what the slot
+// actually does: play audio while the model is still generating it. Waiting for
+// a complete file would hide the only interesting property.
+const els = id => document.getElementById(id);
+const status = msg => { els('status').textContent = msg; };
+
+async function loadVoices() {
+  try {
+    const r = await fetch('v1/voices');
+    const body = await r.json();
+    const sel = els('voice');
+    for (const v of body.data) {
+      const opt = document.createElement('option');
+      opt.value = opt.textContent = v.id;
+      if (v.id === body.default) opt.selected = true;
+      sel.append(opt);
+    }
+    if (!body.data.length) status('The model is still loading — reload in a moment.');
+  } catch {
+    status('Could not reach /v1/voices.');
+  }
+}
+
+async function run() {
+  const button = els('go');
+  button.disabled = true;
+  button.textContent = 'Generating…';
+  els('timings').hidden = true;
+  status('Connecting…');
+
+  const t0 = performance.now();
+  let ctx = null, playAt = 0, firstAudioAt = null, samples = 0, rate = 24000;
+  // A chunk boundary can fall inside a 16-bit sample, which would shift every
+  // byte after it and turn the rest of the utterance into noise. Carry the odd
+  // byte over instead.
+  let carry = new Uint8Array(0);
+
+  try {
+    const response = await fetch('v1/audio/speech', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        input: els('input').value,
+        voice: els('voice').value,
+        instructions: els('instructions').value,
+        response_format: 'pcm',
+        stream_format: 'audio',
+        temperature: Number(els('temperature').value),
+        top_k: Number(els('topk').value),
+        max_new_tokens: Number(els('maxtokens').value),
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `HTTP ${response.status}`);
+    }
+
+    // The server says what it sent; nothing here assumes a rate or a width.
+    rate = Number(response.headers.get('X-Sample-Rate')) || 24000;
+    ctx = new AudioContext({ sampleRate: rate });
+    playAt = ctx.currentTime + 0.08;   // a little slack, so the first buffer is not late
+    status('Receiving audio…');
+
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.length) continue;
+
+      const merged = new Uint8Array(carry.length + value.length);
+      merged.set(carry, 0);
+      merged.set(value, carry.length);
+      const usable = merged.length - (merged.length % 2);
+      carry = merged.slice(usable);
+      if (!usable) continue;
+
+      const pcm = new Int16Array(merged.buffer, merged.byteOffset, usable / 2);
+      const buffer = ctx.createBuffer(1, pcm.length, rate);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(Math.max(playAt, ctx.currentTime));
+      playAt = Math.max(playAt, ctx.currentTime) + buffer.duration;
+
+      samples += pcm.length;
+      if (firstAudioAt === null) {
+        firstAudioAt = performance.now() - t0;
+        status('Playing while the model is still generating…');
+      }
+    }
+
+    const wall = performance.now() - t0;
+    const audioMs = (samples / rate) * 1000;
+    els('t-ttfa').textContent = firstAudioAt === null ? '—' : `${firstAudioAt.toFixed(0)} ms`;
+    els('t-audio').textContent = `${(audioMs / 1000).toFixed(2)} s`;
+    els('t-wall').textContent = `${(wall / 1000).toFixed(2)} s`;
+    els('t-rtf').textContent = audioMs ? (wall / audioMs).toFixed(2) : '—';
+    els('timings').hidden = false;
+    status(samples ? 'Done.' : 'The stream ended without audio — check the server log.');
+  } catch (err) {
+    status(err.message || String(err));
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Synthesize';
+  }
+}
+
+els('go').addEventListener('click', run);
+loadVoices();
+</script>
+</body>
+</html>

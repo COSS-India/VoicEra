@@ -1,0 +1,4 @@
+# Weights are fetched, not committed. fetch.sh puts them here.
+models/
+.env
+__pycache__/

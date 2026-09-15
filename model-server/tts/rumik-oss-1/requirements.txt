@@ -1,0 +1,38 @@
+# Top-level dependencies for the rumik-oss-1 slot.
+#
+# Upstream's own requirements.txt uses ranges (torch>=2.4, transformers>=4.57,<6).
+# Ranges are right for a model card and wrong for a deployment: two builds a
+# month apart then install different stacks and only one of them is the one that
+# was tested. Pinned here instead.
+#
+# THE PINS BELOW ARE NOT YET A RESOLVED SET. tts/orpheus ships a constraints.txt
+# holding its full transitive closure, which is what makes its builds
+# reproducible -- and that file can only be written by freezing a build that
+# worked. Do that on the first successful build here:
+#
+#   docker compose ... run --rm --entrypoint "" tts pip freeze > constraints.txt
+#
+# then add `-c constraints.txt` to the Dockerfile's pip install, as orpheus does.
+# Until then a rebuild can pick up a new transitive release.
+
+# --- model inference ---------------------------------------------------------
+# transformers is pinned to the version config.json was saved with
+# (`transformers_version: 4.57.6`). Upstream permits <6 and 5.x may well work,
+# but the model ships custom code loaded through trust_remote_code, so the
+# version it was authored against is the one to run until someone tests another.
+torch==2.11.0
+transformers==4.57.6
+safetensors==0.6.2
+soundfile==0.14.0          # libsndfile: the mp3/flac/opus response formats
+numpy==2.3.5
+
+# Not pinned exactly, and deliberately flagged rather than guessed: no build has
+# resolved these yet, so an invented pin would fail the first build for a reason
+# that looks like a broken Dockerfile. Freeze them with everything else above.
+huggingface_hub>=0.36,<1   # snapshot_download, and the hub client transformers uses
+accelerate>=1.0,<2         # from_pretrained's dtype/placement path
+
+# --- service -----------------------------------------------------------------
+fastapi==0.136.3
+uvicorn[standard]==0.51.0   # [standard] adds uvloop + httptools: a faster event loop
+pydantic==2.13.4

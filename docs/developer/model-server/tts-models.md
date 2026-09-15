@@ -3,7 +3,7 @@ title: TTS models
 description: Text-to-speech models, voices, and audio format negotiation.
 ---
 
-Three models can fill the TTS slot. They differ in backbone, in how a voice is chosen, and — the part that matters most to a client — in what they put on the wire. This page covers all three and the format negotiation that lets one client decode any of them.
+Four models can fill the TTS slot. They differ in backbone, in how a voice is chosen, and — the part that matters most to a client — in what they put on the wire. This page covers all four and the format negotiation that lets one client decode any of them.
 
 ## Available models
 
@@ -12,12 +12,13 @@ Three models can fill the TTS slot. They differ in backbone, in how a voice is c
 | `indic-parler` | AI4Bharat Indic Parler TTS | `ready` | 44100 | `pcm_f32le` | free-text description |
 | `indic-mio` | SPRINGLab Indic-Mio 0.6B | `ready` | 44100 | `pcm_f32le`, also `pcm` on request | preset speaker, plus cloning |
 | `orpheus` | AI4Bharat Orpheus Indic TTS | `ready` | 24000 | `pcm` | speaker name from a roster |
+| `rumik-oss-1` | Rumik OSS-1 3B | `ready` | 24000 | `pcm` | any of four voices, in any language |
 | `omnivoice` | k2-fsa OmniVoice 0.6B | `planned` | — | — | cloning |
 
 Set the one you want with `TTS_MODEL` in `model-server/.env`. Statuses are from `model-server/models.yaml`.
 
 <Note>
-Only `indic-parler` has been run on VoicEra's hardware. `models.yaml` records "Not yet run on hardware" against both `orpheus` and `indic-mio`, and their folder READMEs repeat it: for `indic-mio`, "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here.
+Only `indic-parler` has been run on VoicEra's hardware. `models.yaml` records "Not yet run on hardware" against `orpheus`, `indic-mio` and `rumik-oss-1`, and their folder READMEs repeat it: for `indic-mio`, "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here.
 </Note>
 
 `omnivoice` is `planned` and needs its own runtime — it is diffusion-style, so not vLLM-servable.
@@ -96,17 +97,44 @@ The engine is untouched; only the transport changed, and it bought two things. *
 
 No `fetch.sh`: the codec's weights come from HuggingFace on first start into the `hf_cache` volume, and the backbone comes down in the sidecar. Watch `docker compose logs -f tts vllm-mio` rather than waiting on `/health`, which stays 503 until the codec has loaded.
 
+## rumik-oss-1
+
+A Cohere2-style 3B backbone emitting [Mimi](https://huggingface.co/kyutai/mimi) codec tokens, eight per frame at 12.5 Hz — so eight tokens are one 80 ms frame, 1920 samples, and realtime is 100 tokens per second of speech.
+
+<Warning>
+**Licence: CC-BY-NC-4.0 with an acceptable-use addendum — research and non-commercial use only.** A commercial deployment needs separate permission from Rumik. This is the only model in `models.yaml` with that restriction, which is why the catalogue gained a `license:` field with this entry. Nothing in the stack enforces it.
+</Warning>
+
+**Any voice speaks any language.** There are four — Ira, Aisha, Siya, Zoya — and each covers all 22 languages, including code-switched text and romanized input. That is the opposite of `orpheus`, where the speaker name *is* the language selector and `voice` and `language` are not independent. Here they are independent, and the script carries the language.
+
+Delivery is a free-text `<description="...">` prefix — emotion, accent and pace, comma-separated, as in `"happy, Hindi accent, steady pace"` — carried on OpenAI's `instructions`, the same field `indic-parler` uses. `<laugh>`, `<chuckle>` and `<sigh>` work inline in `input`.
+
+**The folder does not run the checkpoint's own `server.py`,** which is the one real decision in it. That server exists and answers `POST /v1/audio/speech`, so the slot contract looks free — but it takes `speaker` rather than `voice`, and pydantic ignores unknown fields, so an OpenAI client asking for `voice="Zoya"` is served Ira with nothing logged; it sets no `X-Audio-Format` or `X-Sample-Rate`; it buffers the whole clip into a WAV before responding; and a client hanging up cancels nothing.
+
+Streaming it needed a seam. `generate_audio()` is a hand-written per-token loop with no `streamer`, no callback and no `LogitsProcessor` — but it calls `self._constrained_sample(...)` once per token. The folder wraps that one call, so the upstream loop runs verbatim (sampling, the sigmoid stop head, the constrained vocabulary) and only the token stream is tapped on its way past. The same seam is the interrupt: the tap raises on its next call, unwinding the loop from the inside, which is the only way to stop a blocking generation from outside its own thread.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/audio/speech` | OpenAI-compatible; `stream_format` `audio` or `sse` |
+| `GET /health` | 503 until the checkpoint and codec are loaded |
+| `GET /v1/voices` | the roster, read from the checkpoint's own `config.json` |
+| `GET /demo` | a page that plays the stream as it arrives |
+
+`fetch.sh` downloads ~7 GB into `models/` before the build. The repo is **public** — no token and no licence click-through, unlike `bodhan-ai/indic-speak` next door — so press Enter at the HuggingFace token prompt. The Mimi decoder ships inside the same repo under `codec/`, so unlike `orpheus` this folder needs no second HuggingFace repo at startup and runs airgapped once fetched; do not copy Orpheus's `HF_HUB_OFFLINE` pin onto it.
+
+Two things are unverified and both are visible rather than hidden. The **realtime factor**: one 3B forward per token in Python, no continuous batching, no CUDA graphs, against a 100 tok/s bar — so `RUMIK_MAX_CONCURRENCY` defaults to 2 and the response carries `X-TTFA-Ms` and `X-RTF` so it is measured rather than assumed. The **streaming decode window**: Mimi in `transformers` carries no state between `decode()` calls, so each chunk is decoded with `RUMIK_DECODE_CONTEXT_FRAMES` (32) preceding frames as context and only the new samples kept. Too small does not error — it puts a seam at every chunk boundary. The folder README has the comparison to run.
+
 ## Format negotiation
 
-Two TTS models in this slot disagree on the wire, and neither is wrong:
+The models in this slot disagree on the wire, and none of them is wrong:
 
-| | Indic Parler | Indic-Mio | Orpheus |
-| --- | --- | --- | --- |
-| sample rate | 44,100 Hz | 44,100 Hz | 24,000 Hz |
-| sample width | float32 | float32 (16-bit on request) | signed 16-bit |
-| format name | `pcm_f32le` | `pcm_f32le` | `pcm` |
+| | Indic Parler | Indic-Mio | Orpheus | Rumik OSS-1 |
+| --- | --- | --- | --- | --- |
+| sample rate | 44,100 Hz | 44,100 Hz | 24,000 Hz | 24,000 Hz |
+| sample width | float32 | float32 (16-bit on request) | signed 16-bit | signed 16-bit |
+| format name | `pcm_f32le` | `pcm_f32le` | `pcm` | `pcm` |
 
-OpenAI's `response_format` vocabulary is `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm` — so Orpheus is the compliant one, and `pcm_f32le` is an extension Indic Parler serves because float32 is what its engine produces.
+OpenAI's `response_format` vocabulary is `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm` — so Orpheus and Rumik are the compliant ones, and `pcm_f32le` is an extension Indic Parler serves because float32 is what its engine produces. Two models agreeing is not the same as the question going away: the client still decodes by what the response declares, never by which model it thinks it reached.
 
 The client therefore cannot assume a width or a rate. It reads `X-Audio-Format` and `X-Sample-Rate` off the response and decodes accordingly, which is why the contract requires a model to declare them. Getting this wrong does not raise an error — it produces plausible bytes that sound like noise on a phone line. A format the client cannot decode produces a clear error naming it, never silence.
 
@@ -116,7 +144,7 @@ The client therefore cannot assume a width or a rate. It reads `X-Audio-Format` 
 
 TTS moved *off* WebSockets to plain HTTP, which gave cancellation for free. Direction of travel decides the transport: TTS is one-directional — text in, audio out — so HTTP does the same job with less machinery.
 
-When the caller interrupts, Pipecat stops reading the response, the connection drops, and that drop travels through the gateway to the TTS server, which frees the GPU slot. For `indic-parler` the server evicts the request from the batch; for `indic-mio` the async generator's `GeneratorExit` aborts the vLLM request. Either way generation stops rather than finishing a sentence nobody is listening to.
+When the caller interrupts, Pipecat stops reading the response, the connection drops, and that drop travels through the gateway to the TTS server, which frees the GPU slot. For `indic-parler` the server evicts the request from the batch; for `indic-mio` the async generator's `GeneratorExit` aborts the vLLM request; for `rumik-oss-1` the same `GeneratorExit` trips a flag that the sampling tap raises on at the next token, unwinding the model's own generation loop from the inside — a blocking loop in a worker thread cannot be stopped any other way. Either way generation stops rather than finishing a sentence nobody is listening to.
 
 That propagation is what `tests/test_gateway_streaming.py` checks: the gateway streams rather than buffers, and a client disconnect reaches the upstream. The stopping-work-on-hangup row of the [container contract](adding-a-model) exists for exactly this.
 
@@ -129,6 +157,8 @@ That propagation is what `tests/test_gateway_streaming.py` checks: the gateway s
 <Note>
 The folder also still carries the older `voices.json` (v1): 12 ALL-CAPS styles (`CONV` default, plus `WIKI`, `NEWS`, `BOOK`, ...) across the same 22 languages minus Bhili, and a completely different style vocabulary from v2 — the two rosters are not interchangeable, `model-server/tests/test_orpheus_roster.py` pins that `compose.extra.yml`'s `ORPHEUS_VOICES_FILE` matches whichever checkpoint `models.yaml` records for this slot. Which file is actually loaded is a deployment detail, not a docs one — check `ORPHEUS_VOICES_FILE` in the running `compose.extra.yml` before trusting either list. VoicEra's `indic_orpheus` provider (see [Providers → Indic Orpheus](../services/providers#indic-orpheus-tts)) is written against v2.
 </Note>
+
+**rumik-oss-1** — four: Ira (default), Aisha, Siya, Zoya, read from the checkpoint's own `config.json` rather than a roster file, and served at `GET /v1/voices`. Every one covers every language, so there is no voice-per-language table to keep in step with a checkpoint. Expressiveness lives in the free-text delivery description instead of a style roster, so there is no fixed vocabulary to get wrong — and equally nothing that rejects a typo, which is the trade.
 
 **indic-mio** — five preset speakers built from AI4Bharat Rasa reference clips: Aditi (default), Meera, Ananya, Rahul, Arjun. It is a zero-shot voice-cloning model, so a voice is a speaker embedding derived from one reference clip. The embedding is timbre only, so one voice works across all 22 Indic languages plus English — you do not need a voice per language.
 
