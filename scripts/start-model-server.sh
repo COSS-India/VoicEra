@@ -328,12 +328,27 @@ if [ -n "$TTS_SEL" ]; then
   [ -d "$TTS_DIR" ] || err "TTS model folder not found: tts/$TTS_SEL"
 
   [ -f "$TTS_DIR/fetch.sh" ] && HF_TOKEN="$TTS_TOKEN" bash "$TTS_DIR/fetch.sh"
-  cat > "$TTS_DIR/.env" << ENVEOF
-CHECKPOINT_PATH_DEFAULT=$TTS_DIR/checkpoints
-BHILI_ENABLE=no
-PORT=8002
-HF_TOKEN=$TTS_TOKEN
-ENVEOF
+
+  # A model folder's own .env, for the models that read one.
+  #
+  # The parler-specific keys are written only for parler -- the same fix the STT
+  # branch above already carries, one slot over. They used to be written for
+  # whatever filled the slot, so every TTS model was handed
+  # CHECKPOINT_PATH_DEFAULT pointing at a checkpoints/ directory it does not
+  # have, plus BHILI_ENABLE, a flag only parler reads. Harmless for a model that
+  # ignores dotenv, and a path to nothing for one that does not.
+  #
+  # Everything else a model needs comes from compose: the slot's overlay is
+  # where a model declares its own configuration, and it applies whether or not
+  # the model reads dotenv.
+  {
+    echo "PORT=8002"
+    echo "HF_TOKEN=$TTS_TOKEN"
+    if [ "$TTS_SEL" = "indic-parler" ]; then
+      echo "CHECKPOINT_PATH_DEFAULT=$TTS_DIR/checkpoints"
+      echo "BHILI_ENABLE=no"
+    fi
+  } > "$TTS_DIR/.env"
   ok "TTS ready ($TTS_SEL)"
 fi
 
