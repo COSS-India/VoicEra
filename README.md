@@ -39,6 +39,8 @@ VoicEra is an open infrastructure layer that puts those choices back with the op
 
 ## Quick start
 
+> **Prerequisite:** Docker must be installed and running before you start. Launch Docker Desktop (or your Docker daemon) first — the script fails if it can't reach the Docker daemon.
+
 ```bash
 git clone https://github.com/COSS-India/VoicEra.git
 cd VoicEra
