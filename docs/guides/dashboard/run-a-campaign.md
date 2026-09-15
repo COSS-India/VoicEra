@@ -9,7 +9,7 @@ A campaign has your agent call a list of people automatically — reminders, sur
 
 Your list is a CSV file (a spreadsheet saved as "CSV" from Excel, Google Sheets, or similar). It needs:
 
-* A column named `phone_number` — every number must include the country code with a `+` in front, like `+919876543210`.
+* A column named `phone_number` — every number must include the country code with a `+` in front, like `+91987654XXXX`.
 * No duplicate numbers.
 * Any other columns you want — a name, an account number, whatever's useful. Your agent's script can reference these while calling, so it can say something like "Hi Asha" instead of a generic greeting.
 
@@ -17,9 +17,9 @@ Your list is a CSV file (a spreadsheet saved as "CSV" from Excel, Google Sheets,
 
 ```csv
 phone_number,customer_name,account_id
-+919876543210,Asha,ACC-1001
-+919876543211,Ravi,ACC-1002
-+919876543212,Meera,ACC-1003
++91987654XXX,Asha,ACC-1001
++91987654XXX,Ravi,ACC-1002
++91987654XXX,Meera,ACC-1003
 ```
 
 <Note>
