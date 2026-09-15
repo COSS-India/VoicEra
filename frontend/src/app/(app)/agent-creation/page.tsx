@@ -16,13 +16,9 @@ import { useToast } from "@/components/ui/useToast";
 import { AgentForm, AgentTemplate, DEFAULT_FORM } from "@/lib/wizard-data";
 import { PromptModule } from "@/lib/prompt-modules";
 import { useSyncCustomVariables } from "@/lib/use-sync-custom-variables";
-import {
-  defaultModelFromSettings,
-  modelOptionsFromSettings,
-  pickFirstProvider,
-  useWizardCatalogs,
-  voiceOptionsFromSettings,
-} from "@/lib/use-wizard-catalogs";
+import { activeLanguageStack, allLanguageStacksReady, syncLanguageStacks } from "@/lib/language-stacks";
+import { useLanguageStackDefaults } from "@/lib/use-language-stack-defaults";
+import { useWizardCatalogs } from "@/lib/use-wizard-catalogs";
 
 const STEPS: SectionNavItem[] = [
   { id: "start", title: "Setup", subtitle: "Start from scratch", icon: MessageSquare },
@@ -40,10 +36,6 @@ const NEXT_LABEL: Record<string, string> = {
   "call-details": "Next — review",
 };
 
-function providerStillValid(list: Record<string, unknown>, id: string): boolean {
-  return Boolean(id && id in list);
-}
-
 export default function AgentCreationPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -56,11 +48,12 @@ export default function AgentCreationPage() {
   // ReviewStep) so it survives navigating away from Review and back.
   const [draftAgentId, setDraftAgentId] = useState<string | null>(null);
 
+  const activeStack = activeLanguageStack(form);
   const catalogs = useWizardCatalogs(
     form.langs,
-    form.sttProvider,
-    form.ttsProvider,
-    form.llmProvider,
+    activeStack.sttProvider,
+    activeStack.ttsProvider,
+    activeStack.llmProvider,
   );
   const { notify, toastNode } = useToast();
 
@@ -72,94 +65,7 @@ export default function AgentCreationPage() {
   }, [step]);
 
   useSyncCustomVariables(form, onChange);
-
-  // Pick a first provider whenever one is missing (fresh form, or a template
-  // that only sets languages) or the current pick no longer matches the
-  // language-filtered catalog — not just on "became invalid", which used to
-  // skip straight past an empty provider forever.
-  useEffect(() => {
-    if (catalogs.loading || form.langs.length === 0) return;
-    setForm((f) => {
-      let next = { ...f };
-      if (!providerStillValid(catalogs.sttProviders, f.sttProvider)) {
-        next = { ...next, sttProvider: pickFirstProvider(catalogs.sttProviders) };
-      }
-      if (!providerStillValid(catalogs.ttsProviders, f.ttsProvider)) {
-        next = { ...next, ttsProvider: pickFirstProvider(catalogs.ttsProviders) };
-      }
-      if (!providerStillValid(catalogs.llmProviders, f.llmProvider)) {
-        next = { ...next, llmProvider: pickFirstProvider(catalogs.llmProviders) };
-      }
-      return next;
-    });
-  }, [
-    catalogs.loading,
-    catalogs.sttProviders,
-    catalogs.ttsProviders,
-    catalogs.llmProviders,
-    form.langs,
-  ]);
-
-  useEffect(() => {
-    if (catalogs.llmSettings) {
-      const model = defaultModelFromSettings(catalogs.llmSettings);
-      const models = modelOptionsFromSettings(catalogs.llmSettings);
-      if (model && !form.llmModel) onChange("llmModel", model);
-      else if (form.llmModel && !models.some((m) => m.value === form.llmModel) && models[0]) {
-        onChange("llmModel", models[0].value);
-      }
-    }
-  }, [catalogs.llmSettings, form.llmModel]);
-
-  useEffect(() => {
-    if (catalogs.ttsSettings) {
-      // Voice options are per (model, language) via `capabilities`. Keep a
-      // distinct voice for every selected language so mid-call switching
-      // restores the correct TTS voice.
-      setForm((f) => {
-        let changed = false;
-        const nextVoices = { ...f.voicesByLang };
-        let nextPrimaryVoice = f.voice;
-        for (const lang of f.langs) {
-          const voices = voiceOptionsFromSettings(catalogs.ttsSettings, f.ttsModel, lang);
-          if (!voices.length) continue;
-          const current = nextVoices[lang] || (lang === f.langs[0] ? nextPrimaryVoice : "");
-          if (!current || !voices.some((v) => v.id === current)) {
-            nextVoices[lang] = voices[0]!.id;
-            changed = true;
-          }
-          if (lang === f.langs[0] && nextVoices[lang] && nextVoices[lang] !== nextPrimaryVoice) {
-            nextPrimaryVoice = nextVoices[lang]!;
-            changed = true;
-          }
-        }
-        if (!changed) return f;
-        return { ...f, voicesByLang: nextVoices, voice: nextPrimaryVoice };
-      });
-    }
-  }, [catalogs.ttsSettings, form.ttsModel, form.langs]);
-
-  useEffect(() => {
-    if (catalogs.sttSettings) {
-      const model = defaultModelFromSettings(catalogs.sttSettings);
-      const models = modelOptionsFromSettings(catalogs.sttSettings);
-      if (model && !form.sttModel) onChange("sttModel", model);
-      else if (form.sttModel && !models.some((m) => m.value === form.sttModel) && models[0]) {
-        onChange("sttModel", models[0].value);
-      }
-    }
-  }, [catalogs.sttSettings, form.sttModel]);
-
-  useEffect(() => {
-    if (catalogs.ttsSettings) {
-      const model = defaultModelFromSettings(catalogs.ttsSettings);
-      const models = modelOptionsFromSettings(catalogs.ttsSettings);
-      if (model && !form.ttsModel) onChange("ttsModel", model);
-      else if (form.ttsModel && !models.some((m) => m.value === form.ttsModel) && models[0]) {
-        onChange("ttsModel", models[0].value);
-      }
-    }
-  }, [catalogs.ttsSettings, form.ttsModel]);
+  useLanguageStackDefaults(form, catalogs, setForm);
 
   const jumpTo = (id: string) => {
     const idx = STEPS.findIndex((s) => s.id === id);
@@ -167,7 +73,24 @@ export default function AgentCreationPage() {
   };
 
   const useTemplate = (t: AgentTemplate) => {
-    setForm((f) => ({ ...f, ...t.set }));
+    setForm((f) => {
+      const merged = { ...f, ...t.set };
+      const langs = merged.langs ?? f.langs;
+      const primaryLang = merged.primaryLang ?? langs[0] ?? f.primaryLang;
+      const synced = syncLanguageStacks(
+        langs,
+        merged.languageStacks ?? f.languageStacks,
+        merged.activeLang ?? f.activeLang,
+        primaryLang,
+      );
+      return {
+        ...merged,
+        langs,
+        primaryLang: synced.primaryLang,
+        languageStacks: synced.languageStacks,
+        activeLang: synced.activeLang,
+      };
+    });
     jumpTo("review");
   };
 
@@ -178,12 +101,7 @@ export default function AgentCreationPage() {
     }));
   };
 
-  const languageProvidersReady =
-    form.langs.length > 0 &&
-    Boolean(form.sttProvider) &&
-    Boolean(form.ttsProvider) &&
-    Boolean(form.llmProvider) &&
-    Boolean(form.llmModel);
+  const languageProvidersReady = form.langs.length > 0 && allLanguageStacksReady(form);
 
   const currentId = STEPS[step]?.id ?? "start";
   const showFooter = currentId !== "start" && currentId !== "review";
@@ -218,7 +136,7 @@ export default function AgentCreationPage() {
           and scroll instead of growing past its container (the usual
           flexbox-overflow gotcha) — deliberately not overflow-hidden on
           <main> itself, since that would clip the top/bottom bars' bleed. */}
-      <div className="scrollbar-hide flex min-h-0 flex-1 overflow-y-auto py-6">
+      <div data-wizard-scroll className="scrollbar-hide flex min-h-0 flex-1 overflow-y-auto py-6">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
           {catalogs.error ? (
             <div className="rounded-v-md border border-v-danger-line bg-v-danger-pale px-4 py-3 text-sm text-v-danger">
@@ -244,7 +162,7 @@ export default function AgentCreationPage() {
           ) : null}
 
           {currentId === "language" && !catalogs.loading ? (
-            <LanguageProvidersStep form={form} catalogs={catalogs} onChange={onChange} />
+            <LanguageProvidersStep form={form} setForm={setForm} catalogs={catalogs} />
           ) : null}
 
           {currentId === "delivery" && !catalogs.loading ? (

@@ -1,6 +1,11 @@
 import type { AgentApiResponse, AgentCreatePayload } from "@/lib/api-types";
-import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
-import { buildModelConfigsFromCatalogs } from "@/lib/use-wizard-catalogs";
+import {
+  buildConfigsForLanguageStack,
+  EMPTY_LANGUAGE_STACK,
+  stackFromApiConfigs,
+  syncLanguageStacks,
+  type SaveCatalogs,
+} from "@/lib/language-stacks";
 import { DEFAULT_FORM, type AgentForm } from "@/lib/wizard-data";
 
 /** Resolve the primary-language model stack from either schema shape. */
@@ -13,30 +18,17 @@ export function primaryModelsFromAgent(agent: AgentApiResponse): AgentApiRespons
 
 export function formToAgentCreatePayload(
   form: AgentForm,
-  catalogs: Pick<WizardCatalogs, "sttSettings" | "ttsSettings" | "llmSettings">,
+  saveCatalogs: SaveCatalogs,
 ): AgentCreatePayload {
-  const primary = form.langs[0] ?? "en";
-  const secondary = form.langs.slice(1);
+  const primary = form.primaryLang || form.langs[0] || "en";
+  const secondary = form.langs.filter((lang) => lang !== primary);
   const langs = [primary, ...secondary].filter(Boolean);
 
   const language_models: NonNullable<AgentCreatePayload["config"]["language_models"]> = {};
 
   for (const lang of langs) {
-    const voiceForLang =
-      form.voicesByLang[lang] ||
-      (lang === primary ? form.voice : "") ||
-      form.voice;
-
-    const { stt, tts, llm } = buildModelConfigsFromCatalogs(catalogs, {
-      llmModel: form.llmModel,
-      sttModel: form.sttModel,
-      ttsModel: form.ttsModel,
-      voice: voiceForLang,
-      primaryLang: lang,
-      sttExtra: form.sttExtra,
-      ttsExtra: form.ttsExtra,
-      llmExtra: form.llmExtra,
-    });
+    const stack = form.languageStacks[lang] ?? EMPTY_LANGUAGE_STACK;
+    const { stt, tts, llm } = buildConfigsForLanguageStack(lang, stack, saveCatalogs);
 
     if (!stt || !tts || !llm) {
       throw new Error("Provider settings are still loading. Wait a moment and try again.");
@@ -89,11 +81,6 @@ export function formToAgentCreatePayload(
       // Legacy alias — mirrors primary so older readers keep working.
       models: primaryStack,
       knowledge_base: {
-        // The backend rejects enabled:true with zero document_ids — guard here
-        // so flipping the "Use knowledge base" switch on before attaching any
-        // documents (or a template that turns it on with none pre-attached)
-        // never fails agent creation; it just stays effectively off until a
-        // document is added.
         enabled: form.kbEnabled && form.kbDocs.length > 0,
         document_ids: form.kbDocs,
         top_k: 5,
@@ -107,20 +94,28 @@ export function formToAgentCreatePayload(
 export function agentToForm(agent: AgentApiResponse): AgentForm {
   const { prompts, behaviour, language, knowledge_base } = agent.config;
   const models = primaryModelsFromAgent(agent);
-  const { stt_config: stt, tts_config: tts, llm_config: llm } = models;
+  const { stt_config: primaryStt, tts_config: primaryTts, llm_config: primaryLlm } = models;
 
   const langs = [language.primary, ...language.secondary].filter(Boolean);
-  const voicesByLang: Record<string, string> = {};
+  const languageStacks: AgentForm["languageStacks"] = {};
+  const primaryFallback = stackFromApiConfigs(primaryStt, primaryTts, primaryLlm);
+
   for (const lang of langs) {
-    const stack = agent.config.language_models?.[lang] ?? (lang === language.primary ? models : undefined);
-    const voice = stack?.tts_config?.voice;
-    if (typeof voice === "string" && voice) {
-      voicesByLang[lang] = voice;
+    const stack =
+      agent.config.language_models?.[lang] ??
+      (lang === language.primary ? models : undefined);
+    if (stack) {
+      languageStacks[lang] = stackFromApiConfigs(
+        stack.stt_config,
+        stack.tts_config,
+        stack.llm_config,
+      );
+    } else {
+      languageStacks[lang] = { ...primaryFallback };
     }
   }
-  if (!voicesByLang[language.primary] && typeof tts.voice === "string") {
-    voicesByLang[language.primary] = String(tts.voice);
-  }
+
+  const synced = syncLanguageStacks(langs, languageStacks, language.primary, language.primary);
 
   return {
     ...DEFAULT_FORM,
@@ -131,23 +126,9 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
     customVariables: agent.config.custom_variables ?? {},
     ignoreGreetingSpeech: Boolean(behaviour.ignore_user_speech_before_greeting),
     langs,
-    sttProvider: String(stt.provider ?? ""),
-    sttModel: String(stt.model ?? ""),
-    sttExtra: Object.fromEntries(
-      Object.entries(stt).filter(([key]) => !["provider", "model", "language"].includes(key)),
-    ),
-    ttsProvider: String(tts.provider ?? ""),
-    ttsModel: String(tts.model ?? ""),
-    voice: String(tts.voice ?? voicesByLang[language.primary] ?? ""),
-    voicesByLang,
-    ttsExtra: Object.fromEntries(
-      Object.entries(tts).filter(([key]) => !["provider", "model", "language", "voice"].includes(key)),
-    ),
-    llmProvider: String(llm.provider ?? ""),
-    llmModel: String(llm.model ?? ""),
-    llmExtra: Object.fromEntries(
-      Object.entries(llm).filter(([key]) => !["provider", "model", "language"].includes(key)),
-    ),
+    primaryLang: synced.primaryLang,
+    languageStacks: synced.languageStacks,
+    activeLang: synced.activeLang,
     kbEnabled: Boolean(knowledge_base.enabled),
     kbDocs: knowledge_base.document_ids ?? [],
     delivery: agent.agent_category === "telephony" ? String(agent.telephony?.provider ?? "") : "",

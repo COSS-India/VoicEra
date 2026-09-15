@@ -7,11 +7,12 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/components/AuthProvider";
 import { createAgent, updateAgent } from "@/lib/api-client";
 import { formToAgentCreatePayload } from "@/lib/agent-mapper";
+import { resolveSaveCatalogs } from "@/lib/language-stacks";
 import { BrowserCallSession } from "@/components/call/BrowserCallSession";
 import type { AgentForm } from "@/lib/wizard-data";
 import type { AgentApiResponse } from "@/lib/api-types";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
-import { languageLabel, telephonyOptions, voiceOptionsFromSettings } from "@/lib/use-wizard-catalogs";
+import { languageLabel, telephonyOptions } from "@/lib/use-wizard-catalogs";
 
 interface ReviewStepProps {
   form: AgentForm;
@@ -62,6 +63,21 @@ function SummaryRow({
 /** Read-only recap of every choice made across the wizard — the "what has
  * been chosen" list next to the test-call box. Each row's pencil jumps back
  * to the step that owns it. */
+function stackSummaryLine(
+  form: AgentForm,
+  lang: string,
+  catalogs: WizardCatalogs,
+  isPrimary: boolean,
+): string {
+  const stack = form.languageStacks[lang];
+  if (!stack) return languageLabel(catalogs.languages, lang);
+  const sttName = catalogs.sttProviders[stack.sttProvider]?.name ?? stack.sttProvider ?? "—";
+  const ttsName = catalogs.ttsProviders[stack.ttsProvider]?.name ?? stack.ttsProvider ?? "—";
+  const llmName = catalogs.llmProviders[stack.llmProvider]?.name ?? stack.llmProvider ?? "—";
+  const voiceSuffix = stack.voice ? ` · ${stack.voice}` : "";
+  return `${languageLabel(catalogs.languages, lang)}${isPrimary ? " (primary)" : ""}: STT ${sttName}${stack.sttModel ? ` · ${stack.sttModel}` : ""} · TTS ${ttsName}${stack.ttsModel ? ` · ${stack.ttsModel}` : ""}${voiceSuffix} · LLM ${llmName}${stack.llmModel ? ` · ${stack.llmModel}` : ""}`;
+}
+
 function SelectionsSummary({
   form,
   catalogs,
@@ -71,16 +87,9 @@ function SelectionsSummary({
   catalogs: WizardCatalogs;
   onEditStep?: (stepId: string) => void;
 }) {
-  const voices = voiceOptionsFromSettings(catalogs.ttsSettings, form.ttsModel, form.langs[0]);
-  const voiceLabel = voices.find((v) => v.id === form.voice)?.name ?? form.voice ?? "—";
-  const llmName = catalogs.llmProviders[form.llmProvider]?.name ?? form.llmProvider ?? "—";
-  const sttName = catalogs.sttProviders[form.sttProvider]?.name ?? form.sttProvider ?? "—";
-  const ttsName = catalogs.ttsProviders[form.ttsProvider]?.name ?? form.ttsProvider ?? "—";
   const deliveryLabel =
     telephonyOptions(catalogs.telephonyProviders).find((d) => d.value === form.delivery)?.label ??
     "WebSocket — browser test";
-  const langLabel =
-    form.langs.map((id) => languageLabel(catalogs.languages, id)).join(", ") || "No languages";
 
   const editStep = (id: string) => (onEditStep ? () => onEditStep(id) : undefined);
 
@@ -89,26 +98,14 @@ function SelectionsSummary({
       <span className="pb-2 font-mono text-[10px] uppercase tracking-[.16em] text-v-muted">What you&apos;ve chosen</span>
       <SummaryRow label="Name" value={form.name || "(unnamed)"} onEdit={editStep("name")} />
       <SummaryRow label="Greeting" value={form.welcome || "—"} onEdit={editStep("name")} />
-      <SummaryRow
-        label="Language"
-        value={`${langLabel}${form.langs.length > 1 ? " · first is primary" : ""}`}
-        onEdit={editStep("language")}
-      />
-      <SummaryRow
-        label="STT"
-        value={`${sttName}${form.sttModel ? ` · ${form.sttModel}` : ""}`}
-        onEdit={editStep("language")}
-      />
-      <SummaryRow
-        label="LLM"
-        value={`${llmName}${form.llmModel ? ` · ${form.llmModel}` : ""}`}
-        onEdit={editStep("language")}
-      />
-      <SummaryRow
-        label="TTS"
-        value={`${ttsName}${form.ttsModel ? ` · ${form.ttsModel}` : ""}${form.voice ? ` · ${voiceLabel}` : ""}`}
-        onEdit={editStep("language")}
-      />
+      {form.langs.map((lang) => (
+        <SummaryRow
+          key={lang}
+          label={lang === form.primaryLang ? "Language stack" : " "}
+          value={stackSummaryLine(form, lang, catalogs, lang === form.primaryLang)}
+          onEdit={editStep("language")}
+        />
+      ))}
       <SummaryRow label="Delivery" value={deliveryLabel} onEdit={editStep("delivery")} />
       <SummaryRow
         label="Knowledge base"
@@ -159,7 +156,8 @@ export function ReviewStep({
     setSaving(true);
     setError("");
     try {
-      const payload = formToAgentCreatePayload(form, catalogs);
+      const saveCatalogs = await resolveSaveCatalogs(form);
+      const payload = formToAgentCreatePayload(form, saveCatalogs);
       const agent = agentId ? await updateAgent(agentId, payload) : await createAgent(payload);
       onAgentSaved(agent);
     } catch (err) {

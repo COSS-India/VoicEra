@@ -32,7 +32,10 @@ export function SectionNav({ items, activeId, onSelect, eyebrow }: SectionNavPro
   const activeIndex = items.findIndex((i) => i.id === activeId);
 
   return (
-    <div className="sticky top-0 z-20 -mx-[34px] -mt-[30px] border-b border-v-line bg-white px-[34px] pb-3 pt-4">
+    <div
+      data-section-nav
+      className="sticky top-0 z-20 -mx-[34px] -mt-[30px] border-b border-v-line bg-white px-[34px] pb-3 pt-4"
+    >
       {eyebrow ? (
         <h1 className="pb-3 text-center font-mono text-[10px] font-semibold uppercase tracking-[.16em] text-v-muted">{eyebrow}</h1>
       ) : null}
