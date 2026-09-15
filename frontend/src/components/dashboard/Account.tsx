@@ -7,13 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { getMe, getUserOrganisations, switchOrganisation } from "@/lib/api/users";
 import { saveSession } from "@/lib/auth-storage";
 import type { OrganisationSummary, UserProfile } from "@/lib/api-types";
-
-function roleLabel(role: string): string {
-  return role
-    .split("_")
-    .map((w) => w[0]!.toUpperCase() + w.slice(1))
-    .join(" ");
-}
+import { formatUserRole } from "@/lib/format";
 
 function initials(email: string): string {
   return email.slice(0, 2).toUpperCase();
@@ -105,7 +99,7 @@ export function Account({
         <span className="flex flex-col gap-1">
           <span className="text-2xl font-semibold tracking-tight">{profile.email}</span>
           <span className="text-sm text-v-muted">
-            {profile.organisation_name ?? profile.org_id} · {roleLabel(profile.role)}
+            {profile.organisation_name ?? profile.org_id} · {formatUserRole(profile.role)}
           </span>
         </span>
       </div>
@@ -121,7 +115,7 @@ export function Account({
           </div>
           <div className="flex flex-col gap-1">
             <dt className="font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">Role</dt>
-            <dd className="text-sm font-medium">{roleLabel(profile.role)}</dd>
+            <dd className="text-sm font-medium">{formatUserRole(profile.role)}</dd>
           </div>
           <div className="flex flex-col gap-1">
             <dt className="font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">Organisation</dt>
@@ -145,7 +139,7 @@ export function Account({
           >
             <span className="flex flex-col gap-0.5">
               <span className="text-[13.5px] font-medium">{o.name}</span>
-              <span className="text-xs font-light text-v-muted">{roleLabel(o.role)}</span>
+              <span className="text-xs font-light text-v-muted">{formatUserRole(o.role)}</span>
             </span>
             {o.org_id === profile.org_id ? (
               <span className="rounded-full border border-v-accent/30 bg-v-pale px-3 py-1 font-mono text-[10px] uppercase tracking-[.1em] text-v-accent-deep">
