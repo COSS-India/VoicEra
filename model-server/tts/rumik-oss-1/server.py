@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import base64
 import contextlib
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -140,19 +139,22 @@ def create_app(config: Config | None = None) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(application: FastAPI):
         engine: RumikTTSEngine = application.state.engine
-        # Loading is minutes of GPU work and blocks; keep it off the loop so
-        # /health can answer "loading" while it happens, which is what lets the
+        # Awaited rather than threaded: vLLM's engine binds to the running loop.
+        # The blocking parts inside start() go to a thread themselves, so
+        # /health still answers "loading" throughout -- which is what lets the
         # gateway hold traffic back instead of sending it to a half-built model.
-        await asyncio.to_thread(engine.load)
+        await engine.start()
         application.state.ready = True
         log.info(
-            "rumik-oss-1 on :%d (voices=%s concurrency=%d chunk=%d frames)",
-            cfg.port, ", ".join(engine.speakers), cfg.max_concurrency, cfg.decode_chunk_frames,
+            "rumik-oss-1 on :%d (engine=%s voices=%s concurrency=%d chunk=%d frames)",
+            cfg.port, cfg.engine, ", ".join(engine.speakers), cfg.max_concurrency,
+            cfg.decode_chunk_frames,
         )
         try:
             yield
         finally:
             application.state.ready = False
+            await engine.stop()
 
     app = FastAPI(title="rumik-oss-1 TTS", version="1.0.0", lifespan=lifespan)
     app.state.config = cfg
@@ -197,6 +199,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                 "status": "ok" if ready else "loading",
                 "ready": ready,
                 "model": cfg.model_name,
+                "engine": cfg.engine,
                 "voices": list(engine.speakers) if ready else [],
                 "sample_rate": engine.sample_rate if ready else None,
                 "frame_ms": round(engine.frame_ms, 2) if ready else None,
@@ -241,7 +244,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         # sent its status line, the only way left to signal failure is to stop
         # writing audio.
         try:
-            prompt, cap = engine.plan(
+            prompt_ids, cap = engine.plan(
                 text=req.input, voice=req.voice, instructions=req.instructions,
                 max_new_tokens=req.max_new_tokens,
             )
@@ -264,8 +267,8 @@ def create_app(config: Config | None = None) -> FastAPI:
 
         def pcm_stream():
             return engine.synthesize_stream(
-                prompt=prompt, max_new_tokens=cap, temperature=req.temperature,
-                top_k=req.top_k, stats=stats,
+                prompt_token_ids=prompt_ids, max_new_tokens=cap,
+                temperature=req.temperature, top_k=req.top_k, stats=stats,
             )
 
         if req.stream_format == "sse":

@@ -33,6 +33,32 @@ services:
     # given the room.
     stop_grace_period: 60s
     environment:
+      # ---- engine ------------------------------------------------------
+      # vllm or transformers. vLLM is the default and the reason this folder
+      # gained a second backend: the transformers path runs upstream's
+      # hand-written per-token Python loop, measured at ~45 tok/s against the
+      # 100 tok/s one realtime stream needs. It is kept selectable so the two
+      # can be compared rather than argued about -- see the folder README for
+      # the greedy-decode parity check.
+      RUMIK_ENGINE: ${RUMIK_ENGINE:-vllm}
+      # The checkpoint's max_position_embeddings. Prompt and audio share it.
+      RUMIK_MAX_MODEL_LEN: ${RUMIK_MAX_MODEL_LEN:-8192}
+      # A FRACTION OF THE CARD'S TOTAL, reserved at startup and held whether or
+      # not it is needed -- the trap tts/orpheus documents at length, where
+      # upstream's 0.90 would claim ~129 GB of a 143 GB H200 shared with
+      # production. 0.12 is what orpheus settled on for a 3B model on this same
+      # card: ~17 GB, against 6.76 GB of weights, 0.4 GB of codec and KV at
+      # ~72 KB/token, so fifty streams of ~500 tokens is under 2 GB.
+      RUMIK_GPU_MEMORY_UTILIZATION: ${RUMIK_GPU_MEMORY_UTILIZATION:-0.12}
+      # vLLM's own batch ceiling. Distinct from RUMIK_MAX_CONCURRENCY, which is
+      # the slot's admission limit: this bounds what the scheduler will run at
+      # once, that bounds what the server will accept.
+      RUMIK_MAX_NUM_SEQS: ${RUMIK_MAX_NUM_SEQS:-64}
+      # false on purpose: CUDA graphs are most of why vLLM is faster than the
+      # loop this replaces. Set true only to debug a suspected graph-capture
+      # problem.
+      RUMIK_ENFORCE_EAGER: ${RUMIK_ENFORCE_EAGER:-false}
+
       # ---- model -------------------------------------------------------
       # A directory under the mount below, or a HuggingFace repo id -- in which
       # case the load fetches into HF_HOME instead and the mount goes unused.

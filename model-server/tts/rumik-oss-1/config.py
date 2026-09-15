@@ -59,6 +59,13 @@ def _flag(raw: str | None, default: bool) -> bool:
 class Config:
     """One deployment's settings. Frozen so nothing rewrites them per request."""
 
+    # ---- engine ---------------------------------------------------------
+    engine: str
+    max_model_len: int
+    gpu_memory_utilization: float
+    max_num_seqs: int
+    enforce_eager: bool
+
     # ---- model ----------------------------------------------------------
     model_path: str
     model_name: str
@@ -95,6 +102,13 @@ class Config:
     @classmethod
     def from_env(cls) -> Config:
         return cls(
+            engine=_text(os.getenv("RUMIK_ENGINE"), "vllm").lower(),
+            max_model_len=int(_number(os.getenv("RUMIK_MAX_MODEL_LEN"), 8192, int)),
+            gpu_memory_utilization=float(
+                _number(os.getenv("RUMIK_GPU_MEMORY_UTILIZATION"), 0.12, float)
+            ),
+            max_num_seqs=int(_number(os.getenv("RUMIK_MAX_NUM_SEQS"), 64, int)),
+            enforce_eager=_flag(os.getenv("RUMIK_ENFORCE_EAGER"), False),
             model_path=_text(os.getenv("RUMIK_MODEL_PATH"), "/models/rumik-oss-1"),
             model_name=_text(os.getenv("RUMIK_MODEL_NAME"), "rumik-oss-1"),
             device=_text(os.getenv("RUMIK_DEVICE"), "cuda"),
@@ -139,3 +153,16 @@ class Config:
             )
         if self.max_concurrency < 1:
             raise ValueError("RUMIK_MAX_CONCURRENCY must be at least 1")
+        if self.engine not in ("vllm", "transformers"):
+            raise ValueError(
+                f"RUMIK_ENGINE={self.engine!r} is not one of 'vllm', 'transformers'"
+            )
+        if not 0.0 < self.gpu_memory_utilization <= 1.0:
+            # vLLM reserves this FRACTION OF THE CARD'S TOTAL at startup and
+            # holds it whether it needs it or not. On a GPU shared through MPS
+            # that is somebody else's memory, so a fat-fingered 12 instead of
+            # 0.12 should not reach the engine.
+            raise ValueError(
+                "RUMIK_GPU_MEMORY_UTILIZATION is a fraction of total GPU memory, "
+                f"so it must be in (0, 1]; got {self.gpu_memory_utilization}"
+            )

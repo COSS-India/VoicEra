@@ -5,18 +5,22 @@
 # run time by nvidia-container-toolkit. That keeps this image portable across GPU
 # generations — nothing here is compiled for one architecture.
 #
-# Unlike tts/orpheus this needs no compiler at run time: there is no vLLM and so
-# no Triton kernels JIT-compiling on first use. libgomp1 is torch's; libsndfile1
-# is what soundfile uses to encode the mp3/flac/opus response formats.
+# gcc/g++ are needed at RUN TIME, not just build time: vLLM's Triton kernels
+# JIT-compile on first use against the pip CUDA toolkit in site-packages.
+# libgomp1 is torch's; libsndfile1 is what soundfile uses to encode the
+# mp3/flac/opus response formats.
 FROM python:3.12-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
-    HF_HOME=/hf-cache
+    HF_HOME=/hf-cache \
+    # flashinfer cannot JIT against CUDA 13 headers, so use vLLM's own sampler.
+    # Harmless on older stacks; required on CUDA 13.
+    VLLM_USE_FLASHINFER_SAMPLER=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgomp1 libsndfile1 ca-certificates \
+        gcc g++ libgomp1 libsndfile1 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -24,6 +28,19 @@ WORKDIR /app
 # Dependencies first, so app edits do not invalidate the (large) wheel layer.
 COPY requirements.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# vLLM's Triton kernels JIT against nvcc from the pip CUDA toolkit, so CUDA_HOME
+# has to point at it. The build fails loudly if the expected layout is not there,
+# rather than leaving a broken image to surface as a cryptic Triton error at the
+# first request.
+ENV CUDA_HOME=/usr/local/lib/python3.12/site-packages/nvidia/cu13
+ENV PATH=$CUDA_HOME/bin:$PATH
+RUN test -x "$CUDA_HOME/bin/nvcc" || { \
+        echo "ERROR: nvcc not found under CUDA_HOME=$CUDA_HOME"; \
+        echo "The pinned torch/vllm wheels moved their CUDA toolkit. Available:"; \
+        ls -d /usr/local/lib/python3.12/site-packages/nvidia/*/bin 2>/dev/null || true; \
+        exit 1; \
+    }
 
 # Copied so the image is self-contained and can be run without a checkout.
 # At run time the slot bind-mounts ./tts/${TTS_MODEL} over /app, so these files
@@ -43,7 +60,7 @@ COPY static ./static
 # the right owner: a fresh named volume mounted over it then inherits that
 # ownership from the image rather than arriving root-owned and unwritable.
 RUN useradd -m -u 1000 rumik && \
-    mkdir -p /hf-cache && \
+    mkdir -p /hf-cache /home/rumik/.triton && \
     chown -R rumik:rumik /home/rumik /app /hf-cache
 USER rumik
 
