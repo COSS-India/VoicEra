@@ -107,7 +107,7 @@ class Config:
             port=int(_number(os.getenv("PORT"), 8002, int)),
             log_level=_text(os.getenv("RUMIK_LOG_LEVEL"), "INFO").upper(),
             cors_origins=_csv(os.getenv("RUMIK_CORS_ORIGINS")),
-            max_concurrency=int(_number(os.getenv("RUMIK_MAX_CONCURRENCY"), 2, int)),
+            max_concurrency=int(_number(os.getenv("RUMIK_MAX_CONCURRENCY"), 1, int)),
             max_input_chars=int(_number(os.getenv("RUMIK_MAX_INPUT_CHARS"), 1000, int)),
             default_voice=_text(os.getenv("RUMIK_DEFAULT_VOICE"), "Ira"),
             default_instructions=_text(os.getenv("RUMIK_DEFAULT_INSTRUCTIONS"), ""),
@@ -124,7 +124,7 @@ class Config:
                 _number(os.getenv("RUMIK_DECODE_CONTEXT_FRAMES"), 32, int)
             ),
             warmup_enabled=_flag(os.getenv("RUMIK_WARMUP_ENABLED"), True),
-            warmup_tokens=int(_number(os.getenv("RUMIK_WARMUP_TOKENS"), 32, int)),
+            warmup_tokens=int(_number(os.getenv("RUMIK_WARMUP_TOKENS"), 256, int)),
         )
 
     def __post_init__(self) -> None:

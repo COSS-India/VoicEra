@@ -52,13 +52,15 @@ services:
       RUMIK_ATTN_IMPLEMENTATION: ${RUMIK_ATTN_IMPLEMENTATION:-sdpa}
 
       # ---- capacity, sized for a shared card ---------------------------
-      # An admission limit, and a low one on purpose. This model has NO
-      # continuous batching: generation is a hand-written per-token Python loop
-      # over a 3B model, so realtime (100 tokens/sec of speech) is borderline at
-      # one stream and does not hold at several. Each concurrent stream also
-      # holds its own KV cache -- about 1.2 GB at the full 8192 context. Raise it
-      # only with a measurement of X-RTF in hand.
-      RUMIK_MAX_CONCURRENCY: ${RUMIK_MAX_CONCURRENCY:-2}
+      # An admission limit, and it is 1 because that is what the measurement
+      # says. This model has NO continuous batching: generation is a
+      # hand-written per-token Python loop over a 3B model, measured at ~45
+      # tok/s against the 100 tok/s realtime needs -- so a SINGLE stream already
+      # runs at RTF ~2.2 and underruns. Admitting two makes it ~4.4, not two
+      # streams at 2.2. Each concurrent stream also holds its own KV cache,
+      # about 1.2 GB at the full 8192 context. Raise this only with an X-RTF
+      # under 1.0 in hand.
+      RUMIK_MAX_CONCURRENCY: ${RUMIK_MAX_CONCURRENCY:-1}
       RUMIK_MAX_INPUT_CHARS: ${RUMIK_MAX_INPUT_CHARS:-1000}
 
       # ---- server ------------------------------------------------------
@@ -111,8 +113,14 @@ services:
       # streaming and cancellation both depend on is still wired -- see
       # engine.install_tap. Disabling it moves that check to the first real
       # request, where a broken tap looks like a wedged GPU.
+      #
+      # 256 rather than 32, because the cold-context cliff is real and measured:
+      # the first generation runs at 12.5 tok/s and settles at ~45 by the
+      # second. 32 tokens did not establish the context, so the first caller
+      # paid 50 s for a 6 s utterance. This costs ~20 s of container start
+      # instead.
       RUMIK_WARMUP_ENABLED: ${RUMIK_WARMUP_ENABLED:-true}
-      RUMIK_WARMUP_TOKENS: ${RUMIK_WARMUP_TOKENS:-32}
+      RUMIK_WARMUP_TOKENS: ${RUMIK_WARMUP_TOKENS:-256}
     volumes:
       # Read-only: nothing in this stack should ever write a checkpoint. The
       # path resolves against --project-directory (model-server/), NOT against

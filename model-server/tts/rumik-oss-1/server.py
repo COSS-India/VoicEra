@@ -332,7 +332,14 @@ def _timing_headers(stats: StreamStats) -> dict[str, str]:
     out = {
         "X-Audio-Duration-Sec": f"{stats.audio_ms / 1000.0:.2f}",
         "X-Generation-Ms": f"{stats.gen_ms:.1f}",
+        # Tokens, because RTF alone cannot tell a slow GPU from a model emitting
+        # tokens the de-interleaver discards: both show as more time for the same
+        # audio. Diagnosing that once needed a hand-written script against the
+        # raw model, which is a thing a response should never require.
+        "X-Tokens": str(stats.tokens),
     }
+    if stats.tokens_per_s is not None:
+        out["X-Tokens-Per-Sec"] = f"{stats.tokens_per_s:.1f}"
     if stats.ttfa_ms is not None:
         out["X-TTFA-Ms"] = f"{stats.ttfa_ms:.1f}"
     if stats.rtf is not None:

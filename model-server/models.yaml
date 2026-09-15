@@ -158,12 +158,23 @@ tts:
       non-commercial use only, and a commercial deployment needs separate
       permission from Rumik. This is the only model in this catalogue with that
       restriction, which is why `license` appears here at all.
-      Not yet run on hardware. Two things are therefore unverified: the
-      realtime factor, which matters more here than for the vLLM-backed models
-      because there is no continuous batching and no CUDA graphs -- treat
-      concurrency above 1 as unproven -- and the streaming decode's left-context
-      window, which is a chosen 32 frames rather than a measured one. The folder
-      README says what to measure.
+      MEASURED, and it does not reach realtime. On ace-h200 GPU 1 (H200 NVL,
+      Exclusive Process behind the shared MPS daemon), 15 Sep 2026: ~45 tok/s
+      warm (43.1-48.9 over three runs), RTF 2.05-2.33, time-to-first-audio
+      ~370 ms. Realtime needs 100 tok/s, so this is about 2.2x too slow to hold
+      a live call -- audio starts promptly and then underruns. The first
+      generation after a cold context runs at 12.5 tok/s (RTF 8.0), which is
+      what the 256-token warmup exists to absorb.
+      The cost is upstream's decode loop, not the slot: one 3B forward per token
+      in Python, eager, no CUDA graphs, no continuous batching. Running
+      `generate_audio` directly with no server, no tap and no streaming decode
+      reproduces the same 45 tok/s to the decimal, so the slot's layer adds no
+      measurable overhead. Closing the gap means an inference engine, not
+      tuning -- vLLM already supports Cohere2, and the deltas here are an
+      enlarged vocab, a stop head and constrained sampling, so an adapter may
+      be tractable. Until then treat this as demo and evaluation grade.
+      Still unverified: the streaming decode's left-context window, a chosen 32
+      frames rather than a measured one. The folder README says what to run.
 
   - id: omnivoice
     name: k2-fsa OmniVoice 0.6B

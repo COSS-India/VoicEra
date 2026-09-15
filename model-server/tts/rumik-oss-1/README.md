@@ -109,20 +109,58 @@ From `config.json`, not from a blog post:
 | 2048 tokens | ≈ 20.5 s of speech |
 | weights | 6.76 GB in two shards, plus 385 MB of codec |
 
-## Not yet run on hardware
+## Measured: it does not reach realtime
 
-Two things are therefore claims, not measurements, and both are visible rather
-than hidden:
+Run on ace-h200 GPU 1 (H200 NVL 143 GB, Exclusive Process behind the shared MPS
+daemon), 15 September 2026:
 
-**The realtime factor.** One 3B forward pass per token, in Python, with no
-continuous batching and no CUDA graphs — and their loop allocates a
-277k-wide `-inf` tensor per token on top of that. Realtime needs 100 tok/s. That
-is plausible at one stream on an H200 and will not hold at several, which is why
-`RUMIK_MAX_CONCURRENCY` defaults to 2 and why raising it wants evidence.
-Measure it from the response rather than guessing: the buffered path returns
-`X-TTFA-Ms`, `X-RTF`, `X-Generation-Ms` and `X-Audio-Duration-Sec`, the SSE
-`speech.audio.done` event carries the same numbers, and the demo page prints
+| | |
+|---|---|
+| warm throughput | **~45 tok/s** (43.1 / 48.9 / 43.3 over three runs) |
+| RTF | **2.05 – 2.33** |
+| time to first audio | ~370 ms |
+| first generation on a cold context | 12.5 tok/s, RTF 8.0 |
+| realtime needs | 100 tok/s, i.e. RTF ≤ 1.0 |
+
+**So it is about 2.2× too slow to hold a live call.** Time-to-first-audio is
+fine; what follows it is not. Generation produces 80 ms of speech roughly every
+180 ms, so after the first chunk the client's buffer drains and the caller hears
+gaps. That is worse than a slow start, because it sounds like a bad line.
+
+**The cost is upstream's decode loop, not this folder.** Running
+`generate_audio` directly — no server, no sampling tap, no streaming decode, no
+HTTP — reproduces the same ~45 tok/s, and the served numbers match it to the
+decimal (a 5.92 s utterance, 592 tokens, 13.27 s → 44.6 tok/s). The slot's layer
+adds no measurable overhead. What costs is one 3B forward per token in Python,
+eager, with no CUDA graphs and no continuous batching, `output_hidden_states`
+materialising all 36 layers each step for the stop head, and a 277k-wide `-inf`
+tensor allocated per token.
+
+The de-interleaver is correct, which that run also settles: `DROPPED` was 1
+token every time — the trailing partial frame, discarded as designed. The
+round-robin resync rule never fires, so no generated audio is being thrown away.
+
+**Closing the gap means an inference engine, not tuning.** The most promising
+route is vLLM, which already supports `Cohere2ForCausalLM`; the deltas here are
+an enlarged vocabulary (16,384 audio units, so a bigger embedding), the
+`stop_predictor` head — and note `config.json` declares
+`audio_end_token_id: 277394`, so a real end token may make that head
+unnecessary — and sampling constrained to the audio range, which maps onto
+vLLM's logit processors. That is an adapter to investigate, not a port from
+scratch. `torch.compile` with a static KV cache is the fallback, worth 2–4× on
+HF decode, but it means owning their generation loop, which is exactly what the
+sampling tap exists to avoid.
+
+Until one of those lands, treat this as **demo and evaluation grade**. That is
+why `RUMIK_MAX_CONCURRENCY` is 1: a single stream already underruns, and
+admitting two makes it ~4.4× realtime rather than two streams at 2.2×.
+
+Every response carries the evidence: `X-Tokens`, `X-Tokens-Per-Sec`, `X-RTF`,
+`X-TTFA-Ms`, `X-Generation-Ms` and `X-Audio-Duration-Sec` on the buffered path,
+the same numbers in the SSE `speech.audio.done` event, and the demo page prints
 them. Warmup logs tokens/sec at startup.
+
+## Still unverified
 
 **The streaming decode window.** Mimi in `transformers` carries no streaming
 state between `decode()` calls, so each chunk is decoded together with
