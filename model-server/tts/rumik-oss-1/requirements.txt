@@ -16,9 +16,11 @@
 
 # --- inference ----------------------------------------------------------------
 # vllm brings its own torch, triton and the nvidia CUDA wheels, and pins its own
-# transformers. This folder no longer pins 4.57.6: the vLLM path imports none of
-# the checkpoint's remote code -- hf_overrides presents it as the
-# Cohere2ForCausalLM it subclasses -- so the coupling that pin existed for is gone.
+# transformers. This folder no longer pins 4.57.6: the vLLM path imports the
+# checkpoint's CONFIG class but never its modeling code -- hf_overrides routes
+# the model to vLLM's own Cohere2 implementation -- so the version coupling that
+# pin existed for is gone. (trust_remote_code is still required to read a config
+# carrying an auto_map at all; see vllm_backend.py.)
 #
 # The consequence is worth stating. RUMIK_ENGINE=transformers runs upstream's
 # generate_audio, authored against 4.57.6. It is a reference path for comparing

@@ -34,15 +34,28 @@ parameter:
 and the stop head is simply not used.
 
 --------------------------------------------------------------------------
-No trust_remote_code
+What hf_overrides does, and what it does not
 
-`hf_overrides={"architectures": ["Cohere2ForCausalLM"]}` presents the
-checkpoint as what it structurally is. Nothing then imports
-`modeling_rumik_oss.py`, so this folder stops caring which `transformers`
-version vLLM pins -- it pins its own, and the transformers path here pins
-4.57.6, which is a collision waiting to happen otherwise.
+`hf_overrides={"architectures": ["Cohere2ForCausalLM"]}` is what makes vLLM
+resolve this checkpoint to its own `commandr` implementation instead of looking
+for a `RumikOSSForCausalLM` it has never heard of. That part works, and it is
+why no model class had to be written.
 
-What that costs is the frame arithmetic, which `codec.py` now owns and
+`trust_remote_code=True` is still required, and the first attempt without it
+failed at startup. The override is applied AFTER the config is loaded; the
+refusal happens DURING loading, because config.json carries an `auto_map` and
+transformers gates any such repo behind the flag before an override can reach
+it. So the flag is not optional here -- it is the price of reading the config
+at all.
+
+It is narrower than it sounds. With `architectures` overridden, the only
+remote file transformers imports is `configuration_rumik_oss.py`, a
+`Cohere2Config` subclass adding five integers. `modeling_rumik_oss.py` -- the
+hand-written decode loop and the stop head -- is never imported, which is the
+part that mattered: this folder still does not depend on that file continuing
+to import cleanly against whichever `transformers` vLLM pins.
+
+What it does cost is the frame arithmetic, which `codec.py` now owns and
 `tests/test_rumik_codec.py` pins.
 """
 from __future__ import annotations
@@ -88,8 +101,13 @@ class VllmTokenSource:
             gpu_memory_utilization=cfg.gpu_memory_utilization,
             max_num_seqs=cfg.max_num_seqs,
             enforce_eager=cfg.enforce_eager,
-            # The whole point. See the module docstring.
-            trust_remote_code=False,
+            # Required, not preferred -- see the module docstring. config.json
+            # has an auto_map, and transformers refuses to read such a repo
+            # without this, before hf_overrides can be applied. Only the config
+            # class is imported; the architecture override below is what keeps
+            # vLLM on its own Cohere2 implementation rather than the
+            # checkpoint's decode loop.
+            trust_remote_code=True,
             hf_overrides={"architectures": ["Cohere2ForCausalLM"]},
         )
         log.info(
