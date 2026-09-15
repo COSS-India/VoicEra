@@ -25,13 +25,16 @@ parameter:
 
     upstream                                vLLM
     ------------------------------------    -----------------------------
-    allowed_ids = units + </audio>          allowed_token_ids
+    allowed_ids = units + </audio>          a mask in compute_logits (*)
     break on </audio>                       stop_token_ids
     mask </audio> for min_new_tokens        min_tokens
     temperature / top_k multinomial         temperature / top_k
     max_new_tokens                          max_tokens
 
 and the stop head is simply not used.
+
+(*) not SamplingParams.allowed_token_ids, which is capped at 1024 entries
+against the 16,385 this vocabulary needs. See rumik_vllm_plugin.
 
 --------------------------------------------------------------------------
 How the checkpoint is resolved, after two wrong turns
@@ -91,9 +94,6 @@ class VllmTokenSource:
         self.cfg = cfg
         self.layout = layout
         self._engine = None
-        # 16,385 ids, built once. Rebuilding per request would be 16k list
-        # elements of garbage per synthesis for a value that never changes.
-        self._allowed = layout.allowed_token_ids()
 
     async def start(self) -> None:
         # Imported here, not at module scope: the transformers path must stay
@@ -144,7 +144,12 @@ class VllmTokenSource:
             # one frame's worth of tokens the model can stop before a single
             # complete frame exists and the response is empty.
             min_tokens=self.cfg.min_new_tokens,
-            allowed_token_ids=self._allowed,
+            # NOT allowed_token_ids. vLLM caps that at 1024 entries and this
+            # model's audio vocabulary is 16,385, so the first request died on
+            # "Too many allowed token IDs: 16385. The max size is 1024." The
+            # constraint is applied in the model's compute_logits instead --
+            # one masked_fill over the whole batch rather than a per-request
+            # allow-list. See rumik_vllm_plugin.
             stop_token_ids=[self.layout.audio_end_token_id],
             # Never text. Skipping the detokenizer is not only faster -- the
             # unit tokens would come back as `<code>_<quantizer>` strings that

@@ -58,7 +58,10 @@ COPY static ./static
 # --no-deps: the dependencies are already pinned in requirements.txt above, and
 # resolving them again here would let pip move a version out from under them.
 COPY pyproject.toml ./
-RUN pip install --no-deps .
+# -e, so the installed plugin resolves to /app rather than a copy in
+# site-packages. /app is bind-mounted by the slot, which means a later change to
+# rumik_vllm_plugin.py needs a container restart and not another image build.
+RUN pip install --no-deps -e .
 
 # Non-root, and portable: this image does NOT need root. The MPS wrinkle that
 # forces tts/orpheus to run as uid 0 — an MPS client must match the daemon's
