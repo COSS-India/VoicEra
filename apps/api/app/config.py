@@ -39,7 +39,7 @@ class Settings(BaseSettings):
         default="",
         description="JWT signing key; required in production",
     )
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
     JWT_ALGORITHM: str = "HS256"
 
     MAILTRAP_API_TOKEN: str = ""
