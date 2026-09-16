@@ -72,6 +72,21 @@ def test_cloud_metadata_address_is_refused():
     assert "blocked address" in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://[::ffff:169.254.169.254]/v1",  # IPv4-mapped form of the same host
+        "http://169.254.169.253/v1",  # anything else link-local
+        "http://[fd00:ec2::254]/v1",  # AWS IPv6 metadata, not link-local
+    ],
+)
+def test_metadata_address_cannot_be_spelled_around(url):
+    """Blocking one literal is not enough — the address is matched, not its text."""
+    with pytest.raises(svc.ProviderConnectionError) as exc:
+        svc.normalise_base_url(url)
+    assert "blocked address" in str(exc.value)
+
+
 def test_private_lan_host_is_allowed():
     """Self-hosted models on the LAN are the point — do not block RFC1918."""
     assert svc.normalise_base_url("http://192.168.1.50:8000/v1").endswith(":8000/v1")

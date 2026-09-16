@@ -43,9 +43,12 @@ _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
 # Paths a user may paste from vendor docs; the base URL sits above them.
 _OPERATION_SUFFIXES = ("/chat/completions", "/completions", "/responses")
 
-# Cloud instance-metadata addresses. Everything else private stays reachable on
-# purpose — a self-hosted vLLM on the LAN is the main thing this feature serves.
-_BLOCKED_IPS = frozenset({"169.254.169.254", "fd00:ec2::254"})
+# Cloud instance-metadata addresses. The link-local range covers 169.254.169.254
+# (AWS, GCP, Azure) however it is spelled; AWS also serves metadata over the
+# unique-local address below, which is not link-local. Everything else private
+# stays reachable on purpose — a self-hosted vLLM on the LAN is the main thing
+# this feature serves.
+_BLOCKED_IPS = frozenset({ipaddress.ip_address("fd00:ec2::254")})
 
 
 class ProviderConnectionError(ValueError):
@@ -145,24 +148,38 @@ def normalise_base_url(base_url: str) -> str:
         )
 
     for address in _resolved_ips(host):
-        if address in _BLOCKED_IPS:
+        if address.is_link_local or address in _BLOCKED_IPS:
             raise ProviderConnectionError(
                 f"base_url resolves to a blocked address: {address}"
             )
     return url
 
 
-def _resolved_ips(host: str) -> list[str]:
-    """Literal IP, or every A/AAAA record. DNS failure is left to the probe."""
+def _parse_ip(raw: str) -> Any | None:
+    """Parse to a comparable address, or ``None`` when it is not one.
+
+    An IPv4-mapped IPv6 address such as ``::ffff:169.254.169.254`` routes to the
+    IPv4 address it wraps, so it has to be compared as that address rather than
+    by its own text form. A scope id (``fe80::1%eth0``) is dropped first.
+    """
     try:
-        return [str(ipaddress.ip_address(host))]
+        address = ipaddress.ip_address(raw.split("%", 1)[0])
     except ValueError:
-        pass
+        return None
+    return getattr(address, "ipv4_mapped", None) or address
+
+
+def _resolved_ips(host: str) -> list[Any]:
+    """Literal IP, or every A/AAAA record. DNS failure is left to the probe."""
+    literal = _parse_ip(host)
+    if literal is not None:
+        return [literal]
     try:
         infos = socket.getaddrinfo(host, None)
     except OSError:
         return []
-    return [str(info[4][0]) for info in infos]
+    resolved = (_parse_ip(str(info[4][0])) for info in infos)
+    return [address for address in resolved if address is not None]
 
 
 def _first_key(api_key: str | list[str] | None) -> str:
