@@ -25,5 +25,5 @@ def create_frame_serializer(
         room_id=stream_sid,
         call_id=call_sid,
         websocket=websocket,
-        params=ViFrameSerializer.InputParams(sample_rate=VI_SAMPLE_RATE),
+        params=ViFrameSerializer.InputParams(sample_rate=sample_rate),
     )

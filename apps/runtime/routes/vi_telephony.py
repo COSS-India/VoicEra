@@ -18,8 +18,6 @@ from apps.runtime.services.agent_routing import agent_category, telephony_provid
 from apps.runtime.services.backend import BackendError, backend_client
 from apps.runtime.services.pipecat.runners import run_telephony_bot
 from apps.telephony.providers.vi.obd_client import resolve_vi_agent_id
-from apps.telephony.providers.vi.serializers import VI_SAMPLE_RATE
-
 router = APIRouter(tags=["vi-telephony"])
 
 VI_START_TIMEOUT_SECS = 15.0
@@ -228,7 +226,6 @@ async def _run_vi_session(
             call_sid=call_sid,
             call_id=call_id,
             agent=agent,
-            sample_rate=VI_SAMPLE_RATE,
         )
         logger.info(
             "VI pipeline finished: agent={} call_id={} room_id={}",

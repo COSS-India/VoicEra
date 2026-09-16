@@ -58,7 +58,11 @@ def build_pipeline_components(
     agent: dict[str, Any],
     org_id: str,
     behaviour: dict[str, Any],
+    recording_sample_rate: int | None = None,
 ) -> PipelineComponents:
+    rec_rate = recording_sample_rate or sample_rate
+    capture_tts_before_transport = rec_rate != sample_rate
+
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
         params=VADParams(
@@ -73,6 +77,7 @@ def build_pipeline_components(
         num_channels=1,
         enable_turn_audio=False,
         auto_start_recording=True,
+        sample_rate=rec_rate,
     )
 
     transport = FastAPIWebsocketTransport(
@@ -129,15 +134,13 @@ def build_pipeline_components(
     ]
     if kb_context_processor is not None:
         pipeline_processors.append(kb_context_processor)
-    pipeline_processors.extend(
-        [
-            llm,
-            tts,
-            transport.output(),
-            audiobuffer,
-            assistant_aggregator,
-        ]
-    )
+    tail: list[Any] = [llm, tts]
+    if capture_tts_before_transport:
+        tail.extend([audiobuffer, transport.output()])
+    else:
+        tail.extend([transport.output(), audiobuffer])
+    tail.append(assistant_aggregator)
+    pipeline_processors.extend(tail)
 
     pipeline = Pipeline(pipeline_processors)
 
