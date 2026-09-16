@@ -1,0 +1,24 @@
+apps/runtime/services/pipecat/runners.py
+  s_35e73caa31d1dd::t_04a63eaba8c5d7 57
+  s_35e73caa31d1dd::t_8f7f82d7408cc8 11
+apps/runtime/services/pipecat/serializer.py
+  s_35e73caa31d1dd::t_c818fd2030fc36 1-33
+apps/runtime/tests/test_browser_serializer.py
+  s_35e73caa31d1dd::t_54d417cd0bbf5d 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d9ce91abafd143775e0c90a32bf54980a7235b9b",
+  "prompts": {},
+  "sessions": {
+    "s_35e73caa31d1dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4a883558-7141-488f-84d7-ce7f0f8472ac",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
