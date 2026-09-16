@@ -1,0 +1,29 @@
+apps/runtime/services/pipecat/events/errors.py
+  s_35e73caa31d1dd::t_9582f0df41922e 1-74
+apps/runtime/services/pipecat/pipeline.py
+  s_35e73caa31d1dd::t_83262602de6533 79
+apps/runtime/services/pipecat/events/__init__.py
+  s_35e73caa31d1dd::t_f87f1ec302eb36 73-76
+  s_35e73caa31d1dd::t_1133c76008ace3 7-8,10
+  s_35e73caa31d1dd::t_490c04afc25090 28
+  s_35e73caa31d1dd::t_dfc2cbe4dc36c8 77
+apps/runtime/tests/test_pipeline_errors.py
+  s_35e73caa31d1dd::t_a62405a19be1b1 5,10
+  s_35e73caa31d1dd::t_f6cba6e51a9b11 1-4,6-9,11-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c707d4f451db5f42622ff8c71d23750443a3d417",
+  "prompts": {},
+  "sessions": {
+    "s_35e73caa31d1dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4a883558-7141-488f-84d7-ce7f0f8472ac",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
