@@ -1,0 +1,56 @@
+apps/api/tests/test_call_metrics.py
+  s_08f62ba7c1580a::t_656082c6ec1134 209
+apps/api/app/services/call_metrics_service.py
+  s_08f62ba7c1580a::t_656082c6ec1134 109-110,131
+README.md
+  s_08f62ba7c1580a::t_656082c6ec1134 42-43,48,51,65-66
+docs/api-reference/recipes.md
+  s_08f62ba7c1580a::t_656082c6ec1134 153
+frontend/src/lib/format.ts
+  s_08f62ba7c1580a::t_656082c6ec1134 20-27
+docs/guides/deployment/security-hardening.md
+  s_08f62ba7c1580a::t_656082c6ec1134 8-11
+frontend/src/components/dashboard/Members.tsx
+  s_08f62ba7c1580a::t_656082c6ec1134 14,159
+docs/guides/quickstart/index.md
+  s_08f62ba7c1580a::t_656082c6ec1134 6,9
+frontend/src/lib/call-metrics.ts
+  s_08f62ba7c1580a::t_656082c6ec1134 22-23
+docs.json
+  s_08f62ba7c1580a::t_dc86f39df96871 6-8
+apps/api/app/config.py
+  s_08f62ba7c1580a::t_dc86f39df96871 42
+docs/api-reference/overview.md
+  s_08f62ba7c1580a::t_656082c6ec1134 13
+docs/guides/operator/running-a-campaign.md
+  s_08f62ba7c1580a::t_656082c6ec1134 53-55
+docs/guides/quickstart/install-and-run.md
+  s_08f62ba7c1580a::t_656082c6ec1134 6,84
+  s_08f62ba7c1580a::t_b0e93a7887ae79 85
+frontend/src/components/dashboard/Telemetry.tsx
+  s_08f62ba7c1580a::t_656082c6ec1134 423
+frontend/src/components/ui/ProfileMenu.tsx
+  s_08f62ba7c1580a::t_656082c6ec1134 8,132,183,210
+docs/api-reference/calls.md
+  s_08f62ba7c1580a::t_656082c6ec1134 103
+frontend/src/components/dashboard/Account.tsx
+  s_08f62ba7c1580a::t_656082c6ec1134 10,102,118,142
+docs/guides/dashboard/run-a-campaign.md
+  s_08f62ba7c1580a::t_656082c6ec1134 12,20-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "90730b7a94a4c81aadd5f086c4195e4e16cd0b4d",
+  "prompts": {},
+  "sessions": {
+    "s_08f62ba7c1580a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ac479384-e9ba-45a2-9b2a-792f625b10cd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
