@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from starlette.websockets import WebSocket
+
 from apps.runtime.services.pipecat.config import PipelineConfig
+from apps.runtime.services.pipecat.events.errors import register_error_handlers
 from apps.runtime.services.pipecat.events.logging import register_turn_logging_handlers
 from apps.runtime.services.pipecat.events.recording import register_recording_handlers
 from apps.runtime.services.pipecat.events.transport import register_transport_handlers
@@ -22,6 +25,7 @@ if TYPE_CHECKING:
 def register_all_handlers(
     components: PipelineComponents,
     *,
+    websocket: WebSocket,
     config: PipelineConfig,
     greeting: str,
     session_label: str,
@@ -65,4 +69,9 @@ def register_all_handlers(
         session_label=session_label,
         greeting=greeting,
         hold_handler=hold_handler,
+    )
+    register_error_handlers(
+        components.worker,
+        websocket,
+        session_label=session_label,
     )

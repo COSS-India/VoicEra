@@ -76,6 +76,7 @@ async def run_pipeline(
 
     register_all_handlers(
         components,
+        websocket=websocket,
         config=config,
         greeting=greeting,
         session_label=session_label,
