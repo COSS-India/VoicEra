@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Search } from "lucide-react";
 import type { PromptModule } from "@/lib/prompt-modules";
@@ -83,6 +83,26 @@ function getCaretOffset(root: HTMLElement): number | null {
   pre.selectNodeContents(root);
   pre.setEnd(range.startContainer, range.startOffset);
   return pre.toString().length;
+}
+
+function getSelectionOffsets(root: HTMLElement): { start: number; end: number } {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) {
+    const offset = getCaretOffset(root) ?? root.textContent?.length ?? 0;
+    return { start: offset, end: offset };
+  }
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) {
+    const offset = getCaretOffset(root) ?? root.textContent?.length ?? 0;
+    return { start: offset, end: offset };
+  }
+  const preStart = document.createRange();
+  preStart.selectNodeContents(root);
+  preStart.setEnd(range.startContainer, range.startOffset);
+  const preEnd = document.createRange();
+  preEnd.selectNodeContents(root);
+  preEnd.setEnd(range.endContainer, range.endOffset);
+  return { start: preStart.toString().length, end: preEnd.toString().length };
 }
 
 function setCaretOffset(root: HTMLElement, offset: number) {
@@ -452,6 +472,31 @@ export function PromptEditor({
     onChange(next);
   }
 
+  // Rich HTML paste (<div>/<p>/<br>) doesn't map to "\n" in `.textContent`.
+  // Read plain text from the clipboard so paragraphs and indentation survive.
+  function handlePaste(e: ClipboardEvent<HTMLDivElement>) {
+    if (composing.current || !ref.current) return;
+    e.preventDefault();
+
+    let pasted = e.clipboardData.getData("text/plain");
+    if (!pasted) return;
+
+    pasted = pasted.replace(/\r\n?/g, "\n");
+    if (singleLine) pasted = pasted.replace(/\n+/g, " ");
+
+    const current = ref.current.textContent ?? "";
+    const { start, end } = getSelectionOffsets(ref.current);
+    let next = current.slice(0, start) + pasted + current.slice(end);
+
+    if (sanitize) next = sanitizeAroundVariables(next, sanitize);
+
+    renderTokens(ref.current, next);
+    lastValue.current = next;
+    setCaretOffset(ref.current, start + pasted.length);
+    setPicker(null);
+    onChange(next);
+  }
+
   function handleInput() {
     if (!ref.current || composing.current) return;
     let text = ref.current.textContent ?? "";
@@ -496,6 +541,7 @@ export function PromptEditor({
         suppressContentEditableWarning
         onInput={handleInput}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         onCompositionStart={() => {
           composing.current = true;
         }}
