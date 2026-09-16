@@ -1,0 +1,19 @@
+apps/providers/cloud/groq/catalog.py
+  s_35e73caa31d1dd::t_5e8d132a579e4d 1-16,19,21,24-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0472de4fa4ca5de97e4e31859992db16e01181de",
+  "prompts": {},
+  "sessions": {
+    "s_35e73caa31d1dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4a883558-7141-488f-84d7-ce7f0f8472ac",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
