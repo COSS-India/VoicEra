@@ -23,3 +23,6 @@ protobuf>=4.25.0
 arq>=0.26.0
 redis[hiredis]>=5.0.0
 loguru>=0.7.0
+# Lazy-imported only inside apps/api/app/routers/prompt_refine.py's
+boto3>=1.34.0
+google-genai>=1.0.0
