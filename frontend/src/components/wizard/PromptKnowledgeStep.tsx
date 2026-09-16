@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, Upload } from "lucide-react";
+import { Search, Sparkles, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
 import { Spinner } from "@/components/ui/Spinner";
@@ -10,6 +10,8 @@ import { PromptEditor } from "@/components/wizard/PromptEditor";
 import { VariablesPanel } from "@/components/wizard/VariablesPanel";
 import { UploadDocumentDialog } from "@/components/knowledge/UploadDocumentDialog";
 import { useKnowledgeBase } from "@/hooks/useKnowledgeBase";
+import { ApiError } from "@/lib/api/http";
+import { refinePrompt } from "@/lib/api/prompts";
 import { PROMPT_MODULES } from "@/lib/prompt-modules";
 import { TIPS, type AgentForm } from "@/lib/wizard-data";
 
@@ -27,6 +29,24 @@ export function PromptKnowledgeStep({ form, onChange, onOpenLibrary, onNotify }:
   const kb = useKnowledgeBase(onNotify);
   const [docQuery, setDocQuery] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [refining, setRefining] = useState(false);
+
+  const handleRefine = async () => {
+    setRefining(true);
+    try {
+      const refined = await refinePrompt({
+        prompt: form.prompt,
+        llmProvider: form.llmProvider,
+        llmModel: form.llmModel,
+      });
+      onChange("prompt", refined);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : "Could not refine prompt.";
+      onNotify("Refine failed", message);
+    } finally {
+      setRefining(false);
+    }
+  };
 
   const filteredDocs = useMemo(() => {
     const q = docQuery.trim().toLowerCase();
@@ -42,9 +62,21 @@ export function PromptKnowledgeStep({ form, onChange, onOpenLibrary, onNotify }:
             System prompt
             <InfoTip text={TIPS.prompt} />
           </span>
-          <Button type="button" size="sm" variant="outline" onClick={onOpenLibrary}>
-            Browse prompt modules
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleRefine}
+              disabled={refining || !form.prompt.trim()}
+            >
+              <Sparkles className="size-3.5" strokeWidth={1.75} />
+              {refining ? "Refining…" : "Refine with AI"}
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={onOpenLibrary}>
+              Browse prompt modules
+            </Button>
+          </div>
         </div>
         <div data-tour="prompt-textarea">
           <PromptEditor
