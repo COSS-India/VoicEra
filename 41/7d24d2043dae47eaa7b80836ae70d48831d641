@@ -1,0 +1,151 @@
+apps/api/app/services/provider_connection_service.py
+  s_507e2db4bffc12::t_4446b51f01c180 43-45
+  s_507e2db4bffc12::t_db700c06ee7716 189-190
+  s_507e2db4bffc12::t_a4929653f1fe30 408-428,431-433,435-469,471-474,479,481-486,490-492,495-533,535-537,540-542,547,550-555
+  s_507e2db4bffc12::t_b2d40bc9fe8219 487-489,493-494
+  s_507e2db4bffc12::t_8aba83b4d27aaa 561-568
+  s_507e2db4bffc12::t_d913f7ed71d2c2 125-132
+  s_507e2db4bffc12::t_8c7ec3da6196f5 1-42,46-124,133-188,191-407,429-430,434,470,475-478,480,534,538-539,543-546,548-549,556-560,569-576
+frontend/src/lib/api-client.ts
+  s_507e2db4bffc12::t_42f561c92e2b45 6-8
+  s_507e2db4bffc12::t_e9c43c30ffd80a 129,133-137
+  s_507e2db4bffc12::t_4e3c9a67c03c9f 88-128,130-132,138-149
+  s_08f62ba7c1580a::t_97b43048504155 150
+frontend/src/components/dashboard/Integrations.tsx
+  s_507e2db4bffc12::t_99f3129b14899c 32-35,320-321,325,330-336,505-509
+  s_08f62ba7c1580a::t_c88252fb92843c 510
+apps/providers/README.md
+  s_507e2db4bffc12::t_5404347e30542c 109-117
+apps/api/app/routers/provider_connections.py
+  s_507e2db4bffc12::t_e9c43c30ffd80a 113
+  s_507e2db4bffc12::t_eca0da3a6d010a 1-23,29-72,74-88,90-106,108-112,114-116,118-129,131-148,150-168,170-182,184-186,193-197
+  s_507e2db4bffc12::t_5484c30a577eb1 73,89,107,117,130,149,169,183
+  s_507e2db4bffc12::t_ec128d77649449 187-192
+  s_507e2db4bffc12::t_dee51209e83cbc 24-28
+apps/api/app/database_init.py
+  s_507e2db4bffc12::t_051ee8fd683f3f 287
+  s_507e2db4bffc12::t_eedaf0bae93772 92-108
+  s_507e2db4bffc12::t_0f7b224443fe4c 298
+apps/api/tests/test_agent_connection_config.py
+  s_507e2db4bffc12::t_240eae9466751a 1-128
+apps/api/app/routers/configuration.py
+  s_507e2db4bffc12::t_088f0366318adc 29-30,33-35
+  s_507e2db4bffc12::t_54db9b0d689e8d 10
+frontend/src/lib/catalog-types.ts
+  s_507e2db4bffc12::t_a9defeb7b8b1ed 44-45
+  s_507e2db4bffc12::t_1ebec28bd64731 31-33
+  s_507e2db4bffc12::t_0837155099ec4a 85-87
+frontend/src/lib/use-wizard-catalogs.ts
+  s_507e2db4bffc12::t_b5aca1584741cf 218-237
+  s_507e2db4bffc12::t_b81dc1d73986ac 10,15
+  s_507e2db4bffc12::t_8d40cc90776e54 42-44
+  s_507e2db4bffc12::t_c7df13cd7e6fb8 70
+  s_507e2db4bffc12::t_c9a10ef57ea7fb 250,265
+apps/runtime/tests/test_ai_service_factory.py
+  s_507e2db4bffc12::t_871dccf2d894f5 57-97
+  s_507e2db4bffc12::t_1b56ba1a7ef5ad 54-56
+docs.json
+  s_507e2db4bffc12::t_c153c48ed72177 238
+frontend/src/components/dashboard/ProviderConnections.tsx
+  s_507e2db4bffc12::t_580ef881a971e5 100-107,109-122
+  s_507e2db4bffc12::t_7a95de82d21856 249-265
+  s_507e2db4bffc12::t_f5835cd77c912b 317-319
+  s_507e2db4bffc12::t_f0c045da75c9aa 1-99,108,123-248,266-316,320-499
+docs/api-reference/provider-connections.md
+  s_507e2db4bffc12::t_4a4f43420dd56f 1-59,74-100
+  s_507e2db4bffc12::t_90710dbf84c34f 60-73
+apps/api/app/config.py
+  s_507e2db4bffc12::t_10e0e3005f3be6 55-65
+apps/providers/cloud/openai_compatible/config.py
+  s_507e2db4bffc12::t_94d91a6158b9b9 1-136
+frontend/src/components/wizard/AgentStackFields.tsx
+  s_507e2db4bffc12::t_406028addd55da 313-321
+  s_507e2db4bffc12::t_7a99b5f59bbf2b 77-80,83-94,131-159,215-217,232-233
+  s_507e2db4bffc12::t_d5e675a7a6bcb0 302-312,322,469-492,495-518
+docs/api-reference/endpoints-cheatsheet.md
+  s_507e2db4bffc12::t_dc998f318a4cf3 64-71
+apps/providers/cloud/openai_compatible/__init__.py
+  s_08f62ba7c1580a::t_dc86f39df96871 1
+apps/api/app/services/provider_auth_catalog.py
+  s_507e2db4bffc12::t_cf5a5b88f245a1 71-75
+  s_507e2db4bffc12::t_5d88c29dffdd0f 7
+apps/api/app/models/schemas.py
+  s_507e2db4bffc12::t_8aba83b4d27aaa 210-216,220,226-229
+  s_507e2db4bffc12::t_9a38f687466750 152-209,217-219,221-225
+  s_507e2db4bffc12::t_14249f90e25fa3 5
+  s_08f62ba7c1580a::t_3e2b8a5e2b110e 230-231
+apps/api/tests/test_provider_connections.py
+  s_507e2db4bffc12::t_97c00ffd1e0755 272-275,280-284
+  s_507e2db4bffc12::t_89eb3b4112ce92 252-254,262-265,267-269,276-279
+  s_507e2db4bffc12::t_5ea575550b1a8e 230-240,290-345
+  s_507e2db4bffc12::t_ab1b2c21595813 1-229,241-251,255-261,266,270-271,285-289
+apps/runtime/services/ai_service_factory.py
+  s_507e2db4bffc12::t_74a566cabf529d 61-66
+apps/runtime/services/backend.py
+  s_507e2db4bffc12::t_edc6af8751580a 241-254
+  s_507e2db4bffc12::t_5b420bbd104130 278-307
+  s_08f62ba7c1580a::t_7e9a80009591ad 308
+.env.example
+  s_507e2db4bffc12::t_b3cbc562b1548a 30-33
+apps/providers/schema.py
+  s_507e2db4bffc12::t_662dc60b5b6ac1 26,244-245,456-457,617-618
+apps/providers/cloud/openai_compatible/service.py
+  s_08f62ba7c1580a::t_dc86f39df96871 1-26
+apps/providers/registry.py
+  s_507e2db4bffc12::t_662dc60b5b6ac1 195-207,211-214
+apps/api/app/services/agent_config_validation.py
+  s_507e2db4bffc12::t_2f005ab4caf492 9
+  s_507e2db4bffc12::t_895af9fe94ec78 155-160
+  s_507e2db4bffc12::t_50c788e7ba6e33 205-206,212
+  s_507e2db4bffc12::t_6d2d379f477a48 87-137,143
+apps/api/app/main.py
+  s_507e2db4bffc12::t_553564b9929582 83
+  s_507e2db4bffc12::t_4a39d15692dd70 26
+docs/api-reference/provider-auth.md
+  s_507e2db4bffc12::t_c579c8336acf1a 45-48,51
+apps/providers/tests/test_provider_schemas.py
+  s_507e2db4bffc12::t_662dc60b5b6ac1 10,29,40,589-592,597-598,600-620
+apps/providers/base.py
+  s_507e2db4bffc12::t_662dc60b5b6ac1 32-44
+frontend/src/lib/api-types.ts
+  s_507e2db4bffc12::t_e9c43c30ffd80a 310-311
+  s_507e2db4bffc12::t_1e2e968980d91f 274-309,312-313
+frontend/src/components/wizard/CallDetailsStep.tsx
+  s_5d868b8fc35f1d::t_9698e985a70345 265
+apps/api/tests/test_configuration_routes.py
+  s_507e2db4bffc12::t_3b5e1902f6f60a 25-34
+  s_507e2db4bffc12::t_c986ce6abe970d 191-220
+  s_507e2db4bffc12::t_8cfb812fdfc065 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "417d24d2043dae47eaa7b80836ae70d48831d641",
+  "prompts": {},
+  "sessions": {
+    "s_08f62ba7c1580a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ac479384-e9ba-45a2-9b2a-792f625b10cd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_507e2db4bffc12": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45ae43b4-4ecb-480e-acbf-f8f5b16132bf",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    },
+    "s_5d868b8fc35f1d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a6a18c2-faf5-40cc-9fc8-cc034da9434e",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    }
+  }
+}
