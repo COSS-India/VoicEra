@@ -17,6 +17,14 @@ export function nameFromEmail(email: string): string {
     .join(" ");
 }
 
+/** Display label for org membership roles (super_admin → "Super Admin"). */
+export function formatUserRole(role: string): string {
+  return role
+    .split("_")
+    .map((w) => w[0]!.toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 export function formatDuration(seconds?: number | null): string {
   if (!seconds && seconds !== 0) return "–";
   const s = Math.round(seconds);

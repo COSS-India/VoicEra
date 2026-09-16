@@ -3,10 +3,10 @@ title: Quickstart
 description: From an empty machine to a working voice agent, in order.
 ---
 
-Three pages, meant to be read in sequence. Together they get the stack running and ready to use.
+From an empty terminal to your first live call, in about 20 minutes. Three pages, meant to be read in sequence.
 
 <Note>
-Total time is roughly 20 minutes, most of it Docker pulling images. You need Docker and one AI provider API key.
+Total time is roughly 20 minutes, most of it Docker pulling images. You need Docker and one AI provider API key. Every stack runs on your own infrastructure — no call audio, transcript, or credential ever leaves your machine unless you choose a cloud model provider.
 </Note>
 
 ## The path

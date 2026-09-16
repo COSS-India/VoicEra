@@ -10,7 +10,7 @@ There is no official Node.js, Python, or other client SDK. Integrate with plain 
 </Note>
 
 <Tip>
-A running API serves an **interactive console** at `http://localhost:8000/docs` and ReDoc at `/redoc`, generated from the same routers as these pages. Use it to try requests against a real token; use these pages to understand what a route is for and how it behaves.
+A running API serves an **interactive console** at `http://localhost:8000/docs` and ReDoc at `/redoc`, generated from the same routers as these pages. Use it to try requests against a real token; use these pages to understand what a route is for and how it behaves. 
 </Tip>
 
 Every router is mounted under `settings.API_V1_PREFIX`, which defaults to `/api/v1` (`apps/api/app/config.py`). Paths on this page already include it.
