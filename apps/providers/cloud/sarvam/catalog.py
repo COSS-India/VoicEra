@@ -13,21 +13,8 @@ DEFAULT_LLM_MODEL = "sarvam-105b"
 DEFAULT_LLM_BASE_URL = "https://api.sarvam.ai/v1"
 
 # --- STT ---
-_SAARIKA_LANGUAGES = {
-    "unknown": "multi",
-    "hi-IN": "hi",
-    "bn-IN": "bn",
-    "gu-IN": "gu",
-    "kn-IN": "kn",
-    "ml-IN": "ml",
-    "mr-IN": "mr",
-    "od-IN": "od",
-    "pa-IN": "pa",
-    "ta-IN": "ta",
-    "te-IN": "te",
-    "en-IN": "en",
-}
-
+# Keep in step with MODEL_CONFIGS in pipecat.services.sarvam.stt — the service
+# rejects any other model id at construction time, which fails the pipeline.
 _SAARAS_LANGUAGES = {
     "unknown": "multi",
     "hi-IN": "hi",
@@ -56,11 +43,11 @@ _SAARAS_LANGUAGES = {
 }
 
 STT_CAPABILITIES = {
-    "saarika:v2.5": {
-        "languages": _SAARIKA_LANGUAGES,
-        "settings": expand_settings(_SAARIKA_LANGUAGES, {}),
-    },
     "saaras:v3": {
+        "languages": _SAARAS_LANGUAGES,
+        "settings": expand_settings(_SAARAS_LANGUAGES, {}),
+    },
+    "saaras:v4": {
         "languages": _SAARAS_LANGUAGES,
         "settings": expand_settings(_SAARAS_LANGUAGES, {}),
     },

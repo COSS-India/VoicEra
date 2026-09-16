@@ -41,6 +41,25 @@ def model_ids(capabilities: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(capabilities.keys())
 
 
+def wire_language(
+    capabilities: Mapping[str, Any], model: str, language: str
+) -> str:
+    """Canonical language id → vendor wire code for ``model``.
+
+    The UI already writes vendor codes (``language_schema_extra`` hands it the
+    mapping), so a value that is not a canonical id passes through unchanged —
+    creators can apply this to any stored config, and to schema defaults, which
+    are canonical.
+    """
+    entry = capabilities.get(model)
+    if not entry:
+        return language
+    for vendor_code, canonical in entry["languages"].items():
+        if canonical == language:
+            return vendor_code
+    return language
+
+
 def languages_map(capabilities: Mapping[str, Any]) -> dict[str, dict[str, str]]:
     """``{model: {vendor_code: canonical_id}}`` for ``language_schema_extra``."""
     normalized = normalize_capabilities(capabilities)

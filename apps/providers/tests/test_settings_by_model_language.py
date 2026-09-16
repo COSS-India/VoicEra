@@ -87,14 +87,15 @@ def test_scoped_models_align_with_model_examples():
     assert not errors, "Model key mismatches:\n" + "\n".join(errors)
 
 
-def test_sarvam_voice_options_split_by_model():
+def test_sarvam_voice_options_are_the_v3_speaker_set():
+    from apps.providers.cloud.sarvam.catalog import TTS_V3_VOICES
+
     catalog = provider_schemas(Kind.TTS)["sarvam"]
     caps = catalog[CAPABILITIES_KEY]
-    v2 = caps["bulbul:v2"]["settings"]["hi"]["voice"]["options"]
-    v3 = caps["bulbul:v3"]["settings"]["hi"]["voice"]["options"]
-    assert "anushka" in v2
-    assert "shubh" in v3
-    assert "shubh" not in v2
+    voices = caps["bulbul:v3"]["settings"]["hi"]["voice"]["options"]
+    assert voices == list(TTS_V3_VOICES)
+    # bulbul:v2 speakers are not offered — the catalog ships v3 only.
+    assert "anushka" not in voices
 
 
 def test_smallest_pro_voices_only_on_pro_model():

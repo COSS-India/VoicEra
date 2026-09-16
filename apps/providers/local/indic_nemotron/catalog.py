@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from ...capabilities import expand_settings
+from ...capabilities import expand_settings, wire_language
 
 SAMPLE_RATE = 16000
 
@@ -54,13 +54,7 @@ STT_CAPABILITIES: dict[str, dict] = {
 
 def resolve_wire_language(model: str, canonical: str) -> str:
     """Map canonical language id to Nemotron wire code for the given model."""
-    entry = STT_CAPABILITIES.get(model)
-    if not entry:
-        return canonical
-    for vendor_code, canon in entry["languages"].items():
-        if canon == canonical:
-            return vendor_code
-    return canonical
+    return wire_language(STT_CAPABILITIES, model, canonical)
 
 
 def resolve_ws_url() -> str:

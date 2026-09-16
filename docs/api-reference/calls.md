@@ -125,8 +125,8 @@ Returns `CallAnalyticsResponse`:
     { "agent_id": "…", "agent_name": "Support line", "call_count": 188 }
   ],
   "model_usage": {
-    "stt": { "model": "saarika:v2", "provider": "sarvam", "call_count": 240 },
-    "tts": { "model": "bulbul:v2", "provider": "sarvam", "call_count": 240 },
+    "stt": { "model": "saaras:v3", "provider": "sarvam", "call_count": 240 },
+    "tts": { "model": "bulbul:v3", "provider": "sarvam", "call_count": 240 },
     "llm": { "model": "gpt-4o-mini", "provider": "openai", "call_count": 300 }
   }
 }

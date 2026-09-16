@@ -101,12 +101,12 @@ def test_tts_setting_includes_scoped_tree():
     assert payload["authenticated"] is False
     assert "capabilities" in payload
     caps = payload["capabilities"]
-    assert "bulbul:v2" in caps
-    assert "languages" in caps["bulbul:v2"]
-    assert "settings" in caps["bulbul:v2"]
-    assert "hi" in caps["bulbul:v2"]["languages"]
-    assert "hi" in caps["bulbul:v2"]["settings"]
-    assert "voice" in caps["bulbul:v2"]["settings"]["hi"]
+    assert "bulbul:v3" in caps
+    assert "languages" in caps["bulbul:v3"]
+    assert "settings" in caps["bulbul:v3"]
+    assert "hi" in caps["bulbul:v3"]["languages"]
+    assert "hi" in caps["bulbul:v3"]["settings"]
+    assert "voice" in caps["bulbul:v3"]["settings"]["hi"]
 
 
 def test_llm_and_telephony_authenticated_flag():

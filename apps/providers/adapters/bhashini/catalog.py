@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from ...capabilities import expand_settings
+from ...capabilities import expand_settings, wire_language
 
 DEFAULT_WS_URL = "wss://dhruva-api.bhashini.gov.in/ws/v1/asr/stream"
 DEFAULT_WS_SERVICE_ID = "bhashini/ai4b/indic-conformer/grpc"
@@ -375,11 +375,6 @@ def resolve_orpheus_base_url(function_id: str) -> str:
 def resolve_wire_language(model: str, canonical: str) -> str:
     """Map canonical language id to vendor wire code for the given model."""
     for caps in (STT_CAPABILITIES, TTS_CAPABILITIES):
-        entry = caps.get(model)
-        if not entry:
-            continue
-        for vendor_code, canon in entry["languages"].items():
-            if canon == canonical:
-                return vendor_code
-        break
+        if model in caps:
+            return wire_language(caps, model, canonical)
     return canonical

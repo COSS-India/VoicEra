@@ -12,6 +12,8 @@ from apps.providers.capabilities import languages_map
 from apps.providers.cloud.deepgram.catalog import STT_CAPABILITIES as DEEPGRAM_STT_CAPS
 from apps.providers.cloud.elevenlabs.catalog import STT_CAPABILITIES as ELEVENLABS_STT
 from apps.providers.cloud.openai.catalog import LLM_MODELS
+from apps.providers.cloud.sarvam.catalog import STT_CAPABILITIES as SARVAM_STT_CAPS
+from apps.providers.cloud.sarvam.catalog import TTS_CAPABILITIES as SARVAM_TTS_CAPS
 from apps.providers.factory import LLMConfig, STTConfig, TTSConfig
 from apps.providers.registry import (
     LLM_CREATORS,
@@ -575,8 +577,74 @@ def test_indic_nemotron_stt_creator(monkeypatch):
 
 def test_sarvam_stt_auto_detect_vendor_code_is_unknown():
     lang = provider_schemas(Kind.STT)["sarvam"]["fields"]["language"]
-    assert lang["language_codes"]["saarika:v2.5"]["multi"] == "unknown"
     assert lang["language_codes"]["saaras:v3"]["multi"] == "unknown"
+    assert lang["language_codes"]["saaras:v4"]["multi"] == "unknown"
+
+
+# Pipecat's SarvamSTTService validates the model id at construction time, so a
+# catalog model it does not know fails the pipeline, not the request. Build every
+# catalogued model — including the config default — to catch that at test time.
+@pytest.mark.parametrize("model", list(SARVAM_STT_CAPS))
+def test_sarvam_stt_creator_accepts_every_catalog_model(model):
+    pytest.importorskip("pipecat")
+    from apps.providers.cloud.sarvam.config import SarvamSTTConfig
+
+    svc = STT_CREATORS["sarvam"](
+        SarvamSTTConfig(api_key="k", model=model, language="unknown")
+    )
+    assert svc._settings.model == model
+    assert svc._settings.language == "unknown"
+
+
+def test_sarvam_stt_creator_defaults_are_usable():
+    pytest.importorskip("pipecat")
+    from apps.providers.cloud.sarvam.config import SarvamSTTConfig
+
+    svc = STT_CREATORS["sarvam"](SarvamSTTConfig(api_key="k"))
+    assert svc._settings.model in SARVAM_STT_CAPS
+    # Canonical 'multi' default must reach Sarvam as its own auto-detect code.
+    assert svc._settings.language == "unknown"
+
+
+# Canonical ids are resolved to vendor codes; a config that already holds the
+# vendor spelling (what the UI writes) is left alone.
+@pytest.mark.parametrize(
+    ("kind", "language", "expected"),
+    [
+        (Kind.STT, "multi", "unknown"),
+        (Kind.STT, "unknown", "unknown"),
+        (Kind.STT, "od", "od-IN"),
+        (Kind.STT, "od-IN", "od-IN"),
+        (Kind.TTS, "od", "od-IN"),
+        (Kind.TTS, "od-IN", "od-IN"),
+    ],
+)
+def test_sarvam_language_reaches_the_service_as_a_vendor_code(kind, language, expected):
+    pytest.importorskip("pipecat")
+    from apps.providers.cloud.sarvam.config import SarvamSTTConfig, SarvamTTSConfig
+
+    if kind is Kind.STT:
+        svc = STT_CREATORS["sarvam"](SarvamSTTConfig(api_key="k", language=language))
+    else:
+        svc = TTS_CREATORS["sarvam"](SarvamTTSConfig(api_key="k", language=language))
+    assert svc._settings.language == expected
+
+
+@pytest.mark.parametrize("model", list(SARVAM_TTS_CAPS))
+def test_sarvam_tts_creator_maps_voice_speed_and_language(model):
+    pytest.importorskip("pipecat")
+    from apps.providers.cloud.sarvam.config import SarvamTTSConfig
+
+    svc = TTS_CREATORS["sarvam"](
+        SarvamTTSConfig(
+            api_key="k", model=model, language="hi-IN", voice="shubh", speed=1.25
+        )
+    )
+    assert svc._settings.model == model
+    assert svc._settings.voice == "shubh"
+    assert svc._settings.language == "hi-IN"
+    # VoicEra calls it `speed`; Sarvam calls it `pace`.
+    assert svc._settings.pace == 1.25
 
 
 def test_deepgram_tts_language_is_options_only():

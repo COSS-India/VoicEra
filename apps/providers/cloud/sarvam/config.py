@@ -76,7 +76,7 @@ class SarvamLLMConfig(SarvamAuth, SarvamLLMSettings, BaseLLMConfig):
 
 
 class SarvamSTTConfig(SarvamAuth, SarvamSTTSettings, BaseSTTConfig):
-    """Sarvam Saarika/Saaras STT configuration."""
+    """Sarvam Saaras STT configuration."""
 
     settings_by_model_language: ClassVar[dict] = settings_tree(STT_CAPABILITIES)
 
@@ -85,17 +85,17 @@ class SarvamSTTConfig(SarvamAuth, SarvamSTTSettings, BaseSTTConfig):
     provider: Literal["sarvam"] = "sarvam"
     model: str = Field(
         default=model_ids(STT_CAPABILITIES)[0],
-        description="Sarvam STT model.",
+        description="Sarvam STT model. Only models in the catalog are accepted.",
         json_schema_extra={
             "examples": list(model_ids(STT_CAPABILITIES)),
-            "allow_custom_input": True,
+            "allow_custom_input": False,
         },
     )
     language: str = Field(
         default="multi",
         description=(
-            "Canonical language id. Use 'multi' for auto-detection "
-            "(saarika:v2.5+). Vendor codes are BCP-47 (e.g. 'hi-IN' → 'hi')."
+            "Canonical language id. Use 'multi' for auto-detection. "
+            "Vendor codes are BCP-47 (e.g. 'hi-IN' → 'hi')."
         ),
         json_schema_extra=language_schema_extra(
             languages_map(STT_CAPABILITIES),

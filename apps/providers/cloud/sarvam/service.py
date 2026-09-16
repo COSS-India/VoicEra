@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+from ...capabilities import wire_language
 from ...registry import register_llm, register_stt, register_tts, llm_settings
 from .config import SarvamLLMConfig, SarvamSTTConfig, SarvamTTSConfig
-from .catalog import DEFAULT_LLM_BASE_URL
+from .catalog import DEFAULT_LLM_BASE_URL, STT_CAPABILITIES, TTS_CAPABILITIES
 
 
+# Sarvam language codes are BCP-47 ('hi-IN', 'unknown'), never the canonical ids
+# ('hi', 'multi'), so the wire code is resolved here rather than trusting the
+# caller to have done it.
 @register_stt
 def create_stt(cfg: SarvamSTTConfig):
     from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 
     return SarvamSTTService(
         api_key=cfg.api_key,
-        settings=SarvamSTTSettings(model=cfg.model, language=cfg.language),
+        settings=SarvamSTTSettings(
+            model=cfg.model,
+            language=wire_language(STT_CAPABILITIES, cfg.model, cfg.language),
+        ),
     )
 
 
@@ -26,7 +33,7 @@ def create_tts(cfg: SarvamTTSConfig):
         settings=SarvamTTSSettings(
             model=cfg.model,
             voice=cfg.voice,
-            language=cfg.language,
+            language=wire_language(TTS_CAPABILITIES, cfg.model, cfg.language),
             pace=cfg.speed,
         ),
     )
