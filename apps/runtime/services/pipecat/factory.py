@@ -27,7 +27,7 @@ from starlette.websockets import WebSocket
 from apps.runtime.services.knowledge.setup import configure_knowledge_base
 from apps.runtime.services.pipecat.call_ending import configure_call_ending
 from apps.runtime.services.pipecat.config import PipelineConfig
-from apps.runtime.services.pipecat.language_switch import configure_language_switching
+from apps.runtime.services.pipecat.language_switch import register_language_switching_tool
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
@@ -44,7 +44,7 @@ class PipelineComponents:
     context: LLMContext
     transcript_writer: TranscriptWriter | None = None
     metrics_writer: CallMetricsWriter | None = None
-    language_switcher: Any | None = None
+    language_switch_processor: Any | None = None
 
 
 def build_pipeline_components(
@@ -124,7 +124,7 @@ def build_pipeline_components(
         context=context,
         agent_id=agent.get("agent_id"),
     )
-    language_switcher = configure_language_switching(
+    language_switch_processor = register_language_switching_tool(
         agent,
         context=context,
         llm=llm,
@@ -138,9 +138,11 @@ def build_pipeline_components(
     ]
     if kb_context_processor is not None:
         pipeline_processors.append(kb_context_processor)
+    pipeline_processors.append(llm)
+    if language_switch_processor is not None:
+        pipeline_processors.append(language_switch_processor)
     pipeline_processors.extend(
         [
-            llm,
             tts,
             transport.output(),
             audiobuffer,
@@ -172,5 +174,5 @@ def build_pipeline_components(
         llm=llm,
         audiobuffer=audiobuffer,
         context=context,
-        language_switcher=language_switcher,
+        language_switch_processor=language_switch_processor,
     )
