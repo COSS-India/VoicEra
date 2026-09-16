@@ -3,7 +3,7 @@ title: Install and run
 description: Clone the repository, start the Docker stack, and verify every service is healthy.
 ---
 
-Gets the whole stack running on one machine in a few minutes. Complete the [prerequisites](prerequisites) first.
+From empty terminal to your first live call, in five steps. Complete the [prerequisites](prerequisites) first.
 
 ## 1. Clone
 
@@ -80,6 +80,8 @@ curl -s localhost:7860/health
 <Warning>
 `/health` returns HTTP **200 even when the database is down** — check the body, not the status code. See [Daily operations](../operator/operations#health-endpoints) for every endpoint and response shape.
 </Warning>
+
+If both commands returned a body containing `"status": "ok"` (API) and a `200` (runtime), the stack is healthy — you're clear to continue. If either hangs or refuses the connection, see [Common issues](../troubleshooting/common-issues) before going further.
 
 Open the dashboard at [http://localhost:3000](http://localhost:3000), or drive the API directly from the interactive console at [http://localhost:8000/docs](http://localhost:8000/docs).
 

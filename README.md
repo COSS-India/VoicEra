@@ -39,16 +39,16 @@ VoicEra is an open infrastructure layer that puts those choices back with the op
 
 ## Quick start
 
+> **Prerequisite:** Docker must be installed and running before you start. Launch Docker Desktop (or your Docker daemon) first — the script fails if it can't reach the Docker daemon.
+
 ```bash
 git clone https://github.com/COSS-India/VoicEra.git
 cd VoicEra
 
-make application-up
+./scripts/start-application-services.sh $(ARGS)
 ```
 
-`make application-up` creates the environment, generates required secrets, and starts the stack.
-
-> **Important:** use `make application-up` instead of a bare `docker compose up`. Some services require the generated `SECRET_KEY`.
+`./scripts/start-application-services.sh $(ARGS)` creates the environment, generates required secrets, and starts the stack.
 
 Once running:
 
@@ -62,7 +62,8 @@ Once running:
 | FerretDB | `http://localhost:27018` |
 
 ```bash
-make application-down
+./scripts/stop-application-services.sh $(ARGS)
+
 ```
 
 See the [documentation](https://voicera.mintlify.app/docs/guides) for production deployment and configuration.

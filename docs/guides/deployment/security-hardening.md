@@ -5,6 +5,10 @@ description: What to change before exposing a VoicEra deployment.
 
 VoicEra ships development defaults so the stack starts on the first try. Work through this page before anything is reachable beyond your laptop.
 
+## Data ownership
+
+Everything VoicEra stores — call recordings, transcripts, knowledge-base documents, provider credentials — stays in the Postgres, MinIO, and FerretDB containers you run. Nothing is sent to a VoicEra-operated service, and there is no telemetry or usage reporting baked into the platform. The only external network calls the stack makes are the ones you configure yourself: your chosen STT/TTS/LLM providers, and your telephony provider. Self-hosting every model (see [Self-hosted models](self-hosted-models)) removes those too, for a fully air-gapped deployment.
+
 ## Change every default
 
 All of these are public knowledge — they are in `.env.example` and `docker-compose.yaml`.
