@@ -1,0 +1,22 @@
+apps/api/tests/test_provider_connections.py
+  s_08f62ba7c1580a::t_1887e4d941e000 75-89
+apps/api/app/services/provider_connection_service.py
+  s_08f62ba7c1580a::t_b68d3e1882554f 46-51
+  s_08f62ba7c1580a::t_3d8a0047bdd8fb 151,158-164,166,168-176,181-182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "809bbb0a8a1dc58e44179e4adfea297565fb44e4",
+  "prompts": {},
+  "sessions": {
+    "s_08f62ba7c1580a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ac479384-e9ba-45a2-9b2a-792f625b10cd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
