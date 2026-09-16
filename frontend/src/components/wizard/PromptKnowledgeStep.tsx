@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, Sparkles, Upload } from "lucide-react";
+import { RotateCcw, Search, Sparkles, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
 import { Spinner } from "@/components/ui/Spinner";
 import { InfoTip } from "@/components/ui/Tooltip";
+import { PromptDiffView } from "@/components/wizard/PromptDiffDialog";
 import { PromptEditor } from "@/components/wizard/PromptEditor";
 import { VariablesPanel } from "@/components/wizard/VariablesPanel";
 import { UploadDocumentDialog } from "@/components/knowledge/UploadDocumentDialog";
@@ -30,22 +31,45 @@ export function PromptKnowledgeStep({ form, onChange, onOpenLibrary, onNotify }:
   const [docQuery, setDocQuery] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [refining, setRefining] = useState(false);
+  const [pendingRefine, setPendingRefine] = useState<{ before: string; after: string } | null>(null);
+  const [preRefineSnapshot, setPreRefineSnapshot] = useState<string | null>(null);
 
   const handleRefine = async () => {
     setRefining(true);
     try {
+      const before = form.prompt;
       const refined = await refinePrompt({
-        prompt: form.prompt,
+        prompt: before,
         llmProvider: form.llmProvider,
         llmModel: form.llmModel,
       });
-      onChange("prompt", refined);
+      setPendingRefine({ before, after: refined });
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Could not refine prompt.";
       onNotify("Refine failed", message);
     } finally {
       setRefining(false);
     }
+  };
+
+  const handleAcceptRefine = () => {
+    if (!pendingRefine) return;
+    onChange("prompt", pendingRefine.after);
+    setPreRefineSnapshot(pendingRefine.before);
+    setPendingRefine(null);
+  };
+
+  const handleRejectRefine = () => setPendingRefine(null);
+
+  const handlePromptChange = (v: string) => {
+    onChange("prompt", v);
+    setPreRefineSnapshot(null);
+  };
+
+  const handleRevert = () => {
+    if (preRefineSnapshot === null) return;
+    onChange("prompt", preRefineSnapshot);
+    setPreRefineSnapshot(null);
   };
 
   const filteredDocs = useMemo(() => {
@@ -63,30 +87,45 @@ export function PromptKnowledgeStep({ form, onChange, onOpenLibrary, onNotify }:
             <InfoTip text={TIPS.prompt} />
           </span>
           <div className="flex items-center gap-2">
+            {preRefineSnapshot !== null ? (
+              <Button type="button" size="sm" variant="outline" onClick={handleRevert} disabled={!!pendingRefine}>
+                <RotateCcw className="size-3.5" strokeWidth={1.75} />
+                Revert
+              </Button>
+            ) : null}
             <Button
               type="button"
               size="sm"
               variant="outline"
               onClick={handleRefine}
-              disabled={refining || !form.prompt.trim()}
+              disabled={refining || !!pendingRefine || !form.prompt.trim()}
             >
               <Sparkles className="size-3.5" strokeWidth={1.75} />
               {refining ? "Refining…" : "Refine with AI"}
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={onOpenLibrary}>
+            <Button type="button" size="sm" variant="outline" onClick={onOpenLibrary} disabled={!!pendingRefine}>
               Browse prompt modules
             </Button>
           </div>
         </div>
         <div data-tour="prompt-textarea">
-          <PromptEditor
-            value={form.prompt}
-            onChange={(v) => onChange("prompt", v)}
-            variables={Object.keys(form.customVariables)}
-            promptModules={PROMPT_MODULES}
-            placeholder="You are…"
-            rows={11}
-          />
+          {pendingRefine ? (
+            <PromptDiffView
+              original={pendingRefine.before}
+              refined={pendingRefine.after}
+              onAccept={handleAcceptRefine}
+              onReject={handleRejectRefine}
+            />
+          ) : (
+            <PromptEditor
+              value={form.prompt}
+              onChange={handlePromptChange}
+              variables={Object.keys(form.customVariables)}
+              promptModules={PROMPT_MODULES}
+              placeholder="You are…"
+              rows={11}
+            />
+          )}
         </div>
         <p className="text-xs font-light text-v-muted ">
           Type <code className="rounded-v-sm bg-v-soft px-1 py-0.5 font-mono text-[11px]">{"{"}</code> for a
