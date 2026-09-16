@@ -1,0 +1,45 @@
+apps/providers/capabilities.py
+  s_35e73caa31d1dd::t_54a7ff75e0bef4 44-62
+apps/providers/adapters/bhashini/catalog.py
+  s_35e73caa31d1dd::t_2287c67f0d8966 7
+  s_35e73caa31d1dd::t_d1f2417d21cd6e 378-379
+apps/providers/local/indic_nemotron/catalog.py
+  s_35e73caa31d1dd::t_ed263accc7eb8c 7
+  s_35e73caa31d1dd::t_7b44ce0038ba91 57
+apps/providers/tests/test_settings_by_model_language.py
+  s_35e73caa31d1dd::t_2a3611e90f4ee5 90-92,95-98
+apps/providers/cloud/sarvam/service.py
+  s_35e73caa31d1dd::t_f2e8fc6e458ceb 5,8,11-13,20-23,36
+apps/providers/tests/test_provider_schemas.py
+  s_35e73caa31d1dd::t_2aeb778966327a 15-16
+  s_35e73caa31d1dd::t_b837b90b3ddbc8 581-598,600-604,631-647
+  s_35e73caa31d1dd::t_037859c2472554 599,605-630
+apps/providers/cloud/sarvam/config.py
+  s_35e73caa31d1dd::t_7b54dc4b105038 79,88,91,97-98
+apps/providers/cloud/sarvam/catalog.py
+  s_35e73caa31d1dd::t_c064c5a1ffbefc 50
+  s_35e73caa31d1dd::t_626fdedf3636f9 16-17
+  s_35e73caa31d1dd::t_bac7be3bc5d26a 51-53
+apps/api/tests/test_configuration_routes.py
+  s_35e73caa31d1dd::t_38a6a8e51b7297 104-109
+apps/providers/cloud/sarvam/__init__.py
+  s_35e73caa31d1dd::t_7b3c38c6ce9343 1
+docs/api-reference/calls.md
+  s_35e73caa31d1dd::t_79e10a568f286f 128-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dd2e45fa35a6e2472ed98dddcb1a723236baeefb",
+  "prompts": {},
+  "sessions": {
+    "s_35e73caa31d1dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4a883558-7141-488f-84d7-ce7f0f8472ac",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
