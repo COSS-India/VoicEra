@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from starlette.websockets import WebSocket
 
 from apps.runtime.constants import telephony_sample_rate, websocket_sample_rate
 from apps.runtime.services.pipecat.pipeline import run_pipeline
+from apps.runtime.services.pipecat.serializer import BrowserProtobufFrameSerializer
 from apps.telephony.serializers import create_frame_serializer
 
 
@@ -54,7 +54,7 @@ async def run_websocket_bot(
 ) -> None:
     """Run the Pipecat pipeline for a browser WebSocket client (RTVI/protobuf)."""
     sample_rate = websocket_sample_rate()
-    serializer = ProtobufFrameSerializer()
+    serializer = BrowserProtobufFrameSerializer()
     session_label = (
         f"call_id={call_id}" if call_id else f"agent_id={agent.get('agent_id')}"
     )
