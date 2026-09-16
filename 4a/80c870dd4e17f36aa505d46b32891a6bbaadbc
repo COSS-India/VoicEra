@@ -1,0 +1,21 @@
+frontend/src/components/ui/Select.tsx
+  s_35e73caa31d1dd::t_47d51717d095e5 127
+  s_35e73caa31d1dd::t_141daf3683e87b 95-105,109-110,114-115
+  s_35e73caa31d1dd::t_aaa9ac41934d46 51-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4a80c870dd4e17f36aa505d46b32891a6bbaadbc",
+  "prompts": {},
+  "sessions": {
+    "s_35e73caa31d1dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4a883558-7141-488f-84d7-ce7f0f8472ac",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
