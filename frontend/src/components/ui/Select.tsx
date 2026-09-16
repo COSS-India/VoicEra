@@ -48,6 +48,9 @@ function optionsFromChildren(children: ReactNode): SelectOption[] {
   return options;
 }
 
+const MENU_MARGIN = 6;
+const MENU_DESIRED = 288;
+
 interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "size" | "multiple"> {
   /** "md" (default) matches the app's pill form-field size; "sm" is the compact
    * toolbar-pill size used for filters like sort/agent pickers. */
@@ -89,18 +92,27 @@ export function Select({
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    function close() {
-      setOpen(false);
+    function reposition() {
+      if (!btnRef.current) return;
+      setCoords(dropdownMenuCoords(btnRef.current.getBoundingClientRect(), MENU_DESIRED, MENU_MARGIN));
+    }
+    // Capture-phase, so this also fires for the menu's own scrolling list. That
+    // scroll doesn't move the trigger, so following it would only re-render the
+    // list under the user's cursor — and closing on it (what this used to do)
+    // made a list longer than the menu impossible to scroll through.
+    function onScroll(e: Event) {
+      if (menuRef.current?.contains(e.target as Node)) return;
+      reposition();
     }
     document.addEventListener("mousedown", onDocMouseDown);
     document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", reposition);
     return () => {
       document.removeEventListener("mousedown", onDocMouseDown);
       document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", reposition);
     };
   }, [open]);
 
@@ -112,7 +124,7 @@ export function Select({
   function toggle() {
     if (disabled) return;
     if (!open && btnRef.current) {
-      setCoords(dropdownMenuCoords(btnRef.current.getBoundingClientRect(), 288, 6));
+      setCoords(dropdownMenuCoords(btnRef.current.getBoundingClientRect(), MENU_DESIRED, MENU_MARGIN));
     }
     setOpen((v) => !v);
   }
