@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from apps.providers.base import Kind
+from apps.providers.base import Kind, is_connection_based
 from apps.providers.schema import (
     UnknownProviderError,
     _auth_field_names,
@@ -84,11 +84,63 @@ def validate_persisted_model_config(kind: Kind, data: dict[str, Any]) -> dict[st
     return {key: value for key, value in dumped.items() if value is not None}
 
 
+def _validate_connection_reference(
+    llm_config: dict[str, Any],
+    *,
+    org_id: str | None,
+) -> None:
+    """A connection-based LLM must name an endpoint the organisation owns."""
+    provider = str(llm_config.get("provider") or "")
+    if not is_connection_based(provider):
+        return
+
+    connection_id = str(llm_config.get("connection_id") or "").strip()
+    if not connection_id:
+        raise AgentConfigValidationError(
+            f"llm_config.connection_id is required for provider {provider!r}"
+        )
+    if not org_id:
+        return
+
+    from app.services import provider_connection_service
+
+    if not provider_connection_service.connection_exists(
+        org_id, connection_id, provider=provider
+    ):
+        raise AgentConfigValidationError(
+            f"Unknown or disabled provider connection: {connection_id}"
+        )
+
+
+def _llm_supports_tools(
+    llm_config: dict[str, Any],
+    *,
+    org_id: str | None,
+) -> bool:
+    """Whether the agent's LLM can run the knowledge-base tool.
+
+    Vendor providers are judged by id. A connection-based provider is judged by
+    the endpoint's own ``supports_tools`` flag — the id says nothing about what
+    an operator pointed it at.
+    """
+    provider = str(llm_config.get("provider") or "").strip().lower()
+    if is_connection_based(provider):
+        if not org_id:
+            return True
+        from app.services import provider_connection_service
+
+        return provider_connection_service.supports_tools(
+            org_id, str(llm_config.get("connection_id") or "")
+        )
+    return provider in KB_TOOL_LLM_PROVIDERS
+
+
 def _validate_knowledge_base(
     kb: AgentKnowledgeBase,
     *,
     org_id: str | None,
     llm_provider: str | None,
+    supports_tools: bool,
 ) -> AgentKnowledgeBase:
     """Validate knowledge-base settings when enabled."""
     if not kb.enabled:
@@ -100,14 +152,12 @@ def _validate_knowledge_base(
             "knowledge_base.document_ids must be non-empty when enabled"
         )
 
-    if kb.mode == "tool":
-        provider = (llm_provider or "").strip().lower()
-        if provider not in KB_TOOL_LLM_PROVIDERS:
-            raise AgentConfigValidationError(
-                "knowledge_base.mode 'tool' requires an LLM provider that supports "
-                f"function calling ({', '.join(sorted(KB_TOOL_LLM_PROVIDERS))}); "
-                f"got {llm_provider!r}"
-            )
+    if kb.mode == "tool" and not supports_tools:
+        raise AgentConfigValidationError(
+            "knowledge_base.mode 'tool' requires an LLM that supports function "
+            f"calling ({', '.join(sorted(KB_TOOL_LLM_PROVIDERS))}, or a provider "
+            f"connection marked supports_tools); got {llm_provider!r}"
+        )
 
     if org_id:
         from app.services import knowledge_service
@@ -152,11 +202,14 @@ def validate_agent_config(
         ),
     )
 
+    _validate_connection_reference(models.llm_config, org_id=org_id)
+
     llm_provider = str(models.llm_config.get("provider") or "")
     knowledge_base = _validate_knowledge_base(
         config.knowledge_base,
         org_id=org_id,
         llm_provider=llm_provider,
+        supports_tools=_llm_supports_tools(models.llm_config, org_id=org_id),
     )
 
     return config.model_copy(

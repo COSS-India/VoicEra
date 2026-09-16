@@ -238,8 +238,20 @@ class BackendClient:
             )
         return response.json()
 
-    async def get_provider_auth(self, provider: str, org_id: str) -> dict[str, Any]:
-        """Return decrypted auth secrets for ``provider`` (bot JWT is admin)."""
+    async def get_provider_auth(
+        self,
+        provider: str,
+        org_id: str,
+        connection_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return decrypted auth secrets for ``provider`` (bot JWT is admin).
+
+        With ``connection_id`` the secrets come from that named endpoint
+        instead of the org's single credential row for the provider.
+        """
+        if connection_id:
+            return await self.get_provider_connection(connection_id, org_id)
+
         url = f"{self._base()}/auth/{provider}"
         headers = await self._auth_headers(org_id)
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -262,6 +274,37 @@ class BackendClient:
         if not isinstance(auth, dict):
             raise BackendError(f"Invalid auth payload for provider '{provider}'")
         return auth
+
+    async def get_provider_connection(
+        self,
+        connection_id: str,
+        org_id: str,
+    ) -> dict[str, Any]:
+        """Return ``{base_url, api_key}`` for one named endpoint."""
+        url = f"{self._base()}/provider-connections/{quote(connection_id)}/resolved"
+        headers = await self._auth_headers(org_id)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+        if response.status_code == 401:
+            await self.get_bot_token(org_id, force=True)
+            headers = await self._auth_headers(org_id)
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=headers)
+        if response.status_code == 404:
+            raise BackendError(
+                f"No provider connection '{connection_id}' in org {org_id}"
+            )
+        if response.status_code >= 400:
+            raise BackendError(
+                f"GET provider-connections/{connection_id} failed "
+                f"({response.status_code}): {response.text}"
+            )
+        data = response.json()
+        if not isinstance(data, dict) or not data.get("base_url"):
+            raise BackendError(
+                f"Invalid connection payload for '{connection_id}'"
+            )
+        return data
 
     async def notify_campaign_call_status(
         self,

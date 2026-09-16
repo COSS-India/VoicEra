@@ -61,6 +61,14 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | POST | `/api/v1/auth` | Bearer (admin) | Upsert encrypted credentials for a provider. |
 | GET | `/api/v1/auth/{provider}` | Bearer | Read stored credentials. Masked for non-admin roles. |
 | DELETE | `/api/v1/auth/{provider}` | Bearer (admin) | Delete stored credentials for a provider. |
+| GET | `/api/v1/provider-connections` | Bearer | List named endpoints for connection-based providers. Keys masked. |
+| POST | `/api/v1/provider-connections` | Bearer (admin) | Add a named endpoint (name, base_url, api_key). |
+| POST | `/api/v1/provider-connections/probe` | Bearer (admin) | Test an endpoint before saving it; returns its model list. |
+| GET | `/api/v1/provider-connections/{id}` | Bearer | Read one endpoint. Key masked. |
+| PATCH | `/api/v1/provider-connections/{id}` | Bearer (admin) | Update an endpoint. Omitted `api_key` keeps the stored one. |
+| DELETE | `/api/v1/provider-connections/{id}` | Bearer (admin) | Delete an endpoint. `409` while an agent references it. |
+| POST | `/api/v1/provider-connections/{id}/test` | Bearer (admin) | Re-probe a stored endpoint and cache its model list. |
+| GET | `/api/v1/provider-connections/{id}/resolved` | Bearer (admin) | Decrypted `base_url` + `api_key`. Used by the runtime. |
 | POST | `/api/v1/agents` | Bearer | Create an agent in the active organisation. |
 | GET | `/api/v1/agents` | Bearer | List agents in the active organisation. |
 | GET | `/api/v1/agents/by-phone/{phone_number}` | `X-API-Key` | Resolve an agent from an inbound phone number. Used by the runtime. |

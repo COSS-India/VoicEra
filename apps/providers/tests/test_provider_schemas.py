@@ -7,6 +7,7 @@ from typing import get_args
 import pytest
 
 from apps.providers import Kind, LANGUAGES, ProviderType, language_schema_extra
+from apps.providers.base import CONNECTION_PROVIDERS
 from apps.providers.capabilities import languages_map
 from apps.providers.cloud.deepgram.catalog import STT_CAPABILITIES as DEEPGRAM_STT_CAPS
 from apps.providers.cloud.elevenlabs.catalog import STT_CAPABILITIES as ELEVENLABS_STT
@@ -25,6 +26,7 @@ from apps.providers.schema import (
     all_provider_schemas,
     configuration_defaults,
     provider_schemas,
+    provider_settings,
 )
 
 
@@ -35,7 +37,7 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 def test_union_variant_counts_match_registry():
     assert len(_union_variants(STTConfig)) == 13
     assert len(_union_variants(TTSConfig)) == 15
-    assert len(_union_variants(LLMConfig)) == 10
+    assert len(_union_variants(LLMConfig)) == 11
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
     assert set(LLM_CREATORS) == set(_expected_provider_ids(LLMConfig))
@@ -584,11 +586,38 @@ def test_deepgram_tts_language_is_options_only():
     assert lang["model_options"]["aura-2"] == ["en"]
 
 
+# A vendor provider speaks to one fixed host, so an operator must not be able to
+# repoint it — that would send the org's vendor key wherever someone typed. A
+# connection-based provider is the deliberate exception: a caller-supplied
+# endpoint is the entire point of it, and it holds its own key, not a vendor's.
 def test_cloud_llm_schemas_do_not_expose_base_url():
     for provider, schema in provider_schemas(Kind.LLM).items():
         if schema["provider_type"] != ProviderType.CLOUD:
             continue
+        if schema.get("connection_based"):
+            continue
         assert "base_url" not in schema["fields"], provider
+
+
+def test_only_connection_based_llm_providers_expose_base_url():
+    """The exemption must not grow silently — a new one has to be declared."""
+    repointable = {
+        provider
+        for provider, schema in provider_schemas(Kind.LLM).items()
+        if schema["provider_type"] == ProviderType.CLOUD
+        and "base_url" in schema["fields"]
+    }
+    assert repointable == set(CONNECTION_PROVIDERS)
+
+
+def test_connection_based_base_url_is_never_in_the_agent_form():
+    """base_url belongs to the connection, so the agent settings form omits it."""
+    for provider in CONNECTION_PROVIDERS:
+        settings = provider_settings(Kind.LLM, provider)
+        assert "base_url" not in settings["fields"], provider
+        assert "api_key" not in settings["fields"], provider
+        assert settings["connection_based"] is True
+        assert "connection_id" in settings["fields"], provider
 
 
 def test_every_stt_tts_schema_with_language_has_structured_extras():

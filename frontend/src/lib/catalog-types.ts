@@ -28,6 +28,9 @@ export interface AuthProviderCatalog {
   fields: Record<string, CatalogField>;
   secrets?: string[];
   required?: string[];
+  /** Credentials live per endpoint (ProviderConnections), not per org —
+   * these are managed in the "Custom endpoints" section, not the key form. */
+  connection_based?: boolean;
 }
 
 export type AuthCatalog = Record<string, AuthProviderCatalog>;
@@ -38,6 +41,8 @@ export interface ProviderSummary {
   provider_type?: string;
   /** Whether this org can use the provider (credentials / local readiness). */
   authenticated?: boolean;
+  /** The agent picks a named endpoint rather than using one fixed vendor host. */
+  connection_based?: boolean;
 }
 
 export type ProviderList = Record<string, ProviderSummary>;
@@ -77,6 +82,9 @@ export interface ProviderSettingsCatalog {
   capabilities?: Record<string, ModelCapability>;
   /** Whether this org has stored credentials for this provider. */
   authenticated?: boolean;
+  /** The endpoint and key come from a named connection the agent references
+   * by `fields.connection_id`; neither is part of this form. */
+  connection_based?: boolean;
 }
 
 export type LanguagesMap = Record<string, string>;

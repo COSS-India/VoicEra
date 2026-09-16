@@ -7,10 +7,12 @@ import {
   getSttSettings,
   getTtsSettings,
   listLlmProviders,
+  listProviderConnections,
   listSttProviders,
   listTelephonyProviders,
   listTtsProviders,
 } from "@/lib/api-client";
+import type { ProviderConnection } from "@/lib/api-types";
 import type { LanguagesMap, ProviderList, ProviderSettingsCatalog } from "@/lib/catalog-types";
 import {
   defaultModelId,
@@ -37,6 +39,9 @@ export interface WizardCatalogs {
   sttSettings: ProviderSettingsCatalog | null;
   ttsSettings: ProviderSettingsCatalog | null;
   llmSettings: ProviderSettingsCatalog | null;
+  /** Named endpoints for the selected LLM provider, when it is connection-based
+   * (empty for a vendor provider — it has one fixed host). */
+  llmConnections: ProviderConnection[];
   loading: boolean;
   error: string;
 }
@@ -62,6 +67,7 @@ export function useWizardCatalogs(
   const [sttSettings, setSttSettings] = useState<ProviderSettingsCatalog | null>(null);
   const [ttsSettings, setTtsSettings] = useState<ProviderSettingsCatalog | null>(null);
   const [llmSettings, setLlmSettings] = useState<ProviderSettingsCatalog | null>(null);
+  const [llmConnections, setLlmConnections] = useState<ProviderConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -209,6 +215,26 @@ export function useWizardCatalogs(
     };
   }, [llmProvider]);
 
+  // A connection-based provider has no fixed host: the agent picks one of the
+  // org's named endpoints, so fetch them whenever such a provider is selected.
+  useEffect(() => {
+    if (!llmSettings?.connection_based || !llmProvider) {
+      setLlmConnections([]);
+      return;
+    }
+    let cancelled = false;
+    listProviderConnections({ provider: llmProvider, enabledOnly: true })
+      .then((list) => {
+        if (!cancelled) setLlmConnections(list);
+      })
+      .catch(() => {
+        if (!cancelled) setLlmConnections([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [llmProvider, llmSettings?.connection_based]);
+
   return useMemo(
     () => ({
       languages,
@@ -221,6 +247,7 @@ export function useWizardCatalogs(
       sttSettings,
       ttsSettings,
       llmSettings,
+      llmConnections,
       loading,
       error,
     }),
@@ -235,6 +262,7 @@ export function useWizardCatalogs(
       sttSettings,
       ttsSettings,
       llmSettings,
+      llmConnections,
       loading,
       error,
     ],

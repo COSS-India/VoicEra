@@ -106,6 +106,15 @@ Each vendor `config.py` stacks three layers:
 
 Credentials do not live on the bases. Endpoints and hosts belong on Settings, not Auth.
 
+**Connection-based providers are the exception.** A provider whose endpoint the
+operator supplies (`openai_compatible`, listed in `base.CONNECTION_PROVIDERS`)
+puts `base_url` on **Auth** alongside `api_key`, because the two travel together:
+they belong to one named connection the organisation stores, and both must stay
+out of the saved agent. The agent keeps a `connection_id`; the runtime resolves
+it and merges the pair back in at call setup. Catalog dumps carry
+`connection_based: true` so the API and dashboard route such a provider to the
+connections store rather than the per-org credential store.
+
 ## Languages + capabilities (STT / TTS)
 
 Canonical ids and labels live in root `languages.py` (`hi`, `en`, `en-US`, `multi`, …).

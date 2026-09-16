@@ -3,6 +3,9 @@ import type {
   AgentApiResponse,
   AgentCreatePayload,
   ProviderAuthResponse,
+  ProviderConnection,
+  ProviderConnectionPayload,
+  ProviderConnectionProbe,
 } from "@/lib/api-types";
 import type {
   AuthCatalog,
@@ -80,6 +83,69 @@ export async function getProviderAuth(provider: string): Promise<ProviderAuthRes
 
 export async function deleteProviderAuth(provider: string): Promise<void> {
   return apiFetch<void>(`/auth/${encodeURIComponent(provider)}`, { method: "DELETE" });
+}
+
+// --- Provider connections (named endpoints for OpenAI-compatible providers) ---
+
+export async function listProviderConnections(
+  params: { provider?: string; enabledOnly?: boolean } = {},
+): Promise<ProviderConnection[]> {
+  const query = new URLSearchParams();
+  if (params.provider) query.set("provider", params.provider);
+  if (params.enabledOnly) query.set("enabled_only", "true");
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return apiFetch<ProviderConnection[]>(`/provider-connections${suffix}`);
+}
+
+export async function createProviderConnection(
+  payload: ProviderConnectionPayload,
+): Promise<ProviderConnection> {
+  return apiFetch<ProviderConnection>("/provider-connections", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateProviderConnection(
+  connectionId: string,
+  payload: Partial<ProviderConnectionPayload>,
+): Promise<ProviderConnection> {
+  return apiFetch<ProviderConnection>(`/provider-connections/${encodeURIComponent(connectionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteProviderConnection(connectionId: string): Promise<void> {
+  return apiFetch<void>(`/provider-connections/${encodeURIComponent(connectionId)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Reach an endpoint that has not been saved yet (the dialog's Test button). */
+export async function probeProviderEndpoint(
+  baseUrl: string,
+  apiKey?: string,
+  model?: string,
+): Promise<ProviderConnectionProbe> {
+  return apiFetch<ProviderConnectionProbe>("/provider-connections/probe", {
+    method: "POST",
+    body: JSON.stringify({
+      base_url: baseUrl,
+      api_key: apiKey || null,
+      model: model || null,
+    }),
+  });
+}
+
+/** Re-probe a stored connection; the API caches the returned model list. */
+export async function testProviderConnection(
+  connectionId: string,
+): Promise<ProviderConnectionProbe> {
+  return apiFetch<ProviderConnectionProbe>(
+    `/provider-connections/${encodeURIComponent(connectionId)}/test`,
+    { method: "POST" },
+  );
 }
 
 // --- Configuration catalogs ---

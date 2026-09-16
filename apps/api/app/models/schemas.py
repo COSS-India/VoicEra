@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -147,6 +147,86 @@ class ProviderAuthResponse(BaseModel):
     auth: dict[str, Any]
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class ProviderConnectionCreate(BaseModel):
+    """Create a named endpoint for a connection-based provider."""
+
+    provider: str = "openai_compatible"
+    name: str = Field(description="Label shown wherever an agent picks the endpoint.")
+    base_url: str = Field(description="Endpoint root, e.g. http://vllm.internal:8000/v1")
+    api_key: Union[str, list[str]] = Field(
+        description="Key for the endpoint, or a list to rotate through."
+    )
+    models: list[str] = Field(
+        default_factory=list,
+        description="Model ids this endpoint serves; fills the agent's model picker.",
+    )
+    default_model: Optional[str] = None
+    supports_tools: bool = Field(
+        default=False,
+        description="Whether the endpoint implements OpenAI tool calling.",
+    )
+    enabled: bool = True
+
+
+class ProviderConnectionUpdate(BaseModel):
+    """Patch a provider connection. Omitted fields keep their stored value."""
+
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[Union[str, list[str]]] = None
+    models: Optional[list[str]] = None
+    default_model: Optional[str] = None
+    supports_tools: Optional[bool] = None
+    enabled: Optional[bool] = None
+
+
+class ProviderConnectionResponse(BaseModel):
+    """A stored connection. ``api_key`` is masked unless resolved internally."""
+
+    id: str
+    org_id: str
+    kind: str
+    provider: str
+    name: str
+    slug: str
+    base_url: str
+    api_key: Union[str, list[str]]
+    models: list[str] = Field(default_factory=list)
+    default_model: Optional[str] = None
+    supports_tools: bool = False
+    enabled: bool = True
+    verified_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ProviderConnectionProbeRequest(BaseModel):
+    """Reach an endpoint before it is saved (Test connection in the dialog)."""
+
+    base_url: str
+    api_key: Optional[Union[str, list[str]]] = None
+    model: Optional[str] = Field(
+        default=None,
+        description=(
+            "Model asked for when the endpoint serves no /models list and the "
+            "check falls back to a one-token /chat/completions request."
+        ),
+    )
+
+
+class ProviderConnectionProbeResponse(BaseModel):
+    """Result of checking an endpoint."""
+
+    ok: bool
+    models: list[str] = Field(default_factory=list)
+    latency_ms: Optional[int] = None
+    error: Optional[str] = None
+    note: Optional[str] = Field(
+        default=None,
+        description="Detail about a reachable endpoint, e.g. that it lists no models.",
+    )
 
 
 class BotTokenRequest(BaseModel):

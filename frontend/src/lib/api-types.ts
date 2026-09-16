@@ -271,6 +271,46 @@ export interface ProviderAuthResponse {
   updated_at?: string;
 }
 
+/** One named endpoint for a connection-based provider (OpenAI-compatible LLMs).
+ * `api_key` comes back masked from every route except the runtime's own. */
+export interface ProviderConnection {
+  id: string;
+  org_id: string;
+  kind: string;
+  provider: string;
+  name: string;
+  slug: string;
+  base_url: string;
+  api_key: string | string[];
+  models: string[];
+  default_model?: string | null;
+  supports_tools: boolean;
+  enabled: boolean;
+  verified_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProviderConnectionPayload {
+  provider?: string;
+  name: string;
+  base_url: string;
+  api_key: string;
+  models?: string[];
+  default_model?: string | null;
+  supports_tools?: boolean;
+  enabled?: boolean;
+}
+
+export interface ProviderConnectionProbe {
+  ok: boolean;
+  models: string[];
+  latency_ms?: number | null;
+  error?: string | null;
+  /** Detail about a reachable endpoint — e.g. that it publishes no model list. */
+  note?: string | null;
+}
+
 export type CampaignState = "created" | "syncing" | "running" | "paused" | "completed" | "failed";
 
 export interface CampaignApiResponse {

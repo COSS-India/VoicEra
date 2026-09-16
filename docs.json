@@ -235,6 +235,7 @@
               "docs/api-reference/knowledge-and-rag",
               "docs/api-reference/configuration",
               "docs/api-reference/provider-auth",
+              "docs/api-reference/provider-connections",
               "docs/api-reference/users-and-orgs"
             ]
           },

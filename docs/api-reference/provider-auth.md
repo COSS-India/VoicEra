@@ -42,8 +42,13 @@ Bearer. Returns `ProviderAuthResponse` with the decrypted `auth`. Secrets are **
 
 Bearer, `admin` or `super_admin`. Returns `SuccessResponse`. Nothing stored returns `404`.
 
+## Providers this does not cover
+
+A provider whose endpoint the operator supplies — `openai_compatible` — holds one URL and key **per endpoint**, not one per organisation, so it is stored separately. `GET /auth/catalog` marks it `"connection_based": true` and `POST /auth` rejects it with `422`. See [Provider connections](provider-connections).
+
 ## Related
 
+* [Provider connections](provider-connections) — several endpoints per provider, each with its own key
 * [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page
 * [Authentication](authentication) — tokens, headers, and roles
 * [Errors](errors) — status codes and error shapes

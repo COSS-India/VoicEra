@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from .base import Kind, ProviderType
+from .base import Kind, ProviderType, is_connection_based
 from .languages import LANGUAGES, parse_language_ids
 from .registry import (
     LLM_CONFIGS,
@@ -241,6 +241,8 @@ def _config_catalog(cls: type[BaseModel]) -> dict[str, Any]:
         "name": _display_name(cls),
         "provider_type": _provider_type(cls).value,
     }
+    if is_connection_based(catalog["provider"]):
+        catalog["connection_based"] = True
     doc = (cls.__doc__ or "").strip()
     if doc:
         catalog["description"] = doc.split("\n", 1)[0].strip()
@@ -451,6 +453,8 @@ def _provider_summary(catalog: dict[str, Any]) -> dict[str, Any]:
     }
     if "provider_type" in catalog:
         summary["provider_type"] = catalog["provider_type"]
+    if is_connection_based(str(catalog["provider"])):
+        summary["connection_based"] = True
     return summary
 
 
@@ -610,6 +614,8 @@ def merge_auth_catalogs(
         "kinds": list(ordered_kinds),
         "fields": fields,
     }
+    if is_connection_based(str(first["provider"])):
+        out["connection_based"] = True
     if "provider_type" in first:
         out["provider_type"] = first["provider_type"]
     if required:

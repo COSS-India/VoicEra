@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.providers.base import is_connection_based
 from apps.providers.schema import (
     all_provider_level_auth as providers_all_level_auth,
     provider_level_auth as providers_level_auth,
@@ -67,6 +68,11 @@ def validate_auth_payload(provider: str, auth: dict[str, Any]) -> dict[str, Any]
     Catalog ``required`` that are secrets must be present when listed.
     """
     catalog = provider_auth_catalog(provider)
+    if is_connection_based(provider):
+        raise ValueError(
+            f"Provider {provider} keeps one credential set per endpoint; "
+            "use POST /provider-connections instead of POST /auth"
+        )
     if not auth:
         raise ValueError("auth must not be empty")
 

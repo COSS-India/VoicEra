@@ -58,7 +58,12 @@ async def merge_models_with_auth(
         if not provider:
             raise ServiceBuildError(f"{kind}.provider is required")
         if _requires_stored_auth(provider):
-            auth = await client.get_provider_auth(provider, org_id)
+            # A connection-based provider keeps its endpoint and key per named
+            # connection; the agent stores only the reference.
+            connection_id = str(blob.get("connection_id") or "").strip() or None
+            auth = await client.get_provider_auth(
+                provider, org_id, connection_id=connection_id
+            )
             merged = {**blob, **auth}
             logger.info(
                 "Merged auth into {} provider={} keys={}",

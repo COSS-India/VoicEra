@@ -52,6 +52,17 @@ class Settings(BaseSettings):
         default="",
         description="Fernet key for encrypting ProviderAuth credential blobs",
     )
+    PROVIDER_CONNECTION_PROBE_TIMEOUT: float = Field(
+        default=8.0,
+        description="Seconds to wait when testing an operator-supplied LLM endpoint",
+    )
+    PROVIDER_CONNECTION_ALLOWED_HOSTS: str = Field(
+        default="",
+        description=(
+            "Comma-separated hosts an operator-supplied LLM endpoint may use. "
+            "Empty allows any host except cloud metadata addresses."
+        ),
+    )
 
     CHROMA_BASE_DIR: str = Field(
         default="app/rag/chroma_data",

@@ -262,7 +262,7 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
       <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5">
         <SectionHeader
           title="Voice detection"
-          subtitle="Always on — these decide when the agent hears the caller start and finish speaking."
+          subtitle="Controls how the agent detects when the caller starts and stops speaking."
           tip={TIPS.vad}
         />
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">

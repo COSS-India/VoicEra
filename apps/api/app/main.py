@@ -23,6 +23,7 @@ from app.routers import (
     members,
     organisations,
     phone_numbers,
+    provider_connections,
     rag,
     users,
 )
@@ -79,6 +80,7 @@ app.include_router(organisations.router, prefix=settings.API_V1_PREFIX)
 app.include_router(languages.router, prefix=settings.API_V1_PREFIX)
 app.include_router(configuration.router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+app.include_router(provider_connections.router, prefix=settings.API_V1_PREFIX)
 app.include_router(agents.router, prefix=settings.API_V1_PREFIX)
 app.include_router(phone_numbers.router, prefix=settings.API_V1_PREFIX)
 app.include_router(calls.router, prefix=settings.API_V1_PREFIX)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -19,6 +20,16 @@ app.dependency_overrides[get_current_user] = lambda: {
 }
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _no_provider_connections():
+    """Catalog routes also consult ProviderConnections — keep tests off the DB."""
+    with patch(
+        "app.routers.configuration.provider_connection_service.configured_providers",
+        return_value=[],
+    ) as mocked:
+        yield mocked
 
 
 def test_languages_includes_hindi():
@@ -177,3 +188,33 @@ def test_local_authenticated_false_when_model_missing():
 def test_configuration_auth_routes_removed():
     assert client.get("/api/v1/configuration/auth").status_code == 404
     assert client.get("/api/v1/configuration/stt/auth/deepgram").status_code == 404
+
+
+def test_llm_connection_based_provider_is_listed_and_flagged():
+    """openai_compatible is authenticated once the org has one endpoint."""
+    with patch(
+        "app.routers.configuration.auth_service.list_configured_providers",
+        return_value=[],
+    ):
+        unconfigured = client.get("/api/v1/configuration/llm")
+        with patch(
+            "app.routers.configuration.provider_connection_service.configured_providers",
+            return_value=["openai_compatible"],
+        ):
+            configured = client.get("/api/v1/configuration/llm")
+            settings = client.get(
+                "/api/v1/configuration/llm/setting/openai_compatible"
+            )
+
+    entry = unconfigured.json()["openai_compatible"]
+    assert entry["connection_based"] is True
+    assert entry["authenticated"] is False
+    assert configured.json()["openai_compatible"]["authenticated"] is True
+
+    body = settings.json()
+    assert body["authenticated"] is True
+    assert body["connection_based"] is True
+    # Endpoint and key belong to the connection, never to the agent.
+    assert "base_url" not in body["fields"]
+    assert "api_key" not in body["fields"]
+    assert "connection_id" in body["fields"]

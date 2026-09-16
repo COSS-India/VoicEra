@@ -51,4 +51,47 @@ def test_merge_skips_auth_fetch_for_local_stt_tts():
     assert "api_key" not in out["stt_config"]
     assert out["tts_config"]["provider"] == "indic_orpheus"
     assert out["llm_config"]["api_key"] == "sk-test"
-    client.get_provider_auth.assert_awaited_once_with("openai", "org-1")
+    client.get_provider_auth.assert_awaited_once_with(
+        "openai", "org-1", connection_id=None
+    )
+
+
+def test_merge_resolves_named_connection_for_openai_compatible():
+    """The agent stores a reference; endpoint and key arrive at call setup."""
+    client = MagicMock()
+    client.get_provider_auth = AsyncMock(
+        return_value={
+            "base_url": "http://vllm.internal:8000/v1",
+            "api_key": "sk-local",
+        },
+    )
+    agent = {
+        "org_id": "org-1",
+        "config": {
+            "models": {
+                "stt_config": {
+                    "provider": "indic_nemotron",
+                    "model": "indic-nemotron-600m",
+                    "language": "hi",
+                },
+                "tts_config": {
+                    "provider": "indic_orpheus",
+                    "model": "orpheus-indic",
+                    "language": "hi",
+                    "voice": "Amit",
+                    "style": "news",
+                },
+                "llm_config": {
+                    "provider": "openai_compatible",
+                    "connection_id": "conn-42",
+                    "model": "Qwen/Qwen3-8B-Instruct",
+                },
+            }
+        },
+    }
+    out = asyncio.run(merge_models_with_auth(agent, client=client))
+    assert out["llm_config"]["base_url"] == "http://vllm.internal:8000/v1"
+    assert out["llm_config"]["api_key"] == "sk-local"
+    client.get_provider_auth.assert_awaited_once_with(
+        "openai_compatible", "org-1", connection_id="conn-42"
+    )

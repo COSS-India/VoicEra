@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth import get_current_user
-from app.services import auth_service
+from app.services import auth_service, provider_connection_service
 from apps.providers.availability import is_authenticated
 from apps.providers.base import Kind
 from apps.providers.languages import UnknownLanguageError
@@ -26,9 +26,13 @@ router = APIRouter(prefix="/configuration", tags=["configuration"])
 
 
 def _configured_ids(org_id: str | None) -> set[str]:
+    """Provider ids the org can actually use: stored auth, plus any
+    connection-based provider with at least one enabled endpoint."""
     if not org_id:
         return set()
-    return set(auth_service.list_configured_providers(org_id))
+    return set(auth_service.list_configured_providers(org_id)) | set(
+        provider_connection_service.configured_providers(org_id)
+    )
 
 
 def _with_authenticated_list(

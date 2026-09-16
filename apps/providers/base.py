@@ -29,6 +29,19 @@ class ProviderType(str, Enum):
     LOCAL = "local"
 
 
+# Providers whose endpoint is operator-supplied, so one organisation can hold
+# several at once. Their credentials live in ProviderConnections (one row per
+# endpoint, each with its own key), never in ProviderAuth (one row per
+# provider). Catalog dumps carry this as ``connection_based`` so the API and
+# the dashboard route them to the right store without a second list.
+CONNECTION_PROVIDERS = frozenset({"openai_compatible"})
+
+
+def is_connection_based(provider: str) -> bool:
+    """True when ``provider`` stores credentials per endpoint, not per org."""
+    return provider in CONNECTION_PROVIDERS
+
+
 class BaseProviderConfig(BaseModel):
     """Common fields shared by every provider configuration."""
 

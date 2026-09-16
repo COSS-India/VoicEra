@@ -74,9 +74,24 @@ function SliderControl({
   const max = field.maximum ?? fallbackMax;
   const step = field.type?.startsWith("integer") ? 1 : Math.max((max - min) / 100, 0.01);
   const numericValue = typeof value === "number" ? value : typeof field.default === "number" ? field.default : min;
+  // An optional knob with no default is *unset*, not zero — and not the minimum,
+  // which is what the thumb has to rest on. Saying so keeps the form from
+  // claiming a value nobody chose (a penalty reading -2 is not a penalty of -2).
+  const isSet = typeof value === "number" || typeof field.default === "number";
   return (
     <span className="flex flex-col gap-1.5">
-      <span className="self-end font-mono text-[11px] font-normal text-v-muted">{numericValue}</span>
+      <span className="flex items-center justify-end gap-2 font-mono text-[11px] font-normal text-v-muted">
+        {isSet ? numericValue : "Not set"}
+        {typeof value === "number" ? (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="cursor-pointer font-sans underline underline-offset-2 hover:text-v-fg"
+          >
+            Clear
+          </button>
+        ) : null}
+      </span>
       <input
         type="range"
         min={min}
@@ -109,6 +124,35 @@ function TextareaControl({
       onChange={(e) => onChange(e.target.value)}
       rows={4}
       placeholder={field.default !== undefined && field.default !== null ? String(field.default) : "Type a custom value…"}
+    />
+  );
+}
+
+/** A numeric knob without a bounded range (max_tokens, seed). A slider needs
+ * two ends; inventing one caps the field at an arbitrary ceiling — the old
+ * fallback silently made "Max Tokens" unsettable above 100. Blank submits
+ * nothing, so the endpoint's own default applies. */
+function NumberControl({
+  field,
+  value,
+  onChange,
+}: {
+  field: CatalogField;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  return (
+    <Input
+      type="number"
+      min={field.minimum}
+      max={field.maximum}
+      value={value === undefined || value === null ? "" : String(value)}
+      onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
+      placeholder={
+        field.default !== undefined && field.default !== null
+          ? String(field.default)
+          : "Endpoint default"
+      }
     />
   );
 }
@@ -168,7 +212,9 @@ function DynamicModelField({
     const isOptions = field.input_mode === "options" && hasOptions;
     showDropdown = isOptions;
     showCustom = !isOptions;
-    customIsSlider = !isOptions && Boolean(isNumeric);
+    // Only a field bounded at both ends gets a slider.
+    customIsSlider =
+      !isOptions && Boolean(isNumeric) && field.minimum != null && field.maximum != null;
   }
 
   return (
@@ -183,6 +229,8 @@ function DynamicModelField({
           <TextareaControl field={field} value={value} onChange={onChange} />
         ) : customIsSlider ? (
           <SliderControl field={field} value={value} onChange={onChange} />
+        ) : isNumeric ? (
+          <NumberControl field={field} value={value} onChange={onChange} />
         ) : (
           <TextControl field={field} value={value} onChange={onChange} />
         )
@@ -251,7 +299,27 @@ export function AgentStackFields({
   const ttsModelFields = resolvedModelFields(catalogs.ttsSettings, value.ttsModel, primaryLang).filter(
     ([key]) => key !== "voice",
   );
-  const llmModelFields = resolvedModelFields(catalogs.llmSettings, value.llmModel, primaryLang);
+  // `connection_id` gets its own endpoint picker below, so it is kept out of
+  // the generic field renderer that handles temperature, top_p, and the rest.
+  const llmModelFields = resolvedModelFields(catalogs.llmSettings, value.llmModel, primaryLang).filter(
+    ([key]) => key !== "connection_id",
+  );
+  const llmIsConnectionBased = catalogs.llmSettings?.connection_based === true;
+  const selectedConnectionId = String(value.llmExtra.connection_id ?? "");
+  const selectedConnection = catalogs.llmConnections.find((c) => c.id === selectedConnectionId);
+  // A connection-based provider publishes no vendor model list; the ids come
+  // from whatever the chosen endpoint reported when it was last tested.
+  const llmModelChoices = llmIsConnectionBased
+    ? (() => {
+        const ids = selectedConnection?.models ?? [];
+        // An endpoint's model list can change under a saved agent; keep the
+        // stored id selectable so editing anything else does not silently
+        // blank it.
+        const withCurrent =
+          value.llmModel && !ids.includes(value.llmModel) ? [value.llmModel, ...ids] : ids;
+        return withCurrent.map((id) => ({ value: id, label: id }));
+      })()
+    : llmModels;
 
   const langSummary =
     value.langs.length === 0
@@ -398,20 +466,56 @@ export function AgentStackFields({
             ) : null}
           </label>
 
+          {llmIsConnectionBased ? (
+            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+              Endpoint
+              <SearchSelect
+                options={catalogs.llmConnections.map((c) => ({ value: c.id, label: c.name }))}
+                value={selectedConnectionId}
+                onChange={(v) => {
+                  const next = catalogs.llmConnections.find((c) => c.id === v);
+                  onChange("llmExtra", { ...value.llmExtra, connection_id: v });
+                  // Models are per endpoint, so a model picked for the previous
+                  // one would be sent to a host that never served it.
+                  onChange("llmModel", next?.default_model ?? "");
+                }}
+                placeholder="Select endpoint…"
+                disabled={catalogs.llmConnections.length === 0}
+              />
+              <span className="text-xs font-light text-v-muted">
+                {catalogs.llmConnections.length === 0
+                  ? "No OpenAI-compatible endpoint yet — add one under Integrations first."
+                  : (selectedConnection?.base_url ?? "Each endpoint carries its own URL and key.")}
+              </span>
+            </label>
+          ) : null}
+
           <label className="flex flex-col gap-1.5 text-[13px] font-medium">
             Model
-            <Select
-              value={value.llmModel}
-              onChange={(e) => onChange("llmModel", e.target.value)}
-              disabled={!value.llmProvider}
-            >
-              <option value="">Select model…</option>
-              {llmModels.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </Select>
+            {llmModelChoices.length > 0 ? (
+              <Select
+                value={value.llmModel}
+                onChange={(e) => onChange("llmModel", e.target.value)}
+                disabled={!value.llmProvider}
+              >
+                <option value="">Select model…</option>
+                {llmModelChoices.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              // A provider with no fixed vendor catalog publishes no model
+              // examples, so the id has to be typed. STT and TTS pickers can
+              // adopt this the day a provider needs it.
+              <Input
+                value={value.llmModel}
+                onChange={(e) => onChange("llmModel", e.target.value)}
+                disabled={!value.llmProvider || (llmIsConnectionBased && !selectedConnectionId)}
+                placeholder="Model id served by the endpoint"
+              />
+            )}
           </label>
 
           {llmModelFields.map(([key, field]) => (

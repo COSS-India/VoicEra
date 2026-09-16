@@ -29,6 +29,10 @@ import {
   listConfiguredProviders,
   upsertProviderAuth,
 } from "@/lib/api-client";
+import {
+  ProviderConnections,
+  type ConnectionProviderOption,
+} from "@/components/dashboard/ProviderConnections";
 import type { AuthCatalog, AuthProviderCatalog } from "@/lib/catalog-types";
 import { AUTH_KIND_ORDER, formatProviderTypeLabel, humanizeFieldKey, secretFieldNames } from "@/lib/catalog-utils";
 
@@ -313,11 +317,21 @@ export function Integrations({
     load();
   }, [load]);
 
+  // A connection-based provider has no single org-wide key to collect here —
+  // its endpoints are managed by <ProviderConnections /> below instead.
   const allProviders = useMemo<ProviderEntry[]>(() => {
     if (!catalog) return [];
     return Object.entries(catalog)
+      .filter(([, entry]) => !entry.connection_based)
       .map(([providerId, entry]) => ({ providerId, catalog: entry }))
       .sort((a, b) => (a.catalog.name ?? a.providerId).localeCompare(b.catalog.name ?? b.providerId));
+  }, [catalog]);
+
+  const connectionProviders = useMemo<ConnectionProviderOption[]>(() => {
+    if (!catalog) return [];
+    return Object.entries(catalog)
+      .filter(([, entry]) => entry.connection_based)
+      .map(([providerId, entry]) => ({ providerId, name: entry.name ?? providerId }));
   }, [catalog]);
 
   const isTelephony = (entry: AuthProviderCatalog) => (entry.kinds ?? []).includes("telephony");
@@ -487,6 +501,12 @@ export function Integrations({
               ) : null}
             </div>
           ) : null}
+
+          <ProviderConnections
+            providers={connectionProviders}
+            onNotify={onNotify}
+            onChanged={load}
+          />
 
           {connectedList.length > 0 ? (
             <section className="flex flex-col gap-3">

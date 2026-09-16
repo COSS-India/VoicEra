@@ -192,13 +192,26 @@ def api_key(value: str | list[str] | None) -> str | None:
     return value
 
 
+# Sampling knobs every OpenAI-shaped Settings class accepts. A vendor config
+# that does not declare one simply never contributes it.
+_LLM_SETTING_FIELDS = (
+    "temperature",
+    "max_tokens",
+    "top_p",
+    "frequency_penalty",
+    "presence_penalty",
+    "seed",
+    "max_completion_tokens",
+)
+
+
 def llm_settings(cfg: Any) -> dict[str, Any]:
     """Pipecat LLM settings built only from fields present on the config."""
     settings: dict[str, Any] = {"model": cfg.model}
-    if cfg.temperature is not None:
-        settings["temperature"] = cfg.temperature
-    if cfg.max_tokens is not None:
-        settings["max_tokens"] = cfg.max_tokens
+    for name in _LLM_SETTING_FIELDS:
+        value = getattr(cfg, name, None)
+        if value is not None:
+            settings[name] = value
     return settings
 
 

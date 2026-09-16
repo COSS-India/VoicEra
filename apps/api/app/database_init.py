@@ -89,6 +89,23 @@ def _ensure_provider_auth(db: Database, existing: set[str]) -> None:
     _ensure_index(provider_auth, "org_id", name="org_id_index")
 
 
+def _ensure_provider_connections(db: Database, existing: set[str]) -> None:
+    if "ProviderConnections" not in existing:
+        logger.info("Creating ProviderConnections collection")
+    else:
+        logger.debug("ProviderConnections already exists; ensuring indexes")
+
+    connections = db["ProviderConnections"]
+    _ensure_index(connections, "id", name="connection_id_unique", unique=True)
+    _ensure_index(
+        connections,
+        [("org_id", 1), ("provider", 1), ("slug", 1)],
+        name="org_provider_slug_unique",
+        unique=True,
+    )
+    _ensure_index(connections, "org_id", name="org_id_index")
+
+
 def _ensure_agents(db: Database, existing: set[str]) -> None:
     if "Agents" not in existing:
         logger.info("Creating Agents collection")
@@ -267,6 +284,7 @@ def initialize_database() -> None:
         _ensure_users(db, existing)
         _ensure_memberships(db, existing)
         _ensure_provider_auth(db, existing)
+        _ensure_provider_connections(db, existing)
         _ensure_agents(db, existing)
         _ensure_phone_numbers(db, existing)
         _ensure_knowledge_documents(db, existing)
@@ -277,7 +295,7 @@ def initialize_database() -> None:
 
         logger.info(
             "Database initialization completed "
-            "(Organizations, Users, Memberships, ProviderAuth, Agents, "
+            "(Organizations, Users, Memberships, ProviderAuth, ProviderConnections, Agents, "
             "PhoneNumbers, KnowledgeDocuments, CallLogs, CallMetrics, Campaigns, QueuedRuns)"
         )
     except Exception as exc:
