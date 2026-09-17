@@ -73,6 +73,32 @@ class EngineConfig(BaseModel):
                     "per token; 7 tokens make one 85.33 ms frame.",
     )
     max_tokens_limit: int = Field(8192, ge=64, description="Hard server-side ceiling on max_tokens.")
+    duration_guard: bool = Field(
+        True,
+        description="Bound generation by how long the TEXT should take to read, when a request "
+                    "does not set max_tokens itself. The only thing that ends an utterance is the "
+                    "model emitting the end-of-speech token; when sampling misses it, generation "
+                    "runs to max_tokens and every token of that is decoded and streamed as audio. "
+                    "At the 8192 default that is ~100 s of babble after a one-word prompt. The "
+                    "guard turns a missed stop token into a bounded overrun instead.",
+    )
+    guard_chars_per_second: float = Field(
+        8.0, gt=0.0,
+        description="Reading speed assumed when sizing the guard. LOWER is safer: it over-estimates "
+                    "how long the text takes and so hands out a bigger budget. 8 is well below "
+                    "conversational Devanagari, which runs 12-15.",
+    )
+    guard_headroom: float = Field(
+        3.0, ge=1.0,
+        description="Multiplier on the estimate. The guard must never truncate legitimate speech, "
+                    "so it is sized to be loose - 3x means a clip has to run three times its "
+                    "expected length before it is cut.",
+    )
+    guard_floor_tokens: int = Field(
+        512, ge=64,
+        description="Budget floor, so a very short prompt still gets room for a natural reading. "
+                    "512 tokens is ~6 s of audio.",
+    )
 
 
 class DecoderConfig(BaseModel):

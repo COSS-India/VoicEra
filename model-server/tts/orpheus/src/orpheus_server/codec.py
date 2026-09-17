@@ -26,6 +26,7 @@ CODEBOOK_SIZE = 4096
 SAMPLE_RATE = 24000
 SAMPLES_PER_FRAME = 2048
 FRAME_MS = SAMPLES_PER_FRAME / SAMPLE_RATE * 1000.0   # 85.333 ms
+TOKENS_PER_SECOND = CODES_PER_FRAME / (FRAME_MS / 1000.0)   # 82.03 audio tokens per second
 
 # Streaming window: each time a frame completes, decode the last 4 frames but
 # emit only the middle frame's samples. The extra context on both sides is what

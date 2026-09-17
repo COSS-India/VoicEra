@@ -224,9 +224,31 @@ class TTSEngine:
             )
 
     # -- synthesis ----------------------------------------------------------
-    def clamp_max_tokens(self, requested: Optional[int]) -> int:
+    def clamp_max_tokens(self, requested: Optional[int], text: Optional[str] = None) -> int:
+        """The generation cap for one request.
+
+        An explicit ``max_tokens`` is honoured as given (clamped to the ceiling):
+        a caller that names a number has said what it wants. When the request
+        omits one, ``max_tokens_default`` is 8192 - about 100 seconds - and the
+        only thing that ends an utterance before that is the model emitting the
+        end-of-speech token. Sampling misses it often enough to matter, and every
+        token generated afterwards is decoded and streamed as audio, which is
+        heard as babble on the end of a short clip.
+
+        So when ``text`` is known and the guard is on, the cap is sized from the
+        text instead. Deliberately loose - it is a runaway bound, not a length
+        estimate, and truncating real speech would be a worse bug than the one it
+        prevents.
+        """
         cfg = self.settings.engine
-        value = cfg.max_tokens_default if requested is None else int(requested)
+        if requested is not None:
+            return max(64, min(int(requested), cfg.max_tokens_limit))
+
+        value = cfg.max_tokens_default
+        if cfg.duration_guard and text and text.strip():
+            seconds = len(text.strip()) / cfg.guard_chars_per_second
+            budget = int(seconds * codec.TOKENS_PER_SECOND * cfg.guard_headroom)
+            value = min(value, max(cfg.guard_floor_tokens, budget))
         return max(64, min(value, cfg.max_tokens_limit))
 
     def preflight(self, text: str, voice: str, style: Optional[str]) -> list[int]:

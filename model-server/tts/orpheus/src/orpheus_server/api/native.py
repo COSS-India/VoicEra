@@ -96,7 +96,7 @@ async def tts(
     try:
         async for chunk in engine.stream_pcm(
             text=req.text, voice=voice, language=language, style=style,
-            max_tokens=engine.clamp_max_tokens(req.max_tokens), stats=stats,
+            max_tokens=engine.clamp_max_tokens(req.max_tokens, req.text), stats=stats,
             token_ids=token_ids,
         ):
             pcm += chunk
@@ -151,7 +151,7 @@ async def tts_stream(
 
     stats = StreamStats()
     engine.metrics.requests_total += 1
-    clamped = engine.clamp_max_tokens(max_tokens)
+    clamped = engine.clamp_max_tokens(max_tokens, text)
 
     async def body():
         encoder = audio_fmt.make_encoder("wav", streaming=True)
@@ -225,7 +225,7 @@ async def tts_websocket(websocket: WebSocket):
         }))
         async for pcm in engine.stream_pcm(
             text=request["text"], voice=voice, language=language, style=style,
-            max_tokens=engine.clamp_max_tokens(request.get("max_tokens")), stats=stats,
+            max_tokens=engine.clamp_max_tokens(request.get("max_tokens"), request["text"]), stats=stats,
             token_ids=token_ids,
         ):
             await websocket.send_bytes(pcm)
