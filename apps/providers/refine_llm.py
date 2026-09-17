@@ -23,6 +23,8 @@ from apps.providers.adapters.kenpath.catalog import (
     resolve_base_url as kenpath_resolve_base_url,
     resolve_completions_path as kenpath_resolve_completions_path,
 )
+from apps.providers.cloud.aws_bedrock.catalog import DEFAULT_LLM_MODEL as BEDROCK_DEFAULT_MODEL
+from apps.providers.cloud.google_vertex.catalog import DEFAULT_LLM_MODEL as VERTEX_DEFAULT_MODEL
 
 REQUEST_TIMEOUT_SECONDS = 30.0
 
@@ -189,7 +191,7 @@ def call_bedrock(
     if not access_key or not secret_key:
         raise PromptRefineError("Provider 'aws_bedrock' has no aws_access_key/aws_secret_key on file")
 
-    model = requested_model or "us.amazon.nova-pro-v1:0"
+    model = requested_model or BEDROCK_DEFAULT_MODEL
 
     client = boto3.client(
         "bedrock-runtime",
@@ -246,7 +248,7 @@ def call_vertex(
     if not project_id:
         raise PromptRefineError("Provider 'google_vertex' has no project_id on file")
 
-    model = requested_model or "gemini-2.0-flash"
+    model = requested_model or VERTEX_DEFAULT_MODEL
 
     client_kwargs: dict[str, Any] = {"vertexai": True, "project": project_id, "location": location}
     if credentials_json:

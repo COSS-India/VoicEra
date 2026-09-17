@@ -10,6 +10,10 @@ LLM_MODELS: tuple[str, ...] = (
 
 DEFAULT_LLM_MODEL = "gemini-3.5-flash"
 
+# Google's separate OpenAI-compatible REST surface for Gemini, distinct from
+# the native google-genai SDK endpoint (which has no base_url — SDK default).
+OPENAI_COMPAT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
 DEFAULT_STT_LOCATION = "global"
 
 # Chirp 3 HD voice IDs follow the pattern <locale>-Chirp3-HD-<voice_name>

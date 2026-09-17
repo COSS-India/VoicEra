@@ -2,6 +2,8 @@
 
 from ...capabilities import expand_settings
 
+BASE_URL = "https://api.openai.com/v1"
+
 LLM_MODELS: tuple[str, ...] = (
     "gpt-4.1",
     "gpt-4.1-mini",

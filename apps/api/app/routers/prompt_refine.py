@@ -1,11 +1,8 @@
 """Prompt-refinement endpoint for VoicEra voice agents.
 
-Validates request data, resolves the configured provider (falling back across
-whatever the org has credentials for), builds a source-grounded context
-envelope, calls the model, and validates the returned prompt. Non-OpenAI-
-compatible protocol dispatch (kenpath/bedrock/vertex) lives in
-apps/providers/refine_llm.py; the SSRF guard for self-hosted URLs lives in
-app/utils/ssrf_guard.py — both are reused/reusable outside this router.
+Resolves the configured provider (with fallback), builds a context envelope,
+calls the model, validates the result. Non-OpenAI-compatible dispatch lives
+in apps/providers/refine_llm.py.
 """
 
 from __future__ import annotations
@@ -23,12 +20,23 @@ from pydantic import BaseModel, Field
 from app.auth import get_current_user
 from app.prompts.refiner_system_prompt import REFINER_SYSTEM_PROMPT
 from app.services import auth_service
-from app.utils.ssrf_guard import reject_metadata_endpoint
 from apps.providers.cloud.atlascloud.catalog import (
     BASE_URL as ATLASCLOUD_BASE_URL,
     DEFAULT_LLM_MODEL as ATLASCLOUD_DEFAULT_MODEL,
 )
-from apps.providers.cloud.openai.catalog import DEFAULT_LLM_MODEL as OPENAI_DEFAULT_MODEL
+from apps.providers.cloud.azure_openai.catalog import API_VERSION as AZURE_OPENAI_API_VERSION
+from apps.providers.cloud.google.catalog import (
+    DEFAULT_LLM_MODEL as GOOGLE_DEFAULT_MODEL,
+    OPENAI_COMPAT_BASE_URL as GOOGLE_OPENAI_COMPAT_BASE_URL,
+)
+from apps.providers.cloud.groq.catalog import (
+    BASE_URL as GROQ_BASE_URL,
+    DEFAULT_LLM_MODEL as GROQ_DEFAULT_MODEL,
+)
+from apps.providers.cloud.openai.catalog import (
+    BASE_URL as OPENAI_BASE_URL,
+    DEFAULT_LLM_MODEL as OPENAI_DEFAULT_MODEL,
+)
 from apps.providers.cloud.openrouter.catalog import (
     BASE_URL as OPENROUTER_BASE_URL,
     DEFAULT_LLM_MODEL as OPENROUTER_DEFAULT_MODEL,
@@ -44,12 +52,9 @@ router = APIRouter(prefix="/prompts", tags=["prompts"])
 
 REQUEST_TIMEOUT_SECONDS = 30.0
 
-# Wire-protocol families this endpoint can drive. Refine is a single
-# synchronous call, not a Pipecat pipeline consumer (see
-# apps/runtime/services/ai_service_factory.py for how the real call
-# pipeline builds a vendor-specific streaming service instead), so each
-# family gets its own small dispatch branch in call_refiner() rather than
-# reusing apps/providers' registered creators.
+# Refine is a one-shot sync call, not a Pipecat pipeline consumer, so each
+# provider family gets its own dispatch branch here instead of reusing
+# apps/providers' registered creators.
 OPENAI_COMPATIBLE_PROVIDERS = (
     "openai",
     "groq",
@@ -60,29 +65,18 @@ OPENAI_COMPATIBLE_PROVIDERS = (
     "google",
 )
 VOICERA_MODEL_SERVER_PROVIDER = "voicera_model_server"
-SELF_HOSTED_PROVIDER = "self_hosted"
 KENPATH_PROVIDER = "kenpath"
 BEDROCK_PROVIDER = "aws_bedrock"
 VERTEX_PROVIDER = "google_vertex"
-# Providers whose SDKs are lazy-imported (boto3, google-genai) rather than
-# added to OPENAI_COMPATIBLE_PROVIDERS/KENPATH_PROVIDER's always-imported set —
-# keeps API startup import-time footprint unaffected by these two.
+# boto3/google-genai are lazy-imported, so these two stay out of the
+# always-imported provider sets above.
 NON_OPENAI_SDK_PROVIDERS = (BEDROCK_PROVIDER, VERTEX_PROVIDER)
 
-# Sourced from each vendor's own apps/providers/cloud/<vendor>/catalog.py so
-# this doesn't drift from the base URLs/models the real call pipeline uses
-# (see apps/providers/cloud/*/service.py). Groq has no base_url exposed
-# anywhere in this repo — pipecat's GroqLLMService hardcodes it internally —
-# so it's kept here as a plain literal with no catalog source to import.
-# azure_openai and google are resolved dynamically (endpoint-based / fixed
-# OpenAI-compat constant respectively) in resolve_openai_compatible_url()
-# below, not via this flat dict.
-#
-# Provider order also doubles as fallback priority when the caller doesn't
-# request (or the org doesn't have credentials for) a specific provider.
+# Sourced from each vendor's own catalog.py to avoid drift. Dict order
+# doubles as fallback priority.
 PROVIDER_BASE_URLS = {
-    "openai": "https://api.openai.com/v1",
-    "groq": "https://api.groq.com/openai/v1",
+    "openai": OPENAI_BASE_URL,
+    "groq": GROQ_BASE_URL,
     "sarvam": SARVAM_BASE_URL,
     "openrouter": OPENROUTER_BASE_URL,
     "atlascloud": ATLASCLOUD_BASE_URL,
@@ -90,26 +84,14 @@ PROVIDER_BASE_URLS = {
 
 PROVIDER_DEFAULT_MODEL = {
     "openai": OPENAI_DEFAULT_MODEL,
-    "groq": "llama-3.3-70b-versatile",
+    "groq": GROQ_DEFAULT_MODEL,
     "sarvam": SARVAM_DEFAULT_MODEL,
     "openrouter": OPENROUTER_DEFAULT_MODEL,
     "atlascloud": ATLASCLOUD_DEFAULT_MODEL,
 }
 
-# Google publishes a separate OpenAI-compatible surface for Gemini alongside
-# its native SDK-based endpoint (which is what Pipecat's GoogleLLMService
-# uses) — this constant targets that OpenAI-compatible surface specifically.
-GOOGLE_OPENAI_COMPAT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-
-# AzureOpenAIAuth has no api_version field — this targets a fixed, current
-# Azure OpenAI REST API version rather than an org-configurable one.
-AZURE_OPENAI_API_VERSION = "2024-02-01"
-
-# VoicEra's own self-hosted LLM slot behind model-server's gateway — already
-# running a real vLLM server (apps/providers/local/indic_orpheus/catalog.py's
-# MODEL_SERVER_URL is the same env var, same pattern: ops-configured, zero
-# per-org input). See model-server/llm/qwen3.5-4b/README.md: vLLM serves
-# genuine /v1/chat/completions in the shape the gateway forwards.
+# VoicEra's own self-hosted LLM behind model-server's gateway, ops-configured
+# via the same MODEL_SERVER_URL env var used elsewhere in apps/providers.
 VOICERA_MODEL_SERVER_MODEL = "qwen3.5-4b"
 
 MODE_BY_REQUEST = {
@@ -128,17 +110,10 @@ class AgentTool(BaseModel):
 
 class PromptRefineRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
-    # Hints, not requirements — call_refiner() falls back across whatever
-    # provider the org actually has credentials for if these are unset or
-    # unusable (unsupported provider, no stored key).
+    # Hints, not requirements — call_refiner() falls back to whatever
+    # provider the org has credentials for if these are unset/unusable.
     llm_provider: str | None = None
     llm_model: str | None = None
-    # Required only when llm_provider="self_hosted" — an org's own
-    # OpenAI-compatible endpoint (Ollama/vLLM/TGI/LM Studio/etc). Never
-    # stored: base_url isn't a secret and can't live in org-level
-    # ProviderAuth (validate_auth_payload rejects non-secret fields there).
-    # See reject_metadata_endpoint() for the SSRF guard applied to this value.
-    llm_base_url: str | None = None
     existing_prompt: str | None = None
     agent_name: str | None = None
     agent_purpose: str | None = None
@@ -188,8 +163,7 @@ def resolve_api_key(org_id: str, provider: str) -> str:
     try:
         api_key = resolve_rotation_key(auth.get("api_key"))
     except ValueError:
-        # registry.api_key() raises on an empty rotation list — same
-        # "nothing usable on file" case as a missing/blank key below.
+        # Empty rotation list — same as a missing/blank key below.
         api_key = None
     if not api_key:
         raise PromptRefineError(f"Provider {provider!r} has no api_key on file")
@@ -209,11 +183,70 @@ def infer_mode(body: PromptRefineRequest) -> RefineMode:
     return "create"
 
 
+FACTUAL_IDENTIFIER_PATTERNS = (
+    # Phone numbers, bare or formatted with spaces/dots/dashes/parens/leading
+    # "+": "1234567890", "123-456-7890", "(123) 456-7890", "+1 123.456.7890".
+    # Deliberately loose (also matches "12-15", "1.2.3", version numbers,
+    # date ranges) — the 10-15 digit-count filter in extract_factual_identifiers
+    # is what actually rejects those; this pattern just finds candidate spans.
+    # Lookarounds (not \b) for the edges: \b treats "+"/"(" as non-word so it
+    # would sit *inside* the match's own boundary; these instead require the
+    # character just outside the match not be alnum, so "a1234567890b" (no
+    # true separator) still isn't matched, but "+1 234..." and "(123)..." are.
+    # Groups after the first are capped at 1-3 digits (not 1-4): a wider cap
+    # let a bare space merge two unrelated 9+ digit ids ("111111111 222222222")
+    # into one 18-digit span that then failed the length filter below and
+    # silently dropped both — capping group width forces the regex to split
+    # at the space instead of swallowing a same-length second id whole.
+    re.compile(r"(?<![\w])\+?\(?\d{1,4}\)?(?:[\s.-]?\(?\d{1,3}\)?){2,4}(?![\w])"),
+    re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"),
+    re.compile(r"https?://\S+"),
+)
+# Sentence punctuation that a URL regex's trailing \S+ swallows but that is
+# never itself part of a URL (e.g. "see https://x.com/help." or "(https://x.com)").
+_URL_TRAILING_PUNCTUATION = ".,;:!?)]}\"'"
+
+
+def _normalize_phone(match: str) -> str | None:
+    """Collapse a formatted phone candidate to its digits, so "123-456-7890"
+    and "1234567890" compare equal — refinement is free to reformat, just
+    not drop or alter digits. Returns None to reject non-phone-length
+    candidates ("12-15", "1.2.3", "2024-2025") that the loose pattern above
+    also matches."""
+    digits = re.sub(r"\D", "", match)
+    return digits if 10 <= len(digits) <= 15 else None
+
+
+def extract_factual_identifiers(text: str) -> list[str]:
+    """Literal values (phone-like numbers, emails, URLs) that must survive
+    refinement verbatim — see PROTECTED FACTS in refiner_system_prompt.py.
+
+    ponytail: shape-based matching can't distinguish a phone number from any
+    other 10-15 digit id (order id, timestamp) — acceptable false-positive
+    rate for a warning-only check, revisit with context-aware matching if it
+    starts flagging real refinements.
+    """
+    values: list[str] = []
+    for pattern in FACTUAL_IDENTIFIER_PATTERNS:
+        for match in pattern.findall(text):
+            if pattern is FACTUAL_IDENTIFIER_PATTERNS[0]:
+                normalized = _normalize_phone(match)
+                if normalized is None:
+                    continue
+                match = normalized
+            elif pattern is FACTUAL_IDENTIFIER_PATTERNS[-1]:
+                match = match.rstrip(_URL_TRAILING_PUNCTUATION)
+            values.append(match)
+    return list(dict.fromkeys(values))
+
+
 def build_context(body: PromptRefineRequest, mode: RefineMode) -> str:
+    source_text = body.existing_prompt or body.prompt
     context = {
         "mode": mode,
         "user_request": body.prompt,
         "existing_prompt": body.existing_prompt,
+        "protected_facts": extract_factual_identifiers(source_text),
         "agent": {
             "name": body.agent_name,
             "purpose": body.agent_purpose,
@@ -231,7 +264,17 @@ def build_context(body: PromptRefineRequest, mode: RefineMode) -> str:
     return json.dumps(context, ensure_ascii=False)
 
 
-def validate_refined_prompt(refined: str) -> list[str]:
+def _value_preserved(value: str, refined: str) -> bool:
+    """A phone value (all-digits, from _normalize_phone) survives reformatting
+    ("1234567890" -> "123-456-7890"), so check its digit sequence appears
+    contiguously in refined's digits too, not a raw substring match. Emails
+    and URLs must still match verbatim."""
+    if value.isdigit():
+        return value in re.sub(r"\D", "", refined)
+    return value in refined
+
+
+def validate_refined_prompt(original: str, refined: str) -> list[str]:
     warnings: list[str] = []
 
     if "ABSOLUTE RULE:" not in refined:
@@ -239,6 +282,10 @@ def validate_refined_prompt(refined: str) -> list[str]:
 
     if re.search(r"(?i)(api[_ -]?key|secret|bearer)\s*[:=]\s*\S+", refined):
         warnings.append("Possible credential or secret detected in the generated prompt.")
+
+    for value in extract_factual_identifiers(original):
+        if not _value_preserved(value, refined):
+            warnings.append(f"Source factual value was not preserved: {value}")
 
     return warnings
 
@@ -272,19 +319,11 @@ def summarize_changes(original: str, refined: str) -> list[str]:
 
 
 def candidate_providers(body: PromptRefineRequest, org_id: str) -> list[str]:
-    """Provider ids to try, in order.
+    """Provider ids to try, in order: caller's requested provider first (if
+    usable), then the org's other configured providers as fallback.
 
-    The caller's requested provider (if usable) goes first; the rest of the
-    org's configured, supported providers follow as fallback, in
-    ``OPENAI_COMPATIBLE_PROVIDERS`` (+ kenpath) priority order — so refine
-    still works even when the wizard's selected provider isn't the one
-    actually configured.
-
-    voicera_model_server and self_hosted are never sourced from
-    ``list_configured_providers`` — neither has a ProviderAuth row (the
-    model-server slot is ops-configured via env var; self-hosted's base_url
-    is request-supplied and isn't a secret, so it can't be stored there
-    either) — so each is added only when its own precondition holds.
+    voicera_model_server has no ProviderAuth row, so it's added only when
+    MODEL_SERVER_URL is set.
     """
     configured = set(auth_service.list_configured_providers(org_id))
     supported = (*OPENAI_COMPATIBLE_PROVIDERS, KENPATH_PROVIDER, *NON_OPENAI_SDK_PROVIDERS)
@@ -292,8 +331,6 @@ def candidate_providers(body: PromptRefineRequest, org_id: str) -> list[str]:
 
     if os.getenv("MODEL_SERVER_URL"):
         supported_and_configured.append(VOICERA_MODEL_SERVER_PROVIDER)
-    if body.llm_base_url:
-        supported_and_configured.append(SELF_HOSTED_PROVIDER)
 
     if body.llm_provider and body.llm_provider in supported_and_configured:
         return [body.llm_provider] + [
@@ -303,8 +340,7 @@ def candidate_providers(body: PromptRefineRequest, org_id: str) -> list[str]:
 
 
 def _requested_model(body: PromptRefineRequest, provider: str) -> str | None:
-    """The caller-supplied model, but only when it was meant for this provider —
-    a model name intended for OpenAI is meaningless on Groq."""
+    """Caller-supplied model, but only when meant for this provider."""
     if provider == body.llm_provider and body.llm_model:
         return body.llm_model
     return None
@@ -314,11 +350,7 @@ def resolve_openai_compatible(
     body: PromptRefineRequest, org_id: str, provider: str
 ) -> tuple[str, str, str, dict[str, Any]]:
     """Return (api_key, base_url, model, extra_client_kwargs) for a provider
-    driven by a plain ``openai.OpenAI`` client.
-
-    Handles the 5 flat-base-url providers plus azure_openai (endpoint-based
-    URL + api-version) and google (fixed OpenAI-compat endpoint constant).
-    """
+    driven by a plain ``openai.OpenAI`` client."""
     requested_model = _requested_model(body, provider)
 
     if provider == "azure_openai":
@@ -329,9 +361,7 @@ def resolve_openai_compatible(
         endpoint = str(auth.get("endpoint") or "").rstrip("/")
         if not api_key or not endpoint:
             raise PromptRefineError("Provider 'azure_openai' has no api_key/endpoint on file")
-        # Azure's `model` is the deployment name, not an upstream OpenAI
-        # model id (AzureOpenAILLMConfig.model's own field description) —
-        # required here since there's no safe default to fall back to.
+        # Azure's `model` is the deployment name, not an OpenAI model id.
         model = requested_model
         if not model:
             raise PromptRefineError("'azure_openai' requires llm_model (the deployment name)")
@@ -341,7 +371,7 @@ def resolve_openai_compatible(
 
     if provider == "google":
         api_key = resolve_api_key(org_id, provider)
-        model = requested_model or "gemini-2.0-flash"
+        model = requested_model or GOOGLE_DEFAULT_MODEL
         return api_key, GOOGLE_OPENAI_COMPAT_BASE_URL, model, {}
 
     api_key = resolve_api_key(org_id, provider)
@@ -351,36 +381,11 @@ def resolve_openai_compatible(
 
 def resolve_voicera_model_server() -> tuple[str | None, str, str]:
     """Return (api_key, base_url, model) for VoicEra's own self-hosted LLM.
-
-    Zero org input: address comes from MODEL_SERVER_URL (ops-configured via
-    Compose, same pattern as apps/providers/local/indic_orpheus/catalog.py's
-    resolve_base_url()), no api_key (internal network, no auth layer), model
-    fixed to whatever vLLM was started with (--served-model-name).
-    """
+    Zero org input — address from MODEL_SERVER_URL, no api_key needed."""
     base_url = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise PromptRefineError("MODEL_SERVER_URL is not set")
     return None, base_url, VOICERA_MODEL_SERVER_MODEL
-
-
-def resolve_self_hosted(body: PromptRefineRequest) -> tuple[str | None, str, str]:
-    """Return (api_key, base_url, model) for an org's own OpenAI-compatible
-    endpoint. api_key is optional — some self-hosted servers are unauthenticated."""
-    if not body.llm_base_url:
-        raise PromptRefineError("'self_hosted' requires llm_base_url — it has no default endpoint")
-    try:
-        reject_metadata_endpoint(body.llm_base_url)
-    except ValueError as exc:
-        raise PromptRefineError(str(exc)) from exc
-
-    model = _requested_model(body, SELF_HOSTED_PROVIDER)
-    if not model:
-        raise PromptRefineError("'self_hosted' requires llm_model — it has no default model")
-
-    # No api_key input for self-hosted — it's not a registered provider (no
-    # ProviderAuth catalog entry to store one against), and many self-hosted
-    # OpenAI-compatible servers (Ollama, local vLLM/TGI) don't require one.
-    return None, body.llm_base_url.rstrip("/"), model
 
 
 def call_openai_compatible(
@@ -407,6 +412,33 @@ def call_openai_compatible(
     return refined
 
 
+NON_OPENAI_DISPATCH = {
+    KENPATH_PROVIDER: functools.partial(call_kenpath, resolve_auth=resolve_stored_auth),
+    BEDROCK_PROVIDER: functools.partial(call_bedrock, resolve_auth=resolve_stored_auth),
+    VERTEX_PROVIDER: functools.partial(call_vertex, resolve_auth=resolve_stored_auth),
+}
+
+
+def _dispatch_non_openai(
+    provider: str, body: PromptRefineRequest, org_id: str, user_content: str
+) -> tuple[str, str]:
+    """Bypasses the OpenAI client — see refine_llm.py's call_* docstrings."""
+    return NON_OPENAI_DISPATCH[provider](
+        org_id, _requested_model(body, provider), REFINER_SYSTEM_PROMPT, user_content
+    )
+
+
+def _resolve_openai_compatible_target(
+    provider: str, body: PromptRefineRequest, org_id: str
+) -> tuple[str | None, str, str, dict[str, Any]]:
+    if provider == VOICERA_MODEL_SERVER_PROVIDER:
+        api_key, base_url, model = resolve_voicera_model_server()
+        return api_key, base_url, model, {}
+    if provider in OPENAI_COMPATIBLE_PROVIDERS:
+        return resolve_openai_compatible(body, org_id, provider)
+    raise PromptRefineError(f"No dispatch implemented for provider {provider!r}")
+
+
 def call_refiner(body: PromptRefineRequest, org_id: str) -> tuple[str, RefineMode, str, str]:
     candidates = candidate_providers(body, org_id)
     if not candidates:
@@ -426,40 +458,18 @@ def call_refiner(body: PromptRefineRequest, org_id: str) -> tuple[str, RefineMod
         {"role": "user", "content": user_content},
     ]
 
-    non_openai_dispatch = {
-        KENPATH_PROVIDER: functools.partial(call_kenpath, resolve_auth=resolve_stored_auth),
-        BEDROCK_PROVIDER: functools.partial(call_bedrock, resolve_auth=resolve_stored_auth),
-        VERTEX_PROVIDER: functools.partial(call_vertex, resolve_auth=resolve_stored_auth),
-    }
-
     last_error: PromptRefineError | None = None
     for provider in candidates:
-        if provider in non_openai_dispatch:
-            # Genuinely different wire protocol per provider (see each
-            # call_*'s own docstring in apps/providers/refine_llm.py) —
-            # bypasses the OpenAI-compatible client entirely.
+        if provider in NON_OPENAI_DISPATCH:
             try:
-                refined, model = non_openai_dispatch[provider](
-                    org_id, _requested_model(body, provider), REFINER_SYSTEM_PROMPT, user_content
-                )
+                refined, model = _dispatch_non_openai(provider, body, org_id, user_content)
             except PromptRefineError as exc:
                 last_error = exc
                 continue
             return refined, mode, provider, model
 
-        client_kwargs: dict[str, Any] = {}
         try:
-            if provider == VOICERA_MODEL_SERVER_PROVIDER:
-                api_key, base_url, model = resolve_voicera_model_server()
-            elif provider == SELF_HOSTED_PROVIDER:
-                api_key, base_url, model = resolve_self_hosted(body)
-            elif provider in OPENAI_COMPATIBLE_PROVIDERS:
-                api_key, base_url, model, client_kwargs = resolve_openai_compatible(body, org_id, provider)
-            else:
-                # future non-OpenAI-compatible families dispatch elsewhere;
-                # reaching here means candidate_providers() listed a provider
-                # this function doesn't know how to resolve yet.
-                raise PromptRefineError(f"No dispatch implemented for provider {provider!r}")
+            api_key, base_url, model, client_kwargs = _resolve_openai_compatible_target(provider, body, org_id)
         except PromptRefineError as exc:
             last_error = exc
             continue
@@ -467,14 +477,14 @@ def call_refiner(body: PromptRefineRequest, org_id: str) -> tuple[str, RefineMod
         try:
             refined = call_openai_compatible(api_key, base_url, model, messages, **client_kwargs)
         except PromptRefineError as exc:
-            # A real request failure (bad model, rate limit, timeout, network) is
-            # surfaced immediately rather than silently retried against another
-            # provider — that would mask a genuine error as "nothing configured".
+            # Real request failure (bad model, rate limit, timeout, network) —
+            # surfaced immediately, not retried against another provider.
             raise PromptRefineError(f"{provider} {exc}") from exc
 
         return refined, mode, provider, model
 
-    assert last_error is not None
+    if last_error is None:
+        raise PromptRefineError("No provider dispatch was attempted")
     raise last_error
 
 
@@ -495,7 +505,7 @@ async def refine_agent_prompt(
         ) from exc
 
     original = body.existing_prompt or body.prompt
-    warnings = validate_refined_prompt(refined)
+    warnings = validate_refined_prompt(original, refined)
     changes = summarize_changes(original, refined) if body.include_change_summary else []
 
     return PromptRefineResponse(
