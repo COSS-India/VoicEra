@@ -51,11 +51,20 @@ EMIT_TAIL = slice(2 * SAMPLES_PER_FRAME, 4 * SAMPLES_PER_FRAME)       # [4096:81
 def token_id_to_code(token_id: int, index: int) -> Optional[int]:
     """Map a generated token id to a SNAC code given its frame-phase ``index``.
 
-    Returns None for non-audio tokens (text / control / wrong region), which
-    land as negative codes. Code 0 is a valid audio code - do not drop it.
+    Returns None for non-audio tokens (text / control / wrong region). Code 0 is
+    a valid audio code - do not drop it.
+
+    BOTH bounds matter. The audio block is AUDIO_BASE .. AUDIO_BASE + 7*4096 - 1
+    (128266..156937) and the Indic template's markers sit immediately above it:
+    ``<|speaker>`` is 156938. Testing only ``code < 0`` accepts those four ids as
+    codes 28672..28675 at every frame phase - out of range, but non-negative - so
+    the caller counts them, the frame phase slips by one, and the poisoned code
+    then invalidates every decode window it appears in. The model reaches for a
+    turn marker at the END of an utterance, so the damage lands on the closing
+    syllables. Anything at or above CODEBOOK_SIZE is not audio; reject it.
     """
     code = token_id - AUDIO_BASE - (index % CODES_PER_FRAME) * CODEBOOK_SIZE
-    return None if code < 0 else code
+    return None if code < 0 or code >= CODEBOOK_SIZE else code
 
 
 class StreamingAudioBuffer:
