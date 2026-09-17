@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
@@ -9,6 +9,11 @@ import { createAgent, updateAgent } from "@/lib/api-client";
 import { formToAgentCreatePayload } from "@/lib/agent-mapper";
 import { resolveSaveCatalogs } from "@/lib/language-stacks";
 import { BrowserCallSession } from "@/components/call/BrowserCallSession";
+import {
+  formatServiceLine,
+  LanguageStacksPanel,
+  type LanguageStackSummary,
+} from "@/components/dashboard/LanguageStacksPanel";
 import type { AgentForm } from "@/lib/wizard-data";
 import type { AgentApiResponse } from "@/lib/api-types";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
@@ -60,24 +65,29 @@ function SummaryRow({
   );
 }
 
+function languageStackSummaries(
+  form: AgentForm,
+  catalogs: WizardCatalogs,
+): LanguageStackSummary[] {
+  return form.langs.map((lang) => {
+    const stack = form.languageStacks[lang];
+    const sttName = catalogs.sttProviders[stack?.sttProvider ?? ""]?.name ?? stack?.sttProvider ?? "—";
+    const ttsName = catalogs.ttsProviders[stack?.ttsProvider ?? ""]?.name ?? stack?.ttsProvider ?? "—";
+    const llmName = catalogs.llmProviders[stack?.llmProvider ?? ""]?.name ?? stack?.llmProvider ?? "—";
+    return {
+      langId: lang,
+      label: languageLabel(catalogs.languages, lang),
+      isPrimary: lang === form.primaryLang,
+      stt: formatServiceLine(sttName, stack?.sttModel),
+      tts: formatServiceLine(ttsName, stack?.ttsModel, stack?.voice),
+      llm: formatServiceLine(llmName, stack?.llmModel),
+    };
+  });
+}
+
 /** Read-only recap of every choice made across the wizard — the "what has
  * been chosen" list next to the test-call box. Each row's pencil jumps back
  * to the step that owns it. */
-function stackSummaryLine(
-  form: AgentForm,
-  lang: string,
-  catalogs: WizardCatalogs,
-  isPrimary: boolean,
-): string {
-  const stack = form.languageStacks[lang];
-  if (!stack) return languageLabel(catalogs.languages, lang);
-  const sttName = catalogs.sttProviders[stack.sttProvider]?.name ?? stack.sttProvider ?? "—";
-  const ttsName = catalogs.ttsProviders[stack.ttsProvider]?.name ?? stack.ttsProvider ?? "—";
-  const llmName = catalogs.llmProviders[stack.llmProvider]?.name ?? stack.llmProvider ?? "—";
-  const voiceSuffix = stack.voice ? ` · ${stack.voice}` : "";
-  return `${languageLabel(catalogs.languages, lang)}${isPrimary ? " (primary)" : ""}: STT ${sttName}${stack.sttModel ? ` · ${stack.sttModel}` : ""} · TTS ${ttsName}${stack.ttsModel ? ` · ${stack.ttsModel}` : ""}${voiceSuffix} · LLM ${llmName}${stack.llmModel ? ` · ${stack.llmModel}` : ""}`;
-}
-
 function SelectionsSummary({
   form,
   catalogs,
@@ -92,37 +102,45 @@ function SelectionsSummary({
     "WebSocket — browser test";
 
   const editStep = (id: string) => (onEditStep ? () => onEditStep(id) : undefined);
+  const stacks = useMemo(() => languageStackSummaries(form, catalogs), [form, catalogs]);
 
   return (
-    <div className="flex h-max flex-col rounded-v-md border border-v-line bg-white p-4.5">
-      <span className="pb-2 font-mono text-[10px] uppercase tracking-[.16em] text-v-muted">What you&apos;ve chosen</span>
-      <SummaryRow label="Name" value={form.name || "(unnamed)"} onEdit={editStep("name")} />
-      <SummaryRow label="Greeting" value={form.welcome || "—"} onEdit={editStep("name")} />
-      {form.langs.map((lang) => (
+    <div className="flex h-max flex-col gap-3 rounded-v-md border border-v-line bg-white p-4.5">
+      <span className="font-mono text-[10px] uppercase tracking-[.16em] text-v-muted">
+        What you&apos;ve chosen
+      </span>
+
+      <div className="flex flex-col">
+        <SummaryRow label="Name" value={form.name || "(unnamed)"} onEdit={editStep("name")} />
+        <SummaryRow label="Greeting" value={form.welcome || "—"} onEdit={editStep("name")} />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="font-mono text-[9.5px] uppercase tracking-[.14em] text-v-muted">
+          Language stacks
+        </span>
+        <LanguageStacksPanel stacks={stacks} onEdit={editStep("language")} />
+      </div>
+
+      <div className="flex flex-col border-t border-v-hairline pt-1">
+        <SummaryRow label="Delivery" value={deliveryLabel} onEdit={editStep("delivery")} />
         <SummaryRow
-          key={lang}
-          label={lang === form.primaryLang ? "Language stack" : " "}
-          value={stackSummaryLine(form, lang, catalogs, lang === form.primaryLang)}
-          onEdit={editStep("language")}
+          label="Knowledge base"
+          value={
+            form.kbEnabled && form.kbDocs.length > 0
+              ? `On · ${form.kbDocs.length} doc(s)`
+              : form.kbEnabled
+                ? "Off · attach a document to activate"
+                : "Off"
+          }
+          onEdit={editStep("prompt")}
         />
-      ))}
-      <SummaryRow label="Delivery" value={deliveryLabel} onEdit={editStep("delivery")} />
-      <SummaryRow
-        label="Knowledge base"
-        value={
-          form.kbEnabled && form.kbDocs.length > 0
-            ? `On · ${form.kbDocs.length} doc(s)`
-            : form.kbEnabled
-              ? "Off · attach a document to activate"
-              : "Off"
-        }
-        onEdit={editStep("prompt")}
-      />
-      <SummaryRow
-        label="Prompt"
-        value={form.prompt.length > 90 ? `${form.prompt.slice(0, 90)}…` : form.prompt || "—"}
-        onEdit={editStep("prompt")}
-      />
+        <SummaryRow
+          label="Prompt"
+          value={form.prompt.length > 90 ? `${form.prompt.slice(0, 90)}…` : form.prompt || "—"}
+          onEdit={editStep("prompt")}
+        />
+      </div>
     </div>
   );
 }
@@ -207,7 +225,7 @@ export function ReviewStep({
 
       {error ? <span className="text-[12.5px] text-v-danger">{error}</span> : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_minmax(280px,360px)]">
         {agentId && session?.orgId ? (
           <BrowserCallSession orgId={session.orgId} agentId={agentId} agentName={form.name} />
         ) : (

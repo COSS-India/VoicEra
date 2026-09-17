@@ -5,8 +5,13 @@ import Link from "next/link";
 import { Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { BrowserCallSession } from "@/components/call/BrowserCallSession";
+import {
+  formatServiceLine,
+  LanguageStacksPanel,
+  type LanguageStackSummary,
+} from "@/components/dashboard/LanguageStacksPanel";
 import type { AgentApiResponse } from "@/lib/api-types";
-import { primaryModelsFromAgent } from "@/lib/agent-mapper";
+import { languageModelsFromAgent, primaryModelsFromAgent } from "@/lib/agent-mapper";
 import {
   languageLabel,
   useWizardCatalogs,
@@ -20,49 +25,64 @@ interface AgentTestModalProps {
 }
 
 export function AgentTestModal({ agent, orgId, onClose }: AgentTestModalProps) {
-  const models = primaryModelsFromAgent(agent);
-  const stt = models.stt_config;
-  const tts = models.tts_config;
-  const llm = models.llm_config;
-  const langs = [agent.config.language.primary, ...agent.config.language.secondary].filter(Boolean);
+  const primary = agent.config.language.primary;
+  const langs = [primary, ...agent.config.language.secondary].filter(Boolean);
+  const stacksByLang = languageModelsFromAgent(agent);
+  const primaryStack = primaryModelsFromAgent(agent);
 
-  const sttProvider = String(stt.provider ?? "");
-  const sttModel = String(stt.model ?? "");
-  const ttsProvider = String(tts.provider ?? "");
-  const ttsModel = String(tts.model ?? "");
-  const llmProvider = String(llm.provider ?? "");
-  const llmModel = String(llm.model ?? "");
-  const voice = String(tts.voice ?? "");
+  const sttProvider = String(primaryStack.stt_config.provider ?? "");
+  const ttsProvider = String(primaryStack.tts_config.provider ?? "");
+  const llmProvider = String(primaryStack.llm_config.provider ?? "");
 
   const catalogs = useWizardCatalogs(langs, sttProvider, ttsProvider, llmProvider);
 
-  const voices = voiceOptionsFromSettings(catalogs.ttsSettings, ttsModel, langs[0]);
+  const stackSummaries: LanguageStackSummary[] = useMemo(() => {
+    return langs.map((langId) => {
+      const stack = stacksByLang[langId] ?? (langId === primary ? primaryStack : undefined);
+      const stt = stack?.stt_config ?? {};
+      const tts = stack?.tts_config ?? {};
+      const llm = stack?.llm_config ?? {};
 
-  const langLabel = useMemo(
-    () =>
-      langs.length
-        ? langs.map((id, i) => `${languageLabel(catalogs.languages, id)}${i === 0 ? " (primary)" : ""}`).join(" · ")
-        : "—",
-    [langs, catalogs.languages],
-  );
+      const sttProv = String(stt.provider ?? "");
+      const ttsProv = String(tts.provider ?? "");
+      const llmProv = String(llm.provider ?? "");
+      const ttsModel = String(tts.model ?? "");
+      const voiceId = String(tts.voice ?? "");
+      const voices = voiceOptionsFromSettings(catalogs.ttsSettings, ttsModel, langId);
+      const voiceName = voiceId
+        ? (voices.find((v) => v.id === voiceId)?.name ?? voiceId)
+        : "";
 
-  const stackRows = [
-    { label: "Language", value: langLabel },
-    {
-      label: "STT",
-      value: `${catalogs.sttProviders[sttProvider]?.name ?? sttProvider}${sttModel ? ` · ${sttModel}` : ""}`,
-    },
-    {
-      label: "TTS",
-      value: `${catalogs.ttsProviders[ttsProvider]?.name ?? ttsProvider}${ttsModel ? ` · ${ttsModel}` : ""}${
-        voice ? ` · ${voices.find((v) => v.id === voice)?.name ?? voice}` : ""
-      }`,
-    },
-    {
-      label: "LLM",
-      value: `${catalogs.llmProviders[llmProvider]?.name ?? llmProvider}${llmModel ? ` · ${llmModel}` : ""}`,
-    },
-  ];
+      return {
+        langId,
+        label: languageLabel(catalogs.languages, langId),
+        isPrimary: langId === primary,
+        stt: formatServiceLine(
+          catalogs.sttProviders[sttProv]?.name ?? sttProv,
+          String(stt.model ?? ""),
+        ),
+        tts: formatServiceLine(
+          catalogs.ttsProviders[ttsProv]?.name ?? ttsProv,
+          ttsModel,
+          voiceName,
+        ),
+        llm: formatServiceLine(
+          catalogs.llmProviders[llmProv]?.name ?? llmProv,
+          String(llm.model ?? ""),
+        ),
+      };
+    });
+  }, [
+    langs,
+    stacksByLang,
+    primary,
+    primaryStack,
+    catalogs.languages,
+    catalogs.sttProviders,
+    catalogs.ttsProviders,
+    catalogs.llmProviders,
+    catalogs.ttsSettings,
+  ]);
 
   return (
     <div
@@ -95,7 +115,7 @@ export function AgentTestModal({ agent, orgId, onClose }: AgentTestModalProps) {
 
           <section className="flex flex-col gap-3 rounded-v-md border border-v-line bg-v-soft/40 p-4 md:flex-[2]">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[13px] font-semibold">Agent stack</span>
+              <span className="text-[13px] font-semibold">Language stacks</span>
               <Link href={`/agents/${agent.agent_id}/edit`}>
                 <Button size="sm" variant="ghost">
                   <Pencil className="size-3.5" strokeWidth={1.75} />
@@ -104,17 +124,12 @@ export function AgentTestModal({ agent, orgId, onClose }: AgentTestModalProps) {
               </Link>
             </div>
 
-            <dl className="flex flex-col gap-3 text-[13px]">
-              {stackRows.map((row) => (
-                <div key={row.label} className="flex flex-col gap-0.5">
-                  <dt className="font-mono text-[9.5px] uppercase tracking-[.1em] text-v-muted">{row.label}</dt>
-                  <dd className="font-medium">{row.value}</dd>
-                </div>
-              ))}
-            </dl>
+            <LanguageStacksPanel stacks={stackSummaries} />
 
             <div className="flex flex-col gap-1 border-t border-v-line pt-3">
-              <span className="font-mono text-[9.5px] uppercase tracking-[.1em] text-v-muted">Prompt</span>
+              <span className="font-mono text-[9.5px] uppercase tracking-[.1em] text-v-muted">
+                Prompt
+              </span>
               <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-v-fg">
                 {agent.config.prompts.system_prompt.trim() || "No instructions set."}
               </p>
