@@ -121,7 +121,6 @@ def build_pipeline_components(
         context=context,
         agent_id=agent.get("agent_id"),
     )
-
     pipeline_processors = [
         transport.input(),
         stt,
@@ -129,15 +128,11 @@ def build_pipeline_components(
     ]
     if kb_context_processor is not None:
         pipeline_processors.append(kb_context_processor)
-    pipeline_processors.extend(
-        [
-            llm,
-            tts,
-            transport.output(),
-            audiobuffer,
-            assistant_aggregator,
-        ]
-    )
+    pipeline_processors.extend([llm, tts, transport.output()])
+    after_output = getattr(llm, "pipeline_processors_after_output", None)
+    if after_output is not None:
+        pipeline_processors.extend(after_output())
+    pipeline_processors.extend([audiobuffer, assistant_aggregator])
 
     pipeline = Pipeline(pipeline_processors)
 
