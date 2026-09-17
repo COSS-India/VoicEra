@@ -19,7 +19,10 @@ from apps.runtime.services.language_switch.pool import (
     merge_stack_with_auth,
     resolve_language_stacks,
 )
-from apps.runtime.services.language_switch.switcher import ModelServiceSwitcher
+from apps.runtime.services.language_switch.switcher import (
+    ModelLLMSwitcher,
+    ModelServiceSwitcher,
+)
 
 
 class ServiceBuildError(RuntimeError):
@@ -75,7 +78,7 @@ async def merge_models_with_auth(
 async def build_ai_services(
     agent: dict[str, Any],
     client: BackendClient | None = None,
-) -> tuple[ModelServiceSwitcher, ModelServiceSwitcher, ModelServiceSwitcher]:
+) -> tuple[ModelServiceSwitcher, ModelServiceSwitcher, ModelLLMSwitcher]:
     """Return ``(stt_switcher, tts_switcher, llm_switcher)`` for the agent."""
     try:
         return await build_language_switchers(agent, client=client)

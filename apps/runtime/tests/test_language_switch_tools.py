@@ -99,3 +99,45 @@ async def test_switch_language_applies_all_switchers():
     frame_types = {type(call.args[0]) for call in llm_member.push_frame.await_args_list}
     assert frame_types == {LanguageSwitchFrame}
     result_callback.assert_awaited_once_with({"status": "ok", "language": "mr"})
+
+
+@pytest.mark.asyncio
+async def test_switch_language_rejects_unsupported():
+    context = LLMContext([])
+    agent = {
+        "config": {
+            "language": {"primary": "hi", "secondary": ["mr"]},
+        }
+    }
+    stt = _switcher()
+    tts = _switcher()
+    llm = _switcher()
+    configure_language_switching(
+        agent,
+        context=context,
+        stt_switcher=stt,
+        tts_switcher=tts,
+        llm_switcher=llm,
+    )
+    result_callback = AsyncMock()
+    params = FunctionCallParams(
+        function_name="switch_language",
+        tool_call_id="1",
+        arguments={"language": "kannada"},
+        llm=MagicMock(push_frame=AsyncMock()),
+        pipeline_worker=MagicMock(),
+        context=context,
+        result_callback=result_callback,
+    )
+    wrapper = context.tools.direct_functions[0]
+    await wrapper.invoke({"language": "kannada"}, params)
+
+    stt.apply_language.assert_not_awaited()
+    result_callback.assert_awaited_once_with(
+        {
+            "status": "error",
+            "reason": "unsupported_language",
+            "language": "kannada",
+            "allowed": ["hi", "mr"],
+        }
+    )

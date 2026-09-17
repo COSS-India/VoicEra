@@ -13,7 +13,10 @@ from pipecat.services.llm_service import FunctionCallParams
 
 from apps.runtime.services.language_switch.frames import LanguageSwitchFrame
 from apps.runtime.services.language_switch.pool import configured_languages
-from apps.runtime.services.language_switch.switcher import ModelServiceSwitcher
+from apps.runtime.services.language_switch.switcher import (
+    ModelLLMSwitcher,
+    ModelServiceSwitcher,
+)
 
 
 def _append_tools(context: LLMContext, tools: list[Any]) -> None:
@@ -44,7 +47,7 @@ def configure_language_switching(
     context: LLMContext,
     stt_switcher: ModelServiceSwitcher,
     tts_switcher: ModelServiceSwitcher,
-    llm_switcher: ModelServiceSwitcher,
+    llm_switcher: ModelLLMSwitcher | ModelServiceSwitcher,
     agent_id: str | None = None,
 ) -> None:
     """Register ``switch_language`` when the agent has multiple languages."""
@@ -52,28 +55,58 @@ def configure_language_switching(
     if len(languages) <= 1:
         return
 
+    allowed = set(languages)
     switchers = (stt_switcher, tts_switcher, llm_switcher)
     lang_list = ", ".join(languages)
 
+    if isinstance(llm_switcher, ModelLLMSwitcher):
+        llm_switcher.bind_context(context)
+
     async def switch_language(params: FunctionCallParams, language: str) -> None:
         """Switch STT, TTS, and LLM to another configured language."""
-
         lang = (language or "").strip()
-        frame = LanguageSwitchFrame(language=lang)
+        if lang not in allowed:
+            await params.result_callback(
+                {
+                    "status": "error",
+                    "reason": "unsupported_language",
+                    "language": lang,
+                    "allowed": languages,
+                }
+            )
+            return
 
+        applied = True
         for switcher in switchers:
-            await switcher.apply_language(lang)
+            ok = await switcher.apply_language(lang)
+            if not ok:
+                applied = False
 
-        logger.info("Switching language to {}", lang)
+        if not applied:
+            await params.result_callback(
+                {
+                    "status": "error",
+                    "reason": "switch_failed",
+                    "language": lang,
+                }
+            )
+            return
+
+        frame = LanguageSwitchFrame(language=lang)
         await params.llm.push_frame(frame, FrameDirection.DOWNSTREAM)
         await params.llm.push_frame(frame, FrameDirection.UPSTREAM)
+        logger.info("Switched language to {}", lang)
         await params.result_callback({"status": "ok", "language": lang})
 
     switch_language.__doc__ = (
         "Switch the conversation to another configured language. "
-        f"Use when the user clearly wants to speak in a different language. "
-        f"Allowed values: {lang_list}."
-        f"if the users asks to speak in kannada, the lang is kn"
+        "Call this when the user clearly wants to speak in a different language. "
+        f"Pass the language id exactly — allowed values: {lang_list}."
+        "\n\n"
+        "Args:\n"
+        "    language (str): Language code to switch to.\n"
+        '        - JSON Schema enum: ["hi", "kn", "mr"]\n'
+        "        (e.g., 'mr' for Marathi, 'kn' for Kannada, 'hi' for Hindi)"
     )
 
     _append_tools(context, [switch_language])

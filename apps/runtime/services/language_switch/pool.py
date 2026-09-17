@@ -125,14 +125,12 @@ def _create_service(kind: ServiceKind, stack: dict[str, Any]) -> Any:
     return create_llm_service(agent_ai)
 
 
-def _build_switcher_for_kind(
+def _build_routes_and_services(
     *,
     kind: ServiceKind,
-    primary: str,
     ordered_langs: list[str],
     stacks: dict[str, dict[str, Any]],
-) -> Any:
-    from apps.runtime.services.language_switch.switcher import ModelServiceSwitcher
+) -> tuple[list[Any], dict[str, LanguageRoute]]:
     config_key = f"{kind}_config"
     pool: dict[tuple[str, str, str], Any] = {}
     service_order: list[Any] = []
@@ -151,12 +149,41 @@ def _build_switcher_for_kind(
         delta = build_settings_delta(kind, config, service=service)
         routes[lang] = LanguageRoute(service=service, settings_delta=delta)
 
-    switcher = ModelServiceSwitcher(
-        kind=kind,
-        services=service_order,
-        routes=routes,
-        primary_language=primary,
+    return service_order, routes
+
+
+def _build_switcher_for_kind(
+    *,
+    kind: ServiceKind,
+    primary: str,
+    ordered_langs: list[str],
+    stacks: dict[str, dict[str, Any]],
+) -> Any:
+    from apps.runtime.services.language_switch.switcher import (
+        ModelLLMSwitcher,
+        ModelServiceSwitcher,
     )
+
+    service_order, routes = _build_routes_and_services(
+        kind=kind,
+        ordered_langs=ordered_langs,
+        stacks=stacks,
+    )
+
+    if kind == "llm":
+        switcher = ModelLLMSwitcher(
+            services=service_order,
+            routes=routes,
+            primary_language=primary,
+        )
+    else:
+        switcher = ModelServiceSwitcher(
+            kind=kind,
+            services=service_order,
+            routes=routes,
+            primary_language=primary,
+        )
+
     logger.info(
         "Built {} switcher languages={} unique_services={}",
         kind,
@@ -171,7 +198,6 @@ async def build_language_switchers(
     client: BackendClient | None = None,
 ) -> tuple[Any, Any, Any]:
     """Return ``(stt_switcher, tts_switcher, llm_switcher)`` for the agent."""
-    from apps.runtime.services.language_switch.switcher import ModelServiceSwitcher
     org_id = str(agent.get("org_id") or "").strip()
     if not org_id:
         raise ValueError("agent.org_id is required")
