@@ -6,6 +6,7 @@ import { Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { BrowserCallSession } from "@/components/call/BrowserCallSession";
 import type { AgentApiResponse } from "@/lib/api-types";
+import { primaryModelsFromAgent } from "@/lib/agent-mapper";
 import {
   languageLabel,
   useWizardCatalogs,
@@ -19,9 +20,10 @@ interface AgentTestModalProps {
 }
 
 export function AgentTestModal({ agent, orgId, onClose }: AgentTestModalProps) {
-  const stt = agent.config.models.stt_config;
-  const tts = agent.config.models.tts_config;
-  const llm = agent.config.models.llm_config;
+  const models = primaryModelsFromAgent(agent);
+  const stt = models.stt_config;
+  const tts = models.tts_config;
+  const llm = models.llm_config;
   const langs = [agent.config.language.primary, ...agent.config.language.secondary].filter(Boolean);
 
   const sttProvider = String(stt.provider ?? "");

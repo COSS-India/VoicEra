@@ -255,8 +255,11 @@ def _model_usage_pipeline(stage: str) -> list[dict[str, Any]]:
     one pipeline stage ("stt"/"tts"/"llm") by how many calls actually used
     them — via each call's agent_id joined against that agent's current
     model config — rather than by how many agents happen to be configured
-    with it."""
-    config_field = f"agent.config.models.{stage}_config"
+    with it.
+
+    ``config.models`` is language-keyed; we resolve the primary language stack.
+    """
+    stage_field = f"_primary_stack.{stage}_config"
     return [
         {"$match": {"agent_id": {"$ne": None}}},
         {"$group": {"_id": "$agent_id", "call_count": {"$sum": 1}}},
@@ -270,10 +273,20 @@ def _model_usage_pipeline(stage: str) -> list[dict[str, Any]]:
         },
         {"$unwind": "$agent"},
         {
+            "$addFields": {
+                "_primary_stack": {
+                    "$getField": {
+                        "field": "$agent.config.language.primary",
+                        "input": "$agent.config.models",
+                    }
+                }
+            }
+        },
+        {
             "$group": {
                 "_id": {
-                    "model": f"${config_field}.model",
-                    "provider": f"${config_field}.provider",
+                    "model": f"${stage_field}.model",
+                    "provider": f"${stage_field}.provider",
                 },
                 "call_count": {"$sum": "$call_count"},
             }

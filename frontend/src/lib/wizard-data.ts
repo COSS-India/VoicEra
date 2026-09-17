@@ -1,3 +1,7 @@
+import { EMPTY_LANGUAGE_STACK, type LanguageStack } from "@/lib/language-stacks";
+
+export type { LanguageStack };
+
 export const AGENT_NAME_MAX_LENGTH = 65;
 
 export const LANGS = [
@@ -215,23 +219,15 @@ export interface AgentForm {
   /** Default values for `{{var}}` tokens referenced in `prompt` — sent as the
    * agent's `custom_variables`, overridable per call. */
   customVariables: Record<string, string>;
-  llmProvider: string;
-  llmModel: string;
-  /** Values picked for the selected LLM model's own extra fields (temperature,
-   * max_tokens, base_url, …) — keyed by field name, shape varies per model. */
-  llmExtra: Record<string, unknown>;
   kbEnabled: boolean;
   kbDocs: string[];
   langs: string[];
-  ttsProvider: string;
-  ttsModel: string;
-  voice: string;
-  /** Values picked for the selected TTS model's own extra fields (speed, volume, …), excluding voice. */
-  ttsExtra: Record<string, unknown>;
-  sttProvider: string;
-  sttModel: string;
-  /** Values picked for the selected STT model's own extra fields (base_url, …). */
-  sttExtra: Record<string, unknown>;
+  /** Default language for prompts and multilingual settings — independent of `langs` order. */
+  primaryLang: string;
+  /** Full STT/TTS/LLM stack per configured language — mirrors `config.models[lang]`. */
+  languageStacks: Record<string, LanguageStack>;
+  /** Which language badge is selected in the stack editor. */
+  activeLang: string;
   bufferMs: number;
   delivery: string;
   interruptThreshold: number;
@@ -256,19 +252,12 @@ export const DEFAULT_FORM: AgentForm = {
   prompt:
     "You are a helpful agent. You help the caller with their questions. Never speak more than two sentences. Keep your answers concise.",
   customVariables: {},
-  llmProvider: "",
-  llmModel: "",
-  llmExtra: {},
   kbEnabled: false,
   kbDocs: [],
   langs: ["hi"],
-  ttsProvider: "",
-  ttsModel: "",
-  voice: "",
-  ttsExtra: {},
-  sttProvider: "",
-  sttModel: "",
-  sttExtra: {},
+  primaryLang: "hi",
+  languageStacks: { hi: { ...EMPTY_LANGUAGE_STACK } },
+  activeLang: "hi",
   bufferMs: 50,
   delivery: "",
   interruptThreshold: 3,

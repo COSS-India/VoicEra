@@ -50,6 +50,16 @@ export interface CheckEmailResult {
   can_join: boolean;
 }
 
+/** One language's STT / TTS / LLM provider settings. */
+export interface AgentModelStack {
+  stt_config: Record<string, unknown>;
+  tts_config: Record<string, unknown>;
+  llm_config: Record<string, unknown>;
+}
+
+/** Per-language stacks keyed by canonical language id. */
+export type AgentLanguageModels = Record<string, AgentModelStack>;
+
 export interface AgentApiResponse {
   agent_id: string;
   org_id: string;
@@ -76,13 +86,11 @@ export interface AgentApiResponse {
       primary: string;
       secondary: string[];
     };
-    models: {
-      stt_config: Record<string, unknown>;
-      tts_config: Record<string, unknown>;
-      llm_config: Record<string, unknown>;
-    };
+    /** Per-language STT/TTS/LLM stacks (keyed by canonical language id). */
+    models: AgentLanguageModels;
     knowledge_base: {
       enabled: boolean;
+      mode?: "tool" | "context";
       document_ids: string[];
       top_k: number;
     };
