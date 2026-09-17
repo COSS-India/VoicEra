@@ -14,24 +14,22 @@ from app.auth import get_current_user
 from app.routers import prompt_refine
 from app.routers.prompt_refine import (
     REQUEST_TIMEOUT_SECONDS,
-    PromptRefineError,
     PromptRefineRequest,
     build_context,
-    call_bedrock,
-    call_kenpath,
-    call_vertex,
     candidate_providers,
     call_refiner,
     infer_mode,
-    reject_metadata_endpoint,
     require_active_org,
     resolve_api_key,
     resolve_openai_compatible,
     resolve_self_hosted,
+    resolve_stored_auth,
     resolve_voicera_model_server,
     summarize_changes,
     validate_refined_prompt,
 )
+from app.utils.ssrf_guard import reject_metadata_endpoint
+from apps.providers.refine_llm import PromptRefineError, call_bedrock, call_kenpath, call_vertex
 
 app = FastAPI()
 app.include_router(prompt_refine.router, prefix="/api/v1")
@@ -684,19 +682,19 @@ def test_endpoint_falls_back_to_orgs_configured_provider():
 
 
 def test_reject_metadata_endpoint_blocks_aws_gcp_azure_imds_ip():
-    with pytest.raises(PromptRefineError, match="metadata"):
+    with pytest.raises(ValueError, match="metadata"):
         reject_metadata_endpoint("http://169.254.169.254/latest/meta-data/")
 
 
 def test_reject_metadata_endpoint_blocks_decimal_encoded_ip():
     """2852039166 is the decimal encoding of 169.254.169.254 — a naive
     string-only blocklist would miss this."""
-    with pytest.raises(PromptRefineError, match="metadata"):
+    with pytest.raises(ValueError, match="metadata"):
         reject_metadata_endpoint("http://2852039166/")
 
 
 def test_reject_metadata_endpoint_blocks_hostname():
-    with pytest.raises(PromptRefineError, match="metadata"):
+    with pytest.raises(ValueError, match="metadata"):
         reject_metadata_endpoint("http://metadata.google.internal/computeMetadata/v1/")
 
 
@@ -710,19 +708,19 @@ def test_reject_metadata_endpoint_allows_private_ip():
 
 def test_reject_metadata_endpoint_allows_public_looking_host():
     with patch(
-        "app.routers.prompt_refine.socket.getaddrinfo",
+        "app.utils.ssrf_guard.socket.getaddrinfo",
         return_value=[(None, None, None, None, ("203.0.113.10", 0))],
     ):
         reject_metadata_endpoint("https://my-llm-server.example.com/v1")
 
 
 def test_reject_metadata_endpoint_unresolvable_host_raises():
-    with pytest.raises(PromptRefineError, match="Could not resolve"):
+    with pytest.raises(ValueError, match="Could not resolve"):
         reject_metadata_endpoint("http://this-host-does-not-exist.invalid/v1")
 
 
 def test_reject_metadata_endpoint_no_hostname_raises():
-    with pytest.raises(PromptRefineError, match="Could not parse"):
+    with pytest.raises(ValueError, match="Could not parse"):
         reject_metadata_endpoint("not-a-url")
 
 
@@ -1073,13 +1071,14 @@ def test_call_kenpath_bharat_vistaar_openai_shaped_response():
             "app.routers.prompt_refine.auth_service.get_provider_auth",
             return_value={"auth": {"bharat_prod_private_key": pem}},
         ),
-        patch("app.routers.prompt_refine.httpx.post") as mock_post,
+        patch("apps.providers.refine_llm.httpx.post") as mock_post,
     ):
         mock_post.return_value = _mock_httpx_response(
             json_data={"choices": [{"message": {"content": "Refined kenpath prompt."}}]}
         )
         refined, model = call_kenpath(
-            "org-1", body, "system instructions", "user request"
+            "org-1", body.llm_model, "system instructions", "user request",
+            resolve_auth=resolve_stored_auth,
         )
 
     assert refined == "Refined kenpath prompt."
@@ -1101,10 +1100,10 @@ def test_call_kenpath_bharat_vistaar_bare_response_shape():
             "app.routers.prompt_refine.auth_service.get_provider_auth",
             return_value={"auth": {"bharat_prod_private_key": pem}},
         ),
-        patch("app.routers.prompt_refine.httpx.post") as mock_post,
+        patch("apps.providers.refine_llm.httpx.post") as mock_post,
     ):
         mock_post.return_value = _mock_httpx_response(json_data={"response": "Bare shape reply."})
-        refined, _ = call_kenpath("org-1", body, "system", "user")
+        refined, _ = call_kenpath("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
     assert refined == "Bare shape reply."
 
@@ -1116,7 +1115,7 @@ def test_call_kenpath_bharat_vistaar_missing_key_raises():
         return_value={"auth": {}},
     ):
         with pytest.raises(PromptRefineError, match="bharat_prod_private_key"):
-            call_kenpath("org-1", body, "system", "user")
+            call_kenpath("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 def test_call_kenpath_bharat_vistaar_http_error_raises():
@@ -1127,11 +1126,11 @@ def test_call_kenpath_bharat_vistaar_http_error_raises():
             "app.routers.prompt_refine.auth_service.get_provider_auth",
             return_value={"auth": {"bharat_prod_private_key": pem}},
         ),
-        patch("app.routers.prompt_refine.httpx.post") as mock_post,
+        patch("apps.providers.refine_llm.httpx.post") as mock_post,
     ):
         mock_post.side_effect = httpx.ConnectError("connection refused")
         with pytest.raises(PromptRefineError, match="kenpath \\(bharatvistaar\\) request failed"):
-            call_kenpath("org-1", body, "system", "user")
+            call_kenpath("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 def test_call_kenpath_vistaar_query_api_forces_system_and_user_together():
@@ -1142,10 +1141,10 @@ def test_call_kenpath_vistaar_query_api_forces_system_and_user_together():
             "app.routers.prompt_refine.auth_service.get_provider_auth",
             return_value={"auth": {"private_key": pem}},
         ),
-        patch("app.routers.prompt_refine.httpx.get") as mock_get,
+        patch("apps.providers.refine_llm.httpx.get") as mock_get,
     ):
         mock_get.return_value = _mock_httpx_response(text="Vistaar plain text reply.")
-        refined, model = call_kenpath("org-1", body, "system instructions", "user request")
+        refined, model = call_kenpath("org-1", body.llm_model, "system instructions", "user request", resolve_auth=resolve_stored_auth)
 
     assert refined == "Vistaar plain text reply."
     assert model == "vistaar-prod (Marathi, Bhili)"
@@ -1161,7 +1160,7 @@ def test_call_kenpath_vistaar_missing_key_raises():
         return_value={"auth": {}},
     ):
         with pytest.raises(PromptRefineError, match="private_key"):
-            call_kenpath("org-1", body, "system", "user")
+            call_kenpath("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 def test_call_kenpath_defaults_to_vistaar_prod_when_no_model_requested():
@@ -1172,12 +1171,14 @@ def test_call_kenpath_defaults_to_vistaar_prod_when_no_model_requested():
             "app.routers.prompt_refine.auth_service.get_provider_auth",
             return_value={"auth": {"private_key": pem}},
         ),
-        patch("app.routers.prompt_refine.httpx.get") as mock_get,
+        patch("apps.providers.refine_llm.httpx.get") as mock_get,
     ):
         mock_get.return_value = _mock_httpx_response(text="reply")
-        _, model = call_kenpath("org-1", body, "system", "user")
+        _, model = call_kenpath("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
-    assert model == prompt_refine.KENPATH_DEFAULT_MODEL
+    from apps.providers.adapters.kenpath.catalog import DEFAULT_LLM_MODEL as KENPATH_DEFAULT_MODEL
+
+    assert model == KENPATH_DEFAULT_MODEL
 
 
 # --------------------------------------------------------------------------
@@ -1197,7 +1198,7 @@ def test_call_refiner_kenpath_end_to_end():
             "app.routers.prompt_refine.auth_service.get_provider_auth",
             return_value={"auth": {"bharat_prod_private_key": pem}},
         ),
-        patch("app.routers.prompt_refine.httpx.post") as mock_post,
+        patch("apps.providers.refine_llm.httpx.post") as mock_post,
     ):
         mock_post.return_value = _mock_httpx_response(
             json_data={"choices": [{"message": {"content": "Refined."}}]}
@@ -1235,7 +1236,7 @@ def test_call_bedrock_success():
         }
         mock_boto_client.return_value = mock_client
 
-        refined, model = call_bedrock("org-1", body, "system", "user")
+        refined, model = call_bedrock("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
     assert refined == "Refined bedrock prompt."
     assert model == "us.amazon.nova-pro-v1:0"
@@ -1265,7 +1266,7 @@ def test_call_bedrock_honors_requested_model():
         }
         mock_boto_client.return_value = mock_client
 
-        _, model = call_bedrock("org-1", body, "system", "user")
+        _, model = call_bedrock("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
     assert model == "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
@@ -1277,7 +1278,7 @@ def test_call_bedrock_missing_credentials_raises():
         return_value={"auth": {}},
     ):
         with pytest.raises(PromptRefineError, match="no aws_access_key/aws_secret_key on file"):
-            call_bedrock("org-1", body, "system", "user")
+            call_bedrock("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 def test_call_bedrock_client_error_raises():
@@ -1298,7 +1299,7 @@ def test_call_bedrock_client_error_raises():
         mock_boto_client.return_value = mock_client
 
         with pytest.raises(PromptRefineError, match="aws_bedrock request failed"):
-            call_bedrock("org-1", body, "system", "user")
+            call_bedrock("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 def test_call_bedrock_empty_response_raises():
@@ -1315,7 +1316,7 @@ def test_call_bedrock_empty_response_raises():
         mock_boto_client.return_value = mock_client
 
         with pytest.raises(PromptRefineError, match="returned an empty response"):
-            call_bedrock("org-1", body, "system", "user")
+            call_bedrock("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 # --------------------------------------------------------------------------
@@ -1338,7 +1339,7 @@ def test_call_vertex_success_with_adc():
         mock_client.models.generate_content.return_value = mock_response
         mock_genai_client.return_value = mock_client
 
-        refined, model = call_vertex("org-1", body, "system", "user")
+        refined, model = call_vertex("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
     assert refined == "Refined vertex prompt."
     assert model == "gemini-2.0-flash"
@@ -1357,7 +1358,7 @@ def test_call_vertex_missing_project_id_raises():
         return_value={"auth": {}},
     ):
         with pytest.raises(PromptRefineError, match="no project_id on file"):
-            call_vertex("org-1", body, "system", "user")
+            call_vertex("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 def test_call_vertex_invalid_credentials_json_raises():
@@ -1367,7 +1368,7 @@ def test_call_vertex_invalid_credentials_json_raises():
         return_value={"auth": {"project_id": "my-gcp-project", "credentials": "not-json"}},
     ):
         with pytest.raises(PromptRefineError, match="not valid JSON"):
-            call_vertex("org-1", body, "system", "user")
+            call_vertex("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 def test_call_vertex_honors_requested_model():
@@ -1385,7 +1386,7 @@ def test_call_vertex_honors_requested_model():
         mock_client.models.generate_content.return_value = mock_response
         mock_genai_client.return_value = mock_client
 
-        _, model = call_vertex("org-1", body, "system", "user")
+        _, model = call_vertex("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
     assert model == "gemini-1.5-pro"
 
@@ -1406,7 +1407,7 @@ def test_call_vertex_empty_response_raises():
         mock_genai_client.return_value = mock_client
 
         with pytest.raises(PromptRefineError, match="returned an empty response"):
-            call_vertex("org-1", body, "system", "user")
+            call_vertex("org-1", body.llm_model, "system", "user", resolve_auth=resolve_stored_auth)
 
 
 # --------------------------------------------------------------------------
