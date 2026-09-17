@@ -11,6 +11,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext, NOT_GIVEN
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import FunctionCallParams
 
+from apps.providers.languages import label
 from apps.runtime.services.language_switch.frames import LanguageSwitchFrame
 from apps.runtime.services.language_switch.pool import configured_languages
 from apps.runtime.services.language_switch.switcher import (
@@ -61,7 +62,8 @@ def configure_language_switching(
         return
 
     allowed = set(languages)
-    lang_list = ", ".join(languages)
+    lang_list = ", ".join(f"{code} - {label(code)}" for code in languages)
+    logger.info("Allowed languages: {}", lang_list)
 
     if isinstance(llm_switcher, ModelLLMSwitcher):
         llm_switcher.bind_context(context)
