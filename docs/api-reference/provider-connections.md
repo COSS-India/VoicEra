@@ -74,7 +74,7 @@ A `base_url` ending in `/chat/completions`, `/completions`, or `/responses` is t
 
 ## `GET` / `PATCH` / `DELETE /provider-connections/{id}`
 
-Bearer; `PATCH` and `DELETE` need `admin` or `super_admin`. `PATCH` writes only the fields you send — an omitted `api_key` keeps the stored one, and a changed `base_url` clears `verified_at`. `DELETE` returns `409` while any agent still references the connection, naming the agents.
+Bearer; `PATCH` and `DELETE` need `admin` or `super_admin`. `PATCH` writes only the fields you send — an omitted `api_key` keeps the stored one, and a changed `base_url` clears `verified_at`. `DELETE`, and a `PATCH` setting `enabled: false`, both return `409` while any agent still references the connection, naming the agents — a disabled endpoint fails the agent's next call setup exactly as a deleted one does.
 
 ## `POST /provider-connections/{id}/test`
 

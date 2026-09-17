@@ -12,6 +12,7 @@ import {
   deleteProviderConnection,
   listProviderConnections,
   probeProviderEndpoint,
+  testProviderConnection,
   updateProviderConnection,
 } from "@/lib/api-client";
 import type { ProviderConnection } from "@/lib/api-types";
@@ -97,14 +98,24 @@ function ConnectionDialog({
     setTesting(true);
     setTestResult(null);
     try {
+      // The saved key never comes back from the API, so an edit dialog with an
+      // empty key box has to be tested by id — and only against the URL it was
+      // saved with, since that is the pair the server holds.
+      const typedKey = form.apiKey.trim();
+      const stored = typedKey ? null : editing;
+      if (stored && form.baseUrl.trim() !== stored.base_url) {
+        setTestResult({
+          ok: false,
+          note: "Save the new URL first, or enter the API key to test it now.",
+        });
+        return;
+      }
       // An endpoint that serves no /models list is checked with a one-token
       // completion instead, which needs a model id to ask for.
       const probeModel = form.defaultModel.trim() || parseModels(form.models)[0];
-      const result = await probeProviderEndpoint(
-        form.baseUrl,
-        form.apiKey || undefined,
-        probeModel,
-      );
+      const result = stored
+        ? await testProviderConnection(stored.id)
+        : await probeProviderEndpoint(form.baseUrl, typedKey || undefined, probeModel);
       if (result.ok) {
         const latency = result.latency_ms != null ? `, ${result.latency_ms} ms` : "";
         if (result.models.length > 0) {

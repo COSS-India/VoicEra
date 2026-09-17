@@ -215,6 +215,62 @@ def test_patch_sends_only_supplied_fields():
     assert mocked.call_args.args[2] == {"enabled": False}
 
 
+def test_patch_disable_blocked_while_an_agent_uses_it():
+    with patch.object(
+        svc,
+        "update_connection",
+        side_effect=svc.ProviderConnectionInUseError("conn-1", ["Support bot"]),
+    ):
+        response = client.patch(
+            "/api/v1/provider-connections/conn-1", json={"enabled": False}
+        )
+    assert response.status_code == 409
+    assert "Support bot" in response.json()["detail"]
+
+
+def _mongo_returning(doc: dict) -> tuple[MagicMock, MagicMock]:
+    collection = MagicMock()
+    collection.find_one.return_value = doc
+    database = MagicMock()
+    database.__getitem__.return_value = collection
+    return database, collection
+
+
+def test_disabling_an_endpoint_an_agent_uses_is_refused():
+    # An agent keeps its connection_id when the endpoint is disabled, so the
+    # break would only show up as a failed call setup.
+    database, collection = _mongo_returning({**_STORED, "enabled": True})
+    with (
+        patch.object(svc, "get_database", return_value=database),
+        patch.object(svc, "agents_using", return_value=["Support bot"]),
+        pytest.raises(svc.ProviderConnectionInUseError),
+    ):
+        svc.update_connection("org-1", "conn-1", {"enabled": False})
+    collection.update_one.assert_not_called()
+
+
+def test_disabling_an_unused_endpoint_is_written():
+    database, collection = _mongo_returning({**_STORED, "enabled": True})
+    with (
+        patch.object(svc, "get_database", return_value=database),
+        patch.object(svc, "agents_using", return_value=[]),
+    ):
+        svc.update_connection("org-1", "conn-1", {"enabled": False})
+    assert collection.update_one.call_args.args[1]["$set"]["enabled"] is False
+
+
+def test_other_fields_still_patch_on_a_connection_in_use():
+    # Only the disable transition is guarded; renaming stays allowed.
+    database, collection = _mongo_returning({**_STORED, "enabled": True})
+    with (
+        patch.object(svc, "get_database", return_value=database),
+        patch.object(svc, "agents_using", return_value=["Support bot"]) as agents,
+    ):
+        svc.update_connection("org-1", "conn-1", {"name": "Renamed"})
+    agents.assert_not_called()
+    assert collection.update_one.call_args.args[1]["$set"]["name"] == "Renamed"
+
+
 def test_resolved_is_admin_only():
     _as(_MEMBER)
     response = client.get("/api/v1/provider-connections/conn-1/resolved")

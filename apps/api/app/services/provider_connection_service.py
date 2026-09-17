@@ -300,7 +300,11 @@ def update_connection(
     connection_id: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Patch stored fields. Only keys present in ``payload`` are written."""
+    """Patch stored fields. Only keys present in ``payload`` are written.
+
+    Disabling an endpoint an agent still points at is refused, the same way
+    deleting one is.
+    """
     collection = get_database()[COLLECTION]
     existing = collection.find_one({"org_id": org_id, "id": connection_id})
     if not existing:
@@ -328,7 +332,14 @@ def update_connection(
     if "supports_tools" in payload and payload["supports_tools"] is not None:
         updates["supports_tools"] = bool(payload["supports_tools"])
     if "enabled" in payload and payload["enabled"] is not None:
-        updates["enabled"] = bool(payload["enabled"])
+        enabled = bool(payload["enabled"])
+        if not enabled and existing.get("enabled", True):
+            # Guarded like a delete: an agent keeps its connection_id either
+            # way, so a disabled endpoint surfaces only as a failed call setup.
+            referencing = agents_using(org_id, connection_id)
+            if referencing:
+                raise ProviderConnectionInUseError(connection_id, referencing)
+        updates["enabled"] = enabled
 
     if not updates:
         return _to_response(existing, mask_secrets=True)
