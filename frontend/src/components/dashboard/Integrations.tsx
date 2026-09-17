@@ -31,7 +31,6 @@ import {
 } from "@/lib/api-client";
 import type { AuthCatalog, AuthProviderCatalog } from "@/lib/catalog-types";
 import { AUTH_KIND_ORDER, formatProviderTypeLabel, humanizeFieldKey, secretFieldNames } from "@/lib/catalog-utils";
-
 const KIND_META: Record<
   string,
   { label: string; fullLabel: string; icon: LucideIcon; badgeClass: string }
@@ -82,6 +81,75 @@ function authValuesToForm(secrets: string[], auth: Record<string, unknown>): Rec
       return [k, v != null && v !== "" ? String(v) : ""];
     }),
   );
+}
+
+function nonSecretRequiredFields(
+  catalog: AuthProviderCatalog,
+  secrets: string[],
+): string[] {
+  const secretSet = new Set(secrets);
+  return (catalog.required ?? []).filter((name) => !secretSet.has(name));
+}
+
+function authExtraToForm(
+  fields: string[],
+  auth: Record<string, unknown>,
+  catalog: AuthProviderCatalog,
+): Record<string, string> {
+  return Object.fromEntries(
+    fields.map((key) => {
+      const value = auth[key];
+      const fieldType = catalog.fields?.[key]?.type ?? "";
+      if (fieldType.startsWith("list[") && value != null) {
+        try {
+          return [key, JSON.stringify(value, null, 2)];
+        } catch {
+          return [key, ""];
+        }
+      }
+      return [key, value != null && value !== "" ? String(value) : ""];
+    }),
+  );
+}
+
+function parseExtraAuthValue(
+  key: string,
+  raw: string,
+  catalog: AuthProviderCatalog,
+): unknown {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const fieldType = catalog.fields?.[key]?.type ?? "";
+  if (fieldType.startsWith("list[")) {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error(`${key} must be a JSON array`);
+    }
+    return parsed;
+  }
+  return trimmed;
+}
+
+function extraFieldsValid(
+  fields: string[],
+  values: Record<string, string>,
+  catalog: AuthProviderCatalog,
+): boolean {
+  for (const key of fields) {
+    if (!catalog.required?.includes(key)) continue;
+    const raw = values[key]?.trim() ?? "";
+    if (!raw) return false;
+    const fieldType = catalog.fields?.[key]?.type ?? "";
+    if (fieldType.startsWith("list[")) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (!Array.isArray(parsed) || parsed.length === 0) return false;
+      } catch {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 function SecretField({
@@ -146,17 +214,24 @@ function ConnectModal({
   entry: ProviderEntry;
   configured: boolean;
   saving: boolean;
-  onSave: (values: Record<string, string>) => Promise<void> | void;
+  onSave: (auth: Record<string, unknown>) => Promise<void> | void;
   onDisconnect: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const { providerId, catalog } = entry;
   const secrets = useMemo(() => secretFieldNames(catalog), [catalog]);
+  const extraFields = useMemo(
+    () => nonSecretRequiredFields(catalog, secrets),
+    [catalog, secrets],
+  );
   const displayName = catalog.name ?? providerId;
   const kinds = catalog.kinds ?? [];
 
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(secrets.map((k) => [k, ""])),
+  );
+  const [extraValues, setExtraValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(extraFields.map((k) => [k, ""])),
   );
   const [visible, setVisible] = useState<Record<string, boolean>>({});
   const [loadingAuth, setLoadingAuth] = useState(configured);
@@ -168,7 +243,9 @@ function ConnectModal({
     setLoadingAuth(true);
     getProviderAuth(providerId)
       .then((res) => {
-        if (!cancelled) setValues(authValuesToForm(secrets, res.auth));
+        if (cancelled) return;
+        setValues(authValuesToForm(secrets, res.auth));
+        setExtraValues(authExtraToForm(extraFields, res.auth, catalog));
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load saved credentials.");
@@ -182,7 +259,9 @@ function ConnectModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configured, providerId]);
 
-  const hasRequiredValues = secrets.every((k) => (catalog.required?.includes(k) ? values[k]?.trim() : true));
+  const hasRequiredValues =
+    secrets.every((k) => (catalog.required?.includes(k) ? values[k]?.trim() : true)) &&
+    extraFieldsValid(extraFields, extraValues, catalog);
 
   async function handleSave() {
     setError("");
@@ -191,14 +270,23 @@ function ConnectModal({
       return;
     }
     try {
-      await onSave(values);
+      const auth: Record<string, unknown> = {};
+      for (const key of secrets) {
+        const v = values[key]?.trim();
+        if (v) auth[key] = v;
+      }
+      for (const key of extraFields) {
+        const parsed = parseExtraAuthValue(key, extraValues[key] ?? "", catalog);
+        if (parsed !== undefined) auth[key] = parsed;
+      }
+      await onSave(auth);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save credentials.");
     }
   }
 
   return (
-    <Dialog open onClose={onClose} widthClassName="max-w-md">
+    <Dialog open onClose={onClose} widthClassName={extraFields.length ? "max-w-lg" : "max-w-md"}>
       <DialogHeader
         title={`${configured ? "Manage" : "Connect"} ${displayName}`}
         subtitle={
@@ -246,6 +334,34 @@ function ConnectModal({
                 onChange={(v) => setValues((prev) => ({ ...prev, [key]: v }))}
                 disabled={loadingAuth}
               />
+            );
+          })}
+          {extraFields.map((key) => {
+            const field = catalog.fields?.[key];
+            const isJsonList = (field?.type ?? "").startsWith("list[");
+            return (
+              <div key={key} className="flex flex-col gap-1.5">
+                <label htmlFor={`${providerId}-${key}`} className="text-[13px] font-medium text-v-fg">
+                  {humanizeFieldKey(key)}
+                </label>
+                <textarea
+                  id={`${providerId}-${key}`}
+                  rows={isJsonList ? 6 : 3}
+                  spellCheck={false}
+                  disabled={loadingAuth}
+                  placeholder={
+                    isJsonList
+                      ? '[{"phone_number":"+919876543210","flow_id":"your-flow-id"}]'
+                      : `Enter ${humanizeFieldKey(key).toLowerCase()}`
+                  }
+                  value={extraValues[key] ?? ""}
+                  onChange={(e) => setExtraValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                  className="w-full rounded-v-sm border border-v-line-strong bg-white px-3.5 py-2.5 font-mono text-[13px] transition-colors focus:border-v-accent focus:outline-none disabled:cursor-wait disabled:bg-v-soft/60"
+                />
+                {field?.description ? (
+                  <span className="text-xs font-light text-v-muted">{field.description}</span>
+                ) : null}
+              </div>
             );
           })}
         </div>
@@ -384,15 +500,9 @@ export function Integrations({
     });
   }, [nonTelephonyProviders, configured, search, activeKind, matchesProviderType]);
 
-  async function handleSave(entry: ProviderEntry, values: Record<string, string>) {
+  async function handleSave(entry: ProviderEntry, auth: Record<string, unknown>) {
     setSaving(true);
     try {
-      const secrets = secretFieldNames(entry.catalog);
-      const auth: Record<string, unknown> = {};
-      for (const key of secrets) {
-        const v = values[key]?.trim();
-        if (v) auth[key] = v;
-      }
       if (!Object.keys(auth).length) throw new Error("Enter at least one credential field.");
       await upsertProviderAuth(entry.providerId, auth);
       onNotify("Saved", `${entry.catalog.name ?? entry.providerId} credentials updated.`);

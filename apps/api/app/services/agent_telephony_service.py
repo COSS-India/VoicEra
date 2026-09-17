@@ -69,7 +69,14 @@ def build_answer_urls(
 
 def get_provider_dial_credentials(org_id: str, provider: str) -> dict[str, str]:
     """Return auth credentials and base URL for outbound dialing."""
+    provider = _require_provider(provider)
     config = _build_config(org_id, provider)
+    if provider == "vi":
+        return {
+            "obd_username": str(config.obd_username),
+            "obd_password": str(config.obd_password),
+            "base_url": str(config.base_url),
+        }
     return {
         "auth_id": str(config.auth_id),
         "auth_token": str(config.auth_token),
@@ -88,6 +95,24 @@ def _build_config(org_id: str, provider: str):
         )
 
     auth = stored["auth"]
+
+    if provider == "vi":
+        from apps.telephony.providers.vi.config import ViConfig
+
+        try:
+            kwargs = ViConfig.auth_from_stored(auth)
+            if not kwargs.get("obd_username") or not kwargs.get("obd_password"):
+                raise AgentTelephonyError(
+                    "Incomplete Vodafone Idea credentials (OBD username and password required)."
+                )
+            if not kwargs.get("number_flows"):
+                raise AgentTelephonyError(
+                    "Incomplete Vodafone Idea configuration (at least one phone number and flow id required)."
+                )
+            return build_config("vi", **kwargs)
+        except (ValueError, TypeError) as exc:
+            raise AgentTelephonyError(str(exc)) from exc
+
     auth_id = str(auth.get("auth_id") or "").strip()
     auth_token = str(auth.get("auth_token") or "").strip()
     if not auth_id or not auth_token:
@@ -97,7 +122,6 @@ def _build_config(org_id: str, provider: str):
         )
 
     try:
-        # Config defaults (e.g. base_url) come from the registered provider model.
         return build_config(provider, auth_id=auth_id, auth_token=auth_token)
     except (ValueError, TypeError) as exc:
         raise AgentTelephonyError(str(exc)) from exc
@@ -107,6 +131,38 @@ def load_telephony_client(org_id: str, provider: str):
     """Return a configured telephony client for ``provider``."""
     config = _build_config(org_id, provider)
     return create_client(config)
+
+
+def require_phone_in_provider_inventory(
+    org_id: str, provider: str, phone_number: str
+) -> None:
+    """Ensure ``phone_number`` exists in the provider account inventory."""
+    provider = _require_provider(provider)
+    if provider != "vi":
+        return
+    from apps.telephony.providers.vi.inventory import require_phone_in_inventory
+
+    config = _build_config(org_id, provider)
+    try:
+        require_phone_in_inventory(config, phone_number)
+    except ValueError as exc:
+        raise AgentTelephonyError(
+            f"{exc}. Configure this phone in Integrations → Vodafone Idea.",
+            status_code=422,
+        ) from exc
+
+
+def filter_phones_in_provider_inventory(
+    org_id: str, provider: str, phone_numbers: list[str]
+) -> list[str]:
+    """Return subset of ``phone_numbers`` that exist in provider inventory."""
+    provider = _require_provider(provider)
+    if provider != "vi":
+        return phone_numbers
+    from apps.telephony.providers.vi.inventory import filter_phones_in_inventory
+
+    config = _build_config(org_id, provider)
+    return filter_phones_in_inventory(config, phone_numbers)
 
 
 def _attachment_from_result(

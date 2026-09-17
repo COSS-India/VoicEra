@@ -81,9 +81,15 @@ def get_by_agent(org_id: str, agent_id: str) -> dict[str, Any]:
 
 def get_agent_by_phone(phone_number: str) -> dict[str, Any]:
     """Resolve an agent by ``linked_phone_number`` (voice / inbound routing)."""
-    doc = get_database()[AGENTS_COLLECTION].find_one(
-        {"linked_phone_number": phone_number}
-    )
+    from apps.telephony.providers.vi.obd.normalize import phone_lookup_keys
+
+    doc = None
+    for key in phone_lookup_keys(phone_number):
+        doc = get_database()[AGENTS_COLLECTION].find_one(
+            {"linked_phone_number": key}
+        )
+        if doc:
+            break
     if not doc:
         raise PhoneNumberNotFoundError("No agent found for this phone number")
     prepared = prepare_mongo_response(doc) or {}
@@ -176,6 +182,17 @@ async def attach(
         raise PhoneNumberError("phone_number is required")
     if provider not in agent_telephony_service.supported_providers():
         raise PhoneNumberError(f"Unsupported telephony provider: {provider}")
+
+    if provider == "vi":
+        from apps.telephony.providers.vi.obd.normalize import normalize_e164
+
+        phone_number = normalize_e164(phone_number) or phone_number
+        try:
+            agent_telephony_service.require_phone_in_provider_inventory(
+                org_id, provider, phone_number
+            )
+        except AgentTelephonyError as exc:
+            raise PhoneNumberError(exc.message, status_code=exc.status_code) from exc
 
     phones = get_database()[COLLECTION]
     existing = phones.find_one({"phone_number": phone_number})

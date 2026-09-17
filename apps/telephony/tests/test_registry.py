@@ -19,9 +19,11 @@ from apps.telephony.registry import (
     registered_providers,
 )
 from apps.telephony.providers.plivo.config import PlivoConfig
+from apps.telephony.providers.plivo import PlivoClient
+from apps.telephony.providers.vi.config import ViConfig
+from apps.telephony.providers.vi import ViClient
 from apps.telephony.providers.vobiz.config import VobizConfig
 from apps.telephony.providers.vobiz import VobizClient
-from apps.telephony.providers.plivo import PlivoClient
 
 
 @pytest.fixture(autouse=True)
@@ -29,11 +31,11 @@ def _ensure_providers_loaded() -> None:
     load_providers()
 
 
-def test_registered_providers_include_vobiz_and_plivo() -> None:
-    assert registered_providers() == frozenset({"vobiz", "plivo"})
+def test_registered_providers_include_vobiz_plivo_and_vi() -> None:
+    assert registered_providers() == frozenset({"vobiz", "plivo", "vi"})
 
 
-@pytest.mark.parametrize("provider", ["vobiz", "plivo"])
+@pytest.mark.parametrize("provider", ["vobiz", "plivo", "vi"])
 def test_each_provider_has_config_client_and_xml(provider: str) -> None:
     assert provider in TELEPHONY_CONFIGS
     assert provider in CLIENT_CREATORS
@@ -73,6 +75,15 @@ def test_create_client_from_registered_creators() -> None:
         )
     )
     assert isinstance(plivo, PlivoClient)
+
+    vi = create_client(
+        ViConfig(
+            obd_username="user",
+            obd_password="pass",
+            number_flows=[{"phone_number": "+919876543210", "flow_id": "flow-1"}],
+        )
+    )
+    assert isinstance(vi, ViClient)
 
 
 def test_build_config_rejects_empty_provider() -> None:

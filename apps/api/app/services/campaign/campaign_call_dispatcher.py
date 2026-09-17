@@ -18,8 +18,14 @@ from app.services.campaign.errors import (
     ConcurrentSlotAcquisitionError,
     PhoneNumberPoolExhaustedError,
 )
+from app.services.agent_telephony_service import (
+    AgentTelephonyError,
+    filter_phones_in_provider_inventory,
+    load_telephony_client,
+)
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
 from app.services import agent_service, phone_number_service
+from apps.telephony.providers.vi.campaign_dispatch import process_vi_batch
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +52,19 @@ class CampaignCallDispatcher:
                 num = doc.get("phone_number")
                 if num and num not in numbers:
                     numbers.append(str(num))
+
+        provider = self._agent_telephony_provider(org_id, agent_id)
+        if provider == "vi":
+            numbers = filter_phones_in_provider_inventory(org_id, provider, numbers)
         return numbers
+
+    def _agent_telephony_provider(self, org_id: str, agent_id: str) -> str:
+        try:
+            agent = agent_service.get_agent(org_id, agent_id)
+        except Exception:
+            return ""
+        telephony = agent.get("telephony") or {}
+        return str(telephony.get("provider") or "").strip().lower()
 
     def _pool_scope(self, agent_id: str) -> str:
         return f"agent:{agent_id}"
@@ -98,16 +116,28 @@ class CampaignCallDispatcher:
             logger.info("Campaign %s not running: %s", campaign_id, campaign.get("state"))
             return 0
 
+        org_id = str(campaign["org_id"])
+        agent_id = str(campaign["agent_id"])
+        provider = self._agent_telephony_provider(org_id, agent_id)
+
+        # VI: claim a larger window and submit one OBD campaign + bulk ingest.
+        claim_limit = batch_size if provider != "vi" else max(batch_size, 500)
         queued_runs = repo.claim_queued_runs_for_processing(
             campaign_id,
             scheduled_before=datetime.now(timezone.utc),
-            limit=batch_size,
+            limit=claim_limit,
         )
         if not queued_runs:
             return 0
 
-        org_id = str(campaign["org_id"])
-        agent_id = str(campaign["agent_id"])
+        if provider == "vi":
+            logger.info(
+                "VI campaign %s: processing batch of %d queued runs",
+                campaign_id[:8],
+                len(queued_runs),
+            )
+            return await self._process_vi_batch(campaign, queued_runs)
+
         processed_count = 0
         processed_ids: set[str] = set()
 
@@ -148,6 +178,58 @@ class CampaignCallDispatcher:
                 )
 
         return processed_count
+
+    async def _process_vi_batch(
+        self,
+        campaign: dict[str, Any],
+        queued_runs: list[dict[str, Any]],
+    ) -> int:
+        org_id = str(campaign["org_id"])
+        agent_id = str(campaign["agent_id"])
+
+        try:
+            agent = agent_service.get_agent(org_id, agent_id)
+        except Exception as exc:
+            await self._return_unprocessed_claims(queued_runs, set())
+            raise OutboundCallError(str(exc), status_code=404) from exc
+
+        from_number, _ = await self.acquire_from_number(org_id, agent_id, campaign)
+        if from_number is None:
+            await self._return_unprocessed_claims(queued_runs, set())
+            raise PhoneNumberPoolExhaustedError(organization_id=org_id)
+
+        try:
+            client = load_telephony_client(org_id, "vi")
+        except AgentTelephonyError as exc:
+            await self._return_unprocessed_claims(queued_runs, set())
+            raise OutboundCallError(exc.message, status_code=exc.status_code) from exc
+
+        def _on_obd_failure(message: str) -> None:
+            raise OutboundCallError(message, status_code=502)
+
+        try:
+            return await process_vi_batch(
+                campaign,
+                queued_runs,
+                client=client,
+                agent=agent,
+                from_number=from_number,
+                update_queued_run=repo.update_queued_run,
+                update_campaign=repo.update_campaign,
+                create_call_log=call_log_service.create_call_log,
+                get_campaign=repo.get_campaign_by_id,
+                on_obd_failure=_on_obd_failure,
+            )
+        except OutboundCallError:
+            raise
+        except Exception as exc:
+            logger.error(
+                "VI campaign %s worker unexpected error: %s",
+                str(campaign.get("campaign_id", ""))[:8],
+                exc,
+            )
+            await self._return_unprocessed_claims(queued_runs, set())
+            raise
 
     async def _return_unprocessed_claims(
         self,

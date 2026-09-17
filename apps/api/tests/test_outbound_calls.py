@@ -76,6 +76,21 @@ def _telephony_agent(**overrides: Any) -> dict[str, Any]:
     return doc
 
 
+def _mock_load_telephony_client(
+    dial_return: dict[str, Any] | None = None,
+) -> MagicMock:
+    client = MagicMock()
+    client.initiate_call = AsyncMock(
+        return_value=dial_return
+        or {
+            "status": "success",
+            "message": "Call initiated successfully",
+            "call_uuid": "provider-sid-123",
+        }
+    )
+    return client
+
+
 class _FakeCursor:
     def __init__(self, docs: list[dict[str, Any]]) -> None:
         self._docs = docs
@@ -192,30 +207,15 @@ def patch_voice_server_url() -> None:
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
 @_patch_db("app.services.phone_number_service.get_database")
-@patch(
-    "app.services.outbound_call_service.get_provider_dial_credentials",
-    return_value={
-        "auth_id": "auth-id",
-        "auth_token": "auth-token",
-        "base_url": "https://api.vobiz.example.com",
-    },
-)
-@patch(
-    "app.services.outbound_call_service.initiate_outbound",
-    new_callable=AsyncMock,
-    return_value={
-        "status": "success",
-        "message": "Call initiated successfully",
-        "call_uuid": "provider-sid-123",
-    },
-)
+@patch("app.services.outbound_call_service.load_telephony_client")
 def test_outbound_call_happy_path(
-    dial_mock: AsyncMock,
-    _creds: MagicMock,
+    load_client_mock: MagicMock,
     _phones_db: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,
 ) -> None:
+    mock_client = _mock_load_telephony_client()
+    load_client_mock.return_value = mock_client
     _AGENT_STORE[("org-1", "agent-1")] = _telephony_agent()
     client = _make_client()
 
@@ -242,35 +242,22 @@ def test_outbound_call_happy_path(
     assert stored["custom_variables"] == {"customer_name": "Jane"}
     assert stored["start_time_utc"]
     assert stored["call_response"] == "pending"
-    dial_mock.assert_awaited_once()
+    mock_client.initiate_call.assert_awaited_once()
 
 
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
 @_patch_db("app.services.phone_number_service.get_database")
-@patch(
-    "app.services.outbound_call_service.get_provider_dial_credentials",
-    return_value={
-        "auth_id": "auth-id",
-        "auth_token": "auth-token",
-        "base_url": "https://api.vobiz.example.com",
-    },
-)
-@patch(
-    "app.services.outbound_call_service.initiate_outbound",
-    new_callable=AsyncMock,
-    return_value={
-        "status": "success",
-        "call_uuid": "sid-1",
-    },
-)
+@patch("app.services.outbound_call_service.load_telephony_client")
 def test_custom_variables_persisted(
-    _dial: AsyncMock,
-    _creds: MagicMock,
+    load_client_mock: MagicMock,
     _phones_db: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,
 ) -> None:
+    load_client_mock.return_value = _mock_load_telephony_client(
+        {"status": "success", "call_uuid": "sid-1"}
+    )
     _AGENT_STORE[("org-1", "agent-1")] = _telephony_agent()
     client = _make_client()
     response = client.post(
@@ -288,12 +275,9 @@ def test_custom_variables_persisted(
 
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
-@patch(
-    "app.services.outbound_call_service.initiate_outbound",
-    new_callable=AsyncMock,
-)
+@patch("app.services.outbound_call_service.load_telephony_client")
 def test_missing_agent_returns_404(
-    _dial: AsyncMock,
+    load_client_mock: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,
 ) -> None:
@@ -304,17 +288,14 @@ def test_missing_agent_returns_404(
     )
     assert response.status_code == 404
     assert len(_CALL_STORE) == 0
-    _dial.assert_not_awaited()
+    load_client_mock.assert_not_called()
 
 
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
-@patch(
-    "app.services.outbound_call_service.initiate_outbound",
-    new_callable=AsyncMock,
-)
+@patch("app.services.outbound_call_service.load_telephony_client")
 def test_non_telephony_agent_returns_422(
-    _dial: AsyncMock,
+    load_client_mock: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,
 ) -> None:
@@ -330,18 +311,15 @@ def test_non_telephony_agent_returns_422(
     )
     assert response.status_code == 422
     assert "telephony" in response.json()["detail"].lower()
-    _dial.assert_not_awaited()
+    load_client_mock.assert_not_called()
 
 
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
 @_patch_db("app.services.phone_number_service.get_database")
-@patch(
-    "app.services.outbound_call_service.initiate_outbound",
-    new_callable=AsyncMock,
-)
+@patch("app.services.outbound_call_service.load_telephony_client")
 def test_no_caller_id_returns_422(
-    _dial: AsyncMock,
+    load_client_mock: MagicMock,
     _phones_db: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,
@@ -354,32 +332,22 @@ def test_no_caller_id_returns_422(
     )
     assert response.status_code == 422
     assert "caller id" in response.json()["detail"].lower()
-    _dial.assert_not_awaited()
+    load_client_mock.assert_not_called()
 
 
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
 @_patch_db("app.services.phone_number_service.get_database")
-@patch(
-    "app.services.outbound_call_service.get_provider_dial_credentials",
-    return_value={
-        "auth_id": "auth-id",
-        "auth_token": "auth-token",
-        "base_url": "https://api.vobiz.example.com",
-    },
-)
-@patch(
-    "app.services.outbound_call_service.initiate_outbound",
-    new_callable=AsyncMock,
-    return_value={"status": "fail", "message": "Provider rejected call"},
-)
+@patch("app.services.outbound_call_service.load_telephony_client")
 def test_telephony_dial_failure_marks_call_failed(
-    _dial: AsyncMock,
-    _creds: MagicMock,
+    load_client_mock: MagicMock,
     _phones_db: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,
 ) -> None:
+    load_client_mock.return_value = _mock_load_telephony_client(
+        {"status": "fail", "message": "Provider rejected call"}
+    )
     _AGENT_STORE[("org-1", "agent-1")] = _telephony_agent()
     client = _make_client()
     response = client.post(
@@ -395,12 +363,9 @@ def test_telephony_dial_failure_marks_call_failed(
 
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
-@patch(
-    "app.services.outbound_call_service.initiate_outbound",
-    new_callable=AsyncMock,
-)
+@patch("app.services.outbound_call_service.load_telephony_client")
 def test_org_isolation_returns_404(
-    _dial: AsyncMock,
+    load_client_mock: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,
 ) -> None:
@@ -411,33 +376,24 @@ def test_org_isolation_returns_404(
         json={"agent_id": "agent-1", "to_number": "+14155551234"},
     )
     assert response.status_code == 404
-    _dial.assert_not_awaited()
+    load_client_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
 @_patch_db("app.services.phone_number_service.get_database")
-@patch(
-    "app.services.outbound_call_service.get_provider_dial_credentials",
-    return_value={
-        "auth_id": "auth-id",
-        "auth_token": "auth-token",
-        "base_url": "https://api.vobiz.example.com",
-    },
-)
-@patch(
-    "app.services.outbound_call_service.initiate_outbound",
-    new_callable=AsyncMock,
-    return_value={"status": "success", "call_uuid": "sid-abc"},
-)
+@patch("app.services.outbound_call_service.load_telephony_client")
 async def test_call_log_created_with_initiated_before_dial(
-    dial_mock: AsyncMock,
-    _creds: MagicMock,
+    load_client_mock: MagicMock,
     _phones_db: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,
 ) -> None:
+    mock_client = _mock_load_telephony_client(
+        {"status": "success", "call_uuid": "sid-abc"}
+    )
+    load_client_mock.return_value = mock_client
     _AGENT_STORE[("org-1", "agent-1")] = _telephony_agent()
     statuses_seen: list[str] = []
 
@@ -464,8 +420,8 @@ async def test_call_log_created_with_initiated_before_dial(
     assert "initiated_at" not in stored
     assert "call_busy" not in stored
     assert "ringing" in statuses_seen
-    dial_mock.assert_awaited_once()
-    answer_url = dial_mock.await_args.kwargs["answer_url"]
+    mock_client.initiate_call.assert_awaited_once()
+    answer_url = mock_client.initiate_call.await_args.kwargs["answer_url"]
     assert "call_id=" in answer_url
     assert stored["call_id"] in answer_url
 

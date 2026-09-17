@@ -6,6 +6,7 @@ import pytest
 
 from apps.telephony import build_answer_stream_xml
 from apps.telephony.providers.plivo import xml as plivo_xml
+from apps.telephony.providers.vi import xml as vi_xml
 from apps.telephony.providers.vobiz import xml as vobiz_xml
 
 WS = "wss://example.com/agent/abc"
@@ -44,3 +45,12 @@ def test_provider_modules_match_parent_dispatch():
     assert plivo_xml.build_answer_stream_xml(WS, sample_rate=8000) == build_answer_stream_xml(
         "plivo", WS, sample_rate=8000
     )
+    assert vi_xml.build_answer_stream_xml(WS, sample_rate=8000) == build_answer_stream_xml(
+        "vi", WS, sample_rate=8000
+    )
+
+
+def test_vi_placeholder_xml():
+    xml = build_answer_stream_xml("vi", WS, sample_rate=8000)
+    assert "Vodafone Idea uses direct WSS" in xml
+    assert WS in xml

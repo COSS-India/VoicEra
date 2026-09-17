@@ -13,10 +13,10 @@ from app.services.agent_service import AgentNotFoundError
 from app.services.agent_telephony_service import (
     AgentTelephonyError,
     build_answer_urls,
-    get_provider_dial_credentials,
+    load_telephony_client,
+    require_phone_in_provider_inventory,
 )
 from app.services.phone_number_service import PhoneNumberNotFoundError
-from apps.telephony import initiate_outbound
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ async def initiate_outbound_call(
     answer_url, hangup_url = build_answer_urls(org_id, agent_id, call_id=call_id)
 
     try:
-        credentials = get_provider_dial_credentials(org_id, provider)
+        client = load_telephony_client(org_id, provider)
     except AgentTelephonyError as exc:
         call_log_service.update_call_log(
             call_id,
@@ -164,12 +164,22 @@ async def initiate_outbound_call(
         )
         raise OutboundCallError(exc.message, status_code=exc.status_code) from exc
 
+    if provider == "vi":
+        try:
+            require_phone_in_provider_inventory(org_id, provider, normalized_from)
+        except AgentTelephonyError as exc:
+            call_log_service.update_call_log(
+                call_id,
+                {
+                    "status": "failed",
+                    "call_response": "failed",
+                    "error_message": exc.message,
+                },
+            )
+            raise OutboundCallError(exc.message, status_code=exc.status_code) from exc
+
     try:
-        result = await initiate_outbound(
-            provider,
-            auth_id=credentials["auth_id"],
-            auth_token=credentials["auth_token"],
-            base_url=credentials["base_url"],
+        result = await client.initiate_call(
             from_number=normalized_from,
             to_number=normalized_to,
             answer_url=answer_url,

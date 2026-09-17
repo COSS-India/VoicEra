@@ -25,11 +25,13 @@ async def run_telephony_bot(
 ) -> None:
     """Run the Pipecat pipeline for a telephony media stream."""
     sample_rate = telephony_sample_rate()
+    extra = {"websocket": websocket} if provider == "vi" else {}
     serializer = create_frame_serializer(
         provider,
         stream_sid=stream_sid,
         call_sid=call_sid,
         sample_rate=sample_rate,
+        **extra,
     )
     await run_pipeline(
         websocket,

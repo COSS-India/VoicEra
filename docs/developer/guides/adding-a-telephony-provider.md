@@ -328,9 +328,14 @@ python apps/telephony/scripts/print_schemas.py
 There is no CI. Run these yourself before opening a pull request, and test a real inbound call against the vendor's sandbox — the registry tests prove the wiring, not that the vendor accepts your XML.
 </Note>
 
+## Vodafone Idea
+
+VI follows the same registry layout as Vobiz/Plivo but differs operationally: no answer XML hop (direct WSS to `/vi/stream`), OBD campaign API for outbound, and per-number `flow_id` in addition to org ProviderAuth credentials. See the dedicated [Vodafone Idea integration](vodafone-idea-integration.md) guide for architecture, portal setup, and phased rollout.
+
 ## Related
 
 * [Telephony model](../../guides/concepts/telephony-model)
+* [Vodafone Idea integration](vodafone-idea-integration.md)
 * [Telephony service](../services/telephony)
 * [Adding an AI provider](adding-a-provider)
 * [Public voice URLs](../../guides/deployment/public-voice-urls)

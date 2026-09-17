@@ -353,6 +353,19 @@ def test_by_phone_route(_db: MagicMock) -> None:
 
 
 @patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+def test_by_phone_resolves_vi_dni_variant(_db: MagicMock) -> None:
+    _AGENT_STORE[("org-1", "agent-vi")] = _telephony_agent(
+        agent_id="agent-vi",
+        linked_phone_number="+919876543210",
+        telephony={"provider": "vi", "application_id": "vi-local", "answer_url": ""},
+    )
+    client = _make_phone_client()
+    response = client.get("/api/v1/agents/by-phone/9876543210")
+    assert response.status_code == 200
+    assert response.json()["agent_id"] == "agent-vi"
+
+
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
 def test_by_phone_not_found(_db: MagicMock) -> None:
     client = _make_phone_client()
     response = client.get("/api/v1/agents/by-phone/+15550000000")
@@ -420,3 +433,56 @@ async def test_link_number_wrapper_raises(load_client_mock: MagicMock) -> None:
 async def test_get_by_agent_not_found(_db: MagicMock) -> None:
     with pytest.raises(PhoneNumberNotFoundError):
         phone_number_service.get_by_agent("org-1", "agent-missing")
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.services.phone_number_service.agent_telephony_service.require_phone_in_provider_inventory",
+    side_effect=AgentTelephonyError(
+        "No VI flow_id configured. Configure this phone in Integrations → Vodafone Idea.",
+        status_code=422,
+    ),
+)
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_vi_attach_rejects_out_of_inventory_phone(
+    _db: MagicMock,
+    _require: MagicMock,
+) -> None:
+    with pytest.raises(PhoneNumberError, match="Integrations"):
+        await phone_number_service.attach(
+            "org-1",
+            "+919999999999",
+            "vi",
+        )
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.services.phone_number_service.agent_telephony_service.require_phone_in_provider_inventory",
+)
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_vi_attach_accepts_inventory_phone(
+    _db: MagicMock,
+    require_mock: MagicMock,
+) -> None:
+    result = await phone_number_service.attach(
+        "org-1",
+        "+919876543210",
+        "vi",
+    )
+    assert result["status"] == "success"
+    require_mock.assert_called_once_with("org-1", "vi", "+919876543210")
+    assert _PHONE_STORE["+919876543210"]["provider"] == "vi"
+
+
+@patch(
+    "app.routers.phone_numbers.agent_telephony_service.list_provider_numbers",
+    new_callable=AsyncMock,
+    return_value=["+919876543210", "+919876543211"],
+)
+def test_vi_provider_inventory_route(list_mock: AsyncMock) -> None:
+    client = _make_phone_client()
+    response = client.get("/api/v1/phone-numbers/providers/vi/inventory")
+    assert response.status_code == 200
+    assert response.json()["numbers"] == ["+919876543210", "+919876543211"]
+    list_mock.assert_awaited_once_with("org-1", "vi")

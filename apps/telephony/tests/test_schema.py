@@ -7,6 +7,7 @@ import pytest
 from apps.telephony import (
     Kind,
     PlivoClient,
+    ViClient,
     VobizClient,
     all_provider_schemas,
     configuration_telephony,
@@ -14,13 +15,14 @@ from apps.telephony import (
     provider_schemas,
 )
 from apps.telephony.providers.plivo.config import PlivoConfig
+from apps.telephony.providers.vi.config import ViConfig
 from apps.telephony.providers.vobiz.config import VobizConfig
 from apps.telephony.schema import DEFAULT_SERVICE_PROVIDERS
 
 
 def test_provider_schemas_keys():
     schemas = provider_schemas(Kind.TELEPHONY)
-    assert set(schemas) == {"vobiz", "plivo"}
+    assert set(schemas) == {"vobiz", "plivo", "vi"}
 
 
 def test_all_provider_schemas_shape():
@@ -28,6 +30,7 @@ def test_all_provider_schemas_shape():
     assert set(schemas) == {"telephony"}
     assert "vobiz" in schemas["telephony"]
     assert "plivo" in schemas["telephony"]
+    assert "vi" in schemas["telephony"]
 
 
 def test_vobiz_secrets_and_integration_models():
@@ -57,6 +60,25 @@ def test_plivo_secrets_and_integration_models():
     assert fields["base_url"]["default"] == "https://api.plivo.com/v1"
 
 
+def test_vi_secrets_and_integration_models():
+    schema = provider_schemas()["vi"]
+    assert schema["provider"] == "vi"
+    assert schema["name"] == "Vodafone Idea"
+    assert set(schema["secrets"]) == {"obd_username", "obd_password"}
+    assert "auth_id" not in schema["fields"]
+    assert "auth_token" not in schema["fields"]
+    fields = schema["fields"]
+    assert fields["obd_username"]["secret"] is True
+    assert fields["obd_username"]["integration_model"] == "ViObdUsername"
+    assert fields["obd_password"]["integration_model"] == "ViObdPassword"
+    assert fields["obd_username"]["description"] == "OBD Username"
+    assert fields["number_flows"]["type"] == "list[ViNumberFlowEntry]"
+    assert "number_flows" in schema["required"]
+    assert fields["base_url"]["default"] == (
+        "https://cts.myvi.in:8443/Cpaas/api/v1/obdcampaignapi"
+    )
+
+
 def test_catalog_omits_schema_noise():
     for provider, schema in provider_schemas().items():
         assert "$defs" not in schema, provider
@@ -70,7 +92,7 @@ def test_catalog_omits_schema_noise():
 
 def test_configuration_telephony_envelope():
     defaults = configuration_telephony()
-    assert set(defaults["telephony"]) == {"vobiz", "plivo"}
+    assert set(defaults["telephony"]) == {"vobiz", "plivo", "vi"}
     assert defaults["default_providers"] == DEFAULT_SERVICE_PROVIDERS
     assert DEFAULT_SERVICE_PROVIDERS["telephony"] == "vobiz"
 
@@ -97,12 +119,21 @@ def test_create_client_from_config():
     assert isinstance(plivo, PlivoClient)
     assert plivo.base_url == "https://api.plivo.com/v1"
 
+    vi = create_client(
+        ViConfig(
+            obd_username="user",
+            obd_password="pass",
+            number_flows=[{"phone_number": "+919876543210", "flow_id": "flow-1"}],
+        )
+    )
+    assert isinstance(vi, ViClient)
+
 
 def test_list_providers_summary():
     from apps.telephony.schema import list_providers
 
     listed = list_providers()
-    assert set(listed) == {"vobiz", "plivo"}
+    assert set(listed) == {"vobiz", "plivo", "vi"}
     assert listed["vobiz"] == {"provider": "vobiz", "name": "Vobiz"}
     assert "secrets" not in listed["vobiz"]
     assert "fields" not in listed["vobiz"]

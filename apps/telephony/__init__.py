@@ -1,4 +1,4 @@
-"""Shared telephony clients for Vobiz and Plivo.
+"""Shared telephony clients for Vobiz, Plivo, and Vodafone Idea.
 
 Public surface::
 
@@ -34,6 +34,7 @@ from apps.telephony.base import (
 )
 from apps.telephony.calls import initiate_outbound
 from apps.telephony.providers.plivo import PlivoClient
+from apps.telephony.providers.vi import ViClient
 from apps.telephony.providers.vobiz import VobizClient
 from apps.telephony.registry import (
     build_config,
@@ -81,6 +82,7 @@ __all__ = [
     "DEFAULT_SERVICE_PROVIDERS",
     "VobizClient",
     "PlivoClient",
+    "ViClient",
     "create_client",
     "build_config",
     "registered_providers",

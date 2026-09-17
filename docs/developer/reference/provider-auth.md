@@ -27,6 +27,8 @@ Only **secret** fields. `validate_auth_payload` in `apps/api/app/services/provid
 * Catalog `required` fields that are also secrets must be present and non-empty.
 * Keys are filtered down to the allowlist before being written, so nothing extra sneaks through.
 
+**Vodafone Idea exception:** provider `vi` also stores non-secret `number_flows` (a list of `{phone_number, flow_id}` objects) alongside encrypted `obd_username` and `obd_password`. See [Vodafone Idea integration](../guides/vodafone-idea-integration.md).
+
 The stored document is small:
 
 | Field | Contents |

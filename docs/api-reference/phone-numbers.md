@@ -39,6 +39,8 @@ Bearer. Body `{ "phone_number": "+15551234567" }`. Unlinks at the provider and c
 
 Bearer. Numbers held in the organisation's account **at the provider**, which is not the same set as your VoicEra inventory. Returns `PhoneNumberInventoryResponse`: `{status, numbers: []}`. An unregistered provider returns `422`.
 
+For **Vodafone Idea** (`provider=vi`), inventory comes from Integrations auth `number_flows` (not a carrier list API). `POST /phone-numbers/attach` with `provider=vi` rejects phones that are not configured in Integrations. See [Vodafone Idea integration](../developer/guides/vodafone-idea-integration.md).
+
 ## Related
 
 * [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page

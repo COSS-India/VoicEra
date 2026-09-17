@@ -436,6 +436,7 @@ class PhoneNumberAttachRequest(BaseModel):
     phone_number: str
     provider: TelephonyProvider
     agent_id: Optional[str] = None
+    flow_id: Optional[str] = None
 
 
 class PhoneNumberDetachRequest(BaseModel):
@@ -451,6 +452,7 @@ class PhoneNumberResponse(BaseModel):
     provider: str
     org_id: str
     agent_id: Optional[str] = None
+    flow_id: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     last_link_action: Optional[str] = None

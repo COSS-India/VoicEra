@@ -17,8 +17,23 @@ from apps.runtime.services.backend import BackendError, backend_client
 from apps.runtime.services.pipecat.audio import resolve_custom_variables
 from apps.runtime.services.pipecat.runners import run_telephony_bot, run_websocket_bot
 from apps.telephony import parse_stream_start
+from apps.telephony.providers.vi import stream as vi_stream
 
 router = APIRouter()
+
+
+@router.websocket("/vi/stream")
+async def vi_stream_websocket(websocket: WebSocket) -> None:
+    """VI portal WSS endpoint — agent resolved from DNI in start event."""
+    await vi_stream.handle_session(
+        websocket,
+        get_agent_by_phone=backend_client.get_agent_by_phone,
+        get_agent=backend_client.get_agent,
+        create_inbound_call=backend_client.create_inbound_call,
+        run_telephony_bot=run_telephony_bot,
+        agent_category=agent_category,
+        telephony_provider=telephony_provider,
+    )
 
 
 @router.websocket("/agent/{org_id}/{agent_id}")

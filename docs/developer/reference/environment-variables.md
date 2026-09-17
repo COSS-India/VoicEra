@@ -67,6 +67,20 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `VOICE_SERVER_BASE_URL` | empty | Yes for telephony | Public base URL of the runtime. Required when creating or updating a telephony agent. |
 | `ENABLE_CAMPAIGN_ORCHESTRATOR` | `True` | No | Lets API startup spawn the orchestrator. Docker runs it as a separate service instead. |
 
+### Vodafone Idea (platform)
+
+VI OBD **username**, **password**, per-number **flow id**, and **DNI** are stored in org `ProviderAuth` and `PhoneNumbers` — not process env. See [Vodafone Idea integration](../guides/vodafone-idea-integration.md).
+
+These platform variables remain optional process env:
+
+| Variable | Default | Required | Purpose |
+|---|---|---|---|
+| `VI_OBD_DIAL_TIMEOUT` | `30` | No | Default dial timeout seconds passed to VI `createCampaign`. |
+| `VI_OBD_STATUS_POLL_SECS` | `30` | No | Campaign status poll interval after VI bulk ingest. |
+| `VI_OBD_STATUS_POLL_MAX_ROUNDS` | `120` | No | Max poll rounds (`0` disables). |
+| `VI_DEFAULT_AGENT_ID` | empty | No | Runtime fallback agent when DNI routing fails on `/vi/stream`. |
+| `VI_DEFAULT_ORG_ID` | empty | No | Org id used with `VI_DEFAULT_AGENT_ID`. |
+
 Rotating `PROVIDER_AUTH_ENCRYPTION_KEY` makes every stored `ProviderAuth` blob undecryptable. Existing provider credentials must be re-entered after a rotation.
 
 Generate the three secrets by hand if you are not using the start script:

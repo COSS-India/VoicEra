@@ -89,6 +89,26 @@ class BackendClient:
             )
         return response.json()
 
+    async def get_agent_by_phone(self, phone_number: str) -> dict[str, Any]:
+        """Resolve an agent by linked phone / DNI (X-API-Key service route)."""
+        internal_api_key = os.getenv("INTERNAL_API_KEY", "")
+        if not internal_api_key:
+            raise BackendError("INTERNAL_API_KEY is not configured")
+        encoded = quote(str(phone_number or "").strip(), safe="")
+        url = f"{self._base()}/agents/by-phone/{encoded}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                url,
+                headers={"X-API-Key": internal_api_key, "Accept": "application/json"},
+            )
+        if response.status_code == 404:
+            raise BackendError(f"No agent found for phone: {phone_number}")
+        if response.status_code >= 400:
+            raise BackendError(
+                f"GET agents/by-phone failed ({response.status_code}): {response.text}"
+            )
+        return response.json()
+
     async def create_inbound_call(
         self,
         org_id: str,
