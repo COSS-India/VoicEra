@@ -1,0 +1,28 @@
+apps/api/app/services/provider_connection_service.py
+  s_819fecf50909e1::t_08ac0709ffc1af 335-342
+  s_819fecf50909e1::t_f0fc3907cb46b1 303-307
+frontend/src/components/dashboard/ProviderConnections.tsx
+  s_819fecf50909e1::t_a25f7122e63610 105-106,116-117
+  s_819fecf50909e1::t_99e1f2be957924 15
+  s_819fecf50909e1::t_b80aa67233e06d 101-104,107-112,118
+apps/api/tests/test_provider_connections.py
+  s_819fecf50909e1::t_1d2c5846446173 218-273
+docs/api-reference/provider-connections.md
+  s_819fecf50909e1::t_b337757ad117c5 77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "44860294ec82d1fc2b96520ef350c73097fb6e92",
+  "prompts": {},
+  "sessions": {
+    "s_819fecf50909e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3d4f14d3-105f-4e8e-b015-ec092e91c833",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
