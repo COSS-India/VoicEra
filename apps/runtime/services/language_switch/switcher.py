@@ -107,6 +107,7 @@ class ModelServiceSwitcher(_LanguageRoutingMixin, ServiceSwitcher):
     async def process_frame(self, frame: Any, direction: FrameDirection) -> None:
         if isinstance(frame, LanguageSwitchFrame):
             await self.apply_language(frame.language)
+            await self.push_frame(frame, direction)
             return
         await super().process_frame(frame, direction)
 
@@ -143,6 +144,7 @@ class ModelLLMSwitcher(_LanguageRoutingMixin, LLMSwitcher):
     async def process_frame(self, frame: Any, direction: FrameDirection) -> None:
         if isinstance(frame, LanguageSwitchFrame):
             await self.apply_language(frame.language)
+            await self.push_frame(frame, direction)
             return
         # LLMSwitcher.process_frame syncs tools on LLMContextFrame to all members.
         await super().process_frame(frame, direction)

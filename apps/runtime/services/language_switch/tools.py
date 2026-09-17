@@ -50,13 +50,17 @@ def configure_language_switching(
     llm_switcher: ModelLLMSwitcher | ModelServiceSwitcher,
     agent_id: str | None = None,
 ) -> None:
-    """Register ``switch_language`` when the agent has multiple languages."""
+    """Register ``switch_language`` when the agent has multiple languages.
+
+    The tool only emits a ``LanguageSwitchFrame`` into the pipeline. Each
+    switcher applies the switch when it sees that frame.
+    """
+    del stt_switcher, tts_switcher  # kept in signature for call-site uniformity
     languages = configured_languages(agent)
     if len(languages) <= 1:
         return
 
     allowed = set(languages)
-    switchers = (stt_switcher, tts_switcher, llm_switcher)
     lang_list = ", ".join(languages)
 
     if isinstance(llm_switcher, ModelLLMSwitcher):
@@ -76,37 +80,15 @@ def configure_language_switching(
             )
             return
 
-        applied = True
-        for switcher in switchers:
-            ok = await switcher.apply_language(lang)
-            if not ok:
-                applied = False
-
-        if not applied:
-            await params.result_callback(
-                {
-                    "status": "error",
-                    "reason": "switch_failed",
-                    "language": lang,
-                }
-            )
-            return
-
         frame = LanguageSwitchFrame(language=lang)
-        await params.llm.push_frame(frame, FrameDirection.DOWNSTREAM)
-        await params.llm.push_frame(frame, FrameDirection.UPSTREAM)
-        logger.info("Switched language to {}", lang)
+        await params.pipeline_worker.queue_frame(frame, FrameDirection.DOWNSTREAM)
+        logger.info("Queued language switch to {}", lang)
         await params.result_callback({"status": "ok", "language": lang})
 
     switch_language.__doc__ = (
         "Switch the conversation to another configured language. "
         "Call this when the user clearly wants to speak in a different language. "
         f"Pass the language id exactly — allowed values: {lang_list}."
-        "\n\n"
-        "Args:\n"
-        "    language (str): Language code to switch to.\n"
-        '        - JSON Schema enum: ["hi", "kn", "mr"]\n'
-        "        (e.g., 'mr' for Marathi, 'kn' for Kannada, 'hi' for Hindi)"
     )
 
     _append_tools(context, [switch_language])

@@ -58,7 +58,7 @@ def test_tool_registered_for_multi_language():
 
 
 @pytest.mark.asyncio
-async def test_switch_language_applies_all_switchers():
+async def test_switch_language_queues_frame_downstream():
     context = LLMContext([])
     agent = {
         "config": {
@@ -75,29 +75,29 @@ async def test_switch_language_applies_all_switchers():
         tts_switcher=tts,
         llm_switcher=llm,
     )
-    llm_member = MagicMock()
-    llm_member.push_frame = AsyncMock()
+    worker = MagicMock()
+    worker.queue_frame = AsyncMock()
     result_callback = AsyncMock()
     params = FunctionCallParams(
         function_name="switch_language",
         tool_call_id="1",
         arguments={"language": "mr"},
-        llm=llm_member,
-        pipeline_worker=MagicMock(),
+        llm=MagicMock(),
+        pipeline_worker=worker,
         context=context,
         result_callback=result_callback,
     )
     wrapper = context.tools.direct_functions[0]
     await wrapper.invoke({"language": "mr"}, params)
 
-    stt.apply_language.assert_awaited_once_with("mr")
-    tts.apply_language.assert_awaited_once_with("mr")
-    llm.apply_language.assert_awaited_once_with("mr")
-    assert llm_member.push_frame.await_count == 2
-    directions = {call.args[1] for call in llm_member.push_frame.await_args_list}
-    assert directions == {FrameDirection.DOWNSTREAM, FrameDirection.UPSTREAM}
-    frame_types = {type(call.args[0]) for call in llm_member.push_frame.await_args_list}
-    assert frame_types == {LanguageSwitchFrame}
+    stt.apply_language.assert_not_awaited()
+    tts.apply_language.assert_not_awaited()
+    llm.apply_language.assert_not_awaited()
+    worker.queue_frame.assert_awaited_once()
+    frame, direction = worker.queue_frame.await_args.args
+    assert isinstance(frame, LanguageSwitchFrame)
+    assert frame.language == "mr"
+    assert direction == FrameDirection.DOWNSTREAM
     result_callback.assert_awaited_once_with({"status": "ok", "language": "mr"})
 
 
@@ -110,29 +110,29 @@ async def test_switch_language_rejects_unsupported():
         }
     }
     stt = _switcher()
-    tts = _switcher()
-    llm = _switcher()
+    worker = MagicMock()
+    worker.queue_frame = AsyncMock()
     configure_language_switching(
         agent,
         context=context,
         stt_switcher=stt,
-        tts_switcher=tts,
-        llm_switcher=llm,
+        tts_switcher=_switcher(),
+        llm_switcher=_switcher(),
     )
     result_callback = AsyncMock()
     params = FunctionCallParams(
         function_name="switch_language",
         tool_call_id="1",
         arguments={"language": "kannada"},
-        llm=MagicMock(push_frame=AsyncMock()),
-        pipeline_worker=MagicMock(),
+        llm=MagicMock(),
+        pipeline_worker=worker,
         context=context,
         result_callback=result_callback,
     )
     wrapper = context.tools.direct_functions[0]
     await wrapper.invoke({"language": "kannada"}, params)
 
-    stt.apply_language.assert_not_awaited()
+    worker.queue_frame.assert_not_awaited()
     result_callback.assert_awaited_once_with(
         {
             "status": "error",
