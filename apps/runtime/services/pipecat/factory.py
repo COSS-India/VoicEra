@@ -26,6 +26,7 @@ from starlette.websockets import WebSocket
 
 from apps.runtime.services.knowledge.setup import configure_knowledge_base
 from apps.runtime.services.pipecat.call_ending import configure_call_ending
+from apps.runtime.services.language_switch.tools import configure_language_switching
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
 from apps.runtime.services.storage.transcript import TranscriptWriter
@@ -119,6 +120,14 @@ def build_pipeline_components(
     configure_call_ending(
         behaviour,
         context=context,
+        agent_id=agent.get("agent_id"),
+    )
+    configure_language_switching(
+        agent,
+        context=context,
+        stt_switcher=stt,
+        tts_switcher=tts,
+        llm_switcher=llm,
         agent_id=agent.get("agent_id"),
     )
 
