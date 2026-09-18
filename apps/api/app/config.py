@@ -65,6 +65,26 @@ class Settings(BaseSettings):
         default="text-embedding-3-small",
         description="Embedding model for knowledge-base ingest and retrieval",
     )
+    TRANSLATION_LLM_API_KEY: str = Field(
+        default="",
+        description="API key for transcript translation fallback (falls back to KB_EMBEDDING_API_KEY if unset)",
+    )
+    TRANSLATION_LLM_MODEL: str = Field(
+        default="gpt-4o-mini",
+        description="Chat model used for transcript translation fallback",
+    )
+    TRANSLATION_LLM_BASE_URL: str = Field(
+        default="",
+        description=(
+            "OpenAI-compatible API base URL for transcript translation "
+            "(empty = OpenAI's default endpoint). Set this to use any "
+            "OpenAI-compatible provider instead — e.g. Groq "
+            "(https://api.groq.com/openai/v1), OpenRouter "
+            "(https://openrouter.ai/api/v1), Together, or a local vLLM/Ollama "
+            "server — with a matching TRANSLATION_LLM_API_KEY and "
+            "TRANSLATION_LLM_MODEL for that provider."
+        ),
+    )
     KB_MAX_UPLOAD_BYTES: int = Field(
         default=25 * 1024 * 1024,
         description="Maximum PDF upload size for knowledge base",

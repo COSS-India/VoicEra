@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "VITE_CONFIG_NATIVE_IGNORE_WARNING=true vitest run"
   },
   "dependencies": {
     "@pipecat-ai/client-js": "^1.13.1",
@@ -32,7 +33,9 @@
     "@types/topojson-client": "^3.1.5",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
   }
 }
