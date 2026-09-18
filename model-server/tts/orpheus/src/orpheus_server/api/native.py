@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from .. import audio as audio_fmt
 from ..codec import SAMPLE_RATE
 from ..engine import StreamStats, TTSEngine
-from ..voices import Roster
+from ..voices import NO_STYLE, Roster
 from .deps import get_engine, get_roster
 
 log = logging.getLogger("orpheus.native")
@@ -36,7 +36,9 @@ class TTSRequest(BaseModel):
     voice: str = Field(..., description="Speaker name from GET /v1/voices.", examples=["Amit"])
     language: Optional[str] = Field(None, description="Optional: inferred from the speaker name.",
                                     examples=["hi"])
-    style: Optional[str] = Field(None, description="Speaking style from GET /v1/styles.", examples=["CONV"])
+    style: Optional[str] = Field(
+        None, description="Speaking style from GET /v1/styles, or 'none' for no style block.",
+        examples=["news"])
     max_tokens: Optional[int] = Field(
         None, description="Cap on generated audio tokens (~12.2 ms of audio each).")
 
@@ -65,7 +67,9 @@ async def voices(
 
 @router.get("/styles", tags=["catalog"], summary="List speaking styles")
 async def styles(roster: Roster = Depends(get_roster)):
-    return {"styles": roster.styles, "default": roster.default_style}
+    # ``none`` is advertised alongside the trained styles so a client can offer
+    # "no style" without hardcoding the sentinel.
+    return {"styles": roster.styles, "default": roster.default_style, "none": NO_STYLE}
 
 
 # ---------------------------------------------------------------------------

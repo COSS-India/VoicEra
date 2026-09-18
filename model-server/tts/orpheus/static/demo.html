@@ -204,6 +204,15 @@ async function loadCatalogue() {
       styles = body.styles || [];
       const sel = $('style');
       sel.innerHTML = '';
+      // The server names its own no-style sentinel, so this page does not
+      // hardcode it. Listed first because it is the honest baseline: every other
+      // option conditions the model on a trained style tag, and this one sends
+      // no style block in the prompt at all.
+      if (body.none) {
+        const o = document.createElement('option');
+        o.value = body.none; o.textContent = '(no style)';
+        sel.appendChild(o);
+      }
       for (const s of styles) {
         const o = document.createElement('option');
         o.value = s; o.textContent = s;

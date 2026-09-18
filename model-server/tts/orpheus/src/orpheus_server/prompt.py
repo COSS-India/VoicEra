@@ -122,15 +122,20 @@ def build_prompt_token_ids(
         return tokenizer.encode(s, add_special_tokens=False)
 
     if template == TEMPLATE_INDIC:
+        # A style of None means the caller asked for none, so the block is left
+        # out entirely rather than filled with a guess. It used to fall back to
+        # "CONV", which belongs to the previous checkpoint's style set -- the
+        # current one was never trained on that string and would be conditioned
+        # on a token sequence that means nothing to it.
+        style_block: list[int] = []
+        if style:
+            style_block = [TOK_STYLE_OPEN] + encode(style) + [TOK_STYLE_CLOSE] + encode("\n")
         return (
             [TOK_SOH, TOK_BOS, TOK_SPEAKER_OPEN]
             + encode(voice)
             + [TOK_SPEAKER_CLOSE]
             + encode("\n")
-            + [TOK_STYLE_OPEN]
-            + encode(style or "CONV")
-            + [TOK_STYLE_CLOSE]
-            + encode("\n")
+            + style_block
             + encode(text)
             + [TOK_EOT, TOK_EOH, TOK_SOA, TOK_SOS]
         )
