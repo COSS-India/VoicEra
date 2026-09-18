@@ -15,6 +15,7 @@ changing anything:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 import uuid
@@ -39,6 +40,8 @@ class StreamStats:
     pcm_bytes: int = 0
     gen_ms: float = 0.0
     gaps_ms: list[float] = field(default_factory=list)
+    finish_reason: Optional[str] = None  # end_of_speech | text_eos | max_tokens
+    soft_eos_ignored: int = 0            # spurious text-eos tokens generated through
 
     @property
     def audio_ms(self) -> float:
@@ -62,6 +65,8 @@ class StreamStats:
             "tokens": self.tokens,
             "tokens_per_s": self.tokens_per_s,
             "frames": self.frames,
+            "finish_reason": self.finish_reason,
+            "soft_eos_ignored": self.soft_eos_ignored,
         }
 
 
@@ -92,6 +97,7 @@ class TTSEngine:
         self.started_at: Optional[float] = None
         self._engine = None
         self._tokenizer = None
+        self._stop: prompt.StopTokens = prompt.resolve_stop_tokens(None)
         self._decoder: Optional[codec.AudioDecoder] = None
         self._batcher: Optional[codec.BatchedAudioDecoder] = None
         self._ready = asyncio.Event()
@@ -147,6 +153,12 @@ class TTSEngine:
         )
         self._engine = AsyncLLMEngine.from_engine_args(args)
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+        self._stop = prompt.resolve_stop_tokens(self._tokenizer)
+        log.info(
+            "stop tokens: hard=%s (end of speech) soft=%s (backbone text eos, judged against "
+            "the text when engine.soft_text_eos is on)",
+            list(self._stop.hard), list(self._stop.soft),
+        )
 
         if cfg.warmup.enabled:
             await self._warmup()
@@ -263,10 +275,56 @@ class TTSEngine:
 
         value = cfg.max_tokens_default
         if cfg.duration_guard and text and text.strip():
-            seconds = len(text.strip()) / cfg.guard_chars_per_second
-            budget = int(seconds * codec.TOKENS_PER_SECOND * cfg.guard_headroom)
+            budget = int(self._expected_audio_tokens(text) * cfg.guard_headroom)
             value = min(value, max(cfg.guard_floor_tokens, budget))
         return max(64, min(value, cfg.max_tokens_limit))
+
+    def _expected_audio_tokens(self, text: Optional[str]) -> int:
+        """Audio tokens this text should take to read, before any headroom.
+
+        One estimate, used twice and deliberately not duplicated: multiplied by
+        ``guard_headroom`` it is the runaway cap above, and multiplied by
+        ``soft_text_eos_min_fraction`` it is the floor below which a backbone text
+        eos is not believed. Returns 0 when there is no text to reason from, which
+        callers read as "no opinion".
+        """
+        cfg = self.settings.engine
+        if not text or not text.strip():
+            return 0
+        seconds = len(text.strip()) / cfg.guard_chars_per_second
+        return int(seconds * codec.TOKENS_PER_SECOND)
+
+    def _text_eos_is_final(self, generated: int, expected: int) -> bool:
+        """Whether a backbone text eos should be taken as the end of the utterance.
+
+        See :class:`prompt.StopTokens`: the checkpoint hands this id to its own
+        ``generate`` as both ``eos_token_id`` and ``pad_token_id``, so its presence
+        proves nothing on its own. It is believed only once enough audio exists for
+        the text that was actually asked for. With no text to reason from, or with
+        the judgement disabled, it is obeyed as before.
+        """
+        cfg = self.settings.engine
+        if not cfg.soft_text_eos or expected <= 0:
+            return True
+        return generated >= expected * cfg.soft_text_eos_min_fraction
+
+    async def _abort(self, request_id: str) -> None:
+        """Stop a generation we have decided to end early.
+
+        Without this the engine goes on decoding tokens nobody will ever hear and
+        holds a sequence slot for the rest of its budget - which matters here
+        because nothing else in this server aborts anything.
+        """
+        abort = getattr(self._engine, "abort", None)
+        if abort is None:
+            return
+        try:
+            result = abort(request_id)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:                                        # noqa: BLE001
+            log.debug("abort(%s) failed; request will finish on its own",
+                      request_id, exc_info=True)
 
     def preflight(self, text: str, voice: str, style: Optional[str]) -> list[int]:
         """Validate a request while an HTTP status code can still be returned.
@@ -332,7 +390,10 @@ class TTSEngine:
             repetition_penalty=sampling.repetition_penalty,
             max_tokens=max_tokens,
             min_tokens=sampling.min_tokens,
-            stop_token_ids=prompt.STOP_TOKEN_IDS,
+            # Only the token that actually closes the audio span is an
+            # unconditional stop. The backbone's text eos is handled below,
+            # where the text is available to judge it against.
+            stop_token_ids=list(self._stop.hard),
             detokenize=False,          # we never want text back; skip the detokenizer entirely
         )
 
@@ -359,13 +420,31 @@ class TTSEngine:
             stats.frames += len(pcm) // bytes_per_frame
             stats.pcm_bytes += len(pcm)
 
+        request_id = str(uuid.uuid4())
         generator = self._engine.generate(
-            TokensPrompt(prompt_token_ids=token_ids), params, str(uuid.uuid4())
+            TokensPrompt(prompt_token_ids=token_ids), params, request_id
         )
+        soft_stop = set(self._stop.soft)
+        expected = self._expected_audio_tokens(text)
+        ended_on_text_eos = False
+        vllm_finish: Optional[str] = None
+
         async for output in generator:
             # Snapshot: this list keeps growing while we await the decode below.
-            tokens = list(output.outputs[0].token_ids)
+            completion = output.outputs[0]
+            tokens = list(completion.token_ids)
+            vllm_finish = completion.finish_reason
             for token_id in tokens[cursor:]:
+                if token_id in soft_stop:
+                    if self._text_eos_is_final(stats.tokens, expected):
+                        stats.finish_reason = "text_eos"
+                        ended_on_text_eos = True
+                        break
+                    # Ambiguous by construction - the checkpoint uses this same id
+                    # as its pad token - and far too little audio exists for it to
+                    # be the end of this text. Drop it and keep generating.
+                    stats.soft_eos_ignored += 1
+                    continue
                 stats.tokens += 1
                 pending = buffer.push_token(token_id)
                 if pending is None:
@@ -376,6 +455,19 @@ class TTSEngine:
                 account(pcm)
                 yield pcm
             cursor = len(tokens)
+            if ended_on_text_eos:
+                break
+
+        if ended_on_text_eos:
+            await self._abort(request_id)
+        elif stats.finish_reason is None:
+            # vLLM's own word for why it stopped, mapped to what it means here.
+            stats.finish_reason = {
+                "stop": "end_of_speech", "length": "max_tokens",
+            }.get(vllm_finish or "", vllm_finish)
+        if stats.soft_eos_ignored:
+            log.debug("ignored %d spurious text-eos token(s) before %s (%d tokens, expected ~%d)",
+                      stats.soft_eos_ignored, stats.finish_reason, stats.tokens, expected)
 
         # The trailing frames still waiting on right context that will never
         # arrive. Without this the closing syllable of every utterance is

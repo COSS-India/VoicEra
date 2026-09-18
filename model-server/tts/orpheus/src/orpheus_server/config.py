@@ -99,6 +99,25 @@ class EngineConfig(BaseModel):
         description="Budget floor, so a very short prompt still gets room for a natural reading. "
                     "512 tokens is ~6 s of audio.",
     )
+    soft_text_eos: bool = Field(
+        True,
+        description="Judge the backbone's text eos against the text instead of obeying it. The "
+                    "checkpoint hands that token to generate() as BOTH eos_token_id and "
+                    "pad_token_id, so it is ambiguous by construction: it can close a turn or it "
+                    "can be padding. Obeyed unconditionally it truncates an utterance at the first "
+                    "full stop in styles trained on short single-sentence items (AIR/TV news, "
+                    "Customer Care); ignored entirely it lets a missed end-of-speech run on as "
+                    "babble. When on, it ends the stream only once enough audio exists for the "
+                    "text. <|end_of_speech|> is always an unconditional stop either way.",
+    )
+    soft_text_eos_min_fraction: float = Field(
+        0.5, ge=0.0, le=1.0,
+        description="How much of the text's expected audio must exist before a text eos is taken "
+                    "as genuine. Uses the same reading-speed estimate as the guard, without its "
+                    "headroom. 0.5 means an utterance cut to under half its expected length is "
+                    "treated as a spurious pad token and generation continues. Set 0.0 to obey "
+                    "every text eos (the pre-fix behaviour that truncates).",
+    )
 
 
 class DecoderConfig(BaseModel):
@@ -243,6 +262,12 @@ _ENV_MAP: dict[str, tuple[str, ...]] = {
     "ORPHEUS_ENFORCE_EAGER": ("engine", "enforce_eager"),
     "ORPHEUS_TENSOR_PARALLEL_SIZE": ("engine", "tensor_parallel_size"),
     "ORPHEUS_MAX_TOKENS_DEFAULT": ("engine", "max_tokens_default"),
+    "ORPHEUS_DURATION_GUARD": ("engine", "duration_guard"),
+    "ORPHEUS_GUARD_CHARS_PER_SECOND": ("engine", "guard_chars_per_second"),
+    "ORPHEUS_GUARD_HEADROOM": ("engine", "guard_headroom"),
+    "ORPHEUS_GUARD_FLOOR_TOKENS": ("engine", "guard_floor_tokens"),
+    "ORPHEUS_SOFT_TEXT_EOS": ("engine", "soft_text_eos"),
+    "ORPHEUS_SOFT_TEXT_EOS_MIN_FRACTION": ("engine", "soft_text_eos_min_fraction"),
     "ORPHEUS_MAX_TOKENS_LIMIT": ("engine", "max_tokens_limit"),
     "ORPHEUS_DECODER_DEVICE": ("decoder", "device"),
     "ORPHEUS_DECODER_MAX_BATCH": ("decoder", "max_batch"),
