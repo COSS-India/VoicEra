@@ -113,9 +113,8 @@ def collect(tokens):
         pending = buffer.push_token(token_id)
         if pending is not None:
             windows.append((list(pending[0]), pending[1]))
-    tail = buffer.flush()
-    if tail is not None:
-        windows.append((list(tail[0]), tail[1]))
+    for window, emit in buffer.flush():
+        windows.append((list(window), emit))
     return windows, list(buffer.codes), buffer.count
 
 
@@ -142,18 +141,42 @@ def test_no_window_carries_an_out_of_range_code():
 
 
 # -- the emit tiling ---------------------------------------------------------
-def test_emit_slices_tile_the_stream_exactly_once():
-    """head [f0 f1], then one middle frame each, then tail [fN-2 fN-1]."""
-    windows, _, _ = collect(CLEAN)
+@pytest.mark.parametrize("n_frames", [1, 2, 3, 4, 5, 6, 9, 12, 20])
+def test_emit_slices_tile_the_stream_exactly_once(n_frames):
+    """Every frame is emitted exactly once, whatever the utterance length.
+
+    This is the property the whole windowing rests on: emit slices must cover
+    the stream with no gap (a dropped syllable) and no repeat (a stutter).
+    """
+    frames = [frame(*[(f * 7 + i) % CODEBOOK_SIZE for i in range(7)]) for f in range(n_frames)]
+    windows, _, _ = collect([t for f in frames for t in f])
     samples = codec.SAMPLES_PER_FRAME
     emitted = sum((e.stop - e.start) // samples for _, e in windows)
-    assert emitted == len(SIX_FRAMES)
-    assert windows[0][1] == codec.EMIT_HEAD
-    assert windows[-1][1] == codec.EMIT_TAIL
-    assert all(e == codec.EMIT_MIDDLE for _, e in windows[1:-1])
+    assert emitted == n_frames
 
 
-def test_a_stream_shorter_than_one_window_emits_nothing():
-    """Fewer than four frames never fills a window; flush must not invent one."""
+@pytest.mark.parametrize("n_frames", [1, 2, 3, 4, 5, 6, 9, 12, 20])
+def test_every_frame_is_emitted_from_real_context(n_frames):
+    """An emit slice must sit inside the window that produced it.
+
+    A slice running past the decoded window would read another frame's samples,
+    which is silent corruption rather than an error.
+    """
+    frames = [frame(*[(f * 7 + i) % CODEBOOK_SIZE for i in range(7)]) for f in range(n_frames)]
+    windows, _, _ = collect([t for f in frames for t in f])
+    samples = codec.SAMPLES_PER_FRAME
+    for window, emit in windows:
+        decoded = (len(window) // CODES_PER_FRAME) * samples
+        assert 0 <= emit.start < emit.stop <= decoded
+
+
+def test_a_short_stream_still_emits_its_audio():
+    """A sub-window utterance must not be silently dropped.
+
+    The old fixed 4-frame window emitted nothing at all below one window, so a
+    one-word reply returned a successful response carrying no audio. flush()
+    now drains whatever frames exist.
+    """
     windows, _, _ = collect([t for f in SIX_FRAMES[:3] for t in f])
-    assert windows == []
+    samples = codec.SAMPLES_PER_FRAME
+    assert sum((e.stop - e.start) // samples for _, e in windows) == 3

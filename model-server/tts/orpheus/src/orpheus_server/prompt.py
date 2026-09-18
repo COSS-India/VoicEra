@@ -22,7 +22,8 @@ TOK_EOT = 128009            # end of turn
 TOK_EOH = 128260            # end of human turn
 TOK_SOA = 128261            # start of AI turn
 TOK_SOS = 128257            # start of speech
-TOK_EOS = 128258            # end of speech -- the real stop token (NOT eos 128001)
+TOK_EOS = 128258            # end of speech -- the speech-specific stop token
+TOK_TEXT_EOS = 128001       # the Llama backbone's own eos, per config.json
 
 # Indic template markers (asymmetric; verified against the checkpoint tokenizer)
 TOK_SPEAKER_OPEN = 156938   # <|speaker>
@@ -30,7 +31,12 @@ TOK_SPEAKER_CLOSE = 156939  # <speaker|>
 TOK_STYLE_OPEN = 156940     # <|style>
 TOK_STYLE_CLOSE = 156941    # <style|>
 
-STOP_TOKEN_IDS = [TOK_EOS]
+# Both, because the checkpoint's own inference.py stops on either:
+#   eos_token_id=[<|end_of_speech|>, tok.eos_token_id]
+# Listing only 128258 meant that when the backbone closed a turn with its text
+# eos instead, generation ran on to max_tokens. 128001 maps to a negative code
+# so it was silently dropped as a non-audio token while the babble kept coming.
+STOP_TOKEN_IDS = [TOK_EOS, TOK_TEXT_EOS]
 
 TEMPLATE_INDIC = "indic"
 TEMPLATE_PLAIN = "plain"

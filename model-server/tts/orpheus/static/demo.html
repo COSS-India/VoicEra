@@ -232,34 +232,55 @@ function onLanguage() {
   if (entry.sample && !$('text').dataset.edited) $('text').value = entry.sample;
 }
 $('text').addEventListener('input', () => { $('text').dataset.edited = '1'; });
+// Enter speaks (Shift+Enter still inserts a newline) -- a bare <textarea> has
+// no submit behavior of its own, so without this Enter did nothing at all.
+$('text').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!$('speak').disabled) speak();
+  }
+});
 
 // ------------------------------------------------------------------ playback
 
-function ensureCtx() {
+async function ensureCtx() {
   if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-  if (ctx.state === 'suspended') ctx.resume();
+  // Chrome auto-suspends an idle AudioContext after some seconds of silence.
+  // Every Web Audio call below (createBuffer, createBufferSource, .start())
+  // succeeds silently while suspended -- nothing throws, the metrics still
+  // update -- but the destination never actually renders audio. So this must
+  // be awaited before scheduling anything, not fired-and-forgotten: a caller
+  // that does not wait sees a fully "successful" run with no sound.
+  if (ctx.state === 'suspended') {
+    try { await ctx.resume(); } catch (e) { /* surfaced by the state check in speak() */ }
+  }
   return ctx;
 }
 
 function playFrame(bytes, sampleRate) {
-  const pcm = new Int16Array(bytes);
-  if (!pcm.length) return;
-  const buf = ensureCtx().createBuffer(1, pcm.length, sampleRate);
-  const ch = buf.getChannelData(0);
-  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  src.connect(ctx.destination);
-  // Schedule back to back. Starting each frame "now" would leave a gap the
-  // length of whatever the network just did, which is audible as a stutter and
-  // would make the model sound worse than it is.
-  const now = ctx.currentTime;
-  if (cursor < now) cursor = now + 0.06;
-  src.start(cursor);
-  cursor += buf.duration;
-  sources.push(src);
-  audioMs += buf.duration * 1000;
-  setMetric('m_audio', audioMs / 1000, 1);
+  try {
+    const pcm = new Int16Array(bytes);
+    if (!pcm.length) return;
+    const buf = ctx.createBuffer(1, pcm.length, sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    // Schedule back to back. Starting each frame "now" would leave a gap the
+    // length of whatever the network just did, which is audible as a stutter and
+    // would make the model sound worse than it is.
+    const now = ctx.currentTime;
+    if (cursor < now) cursor = now + 0.06;
+    src.start(cursor);
+    cursor += buf.duration;
+    sources.push(src);
+    audioMs += buf.duration * 1000;
+    setMetric('m_audio', audioMs / 1000, 1);
+  } catch (e) {
+    console.error('playFrame failed', e);
+    setStatus('audio playback error: ' + e.message, 'err');
+  }
 }
 
 function stopPlayback() {
@@ -271,11 +292,18 @@ function stopPlayback() {
 
 // --------------------------------------------------------------- synthesis
 
-function speak() {
+async function speak() {
   const text = $('text').value.trim();
   if (!text) return;
   stopPlayback();
-  ensureCtx();
+  await ensureCtx();
+  if (ctx.state !== 'running') {
+    // A second user gesture is sometimes required to actually unstick a
+    // context the browser auto-suspended -- telling the user beats silence.
+    setStatus('audio is suspended by the browser -- click Speak again', 'err');
+    $('speak').disabled = false; $('stop').disabled = true;
+    return;
+  }
   audioMs = 0; firstFrameAt = 0;
   for (const id of ['m_ttfa', 'm_rtf', 'm_audio', 'm_tps', 'm_jit']) {
     $(id).classList.add('pending');

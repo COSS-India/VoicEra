@@ -19,6 +19,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import AsyncIterator, Optional
 
 from . import codec, prompt
@@ -91,8 +92,8 @@ class TTSEngine:
         self.started_at: Optional[float] = None
         self._engine = None
         self._tokenizer = None
-        self._decoder: Optional[codec.SnacDecoder] = None
-        self._batcher: Optional[codec.BatchedSnacDecoder] = None
+        self._decoder: Optional[codec.AudioDecoder] = None
+        self._batcher: Optional[codec.BatchedAudioDecoder] = None
         self._ready = asyncio.Event()
 
     # -- lifecycle ----------------------------------------------------------
@@ -105,10 +106,26 @@ class TTSEngine:
         from vllm import AsyncEngineArgs, AsyncLLMEngine
 
         cfg = self.settings
-        log.info("loading SNAC codec %s on %s", cfg.decoder.model_id, cfg.decoder.device)
-        self._decoder = codec.SnacDecoder(device=cfg.decoder.device, model_id=cfg.decoder.model_id)
-        self._batcher = codec.BatchedSnacDecoder(self._decoder, max_batch=cfg.decoder.max_batch)
+        # Empty vocos_path means "beside the checkpoint", which is where fetch.sh
+        # puts it. Resolved here rather than in the config default because it
+        # depends on the model path.
+        vocos_path = cfg.decoder.vocos_path or str(Path(self.model_path) / "vocos" / "best.pt")
+        log.info(
+            "loading codec: SNAC quantizer %s + Vocos decoder %s on %s",
+            cfg.decoder.model_id, vocos_path, cfg.decoder.device,
+        )
+        self._decoder = codec.AudioDecoder(
+            device=cfg.decoder.device,
+            model_id=cfg.decoder.model_id,
+            vocos_path=vocos_path,
+        )
+        self._batcher = codec.BatchedAudioDecoder(self._decoder, max_batch=cfg.decoder.max_batch)
         self._batcher.start()
+        log.info(
+            "streaming window: %d left + %d emit + %d right frames",
+            cfg.decoder.left_context_frames, cfg.decoder.emit_frames,
+            cfg.decoder.right_context_frames,
+        )
 
         log.info(
             "loading model %s (dtype=%s quantization=%s max_num_seqs=%d gpu_mem=%.2f tp=%d)",
@@ -311,6 +328,7 @@ class TTSEngine:
         params = SamplingParams(
             temperature=sampling.temperature,
             top_p=sampling.top_p,
+            top_k=sampling.top_k,
             repetition_penalty=sampling.repetition_penalty,
             max_tokens=max_tokens,
             min_tokens=sampling.min_tokens,
@@ -318,7 +336,12 @@ class TTSEngine:
             detokenize=False,          # we never want text back; skip the detokenizer entirely
         )
 
-        buffer = codec.StreamingAudioBuffer()
+        decoder_cfg = self.settings.decoder
+        buffer = codec.StreamingAudioBuffer(
+            left_context=decoder_cfg.left_context_frames,
+            emit=decoder_cfg.emit_frames,
+            right_context=decoder_cfg.right_context_frames,
+        )
         cursor = 0
         started = time.perf_counter()
         last_chunk_at: Optional[float] = None
@@ -354,11 +377,11 @@ class TTSEngine:
                 yield pcm
             cursor = len(tokens)
 
-        # No sliding window ever reaches the final two frames. Without this the
-        # closing ~171 ms of every utterance is generated and then thrown away.
-        pending = buffer.flush()
-        if pending is not None:
-            pcm = await self._batcher.decode(*pending)
+        # The trailing frames still waiting on right context that will never
+        # arrive. Without this the closing syllable of every utterance is
+        # generated and then thrown away.
+        for window, emit in buffer.flush():
+            pcm = await self._batcher.decode(window, emit)
             if pcm:
                 account(pcm)
                 yield pcm

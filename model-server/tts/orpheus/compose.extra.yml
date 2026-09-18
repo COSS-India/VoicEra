@@ -123,22 +123,36 @@ services:
       ORPHEUS_DRAIN_TIMEOUT: ${ORPHEUS_DRAIN_TIMEOUT:-30}
       ORPHEUS_HOST: ${ORPHEUS_HOST:-0.0.0.0}
 
-      # ---- sampling and limits, at upstream's shipped values ------------
-      # v2's production sampling, quoted from its model card: "ckpt-8944,
-      # t 0.6 · top_p 0.9 · rp 1.2". config.yaml still carries 0.8 / 1.3, which
-      # were verified against the PREVIOUS checkpoint -- inherited defaults are
-      # what this file exists to stop, so they are restated here rather than
-      # left to whichever value happened to ship.
+      # ---- sampling and limits, at the checkpoint's documented values ----
+      # The card's own reference call is
+      #   temperature=0.6, top_p=0.9, top_k=50, max_new_tokens=2520
+      # and config.yaml now matches it, but they are restated here because
+      # inherited defaults drifting out from under a deployment is exactly what
+      # this file exists to stop.
       #
-      # Their code example also passes top_k=50, which the benchmark line does
-      # not mention and this server cannot set at all. Open question for them;
-      # see docs/orpheus-v2-tremolo.md.
+      # top_k is plumbed through now; it previously could not be set at all, so
+      # sampling ran unrestricted over the whole vocabulary.
+      #
+      # repetition_penalty is 1.0 (off): neither the card nor its inference.py
+      # mentions one, and on SNAC codes a penalty punishes legitimately
+      # recurring codes -- silence, sustained vowels -- not repeated words.
       ORPHEUS_TEMPERATURE: ${ORPHEUS_TEMPERATURE:-0.6}
       ORPHEUS_TOP_P: ${ORPHEUS_TOP_P:-0.9}
-      ORPHEUS_REPETITION_PENALTY: ${ORPHEUS_REPETITION_PENALTY:-1.2}
+      ORPHEUS_TOP_K: ${ORPHEUS_TOP_K:-50}
+      ORPHEUS_REPETITION_PENALTY: ${ORPHEUS_REPETITION_PENALTY:-1.0}
       ORPHEUS_MIN_TOKENS: ${ORPHEUS_MIN_TOKENS:-28}
-      ORPHEUS_MAX_TOKENS_DEFAULT: ${ORPHEUS_MAX_TOKENS_DEFAULT:-8192}
+      # 2520 = the card's max_new_tokens (~30 s), the horizon the model was
+      # exercised at. 8192 let a missed stop token run ~100 s instead.
+      ORPHEUS_MAX_TOKENS_DEFAULT: ${ORPHEUS_MAX_TOKENS_DEFAULT:-2520}
       ORPHEUS_MAX_TOKENS_LIMIT: ${ORPHEUS_MAX_TOKENS_LIMIT:-8192}
+
+      # ---- streaming decode window --------------------------------------
+      # Vocos is non-causal, so each emitted frame is decoded with real audio
+      # either side of it. 4+4 measured 0.007% peak error against a
+      # whole-utterance decode; 3+3 left 3.0%.
+      ORPHEUS_LEFT_CONTEXT_FRAMES: ${ORPHEUS_LEFT_CONTEXT_FRAMES:-4}
+      ORPHEUS_RIGHT_CONTEXT_FRAMES: ${ORPHEUS_RIGHT_CONTEXT_FRAMES:-4}
+      ORPHEUS_EMIT_FRAMES: ${ORPHEUS_EMIT_FRAMES:-1}
 
       # ---- the SNAC codec ----------------------------------------------
       # A second HuggingFace repo, fetched at startup into hf_cache. Named here

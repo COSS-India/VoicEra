@@ -102,26 +102,70 @@ class EngineConfig(BaseModel):
 
 
 class DecoderConfig(BaseModel):
-    """SNAC audio-codec decoder."""
+    """SNAC quantizer + the checkpoint's own fine-tuned Vocos decoder.
 
-    device: str = Field("cuda", description="Torch device for the SNAC codec ('cuda', 'cuda:1', 'cpu').")
+    Only SNAC's QUANTIZER is used (0.56 MB of 79 MB). The waveform comes from
+    the Vocos decoder shipped beside the checkpoint, which is what the model was
+    trained against - the card gives the pipeline as
+    ``LM -> SNAC codes -> quantizer.from_codes -> z_q -> Vocos -> 24 kHz``.
+    """
+
+    device: str = Field("cuda", description="Torch device for the codec ('cuda', 'cuda:1', 'cpu').")
     max_batch: int = Field(
         256, ge=1,
-        description="Max SNAC windows coalesced into one decode call. Keep >= engine.max_num_seqs, "
+        description="Max windows coalesced into one decode call. Keep >= engine.max_num_seqs, "
                     "or decode batches less than it could and becomes a bottleneck under load.",
     )
-    model_id: str = Field("hubertsiuzdak/snac_24khz", description="SNAC codec weights (~76 MB, from HF).")
+    model_id: str = Field("hubertsiuzdak/snac_24khz", description="SNAC weights; only the quantizer is used.")
+    vocos_path: str = Field(
+        "", description="Vocos decoder checkpoint. Empty = <model path>/vocos/best.pt.",
+    )
+
+    # Streaming context. Vocos is non-causal, so a window needs real audio on
+    # both sides of the frames it emits or the convolutions pad with zeros and
+    # the seam is audible. Measured on this checkpoint against a whole-utterance
+    # decode: 3+3 frames still leaves 3.0% peak error, 4+4 drops it to 0.007%,
+    # and past that it is flat. 4 is therefore the knee, not a guess.
+    left_context_frames: int = Field(4, ge=0, description="Past frames fed to the decoder per window.")
+    right_context_frames: int = Field(
+        4, ge=0,
+        description="Future frames per window. The latency knob: each frame is one more "
+                    "frame of generation to wait for before the first audio goes out.",
+    )
+    emit_frames: int = Field(
+        1, ge=1,
+        description="Frames emitted per decode. 1 keeps 85 ms chunks (best for barge-in); "
+                    "raising it amortises decode over more audio at the cost of chunkier output.",
+    )
 
 
 class SamplingConfig(BaseModel):
-    """Generation sampling. These are stack-verified for Orpheus - changing them degrades audio."""
+    """Generation sampling, as recommended by the checkpoint's own model card.
+
+    The card's reference call is ``temperature=0.6, top_p=0.9, top_k=50,
+    max_new_tokens=2520``. Earlier values here (top_p 0.8, repetition_penalty
+    1.3) were carried over from upstream English Orpheus and verified against a
+    different checkpoint.
+    """
 
     temperature: float = 0.6
-    top_p: float = 0.8
-    repetition_penalty: float = 1.3
+    top_p: float = 0.9
+    top_k: int = Field(
+        50, ge=-1,
+        description="Card-recommended; -1 disables. Was never plumbed through before, so "
+                    "sampling ran unrestricted over the whole 156 960-token vocabulary.",
+    )
+    repetition_penalty: float = Field(
+        1.0,
+        description="1.0 = off, which is what the card and its inference.py use - neither "
+                    "mentions a repetition penalty. The previous 1.3 was invented here; on "
+                    "SNAC codes it penalises legitimately recurring codes (silence, "
+                    "sustained vowels) rather than repeated words.",
+    )
     min_tokens: int = Field(
         28, ge=0,
-        description="Floor before the stop token is honoured; 28 = one full decode window (~0.34 s).",
+        description="Floor before the stop token is honoured; 28 = 4 frames, enough that a "
+                    "clip always survives the decoder's context window.",
     )
 
 
@@ -203,8 +247,13 @@ _ENV_MAP: dict[str, tuple[str, ...]] = {
     "ORPHEUS_DECODER_DEVICE": ("decoder", "device"),
     "ORPHEUS_DECODER_MAX_BATCH": ("decoder", "max_batch"),
     "ORPHEUS_SNAC_MODEL_ID": ("decoder", "model_id"),
+    "ORPHEUS_VOCOS_PATH": ("decoder", "vocos_path"),
+    "ORPHEUS_LEFT_CONTEXT_FRAMES": ("decoder", "left_context_frames"),
+    "ORPHEUS_RIGHT_CONTEXT_FRAMES": ("decoder", "right_context_frames"),
+    "ORPHEUS_EMIT_FRAMES": ("decoder", "emit_frames"),
     "ORPHEUS_TEMPERATURE": ("sampling", "temperature"),
     "ORPHEUS_TOP_P": ("sampling", "top_p"),
+    "ORPHEUS_TOP_K": ("sampling", "top_k"),
     "ORPHEUS_REPETITION_PENALTY": ("sampling", "repetition_penalty"),
     "ORPHEUS_MIN_TOKENS": ("sampling", "min_tokens"),
     "ORPHEUS_WARMUP_ENABLED": ("warmup", "enabled"),
