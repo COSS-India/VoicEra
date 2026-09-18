@@ -93,6 +93,14 @@ function normalizePairValue(field: CatalogPairField, raw: string): string {
   if (field.normalize === "digits") {
     return value.replace(/\D+/g, "");
   }
+  if (field.normalize === "e164") {
+    const wantsPlus = value.startsWith("+") || raw.trimStart().startsWith("+");
+    const digits = value.replace(/\D+/g, "");
+    if (!digits) {
+      return wantsPlus ? "+" : "";
+    }
+    return `+${digits}`;
+  }
   return value;
 }
 
@@ -209,7 +217,11 @@ function PairFieldsEditor({
                   <input
                     id={`${fieldKey}-${index}-${field.key}`}
                     type="text"
-                    inputMode={field.normalize === "digits" ? "numeric" : undefined}
+                    inputMode={
+                      field.normalize === "digits" || field.normalize === "e164"
+                        ? "tel"
+                        : undefined
+                    }
                     autoComplete="off"
                     spellCheck={false}
                     disabled={disabled}

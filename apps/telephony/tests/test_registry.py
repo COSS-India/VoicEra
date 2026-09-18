@@ -25,7 +25,7 @@ from apps.telephony.providers.vobiz import VobizClient
 from apps.telephony.providers.plivo import PlivoClient
 from apps.telephony.providers.vi import ViClient
 
-_DNI = "919876543210"
+_DNI = "+919876543210"
 _FLOW = "test-flow"
 _DNI_FLOWS = f'[{{"dni":"{_DNI}","flow_id":"{_FLOW}"}}]'
 

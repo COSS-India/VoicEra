@@ -33,8 +33,8 @@ class ViAuth(BaseTelephonyAuth):
     )
     dni_flows: str = Field(
         description=(
-            "One or more DNI + DIY flow_id pairs. DNI must be digits with "
-            "country code and no + (e.g. 919876543210) — same as VI OBD."
+            "One or more DNI + DIY flow_id pairs. Enter DNI as E.164 "
+            "+91XXXXXXXXXX; outbound OBD uses getActiveDNIList wire form."
         ),
         json_schema_extra={
             "secret": True,
@@ -44,9 +44,9 @@ class ViAuth(BaseTelephonyAuth):
                 {
                     "key": "dni",
                     "label": "DNI",
-                    "placeholder": "919876543210",
-                    "description": "Digits with country code only — no +. Example: 919876543210",
-                    "normalize": "digits",
+                    "placeholder": "+919876543210",
+                    "description": "Indian mobile with country code. Example: +919876543210",
+                    "normalize": "e164",
                 },
                 {
                     "key": "flow_id",
@@ -56,7 +56,7 @@ class ViAuth(BaseTelephonyAuth):
                 },
             ],
             "examples": [
-                '[{"dni":"919876543210","flow_id":"68sXGL6Llic/7YdDGEtGBg=="}]'
+                '[{"dni":"+919876543210","flow_id":"68sXGL6Llic/7YdDGEtGBg=="}]'
             ],
         },
     )

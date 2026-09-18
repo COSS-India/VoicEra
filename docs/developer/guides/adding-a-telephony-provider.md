@@ -343,7 +343,7 @@ VI does **not** follow the Vobiz/Plivo answer-URL model for live media:
 * Credentials: **org ProviderAuth only** via Integrations — `auth_id` (OBD username), `auth_token` (OBD password), and `dni_flows` (one or more DNI + DIY flow_id pairs). There is no env-based dialing.
 * Availability: `is_authenticated("vi")` is true only when Integrations has `vi` configured for the org.
 * Numbers inventory: `list_numbers` returns every auth DNI so each configured number appears under Numbers for VI.
-* DNI format: digits with country code, **no** `+` (e.g. `919876543210`) — same as VI OBD. Inventory still shows E.164 with `+`.
+* DNI in Integrations: E.164 ``+91XXXXXXXXXX``. OBD ingest prefers ``getActiveDNIList`` wire form for the flow; fallback is country-code digits without ``+`` (e.g. ``919876543210``). Callee MSISDN is always 10-digit national.
 * Dialing: even a single outbound is CPaaS OBD `createCampaign` + ingest; campaigns use `initiate_bulk_calls` on the client. From-number falls back to the first `dni_flows` DNI when no number is linked.
 * Media: DIY flow opens `wss://…/vi/stream` (or legacy `/vi/agent/{agent_id}`); session logic lives in `providers/vi/stream_session.py` with a thin runtime route mount. Pipeline uses VI sample-rate selection via `telephony_rates.py`.
 * Provisioning: stub application; client returns the WSS stream URL as `answer_url`.

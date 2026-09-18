@@ -11,7 +11,12 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from .auth_helpers import ViAuthError, normalize_msisdn, resolve_dni_and_flow
+from .auth_helpers import (
+    ViAuthError,
+    normalize_msisdn,
+    resolve_dni_and_flow,
+    to_obd_dni_fallback,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +196,76 @@ class ViObdClient:
             )
         body["_request_payload"] = payload
         return body
+
+    def get_active_dni(self, token: str, flow_id: str) -> dict:
+        """Fetch active DNI list for a DIY flow (portal wire forms)."""
+        payload = {"flowId": flow_id}
+        body, status = self._request(
+            "getActiveDNIList",
+            token=token,
+            json_body=payload,
+        )
+        body = body if isinstance(body, dict) else {"_raw": body}
+        body["_request_url"] = self._last_request_url
+        body["_request_payload"] = payload
+
+        if status != 200:
+            raise ViObdError(
+                f"getActiveDNIList failed (HTTP {status}) at {self._last_request_url}: {body}"
+            )
+        return body
+
+    def resolve_outbound_dni(
+        self,
+        token: str,
+        flow_id: str,
+        configured_dni: str,
+    ) -> tuple[str, str]:
+        """Resolve OBD ingest DNI — live portal list first, then Integrations fallback.
+
+        ``getActiveDNIList`` returns the DNI string VI expects for that flow
+        (often 10-digit or ``91…``). Prefer an entry matching the configured
+        Integrations number; otherwise the first list value. On empty/failed
+        lookup, fall back to country-code digits from Integrations ``+91…``.
+        """
+        configured_msisdn = normalize_msisdn(configured_dni)
+        try:
+            body = self.get_active_dni(token, flow_id)
+            dni_list = [
+                str(x).strip()
+                for x in (body.get("dniList") or [])
+                if str(x).strip()
+            ]
+            if dni_list:
+                chosen = dni_list[0]
+                for candidate in dni_list:
+                    if normalize_msisdn(candidate) == configured_msisdn:
+                        chosen = candidate
+                        break
+                logger.info(
+                    "VI DNI resolved via getActiveDNIList: %s (from %d options, configured=%s)",
+                    chosen,
+                    len(dni_list),
+                    configured_dni,
+                )
+                return chosen, "getActiveDNIList"
+            logger.warning(
+                "getActiveDNIList returned empty dniList for flowId=%s", flow_id
+            )
+        except ViObdError as exc:
+            logger.warning(
+                "getActiveDNIList failed for flowId=%s, falling back to dni_flows: %s",
+                flow_id,
+                exc,
+            )
+
+        fallback = to_obd_dni_fallback(configured_dni)
+        logger.info(
+            "VI DNI resolved via dni_flows fallback: %s (from configured=%s)",
+            fallback,
+            configured_dni,
+        )
+        return fallback, "dni_flows"
 
     @staticmethod
     def _campain_key_from_response(create_response: dict) -> str:
@@ -447,10 +522,17 @@ class ViObdClient:
         agent_id: str | None = None,
         window_hours: float = 1.0,
     ) -> dict[str, Any]:
-        """Auth → resolve DNI/flow → createCampaign → ingest one MSISDN."""
+        """Auth → resolve flow → live DNI → createCampaign → ingest one MSISDN.
+
+        Callee MSISDN is always 10-digit national. DNI prefers
+        ``getActiveDNIList`` (portal wire form); Integrations ``+91…`` is
+        fallback only.
+        """
         del agent_id  # reserved for logging / custom_parameters in portal flows
         try:
-            dni, flow_id = resolve_dni_and_flow(self._dni_flows, from_number)
+            configured_dni, flow_id = resolve_dni_and_flow(
+                self._dni_flows, from_number
+            )
         except ViAuthError as exc:
             raise ViObdError(str(exc)) from exc
         msisdn = normalize_msisdn(to_number)
@@ -458,6 +540,7 @@ class ViObdClient:
             raise ViObdError(f"Invalid to_number for VI OBD: {to_number!r}")
 
         token, _ = self.get_auth_token()
+        dni, dni_source = self.resolve_outbound_dni(token, flow_id, configured_dni)
         create_response = self.create_campaign(
             token,
             flow_id=flow_id,
@@ -473,6 +556,8 @@ class ViObdClient:
             "campaign_Ref_ID": campaign_ref_id,
             "campainKey": campain_key,
             "dni": dni,
+            "dni_source": dni_source,
+            "configured_dni": configured_dni,
             "flow_id": flow_id,
             "msisdn": msisdn,
             "call_uuid": campaign_ref_id,
@@ -487,18 +572,21 @@ class ViObdClient:
         name: Optional[str] = None,
         description: str = "VoicERA VI campaign",
     ) -> dict[str, Any]:
-        """Auth → create one campaign → bulk ingest all MSISDNs."""
+        """Auth → resolve live DNI → create one campaign → bulk ingest MSISDNs."""
         msisdns = [normalize_msisdn(n) for n in to_numbers if str(n).strip()]
         msisdns = [m for m in msisdns if m]
         if not msisdns:
             raise ViObdError("place_bulk_outbound_calls requires at least one number")
 
         try:
-            dni, flow_id = resolve_dni_and_flow(self._dni_flows, from_number)
+            configured_dni, flow_id = resolve_dni_and_flow(
+                self._dni_flows, from_number
+            )
         except ViAuthError as exc:
             raise ViObdError(str(exc)) from exc
         window_hours = max(1.0, float(math.ceil(len(msisdns) / 50.0)))
         token, _ = self.get_auth_token()
+        dni, dni_source = self.resolve_outbound_dni(token, flow_id, configured_dni)
         create_response = self.create_campaign(
             token,
             flow_id=flow_id,
@@ -516,6 +604,8 @@ class ViObdClient:
             "campaign_Ref_ID": campaign_ref_id,
             "campainKey": campain_key,
             "dni": dni,
+            "dni_source": dni_source,
+            "configured_dni": configured_dni,
             "flow_id": flow_id,
             "msisdns": msisdns,
             "window_hours": window_hours,

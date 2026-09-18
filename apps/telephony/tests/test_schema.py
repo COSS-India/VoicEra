@@ -19,7 +19,7 @@ from apps.telephony.providers.vobiz.config import VobizConfig
 from apps.telephony.providers.vi.config import ViConfig
 from apps.telephony.schema import DEFAULT_SERVICE_PROVIDERS
 
-_DNI = "919876543210"
+_DNI = "+919876543210"
 _FLOW = "test-flow"
 _DNI_FLOWS = f'[{{"dni":"{_DNI}","flow_id":"{_FLOW}"}}]'
 
@@ -74,6 +74,8 @@ def test_vi_secrets_and_dni_flow_fields():
     assert fields["dni_flows"]["secret"] is True
     assert fields["dni_flows"]["integration_model"] == "ViDniFlows"
     assert fields["dni_flows"]["pair_fields"][0]["key"] == "dni"
+    assert fields["dni_flows"]["pair_fields"][0]["normalize"] == "e164"
+    assert fields["dni_flows"]["pair_fields"][0]["placeholder"] == "+919876543210"
     assert fields["dni_flows"]["pair_fields"][1]["key"] == "flow_id"
 
 

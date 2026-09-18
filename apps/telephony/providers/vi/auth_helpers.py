@@ -24,34 +24,48 @@ def normalize_msisdn(number: str) -> str:
 
 
 def normalize_dni(number: str) -> str:
-    """Normalize a DNI to OBD wire form: digits only with country code (no ``+``).
+    """Digits-only DNI with India country code (no ``+``).
 
-    Examples: ``+919876543210`` / ``919876543210`` → ``919876543210``.
+    Accepts ``+9198…``, ``9198…``, or 10-digit national. Used for matching;
+    Integrations storage uses :func:`format_dni_e164`.
     """
-    return _PHONE_DIGITS.sub("", str(number or "").strip().lstrip("+"))
+    digits = _PHONE_DIGITS.sub("", str(number or "").strip().lstrip("+"))
+    if len(digits) == 10 and digits.isdigit():
+        return f"91{digits}"
+    return digits
 
 
 def format_dni_e164(dni: str) -> str:
-    """Return DNI with a leading ``+`` for inventory / CallLog storage."""
+    """Canonical Integrations / inventory form: ``+91XXXXXXXXXX``."""
     digits = normalize_dni(dni)
     if not digits:
         raise ViAuthError("dni is required and must not be empty")
+    if not digits.isdigit():
+        raise ViAuthError(
+            "dni must be an Indian mobile as +91XXXXXXXXXX "
+            "(e.g. +919876543210)"
+        )
+    if not (digits.startswith("91") and len(digits) == 12):
+        raise ViAuthError(
+            "dni must be an Indian mobile as +91XXXXXXXXXX "
+            "(e.g. +919876543210)"
+        )
     return f"+{digits}"
 
 
+def to_obd_dni_fallback(dni: str) -> str:
+    """OBD ingest DNI when ``getActiveDNIList`` is unavailable.
+
+    Matches the common working-branch ``VI_DNI`` form: country-code digits,
+    no ``+`` (e.g. ``919876543210``). Prefer live portal DNI when available.
+    """
+    return format_dni_e164(dni).lstrip("+")
+
+
 def _pair(dni: Any, flow_id: Any) -> dict[str, str]:
-    """Build one auth pair; DNI is always stored in OBD digits-only form."""
-    dni_value = normalize_dni(str(dni or ""))
+    """Build one auth pair; DNI is always stored as E.164 ``+91…``."""
+    dni_value = format_dni_e164(str(dni or ""))
     flow_value = str(flow_id or "").strip()
-    if not dni_value:
-        raise ViAuthError(
-            "dni is required (digits with country code, no +; e.g. 919876543210)"
-        )
-    if not dni_value.isdigit():
-        raise ViAuthError(
-            "dni must be digits with country code only (no + or spaces); "
-            "e.g. 919876543210"
-        )
     if not flow_value:
         raise ViAuthError("flow_id is required and must not be empty")
     return {"dni": dni_value, "flow_id": flow_value}
@@ -61,7 +75,8 @@ def parse_dni_flows(raw: str | list | None) -> list[dict[str, str]]:
     """Parse ProviderAuth ``dni_flows`` into ``[{dni, flow_id}, ...]``.
 
     Accepts a JSON array string or an already-decoded list. Each item must
-    have non-empty ``dni`` and ``flow_id``.
+    have non-empty ``dni`` and ``flow_id``. DNI values are canonicalized to
+    E.164 ``+91…`` (legacy ``919…`` / 10-digit forms are accepted).
     """
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         raise ViAuthError("dni_flows is required and must not be empty")
@@ -118,6 +133,8 @@ def resolve_dni_and_flow(
     Prefers ``dni_flows``. Legacy single ``dni``/``flow_id`` kwargs are still
     accepted. When ``from_number`` is set, pick the matching pair (digit-
     normalized); with one pair and no ``from_number``, use that pair.
+    Returned ``dni`` is E.164; OBD wire form is chosen later via live
+    ``getActiveDNIList`` (or :func:`to_obd_dni_fallback`).
     """
     if dni_flows is not None and str(dni_flows).strip() != "":
         pairs = parse_dni_flows(dni_flows)
