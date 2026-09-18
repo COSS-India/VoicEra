@@ -187,18 +187,33 @@ def answer_url_to_vi_stream(answer_url: str) -> str:
 
 
 def phone_lookup_candidates(raw: str) -> list[str]:
-    """Generate likely linked_phone_number spellings for DNI/CLI lookup."""
+    """Generate likely linked_phone_number spellings for DNI/CLI lookup.
+
+    Handles common VI portal forms: national 10-digit, ``91…`` without ``+``,
+    and E.164 ``+91…``.
+    """
     value = str(raw or "").strip()
     if not value:
         return []
     digits = "".join(ch for ch in value if ch.isdigit())
     candidates: list[str] = []
-    for item in (value, f"+{digits}" if digits else "", digits):
+
+    def _add(item: str) -> None:
         if item and item not in candidates:
             candidates.append(item)
+
+    _add(value)
+    if digits:
+        _add(digits)
+        _add(f"+{digits}")
     if digits.startswith("91") and len(digits) > 10:
         national = digits[2:]
-        for item in (national, f"+{digits}", f"+91{national}"):
-            if item and item not in candidates:
-                candidates.append(item)
+        _add(national)
+        _add(f"+{digits}")
+        _add(f"+91{national}")
+        _add(f"91{national}")
+    elif len(digits) == 10:
+        # Indian mobile without country code (common VI start.dni form).
+        _add(f"91{digits}")
+        _add(f"+91{digits}")
     return candidates

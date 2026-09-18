@@ -127,73 +127,88 @@ class ViFrameSerializer(FrameSerializer):
             },
         }
 
+    def _build_mark_message(self, name: str) -> dict:
+        return {
+            "event": "mark",
+            "sequence_number": self._next_sequence(),
+            "room_id": self._room_id,
+            "mark": {"name": name},
+        }
+
+    def _build_clear_message(self) -> dict:
+        return {
+            "event": "clear",
+            "sequence_number": self._next_sequence(),
+            "room_id": self._room_id,
+        }
+
+    def _build_exit_message(self) -> dict:
+        return {
+            "event": "exit",
+            "sequence_number": self._next_sequence(),
+            "room_id": self._room_id,
+            "exit": {"parameters": dict(self._params.exit_parameters)},
+        }
+
+    async def _send_out_of_band(self, message: dict) -> None:
+        if self._websocket is None:
+            return
+        try:
+            await self._websocket.send_text(json.dumps(message))
+        except Exception as exc:
+            logger.debug("VI out-of-band send failed: {}", exc)
+
+    async def _wait_for_playback(self) -> None:
+        remaining = max(0.0, self._playout_deadline - time.monotonic())
+        timeout = min(remaining + DRAIN_GRACE_SECS, MAX_DRAIN_SECS)
+        try:
+            await asyncio.wait_for(self._final_mark_event.wait(), timeout=timeout)
+            logger.debug("VI confirmed final playback via mark")
+        except asyncio.TimeoutError:
+            logger.warning(
+                "VI did not acknowledge final mark within {:.1f}s; exiting anyway",
+                timeout,
+            )
+
+    async def _drain_and_exit(self) -> str:
+        self._exit_sent = True
+        tail = self._take_output_chunk(force=True)
+        if tail:
+            await self._send_out_of_band(self._build_media_message(tail))
+        if self._websocket is not None:
+            await self._send_out_of_band(self._build_mark_message(FINAL_MARK_NAME))
+            await self._wait_for_playback()
+        return json.dumps(self._build_exit_message())
+
+    async def _resample_to_vi_rate(self, audio: bytes, sample_rate: int) -> bytes:
+        if sample_rate == VI_SAMPLE_RATE:
+            return audio
+        return await self._output_resampler.resample(audio, sample_rate, VI_SAMPLE_RATE)
+
     async def serialize(self, frame: Frame) -> str | bytes | None:
         if isinstance(frame, InterruptionFrame):
             self._output_buffer.clear()
-            return json.dumps(
-                {
-                    "event": "clear",
-                    "sequence_number": self._next_sequence(),
-                    "room_id": self._room_id,
-                }
-            )
+            self._playout_deadline = time.monotonic()
+            return json.dumps(self._build_clear_message())
 
         if isinstance(frame, (EndFrame, CancelFrame)):
-            if self._exit_sent:
+            if self._exit_sent or not self._params.auto_exit:
                 return None
-            self._exit_sent = True
-            messages: list[str] = []
-            while True:
-                chunk = self._take_output_chunk(force=True)
-                if not chunk:
-                    break
-                messages.append(json.dumps(self._build_media_message(chunk)))
-
-            messages.append(
-                json.dumps(
-                    {
-                        "event": "mark",
-                        "sequence_number": self._next_sequence(),
-                        "room_id": self._room_id,
-                        "mark": {"name": FINAL_MARK_NAME},
-                    }
-                )
-            )
-
-            remaining = max(0.0, self._playout_deadline - time.monotonic())
-            wait_secs = min(remaining + DRAIN_GRACE_SECS, MAX_DRAIN_SECS)
-            if wait_secs > 0 and not self._stop_received:
-                try:
-                    await asyncio.wait_for(
-                        self._final_mark_event.wait(), timeout=wait_secs
-                    )
-                except asyncio.TimeoutError:
-                    logger.debug("VI final mark wait timed out after {:.1f}s", wait_secs)
-
-            if self._params.auto_exit:
-                messages.append(
-                    json.dumps(
-                        {
-                            "event": "exit",
-                            "sequence_number": self._next_sequence(),
-                            "room_id": self._room_id,
-                            "parameters": self._params.exit_parameters or {},
-                        }
-                    )
-                )
-            return "\n".join(messages) if messages else None
+            if self._stop_received:
+                self._exit_sent = True
+                self._output_buffer.clear()
+                return None
+            return await self._drain_and_exit()
 
         if isinstance(frame, AudioRawFrame):
-            audio = frame.audio
-            if frame.sample_rate and frame.sample_rate != VI_SAMPLE_RATE:
-                audio = await self._output_resampler.resample(
-                    audio, frame.sample_rate, VI_SAMPLE_RATE
-                )
-            self._output_buffer.extend(audio)
-            chunk = self._take_output_chunk(force=False)
-            if not chunk:
+            data = await self._resample_to_vi_rate(frame.audio, frame.sample_rate)
+            if not data:
                 return None
-            return json.dumps(self._build_media_message(chunk))
+            self._output_buffer.extend(data)
+            chunk = self._take_output_chunk(force=False)
+            if chunk:
+                return json.dumps(self._build_media_message(chunk))
+            return None
 
         return None
 
@@ -215,6 +230,8 @@ class ViFrameSerializer(FrameSerializer):
             try:
                 pcm = base64.b64decode(payload)
             except Exception:
+                return None
+            if not pcm:
                 return None
             if self._sample_rate and self._sample_rate != VI_SAMPLE_RATE:
                 pcm = await self._input_resampler.resample(
@@ -239,6 +256,8 @@ class ViFrameSerializer(FrameSerializer):
             return InterruptionFrame()
 
         if event == "stop":
+            reason = (message.get("stop") or {}).get("reason", "")
+            logger.info("VI stop event received (reason={})", reason)
             self._stop_received = True
             self._final_mark_event.set()
             return EndFrame()

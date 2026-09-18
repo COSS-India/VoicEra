@@ -79,6 +79,9 @@ def get_provider_dial_credentials(org_id: str, provider: str) -> dict[str, Any]:
     # Ensure core fields are present even if catalog only had defaults.
     auth.setdefault("auth_id", getattr(config, "auth_id", None))
     auth.setdefault("auth_token", getattr(config, "auth_token", None))
+    for key in ("dni_flows", "base_url"):
+        if not auth.get(key) and getattr(config, key, None):
+            auth[key] = getattr(config, key)
     result: dict[str, Any] = {
         key: value
         for key, value in auth.items()
@@ -128,6 +131,29 @@ def load_telephony_client(org_id: str, provider: str):
     """Return a configured telephony client for ``provider``."""
     config = _build_config(org_id, provider)
     return create_client(config)
+
+
+def resolve_vi_from_number_fallback(org_id: str) -> str | None:
+    """Return the first E.164 DNI from org ProviderAuth ``dni_flows``."""
+    from apps.telephony.providers.vi.auth_helpers import (
+        ViAuthError,
+        format_dni_e164,
+        parse_dni_flows,
+    )
+
+    try:
+        stored = auth_service.get_provider_auth(
+            org_id, "vi", mask_secrets=False
+        ) or {}
+        auth = stored.get("auth") or {}
+        flows = auth.get("dni_flows")
+        if flows:
+            pairs = parse_dni_flows(flows)
+            if pairs:
+                return format_dni_e164(pairs[0]["dni"])
+    except (ViAuthError, Exception):
+        pass
+    return None
 
 
 def _attachment_from_result(

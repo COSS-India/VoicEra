@@ -156,3 +156,12 @@ def test_auth_token_failure() -> None:
     client._request = fake_request  # type: ignore[method-assign]
     with pytest.raises(ViObdError, match="AuthToken"):
         client.get_auth_token()
+
+
+def test_phone_lookup_candidates_adds_india_country_code() -> None:
+    from apps.telephony.providers.vi.auth_helpers import phone_lookup_candidates
+
+    candidates = phone_lookup_candidates("9769554706")
+    assert "9769554706" in candidates
+    assert "+919769554706" in candidates
+    assert "919769554706" in candidates

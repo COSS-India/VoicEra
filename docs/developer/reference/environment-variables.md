@@ -94,6 +94,12 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 | `TELEPHONY_BULK_STATUS_POLL_SECS` | `30` | No | Bulk-outbound campaign status poll interval (API worker). |
 | `TELEPHONY_BULK_STATUS_POLL_MAX_ROUNDS` | `120` | No | Max bulk status polls; `0` disables. |
 
+### Vodafone Idea (VI)
+
+OBD username, password, and DNI/flow pairs come from **Integrations ProviderAuth** only (`auth_id`, `auth_token`, `dni_flows`) — not from process env. Configure them via `POST /auth` for provider `vi`.
+
+Portal DIY Streaming Object should target `wss://<VOICE_SERVER_BASE_URL host>/vi/stream` (legacy: `/vi/agent/{agent_id}`). Link the agent’s number so it matches the DNI on the DIY flow (E.164 `+91…` is fine; runtime also accepts 10-digit national forms).
+
 `RUNTIME_HOST` and `RUNTIME_PORT` are absent from `.env.example`; they only matter when you start the runtime through its `main()` entry point rather than a uvicorn command line.
 
 ## Dashboard

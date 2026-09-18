@@ -340,12 +340,13 @@ There is no CI. Run these yourself before opening a pull request, and test a rea
 
 VI does **not** follow the Vobiz/Plivo answer-URL model for live media:
 
-* Credentials: org ProviderAuth via Integrations — `auth_id` (OBD username), `auth_token` (OBD password), and `dni_flows` (one or more DNI + DIY flow_id pairs). Not env dialing.
+* Credentials: **org ProviderAuth only** via Integrations — `auth_id` (OBD username), `auth_token` (OBD password), and `dni_flows` (one or more DNI + DIY flow_id pairs). There is no env-based dialing.
+* Availability: `is_authenticated("vi")` is true only when Integrations has `vi` configured for the org.
 * Numbers inventory: `list_numbers` returns every auth DNI so each configured number appears under Numbers for VI.
-* DNI format: digits with country code, **no** `+` (e.g. `919876543210`) — same as VI OBD / prior `VI_DNI`. Inventory still shows E.164 with `+`.
-* Dialing: even a single outbound is CPaaS OBD `createCampaign` + ingest; campaigns use `initiate_bulk_calls` on the client.
-* Media: DIY flow opens `wss://…/vi/stream` directly; session logic lives in `providers/vi/stream_session.py` with a thin runtime route mount.
+* DNI format: digits with country code, **no** `+` (e.g. `919876543210`) — same as VI OBD. Inventory still shows E.164 with `+`.
+* Dialing: even a single outbound is CPaaS OBD `createCampaign` + ingest; campaigns use `initiate_bulk_calls` on the client. From-number falls back to the first `dni_flows` DNI when no number is linked.
+* Media: DIY flow opens `wss://…/vi/stream` (or legacy `/vi/agent/{agent_id}`); session logic lives in `providers/vi/stream_session.py` with a thin runtime route mount. Pipeline uses VI sample-rate selection via `telephony_rates.py`.
 * Provisioning: stub application; client returns the WSS stream URL as `answer_url`.
 * Recordings: Pipecat AudioBuffer only — no VI recording webhook.
 
-Optional runtime fallbacks only: `VI_DEFAULT_AGENT_ID` / `VI_DEFAULT_ORG_ID` when DNI lookup fails on `/vi/stream`. Bulk status poll knobs: `TELEPHONY_BULK_STATUS_POLL_SECS`, `TELEPHONY_BULK_STATUS_POLL_MAX_ROUNDS`.
+Optional runtime routing fallbacks only (not credentials): `VI_DEFAULT_AGENT_ID` / `VI_DEFAULT_ORG_ID` when DNI lookup fails on `/vi/stream`. Bulk status poll: `TELEPHONY_BULK_STATUS_POLL_*`.

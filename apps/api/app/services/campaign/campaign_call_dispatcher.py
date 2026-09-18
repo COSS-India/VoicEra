@@ -61,6 +61,18 @@ class CampaignCallDispatcher:
                 num = doc.get("phone_number")
                 if num and num not in numbers:
                     numbers.append(str(num))
+        if numbers:
+            return numbers
+        # VI: first DNI from ProviderAuth dni_flows when no linked inventory.
+        provider = self._telephony_provider(campaign)
+        if provider == "vi":
+            from app.services.agent_telephony_service import (
+                resolve_vi_from_number_fallback,
+            )
+
+            dni = resolve_vi_from_number_fallback(org_id)
+            if dni:
+                return [dni]
         return numbers
 
     def _pool_scope(self, agent_id: str) -> str:

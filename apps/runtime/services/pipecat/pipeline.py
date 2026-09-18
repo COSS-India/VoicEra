@@ -28,9 +28,14 @@ async def run_pipeline(
     custom_variables: dict[str, Any] | None = None,
     session_label: str = "session",
     finalize_call: bool = False,
+    stt: Any | None = None,
+    tts: Any | None = None,
+    llm: Any | None = None,
+    recording_sample_rate: int | None = None,
 ) -> None:
     """Shared Pipecat pipeline for telephony and browser WebSocket agents."""
-    stt, tts, llm = await build_ai_services(agent)
+    if stt is None or tts is None or llm is None:
+        stt, tts, llm = await build_ai_services(agent)
     if call_id:
         for member in llm.services:
             if hasattr(member, "set_call_id"):
@@ -60,6 +65,7 @@ async def run_pipeline(
         agent=agent,
         org_id=org_id,
         behaviour=behaviour,
+        recording_sample_rate=recording_sample_rate,
     )
 
     if call_id:

@@ -69,6 +69,8 @@ def _resolve_from_number(
     agent_id: str,
     agent: dict[str, Any],
     from_number_override: str | None,
+    *,
+    provider: str | None = None,
 ) -> str:
     if from_number_override:
         return _normalize_phone(from_number_override, field="from_number")
@@ -85,6 +87,20 @@ def _resolve_from_number(
         )
     except PhoneNumberNotFoundError:
         pass
+
+    # VI: fall back to first DNI in ProviderAuth dni_flows.
+    normalized_provider = (provider or "").strip().lower()
+    if not normalized_provider:
+        telephony = agent.get("telephony") or {}
+        normalized_provider = str(telephony.get("provider") or "").strip().lower()
+    if normalized_provider == "vi":
+        from app.services.agent_telephony_service import (
+            resolve_vi_from_number_fallback,
+        )
+
+        auth_dni = resolve_vi_from_number_fallback(org_id)
+        if auth_dni:
+            return _normalize_phone(auth_dni, field="from_number")
 
     raise OutboundCallError(
         "No caller ID configured for this agent. "
@@ -123,7 +139,9 @@ async def initiate_outbound_call(
 
     provider = _require_telephony_agent(agent)
     normalized_to = _normalize_phone(to_number, field="to_number")
-    normalized_from = _resolve_from_number(org_id, agent_id, agent, from_number)
+    normalized_from = _resolve_from_number(
+        org_id, agent_id, agent, from_number, provider=provider
+    )
     variables = dict(custom_variables or {})
 
     call_id = str(uuid.uuid4())
