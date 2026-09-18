@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 import httpx
-import jwt
 from loguru import logger
 from pipecat.frames.frames import (
     Frame,
@@ -28,7 +26,7 @@ from .call_ending import (
     schedule_end_call,
     strip_goodbye_for_tts,
 )
-from .catalog import BHARAT_VISTAAR_CHAT_MODEL, BHARAT_VISTAAR_JWT_ISS
+from .catalog import BHARAT_VISTAAR_CHAT_MODEL, generate_jwt
 from .llm import extract_last_user_message
 
 
@@ -130,16 +128,7 @@ class BharatVistaarLLMService(KenpathCallEndingMixin, LLMService):
         return self._call_id or str(uuid.uuid4())
 
     def _generate_jwt(self) -> str:
-        now = int(time.time())
-        call_id = self._session_id()
-        payload = {
-            "user_id": call_id,
-            "tenant_id": call_id,
-            "iss": BHARAT_VISTAAR_JWT_ISS,
-            "iat": now,
-            "exp": now + 3600,
-        }
-        return jwt.encode(payload, self._private_key, algorithm="RS256")
+        return generate_jwt(self._private_key, backend="bharatvistaar", subject=self._session_id())
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:

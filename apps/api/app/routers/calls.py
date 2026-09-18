@@ -347,7 +347,7 @@ def translate_call_transcript(
         response.release_conn()
 
     try:
-        translated_text = translate_transcript(raw_text, target_lang)
+        translated_text = translate_transcript(raw_text, target_lang, org_id)
     except TranslationError as exc:
         _raise_translation_error(exc)
 

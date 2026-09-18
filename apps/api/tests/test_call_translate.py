@@ -107,7 +107,7 @@ def test_translate_returns_translated_text(
         "target_lang": "hi",
         "source_lang": None,
     }
-    mock_translate.assert_called_once_with("[00:01] user: hello", "hi")
+    mock_translate.assert_called_once_with("[00:01] user: hello", "hi", "org-1")
 
 
 @_patch_db("app.services.call_log_service.get_database")
