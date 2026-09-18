@@ -94,15 +94,15 @@ def _resolve_from_number(
 
 
 def _extract_provider_call_sid(result: dict[str, Any]) -> str | None:
-    for key in ("call_uuid", "request_uuid", "uuid"):
+    for key in ("call_uuid", "request_uuid", "uuid", "campaign_Ref_ID"):
         value = result.get(key)
-        if value:
+        if value is not None and str(value).strip():
             return str(value)
     raw = result.get("raw") or {}
     if isinstance(raw, dict):
-        for key in ("call_uuid", "request_uuid", "uuid"):
+        for key in ("call_uuid", "request_uuid", "uuid", "campaign_Ref_ID"):
             value = raw.get(key)
-            if value:
+            if value is not None and str(value).strip():
                 return str(value)
     return None
 
@@ -156,7 +156,7 @@ async def initiate_outbound_call(
     answer_url, hangup_url = build_answer_urls(org_id, agent_id, call_id=call_id)
 
     try:
-        credentials = get_provider_dial_credentials(org_id, provider)
+        credentials = dict(get_provider_dial_credentials(org_id, provider))
     except AgentTelephonyError as exc:
         call_log_service.update_call_log(
             call_id,
@@ -164,16 +164,21 @@ async def initiate_outbound_call(
         )
         raise OutboundCallError(exc.message, status_code=exc.status_code) from exc
 
+    auth_id = str(credentials.pop("auth_id", "") or "")
+    auth_token = str(credentials.pop("auth_token", "") or "")
+    base_url = str(credentials.pop("base_url", "") or "")
+
     try:
         result = await initiate_outbound(
             provider,
-            auth_id=credentials["auth_id"],
-            auth_token=credentials["auth_token"],
-            base_url=credentials["base_url"],
+            auth_id=auth_id,
+            auth_token=auth_token,
+            base_url=base_url,
             from_number=normalized_from,
             to_number=normalized_to,
             answer_url=answer_url,
             hangup_url=hangup_url,
+            **credentials,
         )
     except ValueError as exc:
         message = str(exc)

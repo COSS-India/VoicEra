@@ -89,6 +89,10 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 | `RUNTIME_HOST` | `0.0.0.0` | No | Bind address, read in `apps/runtime/app.py` when started through `main()`. |
 | `RUNTIME_PORT` | `7860` | No | Bind port, read in `apps/runtime/app.py` when started through `main()`. |
 | `INTERNAL_API_KEY` | empty | Effectively yes | The runtime's `X-API-Key` for service routes on the API. |
+| `VI_DEFAULT_AGENT_ID` | empty | No | Fallback agent id when VI `/vi/stream` cannot resolve DNI/CLI. |
+| `VI_DEFAULT_ORG_ID` | empty | No | Org id used with `VI_DEFAULT_AGENT_ID` (and path/custom agent loads). |
+| `TELEPHONY_BULK_STATUS_POLL_SECS` | `30` | No | Bulk-outbound campaign status poll interval (API worker). |
+| `TELEPHONY_BULK_STATUS_POLL_MAX_ROUNDS` | `120` | No | Max bulk status polls; `0` disables. |
 
 `RUNTIME_HOST` and `RUNTIME_PORT` are absent from `.env.example`; they only matter when you start the runtime through its `main()` entry point rather than a uvicorn command line.
 

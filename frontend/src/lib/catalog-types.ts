@@ -1,3 +1,12 @@
+export interface CatalogPairField {
+  key: string;
+  label?: string;
+  placeholder?: string;
+  description?: string;
+  /** When "digits", Integrations strips non-digits on input (VI DNI format). */
+  normalize?: "digits";
+}
+
 /** Field metadata from GET /auth/catalog or GET /configuration/.../setting/... */
 
 export interface CatalogField {
@@ -7,6 +16,11 @@ export interface CatalogField {
   examples?: unknown[];
   secret?: boolean;
   input_mode?: string;
+  multiline?: boolean;
+  /** Optional Integrations label override (e.g. "DNI + Flow pairs"). */
+  ui_label?: string;
+  /** When set, Integrations renders addable key/value pair rows (e.g. VI DNI+flow). */
+  pair_fields?: CatalogPairField[];
   minimum?: number;
   maximum?: number;
   /** Present when this field's value came from `capabilities` — the explicit

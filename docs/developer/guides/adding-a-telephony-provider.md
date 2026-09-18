@@ -1,9 +1,9 @@
 ---
 title: Adding a telephony provider
-description: Add a telephony vendor alongside Vobiz and Plivo.
+description: Add a telephony vendor alongside Vobiz, Plivo, and Vodafone Idea.
 ---
 
-How to add a phone-network vendor to `apps/telephony`. The package ships two — Vobiz and Plivo — and they are deliberately structured identically, so the fastest way to add a third is to open both folders side by side and follow the shape.
+How to add a phone-network vendor to `apps/telephony`. The package ships three — Vobiz, Plivo, and Vodafone Idea (VI). Vobiz and Plivo are deliberately structured identically. VI is the documented exception: org ProviderAuth with multi DNI/flow pairs, OBD campaign dialing, and direct `/vi/stream` media (no answer XML).
 
 ## Quick reference
 
@@ -335,3 +335,17 @@ There is no CI. Run these yourself before opening a pull request, and test a rea
 * [Adding an AI provider](adding-a-provider)
 * [Public voice URLs](../../guides/deployment/public-voice-urls)
 * [Testing](testing)
+
+## Vodafone Idea (VI) exception
+
+VI does **not** follow the Vobiz/Plivo answer-URL model for live media:
+
+* Credentials: org ProviderAuth via Integrations — `auth_id` (OBD username), `auth_token` (OBD password), and `dni_flows` (one or more DNI + DIY flow_id pairs). Not env dialing.
+* Numbers inventory: `list_numbers` returns every auth DNI so each configured number appears under Numbers for VI.
+* DNI format: digits with country code, **no** `+` (e.g. `919876543210`) — same as VI OBD / prior `VI_DNI`. Inventory still shows E.164 with `+`.
+* Dialing: even a single outbound is CPaaS OBD `createCampaign` + ingest; campaigns use `initiate_bulk_calls` on the client.
+* Media: DIY flow opens `wss://…/vi/stream` directly; session logic lives in `providers/vi/stream_session.py` with a thin runtime route mount.
+* Provisioning: stub application; client returns the WSS stream URL as `answer_url`.
+* Recordings: Pipecat AudioBuffer only — no VI recording webhook.
+
+Optional runtime fallbacks only: `VI_DEFAULT_AGENT_ID` / `VI_DEFAULT_ORG_ID` when DNI lookup fails on `/vi/stream`. Bulk status poll knobs: `TELEPHONY_BULK_STATUS_POLL_SECS`, `TELEPHONY_BULK_STATUS_POLL_MAX_ROUNDS`.

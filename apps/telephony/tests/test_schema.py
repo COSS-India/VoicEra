@@ -7,6 +7,7 @@ import pytest
 from apps.telephony import (
     Kind,
     PlivoClient,
+    ViClient,
     VobizClient,
     all_provider_schemas,
     configuration_telephony,
@@ -15,12 +16,17 @@ from apps.telephony import (
 )
 from apps.telephony.providers.plivo.config import PlivoConfig
 from apps.telephony.providers.vobiz.config import VobizConfig
+from apps.telephony.providers.vi.config import ViConfig
 from apps.telephony.schema import DEFAULT_SERVICE_PROVIDERS
+
+_DNI = "919876543210"
+_FLOW = "test-flow"
+_DNI_FLOWS = f'[{{"dni":"{_DNI}","flow_id":"{_FLOW}"}}]'
 
 
 def test_provider_schemas_keys():
     schemas = provider_schemas(Kind.TELEPHONY)
-    assert set(schemas) == {"vobiz", "plivo"}
+    assert set(schemas) == {"vobiz", "plivo", "vi"}
 
 
 def test_all_provider_schemas_shape():
@@ -28,6 +34,7 @@ def test_all_provider_schemas_shape():
     assert set(schemas) == {"telephony"}
     assert "vobiz" in schemas["telephony"]
     assert "plivo" in schemas["telephony"]
+    assert "vi" in schemas["telephony"]
 
 
 def test_vobiz_secrets_and_integration_models():
@@ -57,6 +64,19 @@ def test_plivo_secrets_and_integration_models():
     assert fields["base_url"]["default"] == "https://api.plivo.com/v1"
 
 
+def test_vi_secrets_and_dni_flow_fields():
+    schema = provider_schemas()["vi"]
+    assert schema["name"] == "Vodafone Idea"
+    assert set(schema["secrets"]) == {"auth_id", "auth_token", "dni_flows"}
+    fields = schema["fields"]
+    assert fields["auth_id"]["integration_model"] == "ViAuthId"
+    assert fields["auth_token"]["integration_model"] == "ViAuthToken"
+    assert fields["dni_flows"]["secret"] is True
+    assert fields["dni_flows"]["integration_model"] == "ViDniFlows"
+    assert fields["dni_flows"]["pair_fields"][0]["key"] == "dni"
+    assert fields["dni_flows"]["pair_fields"][1]["key"] == "flow_id"
+
+
 def test_catalog_omits_schema_noise():
     for provider, schema in provider_schemas().items():
         assert "$defs" not in schema, provider
@@ -70,7 +90,7 @@ def test_catalog_omits_schema_noise():
 
 def test_configuration_telephony_envelope():
     defaults = configuration_telephony()
-    assert set(defaults["telephony"]) == {"vobiz", "plivo"}
+    assert set(defaults["telephony"]) == {"vobiz", "plivo", "vi"}
     assert defaults["default_providers"] == DEFAULT_SERVICE_PROVIDERS
     assert DEFAULT_SERVICE_PROVIDERS["telephony"] == "vobiz"
 
@@ -97,13 +117,19 @@ def test_create_client_from_config():
     assert isinstance(plivo, PlivoClient)
     assert plivo.base_url == "https://api.plivo.com/v1"
 
+    vi = create_client(
+        ViConfig(auth_id="user", auth_token="pass", dni_flows=_DNI_FLOWS)
+    )
+    assert isinstance(vi, ViClient)
+
 
 def test_list_providers_summary():
     from apps.telephony.schema import list_providers
 
     listed = list_providers()
-    assert set(listed) == {"vobiz", "plivo"}
+    assert set(listed) == {"vobiz", "plivo", "vi"}
     assert listed["vobiz"] == {"provider": "vobiz", "name": "Vobiz"}
+    assert listed["vi"] == {"provider": "vi", "name": "Vodafone Idea"}
     assert "secrets" not in listed["vobiz"]
     assert "fields" not in listed["vobiz"]
 
@@ -120,6 +146,11 @@ def test_telephony_settings_and_auth_split():
     assert set(auth["secrets"]) == {"auth_id", "auth_token"}
     assert set(auth["fields"]) == {"auth_id", "auth_token"}
     assert auth["fields"]["auth_id"]["integration_model"] == "VobizAuthId"
+
+    vi_auth = provider_auth("vi")
+    assert set(vi_auth["secrets"]) == {"auth_id", "auth_token", "dni_flows"}
+    assert "dni_flows" in vi_auth["fields"]
+    assert vi_auth["fields"]["dni_flows"]["pair_fields"][0]["key"] == "dni"
 
     with pytest.raises(UnknownProviderError):
         provider_auth("twilio")
