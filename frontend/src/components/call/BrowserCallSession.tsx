@@ -1,12 +1,7 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
-import {
-  PipecatClientAudio,
-  PipecatClientProvider,
-} from "@pipecat-ai/client-react";
-import { CallStage } from "@/components/call/CallStage";
-import { createBrowserPipecatClient } from "@/lib/pipecat/createBrowserClient";
+import { useState } from "react";
+import { CallStageSession } from "@/components/call/CallStage";
 
 interface BrowserCallSessionProps {
   orgId: string;
@@ -15,22 +10,23 @@ interface BrowserCallSessionProps {
 }
 
 /**
- * One Pipecat client per test-call surface: provider + official bot audio
- * element + CallStage. Disconnects on unmount so the mic is always released.
+ * Owns the remount key for a test-call session. Pipecat's conversation state
+ * (usePipecatConversation) is global to the client instance and has no
+ * reset API — the only way to get a clean transcript for "New call" is a
+ * fresh PipecatClient, which means remounting the provider subtree, which
+ * means a new React key.
  */
 export function BrowserCallSession({ orgId, agentId, agentName }: BrowserCallSessionProps) {
-  const client = useMemo(() => createBrowserPipecatClient(), []);
-
-  useEffect(() => {
-    return () => {
-      void client.disconnect().catch(() => {});
-    };
-  }, [client]);
+  const [sessionId, setSessionId] = useState(0);
 
   return (
-    <PipecatClientProvider client={client}>
-      <PipecatClientAudio />
-      <CallStage orgId={orgId} agentId={agentId} agentName={agentName} />
-    </PipecatClientProvider>
+    <CallStageSession
+      key={sessionId}
+      orgId={orgId}
+      agentId={agentId}
+      agentName={agentName}
+      autoStart={sessionId > 0}
+      onRequestNewSession={() => setSessionId((id) => id + 1)}
+    />
   );
 }

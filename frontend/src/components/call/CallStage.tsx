@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Languages, Maximize2, Mic, MicOff, PhoneOff, X } from "lucide-react";
 import { RTVIEvent, type RTVIMessage } from "@pipecat-ai/client-js";
 import {
+  PipecatClientAudio,
+  PipecatClientProvider,
   VoiceVisualizer,
   usePipecatClient,
   usePipecatClientMediaDevices,
@@ -26,7 +28,7 @@ import {
   isTranslationPairAvailable,
   translateLines,
 } from "@/lib/chrome-translation";
-import { connectBrowserCall } from "@/lib/pipecat/createBrowserClient";
+import { connectBrowserCall, createBrowserPipecatClient } from "@/lib/pipecat/createBrowserClient";
 import { parseTranscript } from "@/lib/transcript";
 
 function formatDuration(totalSeconds: number): string {
@@ -158,16 +160,25 @@ function TranscriptList({
 
 /**
  * Video-call-style stage built on Pipecat React primitives. Shared by the
- * dashboard test modal and the wizard Review step.
+ * dashboard test modal and the wizard Review step (both via
+ * BrowserCallSession, which owns the PipecatClientProvider and the remount
+ * key `onRequestNewSession` triggers).
  */
-export function CallStage({
+function CallStage({
   orgId,
   agentId,
   agentName,
+  autoStart,
+  onRequestNewSession,
 }: {
   orgId: string;
   agentId: string;
   agentName: string;
+  /** Immediately starts a call on mount — used for the fresh instance a
+   * "New call" click remounts, so the user doesn't have to click "Start
+   * test call" again. */
+  autoStart: boolean;
+  onRequestNewSession: () => void;
 }) {
   const client = usePipecatClient();
   const transportState = usePipecatClientTransportState();
@@ -304,6 +315,27 @@ export function CallStage({
     }
     setConnecting(false);
   }, [client, orgId, agentId]);
+
+  useEffect(() => {
+    if (!autoStart) return;
+    // Only ever run once per mount (a fresh `key` from "New call" gives a
+    // fresh CallStage instance) — not on every startCall/autoStart identity
+    // change, which would re-trigger on unrelated re-renders. startCall is
+    // the same imperative action already wired to the "Start test call"
+    // button's onClick; this just fires it automatically once instead.
+    //
+    // The short delay is a mitigation for a runtime-side race: connecting
+    // immediately after the previous call's session tears down can produce
+    // a duplicated greeting (observed: the agent's opening line spoken/shown
+    // twice), most likely because the runtime hasn't fully released the
+    // prior call's resources yet. This doesn't fix the underlying race, it
+    // just gives teardown a head start.
+    const id = window.setTimeout(() => {
+      void startCall();
+    }, 750);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const endCall = useCallback(async () => {
     if (!client) return;
@@ -458,11 +490,25 @@ export function CallStage({
               barOrigin="center"
             />
           </div>
-          <div className="relative flex flex-col items-center gap-4 rounded-v-md border border-white/10 bg-white/5 px-12 py-10 backdrop-blur-md">
-            <span className="font-mono text-[11px] uppercase tracking-[.14em] text-white/50">Ready to call</span>
-            <Button size="md" disabled={!client || !orgId || !agentId} onClick={() => void startCall()}>
-              Start test call
-            </Button>
+          <div
+            key={autoStart && !connectError ? "starting" : "ready"}
+            className="animate-v-pop relative flex flex-col items-center gap-4 rounded-v-md border border-white/10 bg-white/5 px-12 py-10 backdrop-blur-md"
+          >
+            {autoStart && !connectError ? (
+              <>
+                <Spinner />
+                <span className="font-mono text-[11px] uppercase tracking-[.14em] text-white/50">
+                  Starting new call…
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="font-mono text-[11px] uppercase tracking-[.14em] text-white/50">Ready to call</span>
+                <Button size="md" disabled={!client || !orgId || !agentId} onClick={() => void startCall()}>
+                  Start test call
+                </Button>
+              </>
+            )}
             {connectError ? <span className="max-w-xs text-center text-[12px] text-red-300">{connectError}</span> : null}
           </div>
         </div>
@@ -554,7 +600,7 @@ export function CallStage({
                   {formatDuration(seconds)}
                 </span>
 
-                <Button size="sm" onClick={() => void startCall()}>
+                <Button size="sm" onClick={onRequestNewSession}>
                   New call
                 </Button>
               </>
@@ -672,5 +718,47 @@ export function CallStage({
         {agentName} test call {hasEnded ? "has ended" : callState === "idle" ? "is not started" : `is ${callState}`}
       </span>
     </div>
+  );
+}
+
+/**
+ * Owns the Pipecat client + provider for one call session. Remount this
+ * (via a changing `key` from the caller — see BrowserCallSession) to get a
+ * fully fresh client/transcript for "New call", since Pipecat's own
+ * conversation state has no reset API and otherwise persists across
+ * connect()/disconnect() on the same client.
+ */
+export function CallStageSession({
+  orgId,
+  agentId,
+  agentName,
+  autoStart,
+  onRequestNewSession,
+}: {
+  orgId: string;
+  agentId: string;
+  agentName: string;
+  autoStart: boolean;
+  onRequestNewSession: () => void;
+}) {
+  const client = useMemo(() => createBrowserPipecatClient(), []);
+
+  useEffect(() => {
+    return () => {
+      void client.disconnect().catch(() => {});
+    };
+  }, [client]);
+
+  return (
+    <PipecatClientProvider client={client}>
+      <PipecatClientAudio />
+      <CallStage
+        orgId={orgId}
+        agentId={agentId}
+        agentName={agentName}
+        autoStart={autoStart}
+        onRequestNewSession={onRequestNewSession}
+      />
+    </PipecatClientProvider>
   );
 }
