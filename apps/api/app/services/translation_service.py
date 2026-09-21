@@ -7,16 +7,14 @@ and returned, never persisted.
 
 Provider selection reuses apps.providers.one_shot_llm — the same
 "which LLM is this org actually configured to use" check GET /configuration/llm
-uses — instead of only ever reading global .env settings. An org with no
-configured provider (and no reachable self-hosted model-server) falls back
-to the server-wide TRANSLATION_LLM_* settings, preserving prior behavior.
+uses. An org must configure its own LLM provider via /integrations; there is
+no shared server-wide fallback key — if no provider is configured (and no
+local self-hosted model-server is reachable), translation fails with a clear
+error rather than silently using a shared credential.
 """
 
 from __future__ import annotations
 
-from openai import OpenAI
-
-from app.config import settings
 from app.services import auth_service
 from apps.providers.one_shot_llm import OneShotLLMError, call_first_available
 
@@ -51,10 +49,6 @@ def _resolve_auth(org_id: str, provider: str) -> dict:
     return auth if isinstance(auth, dict) else {}
 
 
-def _translation_api_key() -> str:
-    return (settings.TRANSLATION_LLM_API_KEY or settings.KB_EMBEDDING_API_KEY or "").strip()
-
-
 def _strip_markdown_fence(text: str) -> str:
     """Removes a leading/trailing ``` fence an LLM may add despite instructions not to."""
     stripped = text.strip()
@@ -77,33 +71,6 @@ def _user_prompt(text: str, target_lang: str, source_lang: str | None) -> str:
         f"Translate the following call transcript {source_note}into {target_lang}:\n\n"
         f"<transcript>\n{text}\n</transcript>"
     )
-
-
-def _translate_via_env_fallback(text: str, target_lang: str, source_lang: str | None) -> str:
-    """Server-wide default, used when the org has no configured LLM provider
-    and no reachable self-hosted model-server."""
-    api_key = _translation_api_key()
-    if not api_key:
-        raise TranslationError("Translation is not configured (missing API key).")
-
-    client = OpenAI(api_key=api_key, base_url=settings.TRANSLATION_LLM_BASE_URL or None)
-    try:
-        response = client.chat.completions.create(
-            model=settings.TRANSLATION_LLM_MODEL,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": _user_prompt(text, target_lang, source_lang)},
-            ],
-            temperature=0.2,
-        )
-        result = (response.choices[0].message.content or "").strip()
-    except Exception as exc:
-        raise TranslationError(f"Translation failed: {exc}") from exc
-
-    result = _strip_markdown_fence(result)
-    if not result:
-        raise TranslationError("Translation returned an empty result.")
-    return result
 
 
 def translate_transcript(
@@ -132,7 +99,10 @@ def translate_transcript(
         raise TranslationError(f"Translation failed: {exc}") from exc
 
     if dispatched is None:
-        return _translate_via_env_fallback(text, target_lang, source_lang)
+        raise TranslationError(
+            "No LLM provider is configured for this organisation. "
+            "Connect one under Integrations before translating transcripts."
+        )
 
     _provider, _model, result = dispatched
     result = _strip_markdown_fence(result)
