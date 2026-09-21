@@ -45,6 +45,7 @@ from app.services.outbound_call_service import OutboundCallError, initiate_outbo
 from app.services.translation_service import TranslationError, translate_transcript
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
+from minio.error import S3Error
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
@@ -104,11 +105,25 @@ def _artifact_content_type(object_name: str, default: str) -> str:
     return default
 
 
+def _get_object_or_404(storage: MinIOStorage, bucket_name: str, object_name: str):
+    """Fetch an object, turning a delete-after-exists-check race into the
+    same 404 the existence check itself would have raised."""
+    try:
+        return storage.client.get_object(bucket_name, object_name)
+    except S3Error as exc:
+        if exc.code == "NoSuchKey":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File not found: {object_name}",
+            ) from exc
+        raise
+
+
 def _stream_minio_object(bucket_name: str, object_name: str, content_type: str):
     storage = MinIOStorage()
 
     def iterator() -> Iterator[bytes]:
-        response = storage.client.get_object(bucket_name, object_name)
+        response = _get_object_or_404(storage, bucket_name, object_name)
         try:
             for chunk in response.stream(32 * 1024):
                 yield chunk
@@ -143,12 +158,6 @@ def _resolve_transcript_object(org_id: str, call_id: str) -> tuple[str, str]:
         )
 
     bucket_name, object_name = parsed
-    storage = MinIOStorage()
-    if not storage.object_exists(bucket_name, object_name):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Transcript file not found: {object_name}",
-        )
     return bucket_name, object_name
 
 
@@ -312,9 +321,8 @@ async def get_call_transcript(
 
 
 def _raise_translation_error(exc: TranslationError) -> None:
-    is_oversized = "too long" in exc.message
     raise HTTPException(
-        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE if is_oversized else status.HTTP_502_BAD_GATEWAY,
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE if exc.is_oversized else status.HTTP_502_BAD_GATEWAY,
         detail=exc.message,
     ) from exc
 
@@ -339,7 +347,7 @@ def translate_call_transcript(
     bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
 
     storage = MinIOStorage()
-    response = storage.client.get_object(bucket_name, object_name)
+    response = _get_object_or_404(storage, bucket_name, object_name)
     try:
         raw_text = response.read().decode("utf-8")
     finally:

@@ -37,9 +37,10 @@ _SYSTEM_PROMPT = (
 class TranslationError(Exception):
     """Raised when a transcript can't be translated (config, size, or provider failure)."""
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, is_oversized: bool = False) -> None:
         super().__init__(message)
         self.message = message
+        self.is_oversized = is_oversized
 
 
 def _resolve_auth(org_id: str, provider: str) -> dict:
@@ -114,7 +115,8 @@ def translate_transcript(
     if len(text) > MAX_TRANSCRIPT_CHARS:
         raise TranslationError(
             f"Transcript is too long to translate in one request "
-            f"({len(text)} chars, limit {MAX_TRANSCRIPT_CHARS})."
+            f"({len(text)} chars, limit {MAX_TRANSCRIPT_CHARS}).",
+            is_oversized=True,
         )
 
     try:

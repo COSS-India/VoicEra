@@ -59,7 +59,8 @@ function getTranslatorApi(): NormalizedTranslatorApi | null {
     return {
       availability: async (opts) => {
         try {
-          await createTranslator(opts);
+          const session = await createTranslator(opts);
+          session.destroy?.();
           return "available";
         } catch {
           return "unavailable";
@@ -148,12 +149,12 @@ export async function translateLines(
 
   const translator = await translatorApi.createTranslator({ sourceLanguage, targetLanguage });
   try {
-    const translatedLines: string[] = [];
-    for (const line of lines) {
-      const trimmed = line.trim();
-      translatedLines.push(trimmed ? await translator.translate(trimmed) : line);
-    }
-    return translatedLines;
+    return await Promise.all(
+      lines.map((line) => {
+        const trimmed = line.trim();
+        return trimmed ? translator.translate(trimmed) : Promise.resolve(line);
+      }),
+    );
   } finally {
     translator.destroy?.();
   }

@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from openai import OpenAIError
 
 from app.services.translation_service import (
     MAX_TRANSCRIPT_CHARS,
@@ -231,6 +232,37 @@ def test_falls_back_to_env_when_org_has_no_configured_provider(monkeypatch):
         client.chat.completions.create.return_value = _mock_openai_response("ok")
         translate_transcript("hello", "hi", ORG_ID)
         mock_openai_cls.assert_called_once_with(api_key="env-key", base_url=None)
+
+
+def test_configured_provider_failure_does_not_fall_back_to_env(monkeypatch):
+    """Decision: an org's configured provider failing (bad key, rate limit,
+    etc.) must surface immediately, never silently retry via the shared
+    .env server-wide key — that would translate through a different
+    provider than the org configured, without telling anyone."""
+    monkeypatch.setattr(
+        "app.services.translation_service.auth_service.list_configured_providers",
+        lambda org_id: ["openai"],
+    )
+    monkeypatch.setattr(
+        "app.services.translation_service.auth_service.get_provider_auth",
+        lambda org_id, provider, mask_secrets=False: {"auth": {"api_key": "bad-key"}},
+    )
+    # .env IS configured with a valid-looking key — if a fall-through ever
+    # fires, this env-path client would be constructed and this assertion
+    # below would catch it.
+    monkeypatch.setattr("app.services.translation_service.settings.TRANSLATION_LLM_API_KEY", "env-key")
+    with (
+        patch("apps.providers.one_shot_llm.OpenAI") as mock_org_openai_cls,
+        patch("app.services.translation_service.OpenAI") as mock_env_openai_cls,
+    ):
+        mock_org_openai_cls.return_value.chat.completions.create.side_effect = OpenAIError(
+            "401 Unauthorized"
+        )
+        with pytest.raises(TranslationError, match="Translation failed"):
+            translate_transcript("hello", "hi", ORG_ID)
+
+        mock_org_openai_cls.assert_called_once()
+        mock_env_openai_cls.assert_not_called()
 
 
 def test_org_configured_non_openai_compatible_provider_is_used_when_only_option(monkeypatch):

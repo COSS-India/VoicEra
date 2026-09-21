@@ -35,6 +35,7 @@ from .adapters.kenpath.catalog import (
     resolve_base_url as kenpath_resolve_base_url,
     resolve_completions_path as kenpath_resolve_completions_path,
 )
+from . import registry
 from .availability import is_authenticated
 from .cloud.aws_bedrock.catalog import DEFAULT_LLM_MODEL as BEDROCK_DEFAULT_MODEL
 from .cloud.atlascloud.catalog import BASE_URL as ATLASCLOUD_BASE_URL, DEFAULT_LLM_MODEL as ATLASCLOUD_DEFAULT_MODEL
@@ -63,14 +64,6 @@ ListConfiguredProviders = Callable[[str], list[str]]
 
 class OneShotLLMError(RuntimeError):
     """Raised for expected one-shot LLM call failures (config, provider, or network)."""
-
-
-def _first_api_key(value: Any) -> str | None:
-    """Rotation lists store multiple keys; use the first, matching
-    apps.providers.registry.api_key()'s own convention."""
-    if isinstance(value, list):
-        return str(value[0]) if value else None
-    return str(value) if value else None
 
 
 def first_available_provider(
@@ -121,7 +114,10 @@ def call_via_openai_compatible_provider(
 ) -> tuple[str, str]:
     base_url, default_model = OPENAI_COMPATIBLE_PROVIDERS[provider]
     auth = resolve_auth(org_id, provider)
-    api_key = _first_api_key(auth.get("api_key"))
+    try:
+        api_key = registry.api_key(auth.get("api_key"))
+    except ValueError:
+        api_key = None
     if not api_key:
         raise OneShotLLMError(f"Provider {provider!r} has no api_key on file")
     resolved_model = model or default_model
@@ -213,30 +209,17 @@ def call_kenpath(
             raise OneShotLLMError("kenpath (bharatvistaar) returned an empty response")
         return result, model
 
-    # vistaar / voice_bhili: single `query` param, no messages array.
-    query = f"{system}\n\n{user}"
-    # Marathi ("mr") is Vistaar's prod default — this path has no language
-    # input, so it always targets the prod default.
-    source_lang = "mr"
-    token = kenpath_generate_jwt(private_key, backend=backend, subject=jwt_subject)
-    url = f"{kenpath_resolve_base_url(model)}/api/voice/"
-    params = {
-        "query": query,
-        "source_lang": source_lang,
-        "target_lang": source_lang,
-        "session_id": jwt_subject,
-    }
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        response = httpx.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise OneShotLLMError(f"kenpath (vistaar) request failed: {exc}") from exc
-
-    text = response.text.strip()
-    if not text:
-        raise OneShotLLMError("kenpath (vistaar) returned an empty response")
-    return text, model
+    # vistaar / voice_bhili: this is Kenpath's fixed-pair (source_lang/
+    # target_lang) translation API, not a general chat-completion backend —
+    # it has no way to honor an arbitrary system+user prompt (e.g. a
+    # caller-requested target language embedded in the prompt text). Faking
+    # a completion through it by hardcoding source_lang=target_lang="mr"
+    # would silently mistranslate any request that isn't actually Marathi,
+    # so this path refuses instead of guessing.
+    raise OneShotLLMError(
+        "kenpath (vistaar/voice_bhili) does not support one-shot completions "
+        "with arbitrary prompts; only Bharat Vistaar models are supported here"
+    )
 
 
 def call_bedrock(

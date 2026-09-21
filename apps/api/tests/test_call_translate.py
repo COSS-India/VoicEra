@@ -9,6 +9,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from minio.error import S3Error
+
 from app.auth import get_current_user
 from app.routers import calls
 from app.services.translation_service import TranslationError
@@ -78,7 +80,6 @@ def clear_store() -> None:
 def _minio_storage_mock(storage_cls: MagicMock, raw_transcript: bytes = b"[00:01] user: hello") -> MagicMock:
     storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
     storage = storage_cls.return_value
-    storage.object_exists.return_value = True
     response_obj = MagicMock()
     response_obj.read.return_value = raw_transcript
     storage.client.get_object.return_value = response_obj
@@ -142,12 +143,20 @@ def test_translate_missing_transcript_object_returns_404(
 ) -> None:
     _CALL_STORE["call-abc-123"] = _sample_call_doc()
     storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
-    storage_cls.return_value.object_exists.return_value = False
+    error = S3Error(
+        code="NoSuchKey",
+        message="not found",
+        resource="/voicera-calls/org-1/call-abc-123/transcript.txt",
+        request_id="req-1",
+        host_id="host-1",
+        response=MagicMock(),
+    )
+    storage_cls.return_value.client.get_object.side_effect = error
 
     client = _make_client()
     response = client.post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
     assert response.status_code == 404
-    assert "Transcript file not found" in response.json()["detail"]
+    assert "File not found" in response.json()["detail"]
 
 
 @_patch_db("app.services.call_log_service.get_database")
@@ -161,7 +170,8 @@ def test_translate_oversized_transcript_returns_413(
     _CALL_STORE["call-abc-123"] = _sample_call_doc()
     _minio_storage_mock(storage_cls)
     mock_translate.side_effect = TranslationError(
-        "Transcript is too long to translate in one request (50001 chars, limit 50000)."
+        "Transcript is too long to translate in one request (50001 chars, limit 50000).",
+        is_oversized=True,
     )
 
     client = _make_client()
