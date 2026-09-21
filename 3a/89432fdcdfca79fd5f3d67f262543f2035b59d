@@ -1,0 +1,27 @@
+voicera_frontend/app/(auth)/add-member/[slug]/page.tsx
+  s_7972da953fd4f4::t_28b569f9e4e301 265,267
+voicera_frontend/app/(auth)/forgot-password/page.tsx
+  s_7972da953fd4f4::t_065478314666d3 81-82,164-165
+voicera_frontend/app/(auth)/reset-password/page.tsx
+  s_7972da953fd4f4::t_683d23772c6c95 108-109,193-194,257-258
+voicera_frontend/app/(auth)/signup/page.tsx
+  s_7972da953fd4f4::t_970841d9609f43 186,188
+voicera_frontend/app/page.tsx
+  s_7972da953fd4f4::t_2c8f92b69085ce 168,170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3a89432fdcdfca79fd5f3d67f262543f2035b59d",
+  "prompts": {},
+  "sessions": {
+    "s_7972da953fd4f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "094fedda-6538-4933-9bdf-c9436609d4a4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
