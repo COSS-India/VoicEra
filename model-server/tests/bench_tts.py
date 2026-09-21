@@ -24,6 +24,12 @@ What the numbers mean:
            when the overall rtf looks fine.
 
 Needs nothing but httpx: no numpy, no scipy, so it runs in any container here.
+
+Ported from indic-parler to Orpheus: the defaults here used to be that model's
+(voice Divya, 44.1 kHz, a free-text description, pcm_f32le from indic-mio) and
+every request 400'd once Orpheus took the slot. The voice is now resolved from
+the live roster rather than hardcoded, so the next checkpoint change surfaces as
+a clear error instead of a wall of 400s.
 """
 
 from __future__ import annotations
@@ -42,7 +48,8 @@ from pathlib import Path
 import httpx
 
 DEFAULT_URL = "http://127.0.0.1:8100"
-DEFAULT_DESCRIPTION = "A calm, clear voice speaking at a normal pace."
+SAMPLE_RATE = 24000        # Orpheus is 24 kHz mono s16le; the header still wins
+BYTES_PER_SAMPLE = 2
 
 # Rotated through so a run is not one sentence measured N times.
 SENTENCES: list[str] = [
@@ -60,12 +67,12 @@ def _slug(text: str, max_len: int = 60) -> str:
 
 
 def _write_wav(path: Path, samples: array.array, rate: int) -> None:
+    """The samples are already int16 - the server's pcm format is s16le."""
     with wave.open(str(path), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(rate)
-        wf.writeframes(b"".join(
-            struct.pack("<h", max(-32768, min(32767, int(s * 32767)))) for s in samples))
+        wf.writeframes(samples.tobytes())
 
 
 async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
@@ -74,12 +81,15 @@ async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
     payload = {
         "input": prompt,
         "voice": args.voice or None,
-        "instructions": args.description,
         "language": args.language,
-        "response_format": "pcm_f32le",
+        "response_format": "pcm",
     }
-    pcm = array.array("f")
-    rate = 44100
+    if args.style:
+        payload["style"] = args.style
+    if args.max_tokens:
+        payload["max_tokens"] = args.max_tokens
+    pcm = array.array("h")
+    rate = SAMPLE_RATE
     ttft = None
     gaps: list[float] = []
     t0 = time.monotonic()
@@ -102,7 +112,7 @@ async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
                     gaps.append(now - last)
                 last = now
                 buf = remainder + chunk
-                usable = len(buf) - (len(buf) % 4)
+                usable = len(buf) - (len(buf) % BYTES_PER_SAMPLE)
                 remainder = buf[usable:]
                 if usable:
                     pcm.frombytes(buf[:usable])
@@ -130,14 +140,19 @@ async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
     }
 
 
+def _pct(xs: list[float], q: float) -> float:
+    """Nearest-rank, matching stt/indic-transcribe/bench/metrics_lib.py so the two
+    reports' percentiles mean the same thing."""
+    return xs[min(len(xs) - 1, int(q * len(xs)))]
+
+
 def _line(name: str, xs: list[float], unit: str) -> None:
     if not xs:
-        print(f"  {name:<34} n/a")
+        print(f"  {name:<30} n/a")
         return
     xs = sorted(xs)
-    p95 = xs[min(len(xs) - 1, int(len(xs) * 0.95))]
-    print(f"  {name:<34} avg={statistics.fmean(xs):7.2f}{unit}  "
-          f"min={xs[0]:7.2f}{unit}  p95={p95:7.2f}{unit}  max={xs[-1]:7.2f}{unit}")
+    print(f"  {name:<30} p50={_pct(xs, .50):7.2f}{unit}  p95={_pct(xs, .95):7.2f}{unit}  "
+          f"p99={_pct(xs, .99):7.2f}{unit}  max={xs[-1]:7.2f}{unit}")
 
 
 def report(results: list[dict], args: argparse.Namespace, wall: float) -> int:
@@ -175,12 +190,33 @@ def report(results: list[dict], args: argparse.Namespace, wall: float) -> int:
     return 0 if faster_than_realtime == len(rtfs) and len(oks) == len(results) else 1
 
 
+def resolve_voice(base: str, language: str, wanted: str) -> str:
+    """Pick a speaker from the live roster instead of trusting a constant.
+
+    The roster has changed with the checkpoint twice already; a hardcoded name
+    fails as an opaque 400 on every request, which is how this script came to be
+    silently broken. Ask the server instead, and say so plainly when the name is
+    not there.
+    """
+    r = httpx.get(f"{base}/tts/v1/voices", params={"language": language}, timeout=10.0)
+    r.raise_for_status()
+    voices = r.json().get(language, {}).get("voices") or []
+    if not voices:
+        raise SystemExit(f"no voices for language {language!r}; see GET /tts/v1/voices")
+    if wanted and wanted not in voices:
+        raise SystemExit(f"voice {wanted!r} is not in the {language!r} roster: {voices}")
+    return wanted or voices[0]
+
+
 async def async_main(args: argparse.Namespace) -> int:
-    url = args.url.rstrip("/")
+    base = args.url.rstrip("/")
+    args.voice = resolve_voice(base, args.language, args.voice)
+    url = base
     if not url.endswith("/v1/audio/speech"):
         url += "/v1/audio/speech"
     prompts = [SENTENCES[i % len(SENTENCES)] for i in range(args.requests)]
-    print(f"POST {url}   {args.requests} requests, concurrency {args.concurrency}\n")
+    print(f"POST {url}   {args.requests} requests, concurrency {args.concurrency}, "
+          f"voice {args.voice}, style {args.style or '(server default)'}\n")
 
     sem = asyncio.Semaphore(args.concurrency)
     t0 = time.monotonic()
@@ -211,9 +247,11 @@ def main() -> None:
                    help="requests in flight at once; 1 is sequential (default 1)")
     p.add_argument("--gap-s", type=float, default=0.0,
                    help="pause between sequential requests (ignored when concurrent)")
-    p.add_argument("--voice", default="Divya", help="speaker preset (default Divya)")
-    p.add_argument("--description", default=DEFAULT_DESCRIPTION, help="style instructions")
+    p.add_argument("--voice", default="", help="speaker name; default: first for --language")
+    p.add_argument("--style", default="", help="speaking style, or 'none' for no style block")
     p.add_argument("--language", default="hi", help="language tag (default hi)")
+    p.add_argument("--max-tokens", type=int, default=0,
+                   help="cap generated audio tokens, so every request does equal work")
     p.add_argument("--out-dir", default="", help="write wavs here so you can listen to them")
     args = p.parse_args()
 

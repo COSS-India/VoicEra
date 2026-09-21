@@ -26,6 +26,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/d3": "^7.4.3",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -33,6 +36,7 @@
     "@types/topojson-client": "^3.1.5",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
+    "happy-dom": "^20.14.5",
     "playwright": "^1.63.0",
     "tailwindcss": "^4",
     "typescript": "^5.9.3",

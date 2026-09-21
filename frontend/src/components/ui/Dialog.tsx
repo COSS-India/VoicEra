@@ -34,6 +34,8 @@ export function Dialog({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         className={`animate-v-rise flex max-h-[85vh] w-full ${widthClassName} flex-col overflow-y-auto overscroll-contain rounded-v-md shadow-2xl ${panelClassName}`}
         onClick={(e) => e.stopPropagation()}
       >

@@ -123,22 +123,56 @@ services:
       ORPHEUS_DRAIN_TIMEOUT: ${ORPHEUS_DRAIN_TIMEOUT:-30}
       ORPHEUS_HOST: ${ORPHEUS_HOST:-0.0.0.0}
 
-      # ---- sampling and limits, at upstream's shipped values ------------
-      # v2's production sampling, quoted from its model card: "ckpt-8944,
-      # t 0.6 · top_p 0.9 · rp 1.2". config.yaml still carries 0.8 / 1.3, which
-      # were verified against the PREVIOUS checkpoint -- inherited defaults are
-      # what this file exists to stop, so they are restated here rather than
-      # left to whichever value happened to ship.
+      # ---- sampling and limits, at the checkpoint's documented values ----
+      # The card's own reference call is
+      #   temperature=0.6, top_p=0.9, top_k=50, max_new_tokens=2520
+      # and config.yaml now matches it, but they are restated here because
+      # inherited defaults drifting out from under a deployment is exactly what
+      # this file exists to stop.
       #
-      # Their code example also passes top_k=50, which the benchmark line does
-      # not mention and this server cannot set at all. Open question for them;
-      # see docs/orpheus-v2-tremolo.md.
+      # top_k is plumbed through now; it previously could not be set at all, so
+      # sampling ran unrestricted over the whole vocabulary.
+      #
+      # repetition_penalty is 1.0 (off): neither the card nor its inference.py
+      # mentions one, and on SNAC codes a penalty punishes legitimately
+      # recurring codes -- silence, sustained vowels -- not repeated words.
       ORPHEUS_TEMPERATURE: ${ORPHEUS_TEMPERATURE:-0.6}
       ORPHEUS_TOP_P: ${ORPHEUS_TOP_P:-0.9}
-      ORPHEUS_REPETITION_PENALTY: ${ORPHEUS_REPETITION_PENALTY:-1.2}
+      ORPHEUS_TOP_K: ${ORPHEUS_TOP_K:-50}
+      ORPHEUS_REPETITION_PENALTY: ${ORPHEUS_REPETITION_PENALTY:-1.0}
       ORPHEUS_MIN_TOKENS: ${ORPHEUS_MIN_TOKENS:-28}
-      ORPHEUS_MAX_TOKENS_DEFAULT: ${ORPHEUS_MAX_TOKENS_DEFAULT:-8192}
+      # 2520 = the card's max_new_tokens (~30 s), the horizon the model was
+      # exercised at. 8192 let a missed stop token run ~100 s instead.
+      ORPHEUS_MAX_TOKENS_DEFAULT: ${ORPHEUS_MAX_TOKENS_DEFAULT:-2520}
       ORPHEUS_MAX_TOKENS_LIMIT: ${ORPHEUS_MAX_TOKENS_LIMIT:-8192}
+
+      # ---- how an utterance is allowed to end ---------------------------
+      # Two mechanisms, because the checkpoint gives two ambiguous signals.
+      #
+      # The guard bounds a generation by how long the TEXT should take to read,
+      # for the case where the model never emits <|end_of_speech|> at all and
+      # would otherwise run to MAX_TOKENS_DEFAULT as babble.
+      ORPHEUS_DURATION_GUARD: ${ORPHEUS_DURATION_GUARD:-true}
+      ORPHEUS_GUARD_CHARS_PER_SECOND: ${ORPHEUS_GUARD_CHARS_PER_SECOND:-8.0}
+      ORPHEUS_GUARD_HEADROOM: ${ORPHEUS_GUARD_HEADROOM:-3.0}
+      ORPHEUS_GUARD_FLOOR_TOKENS: ${ORPHEUS_GUARD_FLOOR_TOKENS:-512}
+      #
+      # The other signal is the backbone's own text eos, which the checkpoint's
+      # inference.py passes as BOTH eos_token_id and pad_token_id -- so seeing it
+      # proves nothing on its own. Obeyed blindly it truncates an utterance at a
+      # sentence boundary; ignored entirely it lets a missed end-of-speech babble.
+      # So it is believed only once the audio produced is at least this fraction
+      # of what the text should take. 0.0 restores the blind-obey behaviour.
+      ORPHEUS_SOFT_TEXT_EOS: ${ORPHEUS_SOFT_TEXT_EOS:-true}
+      ORPHEUS_SOFT_TEXT_EOS_MIN_FRACTION: ${ORPHEUS_SOFT_TEXT_EOS_MIN_FRACTION:-0.5}
+
+      # ---- streaming decode window --------------------------------------
+      # Vocos is non-causal, so each emitted frame is decoded with real audio
+      # either side of it. 4+4 measured 0.007% peak error against a
+      # whole-utterance decode; 3+3 left 3.0%.
+      ORPHEUS_LEFT_CONTEXT_FRAMES: ${ORPHEUS_LEFT_CONTEXT_FRAMES:-4}
+      ORPHEUS_RIGHT_CONTEXT_FRAMES: ${ORPHEUS_RIGHT_CONTEXT_FRAMES:-4}
+      ORPHEUS_EMIT_FRAMES: ${ORPHEUS_EMIT_FRAMES:-1}
 
       # ---- the SNAC codec ----------------------------------------------
       # A second HuggingFace repo, fetched at startup into hf_cache. Named here
@@ -146,6 +180,10 @@ services:
       # with HF_HUB_OFFLINE=1 and a cold cache the container fails at load.
       ORPHEUS_SNAC_MODEL_ID: ${ORPHEUS_SNAC_MODEL_ID:-hubertsiuzdak/snac_24khz}
       ORPHEUS_DECODER_DEVICE: ${ORPHEUS_DECODER_DEVICE:-cuda}
+      # The decoder the checkpoint was actually trained against; its card states
+      # "Vocos replaces SNAC's decoder entirely". Empty means <model>/vocos/best.pt,
+      # where fetch.sh already puts it -- set this only to point elsewhere.
+      ORPHEUS_VOCOS_PATH: ${ORPHEUS_VOCOS_PATH:-}
 
       # ---- warmup ------------------------------------------------------
       # Upstream warms every width up to 256. On a shared card that is a
