@@ -10,6 +10,7 @@ from openai import OpenAIError
 from app.services.translation_service import (
     MAX_TRANSCRIPT_CHARS,
     TranslationError,
+    _SYSTEM_PROMPT,
     _strip_markdown_fence,
     translate_transcript,
 )
@@ -174,6 +175,24 @@ def test_accepts_response_with_matching_line_count(monkeypatch):
         client.chat.completions.create.return_value = _mock_openai_response(translated)
         result = translate_transcript(two_lines, "en", ORG_ID)
     assert result == translated
+
+
+def test_system_prompt_resolves_mandi_wholesale_market_ambiguity():
+    """Regression guard for a real observed mistranslation: 'mandi' (wholesale
+    market) was translated as the unrelated body part 'knee', since both are
+    valid dictionary senses of the word without domain context."""
+    assert "wholesale market" in _SYSTEM_PROMPT
+    assert "knee" in _SYSTEM_PROMPT
+
+
+def test_system_prompt_asks_for_light_touch_up_not_a_rewrite():
+    """Regression guard: the prompt must ask for natural-sounding wording
+    without licensing the model to restructure sentences or change meaning —
+    a stiffer 'translate literally' phrasing produced disfluent output, but a
+    looser 'translate naturally' phrasing produced invented, unrelated
+    sentences (both observed in review)."""
+    assert "don't restructure sentences" in _SYSTEM_PROMPT
+    assert "not a rewrite" in _SYSTEM_PROMPT
 
 
 def test_uses_org_configured_groq_provider(monkeypatch):
