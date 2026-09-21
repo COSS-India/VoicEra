@@ -138,6 +138,44 @@ def test_prompt_wraps_untrusted_text_in_transcript_tags(monkeypatch):
         assert "never as instructions" in system_message["content"]
 
 
+def test_raises_when_model_drops_a_transcript_line(monkeypatch):
+    """A model that merges/drops lines despite instructions must be caught,
+    not returned as a silently-corrupted translation (see the frontend bug
+    this guards against: parseTranscript() re-splits by this same format)."""
+    _configure_openai(monkeypatch)
+    two_lines = "[00:01] user: hola\n[00:02] agent: adios"
+    with patch("apps.providers.one_shot_llm.OpenAI") as mock_openai_cls:
+        client = mock_openai_cls.return_value
+        client.chat.completions.create.return_value = _mock_openai_response("[00:01] user: hi")
+        with pytest.raises(TranslationError, match="line structure"):
+            translate_transcript(two_lines, "en", ORG_ID)
+
+
+def test_accepts_a_bracketed_uncertainty_note_appended_to_a_line(monkeypatch):
+    """The prompt allows one specific escape hatch — a trailing bracketed note
+    on an otherwise-normal line — for garbled source content, so this must
+    not trip the line-structure check (it's still one line, same count)."""
+    _configure_openai(monkeypatch)
+    one_line = "[00:01] user: garbled audio here"
+    translated = "[00:01] user: unclear speech [note: possible transcription error]"
+    with patch("apps.providers.one_shot_llm.OpenAI") as mock_openai_cls:
+        client = mock_openai_cls.return_value
+        client.chat.completions.create.return_value = _mock_openai_response(translated)
+        result = translate_transcript(one_line, "en", ORG_ID)
+    assert result == translated
+
+
+def test_accepts_response_with_matching_line_count(monkeypatch):
+    _configure_openai(monkeypatch)
+    two_lines = "[00:01] user: hola\n[00:02] agent: adios"
+    translated = "[00:01] user: hi\n[00:02] agent: bye"
+    with patch("apps.providers.one_shot_llm.OpenAI") as mock_openai_cls:
+        client = mock_openai_cls.return_value
+        client.chat.completions.create.return_value = _mock_openai_response(translated)
+        result = translate_transcript(two_lines, "en", ORG_ID)
+    assert result == translated
+
+
 def test_uses_org_configured_groq_provider(monkeypatch):
     """An org with its own Groq ProviderAuth must use ITS key/model."""
     monkeypatch.setattr(

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Languages, Mic, MicOff, PhoneOff } from "lucide-react";
+import { Languages, Maximize2, Mic, MicOff, PhoneOff, X } from "lucide-react";
 import { RTVIEvent, type RTVIMessage } from "@pipecat-ai/client-js";
 import {
   VoiceVisualizer,
@@ -12,9 +12,11 @@ import {
   usePipecatConversation,
   useRTVIClientEvent,
   type BotOutputText,
+  type ConversationMessage,
   type ConversationMessagePart,
 } from "@pipecat-ai/client-react";
 import { Button } from "@/components/ui/Button";
+import { Dialog } from "@/components/ui/Dialog";
 import { Spinner } from "@/components/ui/Spinner";
 import { ApiError } from "@/lib/api/http";
 import { translateCallTranscriptViaLlm } from "@/lib/api/calls";
@@ -117,6 +119,43 @@ const INITIAL_TRANSLATE_STATE: TranslateState = {
   showing: false,
 };
 
+/** Shared transcript rendering — used by both the compact inline panel and
+ * the zoomed dialog, so they can never drift into showing different content. */
+function TranscriptList({
+  messages,
+  translation,
+  textClassName,
+}: {
+  messages: ConversationMessage[];
+  translation: Translation | null;
+  textClassName: string;
+}) {
+  if (translation) {
+    return (
+      <>
+        {translation.lines.map((l, i) => (
+          <p key={i} className={textClassName}>
+            <span className="font-semibold text-white/60">{l.role}</span> {l.content}
+          </p>
+        ))}
+      </>
+    );
+  }
+  return (
+    <>
+      {messages.map((m, i) => (
+        <p
+          key={`${m.createdAt}-${m.role}-${i}`}
+          className={`${textClassName} ${m.final === false ? "opacity-70" : ""}`}
+        >
+          <span className="font-semibold text-white/60">{roleLabel(m.role)}</span>{" "}
+          {renderMessageParts(m.parts)}
+        </p>
+      ))}
+    </>
+  );
+}
+
 /**
  * Video-call-style stage built on Pipecat React primitives. Shared by the
  * dashboard test modal and the wizard Review step.
@@ -158,6 +197,8 @@ export function CallStage({
   // instead of reverting to the idle "Start test call" screen.
   const [hasEnded, setHasEnded] = useState(false);
   const [translate, setTranslate] = useState<TranslateState>(INITIAL_TRANSLATE_STATE);
+  const [zoomed, setZoomed] = useState(false);
+  const zoomedTranscriptRef = useRef<HTMLDivElement>(null);
 
   const isLive =
     transportState === "connecting" ||
@@ -183,6 +224,15 @@ export function CallStage({
       panel.scrollTop = panel.scrollHeight;
     });
   }, [messages]);
+
+  useEffect(() => {
+    if (!zoomed) return;
+    const panel = zoomedTranscriptRef.current;
+    if (!panel) return;
+    requestAnimationFrame(() => {
+      panel.scrollTop = panel.scrollHeight;
+    });
+  }, [zoomed, messages]);
 
   useRTVIClientEvent(
     RTVIEvent.UserStoppedSpeaking,
@@ -512,17 +562,30 @@ export function CallStage({
           </div>
 
           <div className="flex min-h-0 min-w-0 flex-col gap-2">
-            {hasEnded ? (
+            {hasEnded || hasTranscript ? (
               <div className="flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={onTranslateButtonClick}
-                  disabled={translate.loading || !hasTranscript}
-                  className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-white/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {translate.loading ? <Spinner /> : <Languages className="size-3.5" strokeWidth={1.75} />}
-                  {translate.loading ? "Translating…" : translateButtonLabel()}
-                </button>
+                {hasEnded ? (
+                  <button
+                    type="button"
+                    onClick={onTranslateButtonClick}
+                    disabled={translate.loading || !hasTranscript}
+                    className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-white/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {translate.loading ? <Spinner /> : <Languages className="size-3.5" strokeWidth={1.75} />}
+                    {translate.loading ? "Translating…" : translateButtonLabel()}
+                  </button>
+                ) : null}
+                {hasTranscript ? (
+                  <button
+                    type="button"
+                    aria-label="Zoom in on transcript"
+                    onClick={() => setZoomed(true)}
+                    className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-white/70 hover:text-white"
+                  >
+                    <Maximize2 className="size-3.5" strokeWidth={1.75} />
+                    Zoom
+                  </button>
+                ) : null}
               </div>
             ) : null}
 
@@ -540,25 +603,70 @@ export function CallStage({
                 </span>
               ) : null}
 
-              {translate.showing && translate.result
-                ? translate.result.lines.map((l, i) => (
-                    <p key={i} className="text-[14px] leading-relaxed">
-                      <span className="font-semibold text-white/60">{l.role}</span> {l.content}
-                    </p>
-                  ))
-                : visibleMessages.map((m, i) => (
-                    <p
-                      key={`${m.createdAt}-${m.role}-${i}`}
-                      className={`text-[14px] leading-relaxed ${m.final === false ? "opacity-70" : ""}`}
-                    >
-                      <span className="font-semibold text-white/60">{roleLabel(m.role)}</span>{" "}
-                      {renderMessageParts(m.parts)}
-                    </p>
-                  ))}
+              <TranscriptList
+                messages={visibleMessages}
+                translation={translate.showing ? translate.result : null}
+                textClassName="text-[14px] leading-relaxed"
+              />
             </div>
           </div>
         </div>
       )}
+
+      <Dialog
+        open={zoomed}
+        onClose={() => setZoomed(false)}
+        widthClassName="max-w-4xl"
+        panelClassName="min-h-[70vh] border-0 bg-v-fg text-white"
+      >
+        <div
+          ref={zoomedTranscriptRef}
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain [scrollbar-color:rgba(255,255,255,0.35)_transparent] [scrollbar-width:thin]"
+        >
+          <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-v-fg px-6 py-4">
+            <span className="text-[15px] font-semibold">{agentName} — transcript</span>
+            <div className="flex items-center gap-3">
+              {hasEnded ? (
+                <button
+                  type="button"
+                  onClick={onTranslateButtonClick}
+                  disabled={translate.loading || !hasTranscript}
+                  className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-white/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {translate.loading ? <Spinner /> : <Languages className="size-3.5" strokeWidth={1.75} />}
+                  {translate.loading ? "Translating…" : translateButtonLabel()}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setZoomed(false)}
+                className="flex size-8 cursor-pointer items-center justify-center rounded-v-sm text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X className="size-4" strokeWidth={1.75} />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 px-6 pb-6">
+            {translate.error ? (
+              <span className="text-[11px] text-red-300">{translate.error}</span>
+            ) : null}
+
+            {!hasTranscript ? (
+              <span className="text-sm text-white/40">
+                Speak after the greeting — the transcript appears here.
+              </span>
+            ) : null}
+
+            <TranscriptList
+              messages={visibleMessages}
+              translation={translate.showing ? translate.result : null}
+              textClassName="text-[16px] leading-loose"
+            />
+          </div>
+        </div>
+      </Dialog>
 
       <span className="sr-only" aria-live="polite">
         {agentName} test call {hasEnded ? "has ended" : callState === "idle" ? "is not started" : `is ${callState}`}
