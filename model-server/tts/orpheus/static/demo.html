@@ -53,33 +53,6 @@
   .metric .u { font-size: 12px; color: var(--dim); margin-left: 2px; }
   .bar { height: 6px; background: #11141a; border-radius: 3px; overflow: hidden; margin-top: 12px; }
   .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
-
-  /* ---- per-sentence mode ------------------------------------------------
-     The call pipeline never sends a paragraph: it aggregates the reply into
-     sentences and calls TTS once per sentence. A fault that bites one request
-     in three is therefore invisible to a demo that sends one request for the
-     whole text, which is why this mode exists. */
-  .chk { display: inline-flex; align-items: center; gap: 7px; color: var(--dim);
-         font-size: 13px; text-transform: none; letter-spacing: 0; margin: 0; }
-  .chk input { width: auto; }
-  #sentPanel { display: none; }
-  #sentPanel.show { display: block; }
-  table.sent { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  table.sent th { text-align: left; color: var(--dim); font-size: 11px; font-weight: 600;
-         text-transform: uppercase; letter-spacing: .05em; padding: 6px 8px;
-         border-bottom: 1px solid var(--line); }
-  table.sent td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  table.sent td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  table.sent td.t { max-width: 240px; overflow: hidden; text-overflow: ellipsis;
-         white-space: nowrap; color: var(--dim); }
-  table.sent tr.short td { background: rgba(248,113,113,.07); }
-  .flag { color: var(--bad); font-weight: 600; }
-  .tag { display: inline-block; padding: 1px 7px; border-radius: 20px;
-         font-size: 11px; font-weight: 600; }
-  .tag.eos { background: rgba(74,222,128,.14); color: var(--ok); }
-  .tag.txt { background: rgba(251,191,36,.14); color: #fbbf24; }
-  .tag.max { background: rgba(248,113,113,.14); color: var(--bad); }
-  .tag.non { background: #11141a; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -115,7 +88,6 @@
       <button class="go" id="speak">Speak</button>
       <button class="stop" id="stop" disabled>Stop</button>
       <button class="ghost" id="tag" title="The same synthesis through GET /v1/tts/stream">&lt;audio&gt; instead</button>
-      <label class="chk" for="perSentence"><input type="checkbox" id="perSentence"> one request per sentence</label>
       <span id="status"><span class="dot"></span>idle</span>
     </div>
     <div class="bar"><i id="progress"></i></div>
@@ -151,29 +123,6 @@
       frame arriving, and by the server from its own clock. They differ by the
       network, and on a remote host that difference is real latency you would
       also see in a call.
-    </p>
-  </div>
-
-  <div class="panel" id="sentPanel">
-    <label>Per sentence</label>
-    <table class="sent">
-      <thead><tr>
-        <th>#</th><th>Sentence</th><th class="n">Chars</th><th class="n">Audio</th>
-        <th class="n">Expected</th><th class="n">First audio</th>
-        <th>Ended on</th><th class="n">Pad eos ignored</th>
-      </tr></thead>
-      <tbody id="sentRows"></tbody>
-    </table>
-    <p class="hint" id="sentSummary"></p>
-    <p class="hint">
-      <b>Expected</b> is the server's own reading-speed assumption
-      (<code>guard_chars_per_second</code>). A clip under half of it is flagged
-      <span class="flag">short</span> &mdash; that is what a dropped sentence looks
-      like. <b>Ended on</b> is the server's <code>finish_reason</code>:
-      <span class="tag eos">end_of_speech</span> is the model closing the audio
-      span properly, <span class="tag txt">text_eos</span> is the backbone's own
-      end token, <span class="tag max">max_tokens</span> means it never stopped
-      and hit the cap.
     </p>
   </div>
 
@@ -445,154 +394,9 @@ function speakViaTag() {
   el.play().catch(() => setStatus('autoplay blocked — press Speak once first', 'err'));
 }
 
-// ---- one request per sentence ---------------------------------------------
-// Pipecat aggregates the model's reply into sentences and calls the TTS once
-// per sentence, so a paragraph that plays perfectly here can still lose a
-// sentence on a call. This mode sends the same text the way a call does.
-const SENTENCE_RE = /[^.?!।॥\n]+[.?!।॥]+|[^.?!।॥\n]+(?=\n|$)/g;
-// The server's own assumption (engine.guard_chars_per_second), so "expected"
-// here means exactly what it means inside the engine.
-const CHARS_PER_SECOND = 8.0;
-let stopRequested = false;
-
-function splitSentences(text) {
-  const out = (text.match(SENTENCE_RE) || []).map(s => s.trim()).filter(Boolean);
-  return out.length ? out : (text.trim() ? [text.trim()] : []);
-}
-
-function finishTag(reason) {
-  const map = { end_of_speech: ['eos', 'end_of_speech'],
-                text_eos: ['txt', 'text_eos'],
-                max_tokens: ['max', 'max_tokens'] };
-  const [cls, label] = map[reason] || ['non', reason || '—'];
-  return '<span class="tag ' + cls + '">' + label + '</span>';
-}
-
-const esc = s => String(s).replace(/[<>&"]/g,
-  c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
-
-function sentenceRow(i, r) {
-  const expected = (r.text.length / CHARS_PER_SECOND) * 1000;
-  // The engine believes a text eos only past half the expected audio, so the
-  // same line is what makes a clip suspicious here.
-  const short = !r.error && expected > 0 && r.audioMs < expected * 0.5;
-  const tr = document.createElement('tr');
-  if (short) tr.className = 'short';
-  tr.innerHTML = r.error
-    ? `<td class="n">${i}</td><td class="t">${esc(r.text)}</td>
-       <td class="n">${r.text.length}</td><td colspan="5" class="flag">${esc(r.error)}</td>`
-    : `<td class="n">${i}</td><td class="t" title="${esc(r.text)}">${esc(r.text)}</td>
-       <td class="n">${r.text.length}</td>
-       <td class="n">${(r.audioMs / 1000).toFixed(2)}s${short ? ' <span class="flag">short</span>' : ''}</td>
-       <td class="n">${(expected / 1000).toFixed(2)}s</td>
-       <td class="n">${r.ttfaMs != null ? Math.round(r.ttfaMs) + 'ms' : '—'}</td>
-       <td>${finishTag(r.finish)}</td>
-       <td class="n">${r.softIgnored != null ? r.softIgnored : '—'}</td>`;
-  $('sentRows').appendChild(tr);
-  return short;
-}
-
-// One sentence, one connection -- the server takes a single request per socket,
-// which is the same one-request-per-sentence shape the call pipeline produces.
-function speakSentence(text) {
-  return new Promise(resolve => {
-    const started = performance.now();
-    let rate = 24000, firstAt = 0, metrics = null, failed = null, bytes = 0;
-    try { ws = new WebSocket(WS_URL); }
-    catch (e) { resolve({ text, error: e.message }); return; }
-    ws.binaryType = 'arraybuffer';
-    ws.onopen = () => ws.send(JSON.stringify({
-      text,
-      voice: $('voice').value,
-      language: $('lang').value,
-      style: $('style').value || undefined,
-    }));
-    ws.onmessage = ev => {
-      if (typeof ev.data !== 'string') {
-        if (!firstAt) firstAt = performance.now();
-        bytes += ev.data.byteLength;
-        playFrame(ev.data, rate);
-        return;
-      }
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch (e) { return; }
-      if (msg.type === 'start') rate = msg.sample_rate || rate;
-      else if (msg.type === 'done') metrics = msg.metrics || {};
-      else if (msg.type === 'error') failed = msg.message || 'server error';
-    };
-    ws.onerror = () => { if (!failed) failed = 'websocket error'; };
-    ws.onclose = () => {
-      ws = null;
-      const m = metrics || {};
-      resolve({
-        text,
-        error: failed,
-        // The server's own audio_ms when it answered; byte count if it did not.
-        audioMs: m.audio_ms != null ? m.audio_ms : (bytes / 2 / rate) * 1000,
-        ttfaMs: m.ttfa_ms != null ? m.ttfa_ms : (firstAt ? firstAt - started : null),
-        finish: m.finish_reason || null,
-        softIgnored: m.soft_eos_ignored != null ? m.soft_eos_ignored : null,
-      });
-    };
-  });
-}
-
-async function speakPerSentence() {
-  const raw = $('text').value.trim();
-  if (!raw) return;
-  stopRequested = false;
-  stopPlayback();
-  await ensureCtx();
-  if (ctx.state !== 'running') {
-    setStatus('audio is suspended by the browser -- click Speak again', 'err');
-    return;
-  }
-  const parts = splitSentences(raw);
-  $('sentRows').innerHTML = '';
-  $('sentSummary').textContent = '';
-  $('sentPanel').classList.add('show');
-  $('speak').disabled = true; $('stop').disabled = false;
-  for (const id of ['m_ttfa', 'm_rtf', 'm_audio', 'm_tps', 'm_jit']) {
-    $(id).classList.add('pending');
-  }
-
-  const results = [];
-  let shortCount = 0, softTotal = 0, totalAudio = 0;
-  for (let i = 0; i < parts.length && !stopRequested; i++) {
-    setStatus(`sentence ${i + 1} of ${parts.length}`, 'on');
-    $('progress').style.width = ((i / parts.length) * 100).toFixed(0) + '%';
-    const r = await speakSentence(parts[i]);
-    results.push(r);
-    if (sentenceRow(i + 1, r)) shortCount++;
-    if (!r.error) {
-      softTotal += r.softIgnored || 0;
-      totalAudio += r.audioMs || 0;
-      if (i === 0 && r.ttfaMs != null) setMetric('m_ttfa', r.ttfaMs, 0);
-    }
-  }
-  $('progress').style.width = '100%';
-  setMetric('m_audio', totalAudio / 1000, 1);
-
-  const counts = {};
-  for (const r of results) {
-    if (!r.error) counts[r.finish || 'unknown'] = (counts[r.finish || 'unknown'] || 0) + 1;
-  }
-  const failed = results.filter(r => r.error).length;
-  $('sentSummary').innerHTML =
-    `${results.length} request(s) · ` +
-    (Object.entries(counts).map(([k, v]) => `${v}× ${k}`).join(', ') || '—') +
-    ` · suspiciously short: <b class="${shortCount ? 'flag' : ''}">${shortCount}</b>` +
-    (failed ? ` · failed: <b class="flag">${failed}</b>` : '') +
-    ` · pad eos ignored by the server: <b>${softTotal}</b>`;
-
-  $('speak').disabled = false; $('stop').disabled = true;
-  setStatus(stopRequested ? 'stopped' : 'done', '');
-}
-
-$('speak').onclick = () => ($('perSentence').checked ? speakPerSentence() : speak());
+$('speak').onclick = speak;
 $('tag').onclick = speakViaTag;
 $('stop').onclick = () => {
-  stopRequested = true;
   if (ws) { try { ws.close(); } catch (e) { /* already closing */ } }
   stopPlayback();
   setStatus('stopped', '');
