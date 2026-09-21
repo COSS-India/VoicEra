@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Mic, MicOff, PhoneOff } from "lucide-react";
+import { Languages, Mic, MicOff, PhoneOff } from "lucide-react";
 import { RTVIEvent, type RTVIMessage } from "@pipecat-ai/client-js";
 import {
   VoiceVisualizer,
@@ -12,11 +12,20 @@ import {
   usePipecatConversation,
   useRTVIClientEvent,
   type BotOutputText,
-  type ConversationMessage,
   type ConversationMessagePart,
 } from "@pipecat-ai/client-react";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Spinner";
+import { ApiError } from "@/lib/api/http";
+import { translateCallTranscriptViaLlm } from "@/lib/api/calls";
+import {
+  detectTextLanguage,
+  isChromeTranslationAvailable,
+  isTranslationPairAvailable,
+  translateLines,
+} from "@/lib/chrome-translation";
 import { connectBrowserCall } from "@/lib/pipecat/createBrowserClient";
+import { parseTranscript } from "@/lib/transcript";
 
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -58,7 +67,22 @@ function renderMessageParts(parts: ConversationMessagePart[]): ReactNode {
   });
 }
 
-function roleLabel(role: ConversationMessage["role"]): string {
+export function messageToPlainText(parts: ConversationMessagePart[]): string {
+  return parts
+    .map((part) => {
+      const sep = part.needsSeparator ? " " : "";
+      if (typeof part.text === "string") return sep + part.text;
+      if (isBotOutputText(part.text)) return sep + part.text.spoken + (part.text.unspoken ?? "");
+      return "";
+    })
+    .join("");
+}
+
+// Only these two roles are shown in the transcript panel — filters out
+// tool/function-call and system messages.
+const TRANSCRIPT_ROLES = new Set(["user", "assistant"]);
+
+function roleLabel(role: string): string {
   if (role === "assistant") return "Agent:";
   if (role === "user") return "User:";
   if (role === "function_call") return "Tool:";
@@ -66,6 +90,32 @@ function roleLabel(role: ConversationMessage["role"]): string {
 }
 
 type CallUiState = "idle" | "listening" | "speaking";
+
+interface TranslatedLine {
+  role: string;
+  content: string;
+}
+
+interface Translation {
+  lines: TranslatedLine[];
+  lang: string;
+}
+
+interface TranslateState {
+  callId: string | undefined;
+  result: Translation | null;
+  loading: boolean;
+  error: string;
+  showing: boolean;
+}
+
+const INITIAL_TRANSLATE_STATE: TranslateState = {
+  callId: undefined,
+  result: null,
+  loading: false,
+  error: "",
+  showing: false,
+};
 
 /**
  * Video-call-style stage built on Pipecat React primitives. Shared by the
@@ -87,6 +137,13 @@ export function CallStage({
   const { messages } = usePipecatConversation();
   const transcriptRef = useRef<HTMLDivElement>(null);
   const userStoppedAtRef = useRef<number | null>(null);
+  // Tracks whether the current session ever reached "connected", so a call
+  // that errors out before connecting doesn't get treated as "ended" (which
+  // would hide the connect error behind the ended-call summary view).
+  const connectedOnceRef = useRef(false);
+  // Monotonic guard: invalidates an in-flight translate request when the
+  // user starts a new call before it resolves.
+  const translateRequestId = useRef(0);
 
   const [seconds, setSeconds] = useState(0);
   const [connecting, setConnecting] = useState(false);
@@ -96,6 +153,11 @@ export function CallStage({
   // Optimistic mic UI — Pipecat's React mic flag starts false and can drift
   // with the WS media manager; keep local state in sync with enableMic().
   const [micEnabled, setMicEnabled] = useState(true);
+  // Sticky: set once a connected call disconnects; only cleared by starting
+  // a new call. Keeps the transcript/details panel visible post-disconnect
+  // instead of reverting to the idle "Start test call" screen.
+  const [hasEnded, setHasEnded] = useState(false);
+  const [translate, setTranslate] = useState<TranslateState>(INITIAL_TRANSLATE_STATE);
 
   const isLive =
     transportState === "connecting" ||
@@ -104,9 +166,12 @@ export function CallStage({
     connecting;
 
   const isConnected = transportState === "ready" || transportState === "connected";
+  const showDetails = isLive || hasEnded;
+  const targetLang = (navigator.language || "en").split("-")[0]!;
 
   useEffect(() => {
     if (!isConnected) return;
+    connectedOnceRef.current = true;
     const id = window.setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => window.clearInterval(id);
   }, [isConnected]);
@@ -150,10 +215,10 @@ export function CallStage({
     useCallback(() => {
       setConnecting(false);
       setBotSpeaking(false);
-      setSeconds(0);
-      setLatencyMs(null);
       setMicEnabled(true);
       userStoppedAtRef.current = null;
+      // Leave seconds/latencyMs alone — they become the ended-call summary.
+      if (connectedOnceRef.current) setHasEnded(true);
     }, []),
   );
 
@@ -173,8 +238,15 @@ export function CallStage({
     setSeconds(0);
     setLatencyMs(null);
     setMicEnabled(true);
+    connectedOnceRef.current = false;
+    setHasEnded(false);
+    // Invalidate any in-flight translate from the previous call before it
+    // can resolve into this one's state.
+    translateRequestId.current += 1;
+    setTranslate(INITIAL_TRANSLATE_STATE);
     try {
-      await connectBrowserCall(client, orgId, agentId);
+      const callId = await connectBrowserCall(client, orgId, agentId);
+      setTranslate((prev) => ({ ...prev, callId }));
     } catch (err) {
       setConnectError(err instanceof Error ? err.message : "Couldn't start the test call");
       setConnecting(false);
@@ -187,8 +259,6 @@ export function CallStage({
     if (!client) return;
     setConnecting(false);
     setBotSpeaking(false);
-    setSeconds(0);
-    setLatencyMs(null);
     setMicEnabled(true);
     userStoppedAtRef.current = null;
     try {
@@ -205,22 +275,108 @@ export function CallStage({
     enableMic(next);
   }, [enableMic, isConnected, micEnabled]);
 
-  const statusLabel = connectError
-    ? connectError
-    : connecting || transportState === "connecting"
-      ? "Connecting…"
-      : transportState === "ready" || transportState === "connected"
-        ? "Connected"
-        : transportState === "error"
-          ? "Error"
-          : "Ready";
+  function getStatusLabel(): string {
+    if (connectError) return connectError;
+    if (connecting || transportState === "connecting") return "Connecting…";
+    if (transportState === "ready" || transportState === "connected") return "Connected";
+    if (transportState === "error") return "Error";
+    if (hasEnded) return "Call ended";
+    return "Ready";
+  }
+  const statusLabel = getStatusLabel();
 
   const callState: CallUiState = !isConnected ? "idle" : botSpeaking ? "speaking" : "listening";
-  const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
+  const visibleMessages = messages.filter((m) => TRANSCRIPT_ROLES.has(m.role));
   const hasTranscript = visibleMessages.length > 0;
 
+  const hasCachedTranslation = translate.result !== null && translate.result.lang === targetLang;
+
+  /** Free, on-device path via Chrome's built-in Translator API. Returns null
+   * when the API or the requested language pair isn't supported, so the
+   * caller can fall back to the backend LLM. */
+  async function translateOnDevice(originalMessages: TranslatedLine[]): Promise<Translation | null> {
+    if (!isChromeTranslationAvailable()) return null;
+
+    const originals = originalMessages.map((m) => m.content);
+    const detected = await detectTextLanguage(originals.join("\n"));
+    const sourceLanguage = detected?.language;
+    if (!sourceLanguage || !(await isTranslationPairAvailable(sourceLanguage, targetLang))) return null;
+
+    const texts = await translateLines(originals, sourceLanguage, targetLang);
+    // Same length/order as originalMessages — safe to zip back by index.
+    const lines = originalMessages.map((m, i) => ({ role: m.role, content: texts[i] ?? m.content }));
+    return { lines, lang: targetLang };
+  }
+
+  /** Backend LLM fallback. Translates the server-persisted transcript, not
+   * the client's local message list — the two can have a different number/
+   * segmentation of turns, so the result is its own line list rather than
+   * zipped index-for-index onto the live messages. */
+  async function translateViaBackend(callId: string): Promise<Translation> {
+    const response = await translateCallTranscriptViaLlm(callId, targetLang);
+    const parsedLines = parseTranscript(response.translated_text);
+    if (parsedLines.length === 0) {
+      throw new Error("The translation model corrupted the transcript format. Please try again.");
+    }
+    return {
+      lines: parsedLines.map((l) => ({ role: roleLabel(l.role), content: l.content })),
+      lang: response.target_lang,
+    };
+  }
+
+  async function handleTranslate() {
+    const originalMessages = visibleMessages.map((m) => ({
+      role: roleLabel(m.role),
+      content: messageToPlainText(m.parts),
+    }));
+    if (originalMessages.length === 0) return;
+
+    const myRequest = (translateRequestId.current += 1);
+    const isStale = () => translateRequestId.current !== myRequest;
+    setTranslate((prev) => ({ ...prev, loading: true, error: "" }));
+
+    try {
+      let result = await translateOnDevice(originalMessages);
+      if (!result) {
+        if (!translate.callId) {
+          throw new Error("On-device translation isn't available in this browser for this language.");
+        }
+        result = await translateViaBackend(translate.callId);
+      }
+      if (isStale()) return;
+      setTranslate((prev) => ({ ...prev, result, showing: true }));
+    } catch (err) {
+      if (isStale()) return;
+      const message =
+        err instanceof ApiError && err.status === 404
+          ? "Transcript is still being saved — try again in a few seconds."
+          : err instanceof Error
+            ? err.message
+            : "Failed to translate transcript. Please try again.";
+      setTranslate((prev) => ({ ...prev, error: message }));
+    } finally {
+      if (!isStale()) setTranslate((prev) => ({ ...prev, loading: false }));
+    }
+  }
+
+  function translateButtonLabel(): string {
+    if (translate.showing) return "Show original";
+    if (hasCachedTranslation) return "Show translation";
+    return "Translate";
+  }
+
+  function onTranslateButtonClick(): void {
+    if (translate.showing) setTranslate((prev) => ({ ...prev, showing: false }));
+    else if (hasCachedTranslation) setTranslate((prev) => ({ ...prev, showing: true }));
+    else void handleTranslate();
+  }
+
   return (
-    <div className="relative flex h-full min-h-[360px] flex-col gap-5 overflow-hidden rounded-v-md border border-v-line bg-v-fg p-6 text-white">
+    <div
+      className={`relative flex h-full min-h-[360px] flex-col gap-5 overflow-hidden rounded-v-md border bg-v-fg p-6 text-white transition-colors ${
+        hasEnded ? "border-white/20" : "border-v-line"
+      }`}
+    >
       <div className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-white/60">
           <span
@@ -230,7 +386,7 @@ export function CallStage({
           />
           {statusLabel}
         </span>
-        {isConnected ? (
+        {isConnected || hasEnded ? (
           <span className="flex items-center gap-3 font-mono text-[11px] tabular-nums text-white/60">
             {latencyMs != null ? <span>Turn {latencyMs}ms</span> : null}
             <span>{formatDuration(seconds)}</span>
@@ -238,7 +394,7 @@ export function CallStage({
         ) : null}
       </div>
 
-      {!isLive ? (
+      {!showDetails ? (
         <div className="relative flex flex-1 items-center justify-center">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-20">
             <VoiceVisualizer
@@ -263,108 +419,149 @@ export function CallStage({
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 sm:grid-cols-[176px_minmax(0,1fr)]">
           <div className="flex flex-col items-center justify-center gap-4">
-            <div
-              className="relative flex h-28 w-28 items-center justify-center"
-              aria-label={callState === "speaking" ? "Agent speaking" : "Listening"}
-            >
-              {/*
-                WebSocket transport only exposes a local MediaStreamTrack.
-                Keep local VoiceVisualizer mounted; restyle when the agent speaks.
-              */}
-              <VoiceVisualizer
-                participantType="local"
-                backgroundColor="transparent"
-                barColor={
-                  callState === "speaking" ? "rgba(110,231,183,0.95)" : "rgba(255,255,255,0.9)"
-                }
-                barCount={5}
-                barGap={6}
-                barWidth={12}
-                barMaxHeight={96}
-                barOrigin="center"
-              />
-            </div>
-            <span className="font-mono text-[11px] uppercase tracking-[.14em] text-white/50">
-              {!isConnected
-                ? "Connecting"
-                : callState === "speaking"
-                  ? "Agent speaking"
-                  : "Listening"}
-            </span>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"}
-                aria-pressed={!micEnabled}
-                disabled={!isConnected}
-                onClick={toggleMic}
-                className={`flex size-11 cursor-pointer items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  !micEnabled
-                    ? "bg-white/15 text-white/70 hover:bg-white/25"
-                    : "bg-white text-v-fg hover:bg-white/90"
-                }`}
-              >
-                {!micEnabled ? (
-                  <MicOff className="size-5" strokeWidth={1.75} />
-                ) : (
-                  <Mic className="size-5" strokeWidth={1.75} />
-                )}
-              </button>
-
-              <button
-                type="button"
-                aria-label="End call"
-                onClick={() => void endCall()}
-                className="flex size-11 cursor-pointer items-center justify-center rounded-full bg-v-danger text-white transition-colors hover:bg-red-600"
-              >
-                <PhoneOff className="size-5" strokeWidth={1.75} />
-              </button>
-            </div>
-
-            {isConnected && availableMics.length > 0 ? (
-              <label className="flex w-full max-w-[160px] flex-col gap-1">
-                <span className="font-mono text-[9px] uppercase tracking-[.12em] text-white/40">Mic</span>
-                <select
-                  className="w-full truncate rounded-v-sm border border-white/15 bg-white/5 px-2 py-1.5 text-[11px] text-white outline-none"
-                  value={selectedMic?.deviceId ?? ""}
-                  onChange={(e) => void updateMic(e.target.value)}
+            {isLive ? (
+              <>
+                <div
+                  className="relative flex h-28 w-28 items-center justify-center"
+                  aria-label={callState === "speaking" ? "Agent speaking" : "Listening"}
                 >
-                  {availableMics.map((mic) => (
-                    <option key={mic.deviceId} value={mic.deviceId} className="text-v-fg">
-                      {mic.label || `Mic ${mic.deviceId.slice(0, 8)}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
+                  {/*
+                    WebSocket transport only exposes a local MediaStreamTrack.
+                    Keep local VoiceVisualizer mounted; restyle when the agent speaks.
+                  */}
+                  <VoiceVisualizer
+                    participantType="local"
+                    backgroundColor="transparent"
+                    barColor={
+                      callState === "speaking" ? "rgba(110,231,183,0.95)" : "rgba(255,255,255,0.9)"
+                    }
+                    barCount={5}
+                    barGap={6}
+                    barWidth={12}
+                    barMaxHeight={96}
+                    barOrigin="center"
+                  />
+                </div>
+                <span className="font-mono text-[11px] uppercase tracking-[.14em] text-white/50">
+                  {!isConnected
+                    ? "Connecting"
+                    : callState === "speaking"
+                      ? "Agent speaking"
+                      : "Listening"}
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"}
+                    aria-pressed={!micEnabled}
+                    disabled={!isConnected}
+                    onClick={toggleMic}
+                    className={`flex size-11 cursor-pointer items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                      !micEnabled
+                        ? "bg-white/15 text-white/70 hover:bg-white/25"
+                        : "bg-white text-v-fg hover:bg-white/90"
+                    }`}
+                  >
+                    {!micEnabled ? (
+                      <MicOff className="size-5" strokeWidth={1.75} />
+                    ) : (
+                      <Mic className="size-5" strokeWidth={1.75} />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-label="End call"
+                    onClick={() => void endCall()}
+                    className="flex size-11 cursor-pointer items-center justify-center rounded-full bg-v-danger text-white transition-colors hover:bg-red-600"
+                  >
+                    <PhoneOff className="size-5" strokeWidth={1.75} />
+                  </button>
+                </div>
+
+                {isConnected && availableMics.length > 0 ? (
+                  <label className="flex w-full max-w-[160px] flex-col gap-1">
+                    <span className="font-mono text-[9px] uppercase tracking-[.12em] text-white/40">Mic</span>
+                    <select
+                      className="w-full truncate rounded-v-sm border border-white/15 bg-white/5 px-2 py-1.5 text-[11px] text-white outline-none"
+                      value={selectedMic?.deviceId ?? ""}
+                      onChange={(e) => void updateMic(e.target.value)}
+                    >
+                      {availableMics.map((mic) => (
+                        <option key={mic.deviceId} value={mic.deviceId} className="text-v-fg">
+                          {mic.label || `Mic ${mic.deviceId.slice(0, 8)}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <span className="font-mono text-[11px] uppercase tracking-[.14em] text-white/50">Call ended</span>
+                <span className="font-mono text-[13px] tabular-nums text-white/70">
+                  {formatDuration(seconds)}
+                </span>
+
+                <Button size="sm" onClick={() => void startCall()}>
+                  New call
+                </Button>
+              </>
+            )}
           </div>
 
-          <div
-            ref={transcriptRef}
-            className="flex max-h-[min(320px,42vh)] min-h-40 min-w-0 flex-col gap-2 overflow-y-scroll overscroll-contain rounded-v-sm bg-white/5 p-4 [scrollbar-color:rgba(255,255,255,0.35)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/35 [&::-webkit-scrollbar-track]:bg-transparent"
-          >
-            {!hasTranscript ? (
-              <span className="text-xs text-white/40">
-                Speak after the greeting — the transcript appears here.
-              </span>
+          <div className="flex min-h-0 min-w-0 flex-col gap-2">
+            {hasEnded ? (
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={onTranslateButtonClick}
+                  disabled={translate.loading || !hasTranscript}
+                  className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-white/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {translate.loading ? <Spinner /> : <Languages className="size-3.5" strokeWidth={1.75} />}
+                  {translate.loading ? "Translating…" : translateButtonLabel()}
+                </button>
+              </div>
             ) : null}
 
-            {visibleMessages.map((m, i) => (
-              <p
-                key={`${m.createdAt}-${m.role}-${i}`}
-                className={`text-[14px] leading-relaxed ${m.final === false ? "opacity-70" : ""}`}
-              >
-                <span className="font-semibold text-white/60">{roleLabel(m.role)}</span>{" "}
-                {renderMessageParts(m.parts)}
-              </p>
-            ))}
+            {translate.error ? (
+              <span className="text-right text-[11px] text-red-300">{translate.error}</span>
+            ) : null}
+
+            <div
+              ref={transcriptRef}
+              className="flex min-h-40 flex-1 max-h-[min(320px,42vh)] flex-col gap-2 overflow-y-scroll overscroll-contain rounded-v-sm bg-white/5 p-4 [scrollbar-color:rgba(255,255,255,0.35)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/35 [&::-webkit-scrollbar-track]:bg-transparent"
+            >
+              {!hasTranscript ? (
+                <span className="text-xs text-white/40">
+                  Speak after the greeting — the transcript appears here.
+                </span>
+              ) : null}
+
+              {translate.showing && translate.result
+                ? translate.result.lines.map((l, i) => (
+                    <p key={i} className="text-[14px] leading-relaxed">
+                      <span className="font-semibold text-white/60">{l.role}</span> {l.content}
+                    </p>
+                  ))
+                : visibleMessages.map((m, i) => (
+                    <p
+                      key={`${m.createdAt}-${m.role}-${i}`}
+                      className={`text-[14px] leading-relaxed ${m.final === false ? "opacity-70" : ""}`}
+                    >
+                      <span className="font-semibold text-white/60">{roleLabel(m.role)}</span>{" "}
+                      {renderMessageParts(m.parts)}
+                    </p>
+                  ))}
+            </div>
           </div>
         </div>
       )}
 
       <span className="sr-only" aria-live="polite">
-        {agentName} test call is {callState === "idle" ? "not started" : callState}
+        {agentName} test call {hasEnded ? "has ended" : callState === "idle" ? "is not started" : `is ${callState}`}
       </span>
     </div>
   );
