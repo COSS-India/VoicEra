@@ -78,8 +78,8 @@ export default function ForgotPasswordPage() {
           </div>
           
           <div className="flex items-center gap-8 text-slate-500 text-sm">
-            <Link href="#" className="hover:text-slate-300 transition-colors">Privacy</Link>
-            <Link href="#" className="hover:text-slate-300 transition-colors">Terms</Link>
+            <Link href="https://voicera.world/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Privacy</Link>
+            <Link href="https://voicera.world/terms" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Terms</Link>
           </div>
         </div>
 
@@ -161,8 +161,8 @@ export default function ForgotPasswordPage() {
         </div>
         
         <div className="flex items-center gap-8 text-slate-500 text-sm">
-          <Link href="#" className="hover:text-slate-300 transition-colors">Privacy</Link>
-          <Link href="#" className="hover:text-slate-300 transition-colors">Terms</Link>
+          <Link href="https://voicera.world/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Privacy</Link>
+          <Link href="https://voicera.world/terms" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Terms</Link>
         </div>
       </div>
 
