@@ -14,6 +14,7 @@ from app.services.agent_telephony_service import (
     AgentTelephonyError,
     build_answer_urls,
     get_provider_dial_credentials,
+    load_telephony_client,
 )
 from app.services.phone_number_service import PhoneNumberNotFoundError
 from apps.telephony import initiate_outbound
@@ -88,19 +89,22 @@ def _resolve_from_number(
     except PhoneNumberNotFoundError:
         pass
 
-    # VI: fall back to first DNI in ProviderAuth dni_flows.
+    # Optional client capability (e.g. auth-configured DNIs) when no linked number.
     normalized_provider = (provider or "").strip().lower()
     if not normalized_provider:
         telephony = agent.get("telephony") or {}
         normalized_provider = str(telephony.get("provider") or "").strip().lower()
-    if normalized_provider == "vi":
-        from app.services.agent_telephony_service import (
-            resolve_vi_from_number_fallback,
-        )
-
-        auth_dni = resolve_vi_from_number_fallback(org_id)
-        if auth_dni:
-            return _normalize_phone(auth_dni, field="from_number")
+    if normalized_provider:
+        try:
+            client = load_telephony_client(org_id, normalized_provider)
+        except AgentTelephonyError:
+            client = None
+        else:
+            fallback = getattr(client, "default_from_number", None)
+            if callable(fallback):
+                auth_dni = fallback()
+                if auth_dni:
+                    return _normalize_phone(str(auth_dni), field="from_number")
 
     raise OutboundCallError(
         "No caller ID configured for this agent. "

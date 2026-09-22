@@ -63,16 +63,19 @@ class CampaignCallDispatcher:
                     numbers.append(str(num))
         if numbers:
             return numbers
-        # VI: first DNI from ProviderAuth dni_flows when no linked inventory.
+        # Optional client capability when no linked inventory (e.g. auth DNIs).
         provider = self._telephony_provider(campaign)
-        if provider == "vi":
-            from app.services.agent_telephony_service import (
-                resolve_vi_from_number_fallback,
-            )
-
-            dni = resolve_vi_from_number_fallback(org_id)
-            if dni:
-                return [dni]
+        if provider:
+            try:
+                client = load_telephony_client(org_id, provider)
+            except AgentTelephonyError:
+                pass
+            else:
+                fallback = getattr(client, "default_from_number", None)
+                if callable(fallback):
+                    dni = fallback()
+                    if dni:
+                        return [str(dni)]
         return numbers
 
     def _pool_scope(self, agent_id: str) -> str:

@@ -40,12 +40,6 @@ async def vi_stream_websocket(websocket: WebSocket) -> None:
     await run_vi_stream_session(websocket, _deps())
 
 
-@router.websocket("/vi/agent/{agent_id}")
-async def vi_agent_websocket(websocket: WebSocket, agent_id: str) -> None:
-    """Legacy path-scoped VI streaming endpoint (agent id in URL)."""
-    await run_vi_stream_session(websocket, _deps(), path_agent_id=agent_id)
-
-
 @router.get("/vi/integration-info")
 async def vi_integration_info() -> dict[str, Any]:
     """Return portal WSS URL hints for operators."""

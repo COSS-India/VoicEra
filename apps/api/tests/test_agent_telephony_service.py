@@ -16,7 +16,6 @@ from app.services.agent_telephony_service import (
     get_provider_dial_credentials,
     load_telephony_client,
     provision_application,
-    resolve_vi_from_number_fallback,
 )
 from app.services.agent_service import AgentNotFoundError
 
@@ -187,9 +186,11 @@ def test_vi_get_provider_dial_credentials_from_auth(
 
 
 @patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
-def test_resolve_vi_from_number_fallback_from_auth(
+def test_vi_client_default_from_number_from_auth(
     get_auth_mock: MagicMock,
 ) -> None:
+    import apps.telephony.providers.vi.config  # noqa: F401
+
     get_auth_mock.return_value = {
         "auth": {
             "auth_id": "u",
@@ -197,4 +198,5 @@ def test_resolve_vi_from_number_fallback_from_auth(
             "dni_flows": '[{"dni":"919769554706","flow_id":"flow-a"}]',
         }
     }
-    assert resolve_vi_from_number_fallback("org-1") == "+919769554706"
+    client = load_telephony_client("org-1", "vi")
+    assert client.default_from_number() == "+919769554706"

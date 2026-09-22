@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from apps.telephony.base import Credentials, missing_credentials_result, require_credentials
 
 from . import application, recording
-from .auth_helpers import parse_dni_flows
+from .auth_helpers import list_dnis, parse_dni_flows
 
 
 class ViClient:
@@ -67,6 +67,14 @@ class ViClient:
 
     async def list_numbers(self) -> Dict[str, Any]:
         return await application.list_numbers(self)
+
+    def default_from_number(self) -> str | None:
+        """First E.164 DNI from auth ``dni_flows`` (caller-ID fallback)."""
+        try:
+            numbers = list_dnis(self.dni_flows)
+        except Exception:
+            return None
+        return numbers[0] if numbers else None
 
     # --- Outbound call ---
 

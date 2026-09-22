@@ -344,8 +344,8 @@ VI does **not** follow the Vobiz/Plivo answer-URL model for live media:
 * Availability: `is_authenticated("vi")` is true only when Integrations has `vi` configured for the org.
 * Numbers inventory: `list_numbers` returns every auth DNI so each configured number appears under Numbers for VI.
 * DNI in Integrations: E.164 ``+91XXXXXXXXXX``. OBD ingest prefers ``getActiveDNIList`` wire form for the flow; fallback is country-code digits without ``+`` (e.g. ``919876543210``). Callee MSISDN is always 10-digit national.
-* Dialing: even a single outbound is CPaaS OBD `createCampaign` + ingest; campaigns use `initiate_bulk_calls` on the client. From-number falls back to the first `dni_flows` DNI when no number is linked.
-* Media: DIY flow opens `wss://…/vi/stream` (or legacy `/vi/agent/{agent_id}`); session logic lives in `providers/vi/stream_session.py` with a thin runtime route mount. Pipeline uses VI sample-rate selection via `telephony_rates.py`.
+* Dialing: even a single outbound is CPaaS OBD `createCampaign` + ingest; campaigns use `initiate_bulk_calls` on the client. From-number falls back via `ViClient.default_from_number()` (first auth DNI) when no number is linked — API uses the capability, not a vendor branch.
+* Media: DIY flow opens `wss://…/vi/stream` (or legacy `/vi/agent/{agent_id}`); session logic lives in `providers/vi/stream_session.py` with a thin runtime route mount. Pipeline sample rates are registered via `providers/vi/rates.py` (`@register_pipeline_rates`).
 * Provisioning: stub application; client returns the WSS stream URL as `answer_url`.
 * Recordings: Pipecat AudioBuffer only — no VI recording webhook.
 
