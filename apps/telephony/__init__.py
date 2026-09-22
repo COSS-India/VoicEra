@@ -44,6 +44,7 @@ from apps.telephony.registry import (
     load_providers,
     registered_providers,
 )
+from apps.telephony.results import provider_call_sid_from_result
 from apps.telephony.schema import (
     DEFAULT_SERVICE_PROVIDERS,
     UnknownProviderError,
@@ -101,6 +102,7 @@ __all__ = [
     "all_provider_level_auth",
     "build_answer_stream_xml",
     "initiate_outbound",
+    "provider_call_sid_from_result",
     "TelephonyWebhookEvent",
     "is_hangup_event",
     "map_hangup_call_response",

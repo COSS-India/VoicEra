@@ -212,7 +212,7 @@ class CampaignCallDispatcher:
         queued_runs: list[dict[str, Any]],
         client: Any,
     ) -> int:
-        """One provider bulk dial (e.g. VI OBD campaign) for all claimed runs."""
+        """One provider bulk dial for all claimed runs."""
         org_id = str(campaign["org_id"])
         agent_id = str(campaign["agent_id"])
         campaign_id = str(campaign["campaign_id"])
@@ -264,17 +264,21 @@ class CampaignCallDispatcher:
                 )
             raise OutboundCallError(message, status_code=502)
 
-        campaign_ref = result.get("campaign_Ref_ID") or result.get("call_uuid")
-        campain_key = result.get("campainKey")
-        dni = str(result.get("dni") or from_number)
+        provider_call_sid = result.get("provider_call_sid")
+        if provider_call_sid is not None:
+            provider_call_sid = str(provider_call_sid).strip() or None
+        provider_handles = result.get("provider_handles") or {}
+        if not isinstance(provider_handles, dict):
+            provider_handles = {}
+        bulk_from = str(result.get("from_number") or from_number)
         now = datetime.now(timezone.utc).isoformat()
 
         metadata = dict(campaign.get("orchestrator_metadata") or {})
-        metadata["bulk_campaign_ref_id"] = campaign_ref
-        metadata["bulk_campain_key"] = campain_key
-        metadata["bulk_dni"] = dni
+        metadata["bulk_provider_call_sid"] = provider_call_sid
+        metadata["bulk_provider_handles"] = provider_handles
+        metadata["bulk_from_number"] = bulk_from
         metadata["bulk_provider"] = provider
-        metadata["bulk_current_status"] = "Created"
+        metadata["bulk_current_status"] = "running"
         repo.update_campaign(campaign_id, orchestrator_metadata=metadata)
 
         processed_count = 0
@@ -288,7 +292,9 @@ class CampaignCallDispatcher:
             context = dict(queued_run.get("context_variables") or {})
             call_id = str(uuid.uuid4())
             to_number = phone if phone.startswith("+") else f"+{phone.lstrip('+')}"
-            from_e164 = dni if dni.startswith("+") else f"+{dni.lstrip('+')}"
+            from_e164 = (
+                bulk_from if bulk_from.startswith("+") else f"+{bulk_from.lstrip('+')}"
+            )
 
             variables = {k: v for k, v in context.items() if k != "phone_number"}
             variables.update(
@@ -298,16 +304,13 @@ class CampaignCallDispatcher:
                     "caller_number": from_e164,
                     "called_number": to_number,
                     "direction": "outbound",
-                    "bulk_campaign_ref_id": campaign_ref,
-                    "bulk_campain_key": campain_key,
+                    "bulk_provider_call_sid": provider_call_sid,
                 }
             )
 
             call_doc: dict[str, Any] = {
                 "call_id": call_id,
-                "provider_call_sid": (
-                    str(campaign_ref) if campaign_ref is not None else None
-                ),
+                "provider_call_sid": provider_call_sid,
                 "org_id": org_id,
                 "agent_id": agent_id,
                 "agent_name": agent.get("name"),
@@ -342,16 +345,16 @@ class CampaignCallDispatcher:
         repo.update_campaign(campaign_id, processed_rows=current_processed)
 
         if (
-            campaign_ref is not None
+            (provider_call_sid is not None or provider_handles)
             and STATUS_POLL_MAX_ROUNDS > 0
-            and callable(getattr(client, "get_campaign_status", None))
+            and callable(getattr(client, "get_bulk_status", None))
         ):
             asyncio.create_task(
                 self._poll_bulk_campaign_status(
                     campaign_id,
                     client,
-                    campaign_ref_id=campaign_ref,
-                    campain_key=campain_key,
+                    provider_call_sid=provider_call_sid,
+                    provider_handles=provider_handles,
                 )
             )
 
@@ -362,19 +365,29 @@ class CampaignCallDispatcher:
         campaign_id: str,
         client: Any,
         *,
-        campaign_ref_id: Any,
-        campain_key: Any,
+        provider_call_sid: Any,
+        provider_handles: dict[str, Any],
     ) -> None:
         """Best-effort status polling; failures are logged only."""
+        terminal = frozenset(
+            {
+                "completed",
+                "complete",
+                "finished",
+                "expired",
+                "cancelled",
+                "failed",
+            }
+        )
         for round_idx in range(STATUS_POLL_MAX_ROUNDS):
             await asyncio.sleep(STATUS_POLL_SECS)
             campaign = repo.get_campaign_by_id(campaign_id)
             if not campaign or campaign.get("state") not in ("running", "completed"):
                 return
             try:
-                status_result = await client.get_campaign_status(
-                    campaign_ref_id=campaign_ref_id,
-                    campain_key=campain_key,
+                status_result = await client.get_bulk_status(
+                    provider_call_sid=provider_call_sid,
+                    provider_handles=provider_handles,
                 )
             except Exception as exc:
                 logger.warning(
@@ -385,20 +398,18 @@ class CampaignCallDispatcher:
                 continue
             if status_result.get("status") != "success":
                 continue
-            body = status_result.get("status_body") or {}
+            state = str(status_result.get("state") or "").strip().lower()
             metadata = dict(campaign.get("orchestrator_metadata") or {})
-            metadata["bulk_status_raw"] = {
-                k: v for k, v in body.items() if not str(k).startswith("_")
-            }
-            metadata["bulk_current_status"] = str(
-                body.get("campaignStatus")
-                or body.get("status")
-                or metadata.get("bulk_current_status")
-                or ""
+            raw = status_result.get("raw")
+            if isinstance(raw, dict):
+                metadata["bulk_status_raw"] = {
+                    k: v for k, v in raw.items() if not str(k).startswith("_")
+                }
+            metadata["bulk_current_status"] = state or metadata.get(
+                "bulk_current_status"
             )
             repo.update_campaign(campaign_id, orchestrator_metadata=metadata)
-            state = str(metadata["bulk_current_status"]).lower()
-            if state in ("completed", "complete", "finished", "expired", "cancelled"):
+            if state in terminal:
                 logger.info(
                     "Bulk campaign %s terminal status=%s after %d polls",
                     campaign_id[:8],

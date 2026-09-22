@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
 from urllib.parse import parse_qs, urlparse
 
 from apps.telephony.base import fail, success
@@ -136,14 +136,15 @@ async def initiate_call(
         return fail(str(exc))
 
     campaign_ref = queued.get("campaign_Ref_ID")
+    sid = str(campaign_ref) if campaign_ref is not None else None
     return success(
         queued.get("message") or "VI outbound queued",
-        call_uuid=campaign_ref,
-        request_uuid=campaign_ref,
-        campaign_Ref_ID=campaign_ref,
-        campainKey=queued.get("campainKey"),
-        dni=queued.get("dni"),
-        msisdn=queued.get("msisdn"),
+        provider_call_sid=sid,
+        from_number=queued.get("dni"),
+        provider_handles={
+            "campaign_ref_id": campaign_ref,
+            "campain_key": queued.get("campainKey"),
+        },
         raw=queued,
     )
 
@@ -173,33 +174,76 @@ async def initiate_bulk_calls(
         return fail(str(exc))
 
     campaign_ref = queued.get("campaign_Ref_ID")
+    sid = str(campaign_ref) if campaign_ref is not None else None
     return success(
         queued.get("message") or "VI bulk outbound queued",
-        call_uuid=campaign_ref,
-        request_uuid=campaign_ref,
-        campaign_Ref_ID=campaign_ref,
-        campainKey=queued.get("campainKey"),
-        dni=queued.get("dni"),
-        msisdns=queued.get("msisdns"),
-        window_hours=queued.get("window_hours"),
+        provider_call_sid=sid,
+        from_number=queued.get("dni"),
+        provider_handles={
+            "campaign_ref_id": campaign_ref,
+            "campain_key": queued.get("campainKey"),
+        },
         raw=queued,
     )
 
 
-async def get_campaign_status(
+_TERMINAL_COMPLETED = frozenset(
+    {"completed", "complete", "finished", "expired", "cancelled"}
+)
+_TERMINAL_FAILED = frozenset({"failed", "fail", "error"})
+
+
+def _normalize_bulk_state(body: Mapping[str, Any] | None) -> str:
+    """Map VI campaignstatus body to contract ``state``."""
+    if not body:
+        return "unknown"
+    raw = body.get("campaignStatus") or body.get("status") or ""
+    state = str(raw).strip().lower()
+    if not state:
+        return "unknown"
+    if state in _TERMINAL_COMPLETED:
+        return "completed"
+    if state in _TERMINAL_FAILED:
+        return "failed"
+    if state in {"created", "running", "inprogress", "in_progress", "active", "queued"}:
+        return "running"
+    return state if state in {"running", "completed", "failed", "unknown"} else "running"
+
+
+async def get_bulk_status(
     client: "ViClient",
     *,
-    campaign_ref_id: str | int,
-    campain_key: Optional[str] = None,
+    provider_call_sid: str | int | None,
+    provider_handles: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Poll VI campaignstatus with Ref_ID then campainKey fallback."""
+    """Poll VI campaignstatus; return normalized ``state`` for API callers."""
+    handles = dict(provider_handles or {})
+    campaign_ref_id = handles.get("campaign_ref_id")
+    if campaign_ref_id is None:
+        campaign_ref_id = provider_call_sid
+    campain_key = handles.get("campain_key")
+    if campain_key is not None:
+        campain_key = str(campain_key).strip() or None
+
+    if campaign_ref_id is None and not campain_key:
+        return fail("Bulk status requires provider_call_sid or provider_handles")
 
     def _run() -> tuple[dict, str]:
         obd = _obd_client(client)
         token, _ = obd.get_auth_token()
-        return obd.get_campaign_status_with_fallback(
-            token, campaign_ref_id, campain_key=campain_key
+        if campaign_ref_id is not None:
+            return obd.get_campaign_status_with_fallback(
+                token, campaign_ref_id, campain_key=campain_key
+            )
+        # Handles-only path: poll by campainKey.
+        body, status = obd.get_campaign_status(
+            token, campain_key, id_kind="campainKey"
         )
+        if status != 200:
+            raise ViObdError(
+                f"campaignstatus failed (HTTP {status}) for campainKey={campain_key!r}: {body}"
+            )
+        return body, "campainKey"
 
     try:
         body, id_kind = await asyncio.to_thread(_run)
@@ -207,8 +251,6 @@ async def get_campaign_status(
         return fail(str(exc))
     return success(
         "VI campaign status",
-        id_kind=id_kind,
-        status_body=body,
-        campaign_Ref_ID=campaign_ref_id,
-        campainKey=campain_key,
+        state=_normalize_bulk_state(body if isinstance(body, dict) else None),
+        raw={"id_kind": id_kind, "status_body": body},
     )

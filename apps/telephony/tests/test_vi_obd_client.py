@@ -230,3 +230,121 @@ def test_phone_lookup_candidates_adds_india_country_code() -> None:
     assert "9769554706" in candidates
     assert "+919769554706" in candidates
     assert "919769554706" in candidates
+
+
+@pytest.mark.anyio
+async def test_vi_client_initiate_call_returns_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.telephony.providers.vi import ViClient
+    from apps.telephony.providers.vi import application as vi_app
+
+    class FakeObd:
+        def place_single_outbound_call(self, *args, **kwargs):
+            return {
+                "campaign_Ref_ID": 42,
+                "campainKey": "ckey",
+                "dni": "+919876543210",
+                "msisdn": "9911122233",
+                "message": "queued",
+            }
+
+    monkeypatch.setattr(vi_app, "_obd_client", lambda _c: FakeObd())
+    client = ViClient(
+        "user",
+        "pass",
+        "https://example.com/obd",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "flow-a"}],
+    )
+    result = await client.initiate_call(
+        from_number="+919876543210",
+        to_number="+919911122233",
+        answer_url="https://voice.example.com/answer?agent_id=a1",
+    )
+    assert result["status"] == "success"
+    assert result["provider_call_sid"] == "42"
+    assert result["from_number"] == "+919876543210"
+    assert result["provider_handles"] == {
+        "campaign_ref_id": 42,
+        "campain_key": "ckey",
+    }
+    assert "campainKey" not in result
+    assert "campaign_Ref_ID" not in result
+    assert result["raw"]["campainKey"] == "ckey"
+
+
+@pytest.mark.anyio
+async def test_vi_client_initiate_bulk_returns_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.telephony.providers.vi import ViClient
+    from apps.telephony.providers.vi import application as vi_app
+
+    class FakeObd:
+        def place_bulk_outbound_calls(self, *args, **kwargs):
+            return {
+                "campaign_Ref_ID": 99,
+                "campainKey": "bulk-key",
+                "dni": "919876543210",
+                "msisdns": ["9911122233", "9922233344"],
+                "message": "bulk queued",
+            }
+
+    monkeypatch.setattr(vi_app, "_obd_client", lambda _c: FakeObd())
+    client = ViClient(
+        "user",
+        "pass",
+        "https://example.com/obd",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "flow-a"}],
+    )
+    result = await client.initiate_bulk_calls(
+        from_number="+919876543210",
+        to_numbers=["+919911122233", "+919922233344"],
+    )
+    assert result["status"] == "success"
+    assert result["provider_call_sid"] == "99"
+    assert result["from_number"] == "919876543210"
+    assert result["provider_handles"]["campain_key"] == "bulk-key"
+    assert "dni" not in result
+
+
+@pytest.mark.anyio
+async def test_vi_client_get_bulk_status_normalizes_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.telephony.providers.vi import ViClient
+    from apps.telephony.providers.vi import application as vi_app
+
+    class FakeObd:
+        def get_auth_token(self):
+            return "tok", {}
+
+        def get_campaign_status_with_fallback(self, token, ref, campain_key=None):
+            assert token == "tok"
+            assert ref == 42
+            assert campain_key == "ckey"
+            return {"campaignStatus": "Completed"}, "campaign_Ref_ID"
+
+    monkeypatch.setattr(vi_app, "_obd_client", lambda _c: FakeObd())
+    client = ViClient(
+        "user",
+        "pass",
+        "https://example.com/obd",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "flow-a"}],
+    )
+    result = await client.get_bulk_status(
+        provider_call_sid="42",
+        provider_handles={"campaign_ref_id": 42, "campain_key": "ckey"},
+    )
+    assert result["status"] == "success"
+    assert result["state"] == "completed"
+    assert "campaignStatus" not in result
+    assert result["raw"]["status_body"]["campaignStatus"] == "Completed"
+
+
+def test_normalize_bulk_state_variants() -> None:
+    from apps.telephony.providers.vi.application import _normalize_bulk_state
+
+    assert _normalize_bulk_state({"campaignStatus": "Running"}) == "running"
+    assert _normalize_bulk_state({"status": "failed"}) == "failed"
+    assert _normalize_bulk_state({}) == "unknown"

@@ -18,6 +18,7 @@ from app.services.agent_telephony_service import (
 )
 from app.services.phone_number_service import PhoneNumberNotFoundError
 from apps.telephony import initiate_outbound
+from apps.telephony.results import provider_call_sid_from_result
 
 logger = logging.getLogger(__name__)
 
@@ -111,21 +112,6 @@ def _resolve_from_number(
         "Attach a phone number or pass from_number.",
         status_code=422,
     )
-
-
-def _extract_provider_call_sid(result: dict[str, Any]) -> str | None:
-    for key in ("call_uuid", "request_uuid", "uuid", "campaign_Ref_ID"):
-        value = result.get(key)
-        if value is not None and str(value).strip():
-            return str(value)
-    raw = result.get("raw") or {}
-    if isinstance(raw, dict):
-        for key in ("call_uuid", "request_uuid", "uuid", "campaign_Ref_ID"):
-            value = raw.get(key)
-            if value is not None and str(value).strip():
-                return str(value)
-    return None
-
 
 async def initiate_outbound_call(
     org_id: str,
@@ -225,7 +211,7 @@ async def initiate_outbound_call(
         )
         raise OutboundCallError(message, status_code=502)
 
-    provider_call_sid = _extract_provider_call_sid(result)
+    provider_call_sid = provider_call_sid_from_result(result)
     updated = call_log_service.update_call_log(
         call_id,
         {

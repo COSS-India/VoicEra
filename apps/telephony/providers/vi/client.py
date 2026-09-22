@@ -115,16 +115,17 @@ class ViClient:
             description=description,
         )
 
-    async def get_campaign_status(
+    async def get_bulk_status(
         self,
         *,
-        campaign_ref_id: str | int,
-        campain_key: Optional[str] = None,
+        provider_call_sid: str | int | None = None,
+        provider_handles: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        return await application.get_campaign_status(
+        """Poll bulk campaign status; returns normalized ``state``."""
+        return await application.get_bulk_status(
             self,
-            campaign_ref_id=campaign_ref_id,
-            campain_key=campain_key,
+            provider_call_sid=provider_call_sid,
+            provider_handles=provider_handles,
         )
 
     # --- Recording (carrier APIs unused; Pipecat AudioBuffer only) ---
