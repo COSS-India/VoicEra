@@ -20,7 +20,15 @@ import re
 from app.services import auth_service
 from apps.providers.one_shot_llm import OneShotLLMError, call_first_available
 
-MAX_TRANSCRIPT_CHARS = 22_000 ## 20 m
+MAX_TRANSCRIPT_CHARS = 22_000  # ~20 min call
+
+# Generous fixed cap for the translated completion. Output is roughly
+# input-sized (some languages run longer per word), plus room for the
+# occasional bracketed [note: ...] the model appends to garbled lines. Must
+# stay ahead of MAX_TRANSCRIPT_CHARS's token-equivalent, or completions get
+# silently truncated mid-transcript and _count_transcript_lines() rejects
+# the result with an error that a retry can never fix.
+MAX_OUTPUT_TOKENS = 12_000
 
 # Each string below is one independent policy the model must follow; kept
 # separate (rather than one long paragraph) so a future change to, say, the
@@ -152,6 +160,7 @@ def translate_transcript(
             resolve_auth=_resolve_auth,
             list_configured_providers=auth_service.list_configured_providers,
             jwt_subject=f"translate-{org_id}",
+            max_tokens=MAX_OUTPUT_TOKENS,
         )
     except OneShotLLMError as exc:
         raise TranslationError(f"Translation failed: {exc}") from exc
