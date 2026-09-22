@@ -212,7 +212,7 @@ def test_uses_org_configured_groq_provider(monkeypatch):
 
     assert result == "translated"
     mock_openai_cls.assert_called_once_with(
-        api_key="org-groq-key", base_url="https://api.groq.com/openai/v1", timeout=30.0
+        api_key="org-groq-key", base_url="https://api.groq.com/openai/v1", timeout=60.0
     )
 
 

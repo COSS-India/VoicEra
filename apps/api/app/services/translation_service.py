@@ -20,7 +20,7 @@ import re
 from app.services import auth_service
 from apps.providers.one_shot_llm import OneShotLLMError, call_first_available
 
-MAX_TRANSCRIPT_CHARS = 50_000
+MAX_TRANSCRIPT_CHARS = 22_000 ## 20 m
 
 # Each string below is one independent policy the model must follow; kept
 # separate (rather than one long paragraph) so a future change to, say, the
