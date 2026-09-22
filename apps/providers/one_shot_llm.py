@@ -87,13 +87,32 @@ def first_available_provider(
 
 
 def call_openai_compatible(
-    api_key: str | None, base_url: str | None, model: str, messages: list[dict[str, str]]
+    api_key: str | None,
+    base_url: str | None,
+    model: str,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
 ) -> str:
     """Single chat-completion via any OpenAI-compatible endpoint (OpenAI
-    itself, Groq, OpenRouter, AtlasCloud, a self-hosted gateway, ...)."""
+    itself, Groq, OpenRouter, AtlasCloud, a self-hosted gateway, ...).
+
+    max_tokens is None by default (provider's own default cap) — callers
+    with a large expected output (e.g. transcript translation) must pass an
+    explicit value, since a silently-truncated completion is worse than an
+    explicit error: apps.api.app.services.translation_service compares
+    input/output line counts and raises a "try again" error that cannot
+    succeed if the real cause is output truncation, not a translation
+    glitch.
+    """
     client = OpenAI(api_key=api_key or "not-required", base_url=base_url, timeout=REQUEST_TIMEOUT_SECONDS)
+    kwargs: dict[str, Any] = {}
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
     try:
-        completion = client.chat.completions.create(model=model, temperature=0.1, messages=messages)
+        completion = client.chat.completions.create(
+            model=model, temperature=0.1, messages=messages, **kwargs
+        )
     except OpenAIError as exc:
         raise OneShotLLMError(f"request to {base_url!r} failed: {exc}") from exc
 
@@ -111,6 +130,7 @@ def call_via_openai_compatible_provider(
     *,
     resolve_auth: ResolveAuth,
     model: str | None = None,
+    max_tokens: int | None = None,
 ) -> tuple[str, str]:
     base_url, default_model = OPENAI_COMPATIBLE_PROVIDERS[provider]
     auth = resolve_auth(org_id, provider)
@@ -122,7 +142,10 @@ def call_via_openai_compatible_provider(
         raise OneShotLLMError(f"Provider {provider!r} has no api_key on file")
     resolved_model = model or default_model
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return call_openai_compatible(api_key, base_url, resolved_model, messages), resolved_model
+    return (
+        call_openai_compatible(api_key, base_url, resolved_model, messages, max_tokens=max_tokens),
+        resolved_model,
+    )
 
 
 def call_local_model_server(system: str, user: str, *, model: str = "qwen3.5-4b") -> str:
@@ -143,6 +166,7 @@ def call_kenpath(
     *,
     resolve_auth: ResolveAuth,
     jwt_subject: str = "one-shot-llm",
+    max_tokens: int | None = None,
 ) -> tuple[str, str]:
     """Call Kenpath's Vistaar or Bharat Vistaar backend for a single completion.
 
@@ -179,7 +203,7 @@ def call_kenpath(
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
         }
-        request_body = {
+        request_body: dict[str, Any] = {
             "model": BHARAT_VISTAAR_CHAT_MODEL,
             "messages": [
                 {"role": "system", "content": system},
@@ -187,6 +211,8 @@ def call_kenpath(
             ],
             "stream": False,
         }
+        if max_tokens is not None:
+            request_body["max_tokens"] = max_tokens
         try:
             response = httpx.post(url, json=request_body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
@@ -229,6 +255,7 @@ def call_bedrock(
     user: str,
     *,
     resolve_auth: ResolveAuth,
+    max_tokens: int | None = None,
 ) -> tuple[str, str]:
     """Call AWS Bedrock's Converse API for a single completion.
 
@@ -256,12 +283,15 @@ def call_bedrock(
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
     )
+    inference_config: dict[str, Any] = {"temperature": 0.1}
+    if max_tokens is not None:
+        inference_config["maxTokens"] = max_tokens
     try:
         response = client.converse(
             modelId=model,
             system=[{"text": system}],
             messages=[{"role": "user", "content": [{"text": user}]}],
-            inferenceConfig={"temperature": 0.1},
+            inferenceConfig=inference_config,
         )
     except (BotoCoreError, ClientError) as exc:
         raise OneShotLLMError(f"aws_bedrock request failed: {exc}") from exc
@@ -284,6 +314,7 @@ def call_vertex(
     user: str,
     *,
     resolve_auth: ResolveAuth,
+    max_tokens: int | None = None,
 ) -> tuple[str, str]:
     """Call Google Vertex AI's Gemini models for a single completion.
 
@@ -318,12 +349,16 @@ def call_vertex(
         )
     # Else: falls back to Application Default Credentials.
 
+    generate_config: dict[str, Any] = {"system_instruction": system, "temperature": 0.1}
+    if max_tokens is not None:
+        generate_config["max_output_tokens"] = max_tokens
+
     client = genai.Client(**client_kwargs)
     try:
         response = client.models.generate_content(
             model=model,
             contents=user,
-            config={"system_instruction": system, "temperature": 0.1},
+            config=generate_config,
         )
     except genai_errors.APIError as exc:
         raise OneShotLLMError(f"google_vertex request failed: {exc}") from exc
@@ -342,6 +377,7 @@ def call_first_available(
     resolve_auth: ResolveAuth,
     list_configured_providers: ListConfiguredProviders,
     jwt_subject: str = "one-shot-llm",
+    max_tokens: int | None = None,
 ) -> tuple[str, str, str] | None:
     """Dispatch to whichever provider first_available_provider() picks.
     Returns (provider, model, result), or None if nothing is available."""
@@ -351,16 +387,16 @@ def call_first_available(
 
     if provider in OPENAI_COMPATIBLE_PROVIDERS:
         result, model = call_via_openai_compatible_provider(
-            org_id, provider, system, user, resolve_auth=resolve_auth
+            org_id, provider, system, user, resolve_auth=resolve_auth, max_tokens=max_tokens
         )
         return provider, model, result
 
     if provider == "aws_bedrock":
-        result, model = call_bedrock(org_id, None, system, user, resolve_auth=resolve_auth)
+        result, model = call_bedrock(org_id, None, system, user, resolve_auth=resolve_auth, max_tokens=max_tokens)
         return provider, model, result
 
     if provider == "google_vertex":
-        result, model = call_vertex(org_id, None, system, user, resolve_auth=resolve_auth)
+        result, model = call_vertex(org_id, None, system, user, resolve_auth=resolve_auth, max_tokens=max_tokens)
         return provider, model, result
 
     if provider == "kenpath":
