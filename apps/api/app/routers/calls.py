@@ -43,6 +43,7 @@ from app.services.call_metrics_service import (
 from app.services.inbound_call_service import InboundCallError, register_inbound_call
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
 from app.services.translation_service import (
+    LANGUAGE_TAG_PATTERN,
     TranslationError,
     TranslationErrorReason,
     translate_transcript,
@@ -339,21 +340,10 @@ def _raise_translation_error(exc: TranslationError) -> None:
     ) from exc
 
 
-# BCP-47-ish language tag shape (e.g. "en", "hi", "zh-CN") — target_lang is
-# spliced directly into the translation prompt's instruction text, outside
-# the <transcript> tags that shield the untrusted transcript body from
-# prompt injection (see translation_service._user_prompt /
-# _PROMPT_INJECTION_GUARD). Constraining the shape here, before it ever
-# reaches the prompt, is what actually closes that hole — a tag can't smuggle
-# free-text instructions if it can never contain more than a couple of
-# letters and an optional region code.
-_LANGUAGE_TAG_PATTERN = r"^[a-zA-Z]{2,3}(-[a-zA-Z]{2})?$"
-
-
 @router.post("/{call_id}/translate", response_model=CallTranslateResponse)
 def translate_call_transcript(
     call_id: str,
-    target_lang: str = Query(..., pattern=_LANGUAGE_TAG_PATTERN),
+    target_lang: str = Query(..., pattern=LANGUAGE_TAG_PATTERN),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CallTranslateResponse:
     """LLM-backed fallback translation, used only when the client's on-device
