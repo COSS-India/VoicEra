@@ -14,6 +14,7 @@ import pytest
 
 from apps.providers.one_shot_llm import (
     OneShotLLMError,
+    call_first_available,
     call_kenpath,
     call_via_openai_compatible_provider,
 )
@@ -67,3 +68,53 @@ def test_openai_compatible_provider_empty_key_list_raises_clean_error():
         call_via_openai_compatible_provider(
             ORG_ID, "groq", "system", "user", resolve_auth=resolve_auth
         )
+
+
+def test_first_available_forwards_max_tokens_to_kenpath():
+    """call_first_available must thread max_tokens through to every provider
+    branch it dispatches to, including kenpath — a caller like
+    translation_service passes max_tokens to bound completion size, and a
+    dropped kwarg on one branch silently disables that cap only for orgs on
+    that provider, reopening the silent-truncation bug this plumbing exists
+    to close."""
+
+    def resolve_auth(org_id: str, provider: str) -> dict:
+        return {}
+
+    with patch(
+        "apps.providers.one_shot_llm.first_available_provider", return_value="kenpath"
+    ), patch(
+        "apps.providers.one_shot_llm.call_kenpath", return_value=("translated", "some-model")
+    ) as mock_call:
+        call_first_available(
+            ORG_ID,
+            "system",
+            "user",
+            resolve_auth=resolve_auth,
+            list_configured_providers=lambda org_id: ["kenpath"],
+            max_tokens=12_000,
+        )
+
+    assert mock_call.call_args.kwargs["max_tokens"] == 12_000
+
+
+def test_first_available_forwards_max_tokens_to_local_model_server():
+    def resolve_auth(org_id: str, provider: str) -> dict:
+        return {}
+
+    with patch(
+        "apps.providers.one_shot_llm.first_available_provider",
+        return_value="voicera_model_server",
+    ), patch(
+        "apps.providers.one_shot_llm.call_local_model_server", return_value="translated"
+    ) as mock_call:
+        call_first_available(
+            ORG_ID,
+            "system",
+            "user",
+            resolve_auth=resolve_auth,
+            list_configured_providers=lambda org_id: [],
+            max_tokens=12_000,
+        )
+
+    assert mock_call.call_args.kwargs["max_tokens"] == 12_000
