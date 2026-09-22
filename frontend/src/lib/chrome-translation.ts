@@ -156,15 +156,20 @@ export async function translateLines(
   const translator = await translatorApi.createTranslator({ sourceLanguage, targetLanguage });
   try {
     const results = new Array<string>(lines.length);
-    let nextIndex = 0;
-    async function worker(): Promise<void> {
-      while (nextIndex < lines.length) {
-        const i = nextIndex++;
-        const trimmed = lines[i]!.trim();
-        results[i] = trimmed ? await translator.translate(trimmed) : lines[i]!;
-      }
+    // Chunked, not a shared-counter worker pool: each chunk's translate()
+    // calls fully settle (success or throw) before the next chunk starts, so
+    // the `finally` below can never run — and destroy() the translator —
+    // while a sibling call is still in flight on it.
+    for (let start = 0; start < lines.length; start += TRANSLATE_CONCURRENCY) {
+      const chunk = lines.slice(start, start + TRANSLATE_CONCURRENCY);
+      const translated = await Promise.all(
+        chunk.map((line) => {
+          const trimmed = line.trim();
+          return trimmed ? translator.translate(trimmed) : Promise.resolve(line);
+        }),
+      );
+      results.splice(start, translated.length, ...translated);
     }
-    await Promise.all(Array.from({ length: Math.min(TRANSLATE_CONCURRENCY, lines.length) }, worker));
     return results;
   } finally {
     translator.destroy?.();

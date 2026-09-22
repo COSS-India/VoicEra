@@ -112,18 +112,22 @@ def _artifact_content_type(object_name: str, default: str) -> str:
     return default
 
 
+def _raise_404_on_missing_key(exc: S3Error, object_name: str) -> NoReturn:
+    if exc.code == "NoSuchKey":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File not found: {object_name}",
+        ) from exc
+    raise exc
+
+
 def _get_object_or_404(storage: MinIOStorage, bucket_name: str, object_name: str):
     """Fetch an object, turning a delete-after-exists-check race into the
     same 404 the existence check itself would have raised."""
     try:
         return storage.client.get_object(bucket_name, object_name)
     except S3Error as exc:
-        if exc.code == "NoSuchKey":
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File not found: {object_name}",
-            ) from exc
-        raise
+        _raise_404_on_missing_key(exc, object_name)
 
 
 def _stream_minio_object(bucket_name: str, object_name: str, content_type: str):
@@ -389,43 +393,44 @@ def translate_call_transcript(
     bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
 
     storage = MinIOStorage()
-    # Reject on the stored object's byte size before pulling it into worker
-    # memory — translate_transcript's MAX_TRANSCRIPT_CHARS check only runs
-    # after a full read, so without this an oversized (or malicious) object
-    # would still be read whole first. UTF-8 bytes-per-char is 1-4 depending
-    # on script, so this is a generous over-estimate (assume worst case);
-    # translate_transcript's own char-count check remains the precise limit.
-    try:
-        stat = storage.client.stat_object(bucket_name, object_name)
-    except S3Error as exc:
-        if exc.code == "NoSuchKey":
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File not found: {object_name}",
-            ) from exc
-        raise
-    if stat.size is not None and stat.size > MAX_TRANSCRIPT_CHARS * 4:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Transcript is too long to translate in one request ({stat.size} bytes).",
-        )
 
-    response = _get_object_or_404(storage, bucket_name, object_name)
-    try:
-        raw_text = response.read().decode("utf-8")
-    finally:
-        response.close()
-        response.release_conn()
-
+    # The semaphore wraps the MinIO fetch too, not just the LLM call: the
+    # limit exists to stop a burst of requests from starving unrelated sync
+    # endpoints on FastAPI's shared threadpool (see comment above
+    # _TRANSLATE_CONCURRENCY_LIMIT), and that starvation risk starts at the
+    # first blocking I/O call, not just the LLM one.
     if not _translate_semaphore.acquire(timeout=_TRANSLATE_ACQUIRE_TIMEOUT_SECONDS):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Too many translations in progress. Please try again shortly.",
         )
     try:
-        translated_text = translate_transcript(raw_text, target_lang, org_id)
-    except TranslationError as exc:
-        _raise_translation_error(exc)
+        response = _get_object_or_404(storage, bucket_name, object_name)
+        try:
+            # Reject on the object's declared byte size before reading it into
+            # worker memory — translate_transcript's MAX_TRANSCRIPT_CHARS check
+            # only runs after a full read, so without this an oversized (or
+            # malicious) object would still be read whole first. UTF-8
+            # bytes-per-char is 1-4 depending on script, so this is a generous
+            # over-estimate (assume worst case); translate_transcript's own
+            # char-count check remains the precise limit. Reading content-length
+            # off the GET response (rather than a separate stat_object call)
+            # avoids a second MinIO round trip for the common case.
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None and int(content_length) > MAX_TRANSCRIPT_CHARS * 4:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Transcript is too long to translate in one request ({content_length} bytes).",
+                )
+            raw_text = response.read().decode("utf-8")
+        finally:
+            response.close()
+            response.release_conn()
+
+        try:
+            translated_text = translate_transcript(raw_text, target_lang, org_id)
+        except TranslationError as exc:
+            _raise_translation_error(exc)
     finally:
         _translate_semaphore.release()
 
