@@ -83,6 +83,7 @@ def _minio_storage_mock(storage_cls: MagicMock, raw_transcript: bytes = b"[00:01
     response_obj = MagicMock()
     response_obj.read.return_value = raw_transcript
     storage.client.get_object.return_value = response_obj
+    storage.client.stat_object.return_value = MagicMock(size=len(raw_transcript))
     return storage
 
 
@@ -151,6 +152,7 @@ def test_translate_missing_transcript_object_returns_404(
         host_id="host-1",
         response=MagicMock(),
     )
+    storage_cls.return_value.client.stat_object.side_effect = error
     storage_cls.return_value.client.get_object.side_effect = error
 
     client = _make_client()
@@ -223,6 +225,32 @@ def test_translate_generic_provider_failure_returns_502(
 
     assert response.status_code == 502
     assert "not configured" in response.json()["detail"]
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_rejects_oversized_object_without_reading_it(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    """An oversized stored transcript must be rejected off the MinIO stat
+    (object size), before the full object is ever pulled into memory with
+    .read() — reading first and checking length only afterward means a huge
+    object gets loaded regardless of the cap."""
+    from app.services.translation_service import MAX_TRANSCRIPT_CHARS
+
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls)
+    storage.client.stat_object.return_value = MagicMock(size=(MAX_TRANSCRIPT_CHARS * 4) + 1)
+
+    client = _make_client()
+    response = client.post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 413
+    storage.client.get_object.assert_not_called()
+    mock_translate.assert_not_called()
 
 
 @_patch_db("app.services.call_log_service.get_database")

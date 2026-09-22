@@ -43,6 +43,7 @@ from app.services.call_metrics_service import (
 from app.services.inbound_call_service import InboundCallError, register_inbound_call
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
 from app.services.translation_service import (
+    MAX_TRANSCRIPT_CHARS,
     TranslationError,
     TranslationErrorReason,
     translate_transcript,
@@ -370,6 +371,27 @@ def translate_call_transcript(
     bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
 
     storage = MinIOStorage()
+    # Reject on the stored object's byte size before pulling it into worker
+    # memory — translate_transcript's MAX_TRANSCRIPT_CHARS check only runs
+    # after a full read, so without this an oversized (or malicious) object
+    # would still be read whole first. UTF-8 bytes-per-char is 1-4 depending
+    # on script, so this is a generous over-estimate (assume worst case);
+    # translate_transcript's own char-count check remains the precise limit.
+    try:
+        stat = storage.client.stat_object(bucket_name, object_name)
+    except S3Error as exc:
+        if exc.code == "NoSuchKey":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File not found: {object_name}",
+            ) from exc
+        raise
+    if stat.size is not None and stat.size > MAX_TRANSCRIPT_CHARS * 4:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Transcript is too long to translate in one request ({stat.size} bytes).",
+        )
+
     response = _get_object_or_404(storage, bucket_name, object_name)
     try:
         raw_text = response.read().decode("utf-8")
