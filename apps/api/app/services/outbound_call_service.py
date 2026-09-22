@@ -18,6 +18,7 @@ from app.services.agent_telephony_service import (
 )
 from app.services.phone_number_service import PhoneNumberNotFoundError
 from apps.telephony import initiate_outbound
+from apps.telephony.phone_format import format_e164_for_call_log
 from apps.telephony.results import provider_call_sid_from_result
 
 logger = logging.getLogger(__name__)
@@ -39,14 +40,17 @@ def _now_iso() -> str:
 
 
 def _normalize_phone(number: str, *, field: str) -> str:
-    cleaned = (number or "").strip().replace(" ", "").replace("-", "")
-    if not cleaned or not _PHONE_RE.match(cleaned):
+    cleaned = format_e164_for_call_log(number or "")
+    if not cleaned or cleaned.lower() == "unknown":
         raise OutboundCallError(
             f"Invalid {field}: {number!r}. Expected E.164-style digits (7–15).",
             status_code=422,
         )
-    if not cleaned.startswith("+"):
-        cleaned = f"+{cleaned}"
+    if not _PHONE_RE.match(cleaned):
+        raise OutboundCallError(
+            f"Invalid {field}: {number!r}. Expected E.164-style digits (7–15).",
+            status_code=422,
+        )
     return cleaned
 
 
@@ -212,13 +216,16 @@ async def initiate_outbound_call(
         raise OutboundCallError(message, status_code=502)
 
     provider_call_sid = provider_call_sid_from_result(result)
-    updated = call_log_service.update_call_log(
-        call_id,
-        {
-            "status": "ringing",
-            "provider_call_sid": provider_call_sid,
-        },
-    )
+    dial_dni = result.get("dni")
+    if dial_dni is not None and str(dial_dni).strip():
+        normalized_from = format_e164_for_call_log(str(dial_dni))
+    patch: dict[str, Any] = {
+        "status": "ringing",
+        "provider_call_sid": provider_call_sid,
+    }
+    if dial_dni is not None and str(dial_dni).strip():
+        patch["from_number"] = normalized_from
+    updated = call_log_service.update_call_log(call_id, patch)
 
     return {
         "call_id": call_id,

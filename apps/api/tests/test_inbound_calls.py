@@ -191,6 +191,34 @@ def test_register_inbound_call_idempotent(
 
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
+def test_register_inbound_call_normalizes_indian_numbers(
+    _agents_db: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    _AGENT_STORE[("org-1", "agent-1")] = _telephony_agent(
+        linked_phone_number="919876543210",
+    )
+    client = _make_client()
+    response = client.post(
+        "/api/v1/calls/inbound",
+        json={
+            "agent_id": "agent-1",
+            "provider_call_sid": "inbound-sid-india",
+            "from_number": "9876543210",
+            "to_number": "09876543211",
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["from_number"] == "+919876543210"
+    assert body["to_number"] == "+919876543211"
+    stored = next(iter(_CALL_STORE.values()))
+    assert stored["from_number"] == "+919876543210"
+    assert stored["to_number"] == "+919876543211"
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@_patch_db("app.services.agent_service.get_database")
 def test_register_inbound_call_backfills_unknown_from_number(
     _agents_db: MagicMock,
     _calls_db: MagicMock,

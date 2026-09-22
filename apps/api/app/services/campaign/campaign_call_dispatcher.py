@@ -26,6 +26,7 @@ from app.services.agent_telephony_service import (
     AgentTelephonyError,
     load_telephony_client,
 )
+from apps.telephony.phone_format import format_e164_for_call_log
 
 logger = logging.getLogger(__name__)
 
@@ -291,10 +292,8 @@ class CampaignCallDispatcher:
             qid = str(queued_run["queued_run_id"])
             context = dict(queued_run.get("context_variables") or {})
             call_id = str(uuid.uuid4())
-            to_number = phone if phone.startswith("+") else f"+{phone.lstrip('+')}"
-            from_e164 = (
-                bulk_from if bulk_from.startswith("+") else f"+{bulk_from.lstrip('+')}"
-            )
+            to_number = format_e164_for_call_log(phone)
+            from_e164 = format_e164_for_call_log(bulk_from)
 
             variables = {k: v for k, v in context.items() if k != "phone_number"}
             variables.update(
