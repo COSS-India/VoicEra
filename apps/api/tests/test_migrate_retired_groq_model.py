@@ -30,8 +30,8 @@ class _FakeCollection:
     def update_many(self, query: dict[str, Any], update: dict[str, Any]) -> None:
         for doc in self._docs:
             if self._matches(query, doc):
-                doc["models"]["llm_config"]["model"] = update["$set"][
-                    "models.llm_config.model"
+                doc["config"]["models"]["llm_config"]["model"] = update["$set"][
+                    "config.models.llm_config.model"
                 ]
 
 
@@ -40,7 +40,7 @@ def _agent(provider: str, model: str) -> dict[str, Any]:
         "_id": f"agent-{provider}-{model}",
         "org_id": "org-1",
         "name": "test agent",
-        "models": {"llm_config": {"provider": provider, "model": model}},
+        "config": {"models": {"llm_config": {"provider": provider, "model": model}}},
     }
 
 
@@ -57,9 +57,9 @@ def test_migrate_remaps_retired_groq_agents() -> None:
         count = migrate(dry_run=False)
 
     assert count == 1
-    assert docs[0]["models"]["llm_config"]["model"] == DEFAULT_LLM_MODEL
-    assert docs[1]["models"]["llm_config"]["model"] == "gemma2-9b-it"
-    assert docs[2]["models"]["llm_config"]["model"] == RETIRED_MODEL
+    assert docs[0]["config"]["models"]["llm_config"]["model"] == DEFAULT_LLM_MODEL
+    assert docs[1]["config"]["models"]["llm_config"]["model"] == "gemma2-9b-it"
+    assert docs[2]["config"]["models"]["llm_config"]["model"] == RETIRED_MODEL
 
 
 def test_migrate_dry_run_does_not_write() -> None:
@@ -71,4 +71,4 @@ def test_migrate_dry_run_does_not_write() -> None:
         count = migrate(dry_run=True)
 
     assert count == 1
-    assert docs[0]["models"]["llm_config"]["model"] == RETIRED_MODEL
+    assert docs[0]["config"]["models"]["llm_config"]["model"] == RETIRED_MODEL
