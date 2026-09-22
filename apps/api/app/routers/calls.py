@@ -42,7 +42,11 @@ from app.services.call_metrics_service import (
 )
 from app.services.inbound_call_service import InboundCallError, register_inbound_call
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
-from app.services.translation_service import TranslationError, translate_transcript
+from app.services.translation_service import (
+    TranslationError,
+    TranslationErrorReason,
+    translate_transcript,
+)
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
 from minio.error import S3Error
@@ -320,9 +324,17 @@ async def get_call_transcript(
     return _stream_minio_object(bucket_name, object_name, content_type)
 
 
+_TRANSLATION_ERROR_STATUS: dict[TranslationErrorReason, int] = {
+    TranslationErrorReason.INVALID_INPUT: status.HTTP_400_BAD_REQUEST,
+    TranslationErrorReason.OVERSIZED: status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+    TranslationErrorReason.NOT_CONFIGURED: status.HTTP_409_CONFLICT,
+    TranslationErrorReason.UPSTREAM: status.HTTP_502_BAD_GATEWAY,
+}
+
+
 def _raise_translation_error(exc: TranslationError) -> None:
     raise HTTPException(
-        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE if exc.is_oversized else status.HTTP_502_BAD_GATEWAY,
+        status_code=_TRANSLATION_ERROR_STATUS[exc.reason],
         detail=exc.message,
     ) from exc
 
