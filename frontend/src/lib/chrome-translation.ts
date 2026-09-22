@@ -42,6 +42,12 @@ interface NormalizedDetectorApi {
 
 const DETECT_SAMPLE_MAX_CHARS = 2000;
 const UNDETERMINED_LANGUAGE = "und";
+// The on-device Translator runs a single shared local inference engine, not
+// a network call — firing hundreds of translate() calls at once (one per
+// transcript line) queues them behind that one engine anyway, just with the
+// overhead of hundreds of in-flight promises/allocations at once. Cap how
+// many run concurrently instead.
+const TRANSLATE_CONCURRENCY = 6;
 
 function getTranslatorApi(): NormalizedTranslatorApi | null {
   const g = globalThis as unknown as {
@@ -149,12 +155,17 @@ export async function translateLines(
 
   const translator = await translatorApi.createTranslator({ sourceLanguage, targetLanguage });
   try {
-    return await Promise.all(
-      lines.map((line) => {
-        const trimmed = line.trim();
-        return trimmed ? translator.translate(trimmed) : Promise.resolve(line);
-      }),
-    );
+    const results = new Array<string>(lines.length);
+    let nextIndex = 0;
+    async function worker(): Promise<void> {
+      while (nextIndex < lines.length) {
+        const i = nextIndex++;
+        const trimmed = lines[i]!.trim();
+        results[i] = trimmed ? await translator.translate(trimmed) : lines[i]!;
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(TRANSLATE_CONCURRENCY, lines.length) }, worker));
+    return results;
   } finally {
     translator.destroy?.();
   }

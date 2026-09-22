@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Iterator, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -341,6 +342,23 @@ def _raise_translation_error(exc: TranslationError) -> NoReturn:
     ) from exc
 
 
+# Bounds how many translations run at once, server-wide. This route is sync
+# (see docstring below) and blocks a threadpool thread for up to
+# REQUEST_TIMEOUT_SECONDS (one_shot_llm.py) per call — FastAPI's default
+# threadpool (40 threads) is shared by every sync route in the app, so
+# without a cap here a burst of translate requests can starve unrelated sync
+# endpoints for up to a minute each. threading.Semaphore, not asyncio's: this
+# code runs in a plain worker thread, not the event loop.
+_TRANSLATE_CONCURRENCY_LIMIT = 5
+# How long a 6th+ concurrent request waits for one of the 5 slots to free
+# before giving up with a 503. Each held slot can run up to
+# REQUEST_TIMEOUT_SECONDS (60s, one_shot_llm.py) — 30s gives a queued
+# request a real chance to get a slot as others finish, rather than mostly
+# failing fast the moment >5 people translate at once.
+_TRANSLATE_ACQUIRE_TIMEOUT_SECONDS = 30.0
+_translate_semaphore = threading.Semaphore(_TRANSLATE_CONCURRENCY_LIMIT)
+
+
 @router.post("/{call_id}/translate", response_model=CallTranslateResponse)
 def translate_call_transcript(
     call_id: str,
@@ -389,10 +407,17 @@ def translate_call_transcript(
         response.close()
         response.release_conn()
 
+    if not _translate_semaphore.acquire(timeout=_TRANSLATE_ACQUIRE_TIMEOUT_SECONDS):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Too many translations in progress. Please try again shortly.",
+        )
     try:
         translated_text = translate_transcript(raw_text, target_lang, org_id)
     except TranslationError as exc:
         _raise_translation_error(exc)
+    finally:
+        _translate_semaphore.release()
 
     return CallTranslateResponse(translated_text=translated_text, target_lang=target_lang)
 
