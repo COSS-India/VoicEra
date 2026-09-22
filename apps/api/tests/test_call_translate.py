@@ -172,7 +172,7 @@ def test_translate_oversized_transcript_returns_413(
     _CALL_STORE["call-abc-123"] = _sample_call_doc()
     _minio_storage_mock(storage_cls)
     mock_translate.side_effect = TranslationError(
-        "Transcript is too long to translate in one request (50001 chars, limit 50000).",
+        "Transcript is too long to translate in one request (22001 chars, limit 22000).",
         reason=TranslationErrorReason.OVERSIZED,
     )
 

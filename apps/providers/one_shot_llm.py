@@ -148,14 +148,16 @@ def call_via_openai_compatible_provider(
     )
 
 
-def call_local_model_server(system: str, user: str, *, model: str = "qwen3.5-4b") -> str:
+def call_local_model_server(
+    system: str, user: str, *, model: str = "qwen3.5-4b", max_tokens: int | None = None
+) -> str:
     """Zero-credential path: VoicEra's own self-hosted LLM behind
     model-server's OpenAI-compatible gateway, addressed via MODEL_SERVER_URL."""
     base_url = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise OneShotLLMError("MODEL_SERVER_URL is not set")
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return call_openai_compatible(None, base_url, model, messages)
+    return call_openai_compatible(None, base_url, model, messages, max_tokens=max_tokens)
 
 
 def call_kenpath(
@@ -401,12 +403,18 @@ def call_first_available(
 
     if provider == "kenpath":
         result, model = call_kenpath(
-            org_id, None, system, user, resolve_auth=resolve_auth, jwt_subject=jwt_subject
+            org_id,
+            None,
+            system,
+            user,
+            resolve_auth=resolve_auth,
+            jwt_subject=jwt_subject,
+            max_tokens=max_tokens,
         )
         return provider, model, result
 
     if provider == LOCAL_MODEL_SERVER_PROVIDER:
-        result = call_local_model_server(system, user)
+        result = call_local_model_server(system, user, max_tokens=max_tokens)
         return provider, "qwen3.5-4b", result
 
     raise OneShotLLMError(f"No dispatch implemented for provider {provider!r}")
