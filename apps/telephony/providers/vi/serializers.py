@@ -64,12 +64,14 @@ class ViFrameSerializer(FrameSerializer):
         self._exit_sent = False
         self._stop_received = False
         self._playout_deadline = time.monotonic()
+        self._pace_deadline = time.monotonic()
         self._final_mark_event = asyncio.Event()
 
     async def setup(self, frame: StartFrame):
         self._sample_rate = self._params.sample_rate or frame.audio_in_sample_rate
         self._stream_start_time = time.monotonic()
         self._playout_deadline = time.monotonic()
+        self._pace_deadline = time.monotonic()
 
     def set_exit_parameters(self, parameters: dict) -> None:
         self._params.exit_parameters = dict(parameters or {})
@@ -111,6 +113,21 @@ class ViFrameSerializer(FrameSerializer):
     def _track_playout(self, pcm_bytes: int) -> None:
         duration = pcm_bytes / BYTES_PER_SECOND
         self._playout_deadline = max(time.monotonic(), self._playout_deadline) + duration
+
+    def _advance_pace(self, pcm_bytes: int) -> None:
+        duration = pcm_bytes / BYTES_PER_SECOND
+        if duration <= 0:
+            return
+        now = time.monotonic()
+        self._pace_deadline = max(now, self._pace_deadline) + duration
+
+    async def _pace(self, pcm_bytes: int) -> None:
+        """Realtime clock for buffered frames (transport skips sleep when we return None)."""
+        now = time.monotonic()
+        wait = self._pace_deadline - now
+        if wait > 0:
+            await asyncio.sleep(wait)
+        self._advance_pace(pcm_bytes)
 
     def _build_media_message(self, pcm_data: bytes) -> dict:
         self._media_chunk_index += 1
@@ -188,7 +205,9 @@ class ViFrameSerializer(FrameSerializer):
     async def serialize(self, frame: Frame) -> str | bytes | None:
         if isinstance(frame, InterruptionFrame):
             self._output_buffer.clear()
-            self._playout_deadline = time.monotonic()
+            now = time.monotonic()
+            self._playout_deadline = now
+            self._pace_deadline = now
             return json.dumps(self._build_clear_message())
 
         if isinstance(frame, (EndFrame, CancelFrame)):
@@ -207,7 +226,11 @@ class ViFrameSerializer(FrameSerializer):
             self._output_buffer.extend(data)
             chunk = self._take_output_chunk(force=False)
             if chunk:
+                # Transport sleeps on successful writes; only advance our clock.
+                self._advance_pace(len(data))
                 return json.dumps(self._build_media_message(chunk))
+            # Buffering: serialize returned None → transport skips sleep.
+            await self._pace(len(data))
             return None
 
         return None
