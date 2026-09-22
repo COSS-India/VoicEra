@@ -3,9 +3,10 @@ llama-3.3-70b-versatile model to the new default (openai/gpt-oss-120b).
 
 llama-3.3-70b-versatile was dropped from apps/providers/cloud/groq/catalog.py
 after Groq retired it (confirmed via a live 404). Agent model configs store
-`llm_config.model` as free-form text with no catalog validation, so any
-already-saved agent pinned to that string keeps loading fine and only fails
-at actual inference time (Groq 400/404). This backfills those documents.
+`config.models.llm_config.model` as free-form text with no catalog
+validation, so any already-saved agent pinned to that string keeps loading
+fine and only fails at actual inference time (Groq 400/404). This backfills
+those documents.
 
 Usage:
     python -m app.scripts.migrate_retired_groq_model [--dry-run]
@@ -27,14 +28,15 @@ COLLECTION = "Agents"
 
 
 def migrate(dry_run: bool = False) -> int:
-    """Remap Agents with provider=groq, model=RETIRED_MODEL to DEFAULT_LLM_MODEL.
+    """Remap Agents with config.models.llm_config.provider=groq and
+    model=RETIRED_MODEL to DEFAULT_LLM_MODEL.
 
     Returns the number of documents matched (updated, unless dry_run).
     """
     collection = get_database()[COLLECTION]
     query = {
-        "models.llm_config.provider": "groq",
-        "models.llm_config.model": RETIRED_MODEL,
+        "config.models.llm_config.provider": "groq",
+        "config.models.llm_config.model": RETIRED_MODEL,
     }
     matches = list(collection.find(query, {"_id": 1, "org_id": 1, "name": 1}))
     for doc in matches:
@@ -48,7 +50,7 @@ def migrate(dry_run: bool = False) -> int:
 
     if not dry_run and matches:
         collection.update_many(
-            query, {"$set": {"models.llm_config.model": DEFAULT_LLM_MODEL}}
+            query, {"$set": {"config.models.llm_config.model": DEFAULT_LLM_MODEL}}
         )
 
     logger.info(
