@@ -336,19 +336,29 @@ _TRANSLATION_ERROR_STATUS: dict[TranslationErrorReason, int] = {
 
 
 def _raise_translation_error(exc: TranslationError) -> NoReturn:
+    # .get(..., 502) rather than a bare lookup: a future TranslationErrorReason
+    # added without a matching row here must still degrade to the old
+    # catch-all upstream/502 behavior, not leak an unhandled KeyError as a 500.
     raise HTTPException(
-        status_code=_TRANSLATION_ERROR_STATUS[exc.reason],
+        status_code=_TRANSLATION_ERROR_STATUS.get(exc.reason, status.HTTP_502_BAD_GATEWAY),
         detail=exc.message,
     ) from exc
 
 
-# Bounds how many translations run at once, server-wide. This route is sync
+# Bounds how many translations run at once PER PROCESS. This route is sync
 # (see docstring below) and blocks a threadpool thread for up to
 # REQUEST_TIMEOUT_SECONDS (one_shot_llm.py) per call — FastAPI's default
 # threadpool (40 threads) is shared by every sync route in the app, so
 # without a cap here a burst of translate requests can starve unrelated sync
 # endpoints for up to a minute each. threading.Semaphore, not asyncio's: this
 # code runs in a plain worker thread, not the event loop.
+# NOT a cluster-wide limit: today's deploy runs a single uvicorn process
+# (no --workers, no replicas — see Dockerfile/docker-compose.yaml), so this
+# cap is the real cap. If this API is ever scaled to N processes/replicas,
+# each gets its own independent semaphore and the true concurrency becomes
+# 5*N with no cross-process coordination — replace this with a shared
+# limiter (e.g. the Redis-backed one in app.services.call_concurrency) if
+# that happens.
 _TRANSLATE_CONCURRENCY_LIMIT = 5
 # How long a 6th+ concurrent request waits for one of the 5 slots to free
 # before giving up with a 503. Each held slot can run up to
