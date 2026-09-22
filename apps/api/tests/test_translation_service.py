@@ -10,6 +10,7 @@ from openai import OpenAIError
 from app.services.translation_service import (
     MAX_TRANSCRIPT_CHARS,
     TranslationError,
+    TranslationErrorReason,
     _SYSTEM_PROMPT,
     _strip_markdown_fence,
     translate_transcript,
@@ -46,9 +47,10 @@ def _configure_openai(monkeypatch, api_key: str = "org-openai-key"):
 
 def test_empty_transcript_raises_without_calling_openai():
     with patch("apps.providers.one_shot_llm.OpenAI") as mock_openai_cls:
-        with pytest.raises(TranslationError, match="Transcript is empty"):
+        with pytest.raises(TranslationError, match="Transcript is empty") as exc_info:
             translate_transcript("", "hi", ORG_ID)
         mock_openai_cls.assert_not_called()
+    assert exc_info.value.reason == TranslationErrorReason.INVALID_INPUT
 
 
 def test_whitespace_only_transcript_raises():
@@ -68,16 +70,20 @@ def test_transcript_at_max_length_passes_size_check(monkeypatch):
 
 def test_transcript_over_max_length_raises_too_long():
     oversized = "x" * (MAX_TRANSCRIPT_CHARS + 1)
-    with pytest.raises(TranslationError, match="too long"):
+    with pytest.raises(TranslationError, match="too long") as exc_info:
         translate_transcript(oversized, "hi", ORG_ID)
+    assert exc_info.value.reason == TranslationErrorReason.OVERSIZED
 
 
 def test_no_configured_provider_raises_clear_error(monkeypatch):
     """No .env fallback exists: an org with nothing configured (and no
-    reachable local model-server) must get a clear, actionable error."""
+    reachable local model-server) must get a clear, actionable error — and
+    it must be a config-state error (409), not an upstream/502: nothing
+    upstream was even called."""
     _no_configured_providers(monkeypatch)
-    with pytest.raises(TranslationError, match="No LLM provider is configured"):
+    with pytest.raises(TranslationError, match="No LLM provider is configured") as exc_info:
         translate_transcript("hello world", "hi", ORG_ID)
+    assert exc_info.value.reason == TranslationErrorReason.NOT_CONFIGURED
 
 
 def test_strips_markdown_fence_from_response(monkeypatch):

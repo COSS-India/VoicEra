@@ -16,6 +16,7 @@ error rather than silently using a shared credential.
 from __future__ import annotations
 
 import re
+from enum import Enum
 
 from app.services import auth_service
 from apps.providers.one_shot_llm import OneShotLLMError, call_first_available
@@ -98,13 +99,28 @@ def _count_transcript_lines(text: str) -> int:
     return sum(1 for line in text.split("\n") if _TRANSCRIPT_LINE_RE.match(line))
 
 
+class TranslationErrorReason(str, Enum):
+    """Maps to the HTTP status the router should raise — see
+    apps.api.app.routers.calls._raise_translation_error. Kept as an explicit
+    enum rather than a growing set of is_xxx bools so each new failure mode
+    picks a real status instead of defaulting into upstream/502, which would
+    misclassify a client-side or org-config problem as our gateway failing."""
+
+    INVALID_INPUT = "invalid_input"  # empty transcript — 400, caller's fault
+    OVERSIZED = "oversized"  # 413
+    NOT_CONFIGURED = "not_configured"  # org hasn't connected a provider — 409
+    UPSTREAM = "upstream"  # provider/network/model failure — 502
+
+
 class TranslationError(Exception):
     """Raised when a transcript can't be translated (config, size, or provider failure)."""
 
-    def __init__(self, message: str, *, is_oversized: bool = False) -> None:
+    def __init__(
+        self, message: str, *, reason: TranslationErrorReason = TranslationErrorReason.UPSTREAM
+    ) -> None:
         super().__init__(message)
         self.message = message
-        self.is_oversized = is_oversized
+        self.reason = reason
 
 
 def _resolve_auth(org_id: str, provider: str) -> dict:
@@ -144,12 +160,12 @@ def translate_transcript(
 ) -> str:
     text = (raw_transcript or "").strip()
     if not text:
-        raise TranslationError("Transcript is empty.")
+        raise TranslationError("Transcript is empty.", reason=TranslationErrorReason.INVALID_INPUT)
     if len(text) > MAX_TRANSCRIPT_CHARS:
         raise TranslationError(
             f"Transcript is too long to translate in one request "
             f"({len(text)} chars, limit {MAX_TRANSCRIPT_CHARS}).",
-            is_oversized=True,
+            reason=TranslationErrorReason.OVERSIZED,
         )
 
     try:
@@ -163,20 +179,26 @@ def translate_transcript(
             max_tokens=MAX_OUTPUT_TOKENS,
         )
     except OneShotLLMError as exc:
-        raise TranslationError(f"Translation failed: {exc}") from exc
+        raise TranslationError(
+            f"Translation failed: {exc}", reason=TranslationErrorReason.UPSTREAM
+        ) from exc
 
     if dispatched is None:
         raise TranslationError(
             "No LLM provider is configured for this organisation. "
-            "Connect one under Integrations before translating transcripts."
+            "Connect one under Integrations before translating transcripts.",
+            reason=TranslationErrorReason.NOT_CONFIGURED,
         )
 
     _provider, _model, result = dispatched
     result = _strip_markdown_fence(result)
     if not result:
-        raise TranslationError("Translation returned an empty result.")
+        raise TranslationError(
+            "Translation returned an empty result.", reason=TranslationErrorReason.UPSTREAM
+        )
     if _count_transcript_lines(result) != _count_transcript_lines(text):
         raise TranslationError(
-            "The translation model changed the transcript's line structure. Please try again."
+            "The translation model changed the transcript's line structure. Please try again.",
+            reason=TranslationErrorReason.UPSTREAM,
         )
     return result
