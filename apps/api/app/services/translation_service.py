@@ -31,16 +31,13 @@ MAX_TRANSCRIPT_CHARS = 22_000  # ~20 min call
 # the result with an error that a retry can never fix.
 MAX_OUTPUT_TOKENS = 12_000
 
-# BCP-47-ish language tag shape (e.g. "en", "hi", "zh-CN"). Both target_lang
-# and source_lang are spliced directly into _user_prompt's instruction
-# sentence, outside the <transcript> tags that shield the untrusted
-# transcript body from prompt injection — a tag can't smuggle free-text
-# instructions if it can never contain more than a couple of letters and an
-# optional region code. Enforced here (not just at the HTTP route in
-# app.routers.calls, which only validates target_lang via this same pattern
-# — see Query(pattern=LANGUAGE_TAG_PATTERN) there) so this function stays
-# safe for any future caller — a new route, an internal job — that threads
-# user input into source_lang without re-deriving this guard.
+# BCP-47-ish language tag shape. Both target_lang and source_lang are
+# spliced unescaped into _user_prompt's instruction text — a tag can't smuggle
+# instructions if it's never more than a couple of letters and a region code.
+# Enforced here (not just at the HTTP route) so any future caller of
+# translate_transcript stays safe too. Uses fullmatch(), not match(): Python's
+# `$` matches just before a trailing "\n" even under match(), which would let
+# "hi\n" slip through.
 LANGUAGE_TAG_PATTERN = r"^[a-zA-Z]{2,3}(-[a-zA-Z]{2})?$"
 _LANGUAGE_TAG_RE = re.compile(LANGUAGE_TAG_PATTERN)
 
@@ -174,12 +171,12 @@ def translate_transcript(
     text = (raw_transcript or "").strip()
     if not text:
         raise TranslationError("Transcript is empty.", reason=TranslationErrorReason.INVALID_INPUT)
-    if not _LANGUAGE_TAG_RE.match(target_lang):
+    if not _LANGUAGE_TAG_RE.fullmatch(target_lang):
         raise TranslationError(
             f"target_lang {target_lang!r} is not a valid language tag.",
             reason=TranslationErrorReason.INVALID_INPUT,
         )
-    if source_lang is not None and not _LANGUAGE_TAG_RE.match(source_lang):
+    if source_lang is not None and not _LANGUAGE_TAG_RE.fullmatch(source_lang):
         raise TranslationError(
             f"source_lang {source_lang!r} is not a valid language tag.",
             reason=TranslationErrorReason.INVALID_INPUT,

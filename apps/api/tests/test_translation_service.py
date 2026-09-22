@@ -85,6 +85,14 @@ def test_invalid_source_lang_raises_without_calling_openai():
     assert exc_info.value.reason == TranslationErrorReason.INVALID_INPUT
 
 
+def test_target_lang_with_trailing_newline_raises():
+    """"hi\\n" must not slip past the fullmatch() language-tag check."""
+    with patch("apps.providers.one_shot_llm.OpenAI") as mock_openai_cls:
+        with pytest.raises(TranslationError, match="not a valid language tag"):
+            translate_transcript("hello", "hi\n", ORG_ID)
+        mock_openai_cls.assert_not_called()
+
+
 def test_valid_source_lang_passes(monkeypatch):
     _configure_openai(monkeypatch)
     with patch("apps.providers.one_shot_llm.OpenAI") as mock_openai_cls:

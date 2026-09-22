@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+from typing import Any, Iterator, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -333,7 +333,7 @@ _TRANSLATION_ERROR_STATUS: dict[TranslationErrorReason, int] = {
 }
 
 
-def _raise_translation_error(exc: TranslationError) -> None:
+def _raise_translation_error(exc: TranslationError) -> NoReturn:
     raise HTTPException(
         status_code=_TRANSLATION_ERROR_STATUS[exc.reason],
         detail=exc.message,
