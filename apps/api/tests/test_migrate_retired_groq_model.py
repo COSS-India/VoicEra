@@ -54,7 +54,7 @@ def test_migrate_remaps_retired_groq_agents() -> None:
         "app.scripts.migrate_retired_groq_model.get_database",
         return_value={"Agents": _FakeCollection(docs)},
     ):
-        count = migrate(dry_run=False)
+        count = migrate(dry_run=False, assume_yes=True)
 
     assert count == 1
     assert docs[0]["config"]["models"]["llm_config"]["model"] == DEFAULT_LLM_MODEL
@@ -72,3 +72,27 @@ def test_migrate_dry_run_does_not_write() -> None:
 
     assert count == 1
     assert docs[0]["config"]["models"]["llm_config"]["model"] == RETIRED_MODEL
+
+
+def test_migrate_declining_confirmation_does_not_write() -> None:
+    docs = [_agent("groq", RETIRED_MODEL)]
+    with patch(
+        "app.scripts.migrate_retired_groq_model.get_database",
+        return_value={"Agents": _FakeCollection(docs)},
+    ), patch("builtins.input", return_value="n"):
+        count = migrate(dry_run=False)
+
+    assert count == 0
+    assert docs[0]["config"]["models"]["llm_config"]["model"] == RETIRED_MODEL
+
+
+def test_migrate_assume_yes_skips_prompt() -> None:
+    docs = [_agent("groq", RETIRED_MODEL)]
+    with patch(
+        "app.scripts.migrate_retired_groq_model.get_database",
+        return_value={"Agents": _FakeCollection(docs)},
+    ), patch("builtins.input", side_effect=AssertionError("should not prompt")):
+        count = migrate(dry_run=False, assume_yes=True)
+
+    assert count == 1
+    assert docs[0]["config"]["models"]["llm_config"]["model"] == DEFAULT_LLM_MODEL

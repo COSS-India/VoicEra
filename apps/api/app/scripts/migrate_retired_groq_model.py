@@ -9,7 +9,7 @@ fine and only fails at actual inference time (Groq 400/404). This backfills
 those documents.
 
 Usage:
-    python -m app.scripts.migrate_retired_groq_model [--dry-run]
+    python -m app.scripts.migrate_retired_groq_model [--dry-run] [--yes]
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ RETIRED_MODEL = "llama-3.3-70b-versatile"
 COLLECTION = "Agents"
 
 
-def migrate(dry_run: bool = False) -> int:
+def migrate(dry_run: bool = False, assume_yes: bool = False) -> int:
     """Remap Agents with config.models.llm_config.provider=groq and
     model=RETIRED_MODEL to DEFAULT_LLM_MODEL.
 
@@ -49,6 +49,11 @@ def migrate(dry_run: bool = False) -> int:
         )
 
     if not dry_run and matches:
+        if not assume_yes:
+            reply = input(f"Update {len(matches)} agent(s) above? [y/N] ")
+            if reply.strip().lower() not in ("y", "yes"):
+                logger.info("Aborted, no changes made.")
+                return 0
         collection.update_many(
             query, {"$set": {"config.models.llm_config.model": DEFAULT_LLM_MODEL}}
         )
@@ -68,5 +73,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dry-run", action="store_true", help="List affected agents without writing"
     )
+    parser.add_argument(
+        "--yes", action="store_true", help="Skip the confirmation prompt"
+    )
     args = parser.parse_args()
-    migrate(dry_run=args.dry_run)
+    migrate(dry_run=args.dry_run, assume_yes=args.yes)
