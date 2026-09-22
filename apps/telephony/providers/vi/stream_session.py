@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
@@ -70,12 +69,32 @@ async def read_vi_start_message(websocket: WebSocket) -> tuple[dict, str, str]:
     raise TimeoutError("VI start event not received")
 
 
+def _org_id_from_start(start_info: dict[str, Any]) -> str:
+    """Optional org_id from start.custom_parameters (no process env)."""
+    custom = (
+        start_info.get("custom_parameters")
+        or start_info.get("customParameters")
+        or {}
+    )
+    if not isinstance(custom, dict):
+        return ""
+    for key in ("org_id", "orgId", "organisation_id"):
+        value = custom.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
 async def resolve_agent_full(
     deps: ViStreamDeps,
     path_agent_id: Optional[str],
     start_info: dict[str, Any],
 ) -> tuple[Optional[dict[str, Any]], str]:
-    """path → custom_parameters → DNI/CLI by-phone → VI_DEFAULT_AGENT_ID."""
+    """Resolve agent via path → custom_parameters → DNI/CLI by-phone.
+
+    Org for ``get_agent`` comes from a DNI/CLI phone match or optional
+    ``org_id`` in ``custom_parameters`` — never from process environment.
+    """
 
     async def _by_phone(phone: str) -> Optional[dict[str, Any]]:
         for candidate in phone_lookup_candidates(phone):
@@ -108,7 +127,7 @@ async def resolve_agent_full(
         source = "path" if path_agent_id else "custom_parameters"
         org_id = str((dni_agent or {}).get("org_id") or "").strip()
         if not org_id:
-            org_id = (os.environ.get("VI_DEFAULT_ORG_ID") or "").strip()
+            org_id = _org_id_from_start(start_info)
         if org_id:
             loaded = await _load(agent_id, org_id)
             if loaded:
@@ -116,7 +135,8 @@ async def resolve_agent_full(
         if dni_agent and str(dni_agent.get("agent_id")) == agent_id:
             return dni_agent, source
         logger.warning(
-            "VI could not load agent_id={} (need matching DNI org or VI_DEFAULT_ORG_ID)",
+            "VI could not load agent_id={} (need DNI/CLI match for org_id "
+            "or org_id in custom_parameters)",
             agent_id,
         )
 
@@ -127,14 +147,6 @@ async def resolve_agent_full(
             dni_source,
         )
         return dni_agent, dni_source
-
-    default_id = (os.environ.get("VI_DEFAULT_AGENT_ID") or "").strip()
-    default_org = (os.environ.get("VI_DEFAULT_ORG_ID") or "").strip()
-    if default_id and default_org:
-        loaded = await _load(default_id, default_org)
-        if loaded:
-            logger.info("VI routed agent={} via VI_DEFAULT_AGENT_ID", default_id)
-            return loaded, "VI_DEFAULT_AGENT_ID"
 
     return None, ""
 
@@ -207,7 +219,7 @@ async def run_vi_stream_session(
         if not agent:
             logger.error(
                 "VI stream has no resolvable agent "
-                "(path, custom_parameters, dni/cli lookup, VI_DEFAULT_* all failed)"
+                "(path/custom_parameters + org, or dni/cli Numbers lookup failed)"
             )
             await websocket.close(code=1008, reason="Missing agent")
             return

@@ -350,4 +350,4 @@ VI does **not** follow the Vobiz/Plivo answer-URL model for live media:
 * Provisioning: stub application; client returns the WSS stream URL as `answer_url`.
 * Recordings: Pipecat AudioBuffer only — no VI recording webhook.
 
-Optional runtime routing fallbacks only (not credentials): `VI_DEFAULT_AGENT_ID` / `VI_DEFAULT_ORG_ID` when DNI lookup fails on `/vi/stream`. Bulk status poll: `TELEPHONY_BULK_STATUS_POLL_*`.
+Agent routing on `/vi/stream` uses DNI/CLI Numbers lookup, or path/`custom_parameters` `agent_id` with org from that lookup (or `org_id` in `custom_parameters`) — no VI process env. Bulk status poll: `TELEPHONY_BULK_STATUS_POLL_*`.

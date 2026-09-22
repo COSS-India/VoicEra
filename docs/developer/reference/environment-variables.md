@@ -89,16 +89,14 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 | `RUNTIME_HOST` | `0.0.0.0` | No | Bind address, read in `apps/runtime/app.py` when started through `main()`. |
 | `RUNTIME_PORT` | `7860` | No | Bind port, read in `apps/runtime/app.py` when started through `main()`. |
 | `INTERNAL_API_KEY` | empty | Effectively yes | The runtime's `X-API-Key` for service routes on the API. |
-| `VI_DEFAULT_AGENT_ID` | empty | No | Fallback agent id when VI `/vi/stream` cannot resolve DNI/CLI. |
-| `VI_DEFAULT_ORG_ID` | empty | No | Org id used with `VI_DEFAULT_AGENT_ID` (and path/custom agent loads). |
 | `TELEPHONY_BULK_STATUS_POLL_SECS` | `30` | No | Bulk-outbound campaign status poll interval (API worker). |
 | `TELEPHONY_BULK_STATUS_POLL_MAX_ROUNDS` | `120` | No | Max bulk status polls; `0` disables. |
 
 ### Vodafone Idea (VI)
 
-OBD username, password, and DNI/flow pairs come from **Integrations ProviderAuth** only (`auth_id`, `auth_token`, `dni_flows`) — not from process env. Configure them via `POST /auth` for provider `vi`.
+OBD username, password, and DNI/flow pairs come from **Integrations ProviderAuth** only (`auth_id`, `auth_token`, `dni_flows`) — not from process env. Configure them via `POST /auth` for provider `vi`. There are no VI-specific runtime env vars.
 
-Portal DIY Streaming Object should target `wss://<VOICE_SERVER_BASE_URL host>/vi/stream` (legacy: `/vi/agent/{agent_id}`). Link the agent’s number so it matches the DNI on the DIY flow (E.164 `+91…` is fine; runtime also accepts 10-digit national forms).
+Portal DIY Streaming Object should target `wss://<VOICE_SERVER_BASE_URL host>/vi/stream` (legacy: `/vi/agent/{agent_id}`). Link the agent’s number so it matches the DNI on the DIY flow (E.164 `+91…` is fine; runtime also accepts 10-digit national forms). Agent routing on `/vi/stream` uses DNI/CLI Numbers lookup (or `agent_id` + optional `org_id` in stream `custom_parameters`) — not env defaults.
 
 `RUNTIME_HOST` and `RUNTIME_PORT` are absent from `.env.example`; they only matter when you start the runtime through its `main()` entry point rather than a uvicorn command line.
 
