@@ -1,0 +1,65 @@
+apps/api/app/services/call_concurrency/service.py
+  s_ef349a6f022913::t_360166c46082fd 73,85,125-128
+  s_ef349a6f022913::t_982ca21b15bc36 129
+frontend/src/lib/pipecat/createBrowserClient.ts
+  s_ef349a6f022913::t_aad2df72e0850c 7,34,50
+apps/runtime/services/backend.py
+  s_ef349a6f022913::t_04180525b212df 20-23,123-124,150-151
+apps/runtime/routes/agent.py
+  s_ef349a6f022913::t_04180525b212df 23-34,112-113,191-192
+  s_ef349a6f022913::t_bdc51b4ae98a4b 81-86
+  s_ef349a6f022913::t_a12488722f468d 121-132
+apps/api/app/routers/calls.py
+  s_ef349a6f022913::t_472d3b8815e0ee 5,19,53-54
+  s_ef349a6f022913::t_5676018289b3e3 93,99-115,304-305,327
+apps/api/tests/test_limits.py
+  s_ef349a6f022913::t_ba82d3c99bb9d9 16
+  s_ef349a6f022913::t_813981d1237701 256-268
+  s_ef349a6f022913::t_42eb60f1c3621e 255
+apps/runtime/services/pipecat/runners.py
+  s_96a61bafe9558e::t_eeb8bcb856d8ad 21-23
+  s_96a61bafe9558e::t_5654cd3b086e21 7,16-20,24-31,74
+apps/api/tests/test_call_artifacts.py
+  s_ef349a6f022913::t_573b4ecf029301 25-28
+apps/api/app/services/call_admission.py
+  s_ef349a6f022913::t_b4525cd8962799 60-64,67,69-71,73,167,186-194,205-210
+apps/api/app/services/limits/deps.py
+  s_ef349a6f022913::t_bf1f08310223c3 23-33,45,106-110
+  s_ef349a6f022913::t_4d9aecc60b05ae 111
+apps/runtime/tests/test_agent_admission.py
+  s_ef349a6f022913::t_5866acd9209853 1-26
+apps/api/app/services/call_concurrency/rate_limiter.py
+  s_ef349a6f022913::t_360166c46082fd 105,107-110,121-126,138-139,150,153,156,168-169,203-215
+  s_ef349a6f022913::t_8dc098e6a16610 216
+apps/api/tests/test_call_log_usage_accounting.py
+  s_ef349a6f022913::t_813981d1237701 36-39,135-157
+  s_ef349a6f022913::t_a421b1c1310226 158-159
+apps/api/app/services/call_log_service.py
+  s_ef349a6f022913::t_e7dbfa2bc51e15 119-130
+apps/api/tests/test_call_admission.py
+  s_ef349a6f022913::t_813981d1237701 140-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a489d8d6f7360d81d82bde6d12d3d8abf1b74200",
+  "prompts": {},
+  "sessions": {
+    "s_96a61bafe9558e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "60552110-0e61-4239-a2a6-8d543ef4b0e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_ef349a6f022913": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "76ec25e2-3b27-4002-9e17-29ec62c9292e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
