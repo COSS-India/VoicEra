@@ -1,0 +1,40 @@
+apps/providers/tests/test_availability.py
+  s_9b7dd51ed8863e::t_8c65a5681965c0 27-46
+apps/api/app/routers/configuration.py
+  s_9b7dd51ed8863e::t_a85198a4617541 137-154
+  s_9b7dd51ed8863e::t_f7f278403e7831 10-11,16
+  s_9b7dd51ed8863e::t_6f0f21d110febe 35-38,43,47-48,58-59,62-63
+  s_9b7dd51ed8863e::t_c1878907975ca6 155-156
+apps/api/tests/test_configuration_routes.py
+  s_9b7dd51ed8863e::t_eada4236e2cce4 56
+  s_9b7dd51ed8863e::t_4a08be945c7833 178-238
+  s_9b7dd51ed8863e::t_36dae0d3b26b8c 239-240
+apps/providers/availability.py
+  s_9b7dd51ed8863e::t_56d751be98b6e9 43-62,65-70
+  s_9b7dd51ed8863e::t_dafa6e33d0fc5f 3-4
+frontend/src/lib/api-client.ts
+  s_9b7dd51ed8863e::t_ef5b68daa82d27 67-71
+frontend/src/lib/catalog-types.ts
+  s_9b7dd51ed8863e::t_2b6034dd9a613b 35-38,45
+  s_9b7dd51ed8863e::t_a5a4dd59cd3ea4 83,85
+apps/api/app/routers/auth.py
+  s_9b7dd51ed8863e::t_ec73580f14e36f 86-97
+frontend/src/components/dashboard/Integrations.tsx
+  s_9b7dd51ed8863e::t_ec73580f14e36f 30,303,315-319,322,673-675,687,691-695
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6285c04e7f0bf70bf4adafdd6befba6c1eb36058",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
