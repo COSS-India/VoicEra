@@ -64,6 +64,11 @@ export async function listConfiguredProviders(): Promise<string[]> {
   return apiFetch<string[]>("/auth/configured");
 }
 
+/** Providers the platform supplies credentials for — usable without connecting. */
+export async function listPlatformProviders(): Promise<string[]> {
+  return apiFetch<string[]>("/auth/platform");
+}
+
 export async function upsertProviderAuth(
   provider: string,
   auth: Record<string, unknown>,

@@ -1,6 +1,7 @@
 """Whether a provider is usable for configuration ``authenticated`` flags.
 
-Cloud / adapter / telephony: org has stored credentials.
+Cloud / adapter / telephony: org has stored credentials, or the platform
+supplies them on the org's behalf.
 Local: model-server lists the provider's gateway model id.
 """
 
@@ -39,12 +40,34 @@ def clear_deployed_cache() -> None:
     _cache_at = 0.0
 
 
-def is_authenticated(provider: str, configured: AbstractSet[str]) -> bool:
-    """Return whether ``provider`` should show as authenticated."""
+def is_authenticated(
+    provider: str,
+    configured: AbstractSet[str],
+    platform: AbstractSet[str] = frozenset(),
+) -> bool:
+    """Return whether ``provider`` should show as authenticated (selectable)."""
+    return auth_source(provider, configured, platform) is not None
+
+
+def auth_source(
+    provider: str,
+    configured: AbstractSet[str],
+    platform: AbstractSet[str] = frozenset(),
+) -> str | None:
+    """Why ``provider`` is usable: ``"local"``, ``"org"``, ``"platform"``, or None.
+
+    Local first (needs no credential at all), then the org's own credentials,
+    then the platform's — an org that connected its own key should read as
+    "Connected", not "Included".
+    """
     gateway_id = LOCAL_GATEWAY_MODELS.get(provider)
     if gateway_id is not None:
-        return gateway_id in _deployed_ids()
-    return provider in configured
+        return "local" if gateway_id in _deployed_ids() else None
+    if provider in configured:
+        return "org"
+    if provider in platform:
+        return "platform"
+    return None
 
 
 def _deployed_ids() -> frozenset[str]:

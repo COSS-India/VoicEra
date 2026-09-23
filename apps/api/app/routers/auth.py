@@ -83,6 +83,18 @@ async def list_configured(
     return auth_service.list_configured_providers(current_user["org_id"])
 
 
+@router.get("/platform")
+async def list_platform(
+    _current_user: dict[str, Any] = Depends(get_current_user),
+) -> list[str]:
+    """Provider ids usable without the organisation connecting anything.
+
+    Registered before ``/{provider}`` on purpose — a single-segment literal
+    route must win over the parameterised one.
+    """
+    return sorted(platform_auth.providers())
+
+
 @router.post("", response_model=ProviderAuthResponse, status_code=status.HTTP_201_CREATED)
 async def upsert_auth(
     body: ProviderAuthUpsert,

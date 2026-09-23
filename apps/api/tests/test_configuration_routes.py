@@ -53,6 +53,7 @@ def test_stt_list_and_setting_ok():
             "name": "Deepgram",
             "provider_type": "cloud",
             "authenticated": True,
+            "auth_source": "org",
         }
         assert "models" not in body["deepgram"]
         assert "language" not in body["deepgram"]
@@ -172,6 +173,69 @@ def test_local_authenticated_false_when_model_missing():
         tts = client.get("/api/v1/configuration/tts")
     assert stt.json()["indic_nemotron"]["authenticated"] is False
     assert tts.json()["indic_orpheus"]["authenticated"] is False
+
+
+def test_platform_credentials_make_a_provider_selectable():
+    """A provider the platform pays for is usable, and labelled as such."""
+    with (
+        patch(
+            "app.routers.configuration.auth_service.list_configured_providers",
+            return_value=["deepgram"],
+        ),
+        patch(
+            "app.routers.configuration.platform_auth.providers",
+            return_value=frozenset({"openai"}),
+        ),
+    ):
+        stt = client.get("/api/v1/configuration/stt").json()
+        llm = client.get("/api/v1/configuration/llm").json()
+        setting = client.get("/api/v1/configuration/llm/setting/openai").json()
+
+    assert stt["deepgram"]["auth_source"] == "org"
+    assert llm["openai"] == {**llm["openai"], "authenticated": True, "auth_source": "platform"}
+    assert setting["authenticated"] is True
+    assert setting["auth_source"] == "platform"
+
+    unconfigured = next(p for p, e in llm.items() if e["auth_source"] is None)
+    assert llm[unconfigured]["authenticated"] is False
+
+
+def test_org_credentials_win_over_platform_in_the_label():
+    with (
+        patch(
+            "app.routers.configuration.auth_service.list_configured_providers",
+            return_value=["openai"],
+        ),
+        patch(
+            "app.routers.configuration.platform_auth.providers",
+            return_value=frozenset({"openai"}),
+        ),
+    ):
+        llm = client.get("/api/v1/configuration/llm").json()
+    assert llm["openai"]["auth_source"] == "org"
+
+
+def test_defaults_envelope():
+    with (
+        patch(
+            "app.routers.configuration.auth_service.list_configured_providers",
+            return_value=["deepgram"],
+        ),
+        patch(
+            "app.routers.configuration.platform_auth.providers",
+            return_value=frozenset({"openai"}),
+        ),
+    ):
+        response = client.get("/api/v1/configuration/defaults")
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body["default_providers"]) == {"stt", "tts", "llm"}
+    assert body["languages"]["hi"] == "Hindi"
+    assert body["auth_sources"]["deepgram"] == "org"
+    assert body["auth_sources"]["openai"] == "platform"
+    # Every default pick must exist in its own kind's catalog.
+    for kind, provider in body["default_providers"].items():
+        assert provider in body[kind]
 
 
 def test_configuration_auth_routes_removed():

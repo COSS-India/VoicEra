@@ -7,12 +7,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth import get_current_user
-from app.services import auth_service
-from apps.providers.availability import is_authenticated
+from app.services import auth_service, platform_auth
+from apps.providers.availability import auth_source, is_authenticated
 from apps.providers.base import Kind
 from apps.providers.languages import UnknownLanguageError
 from apps.providers.schema import (
     UnknownProviderError as ProviderUnknown,
+    configuration_defaults,
     list_providers,
     provider_settings,
 )
@@ -31,14 +32,20 @@ def _configured_ids(org_id: str | None) -> set[str]:
     return set(auth_service.list_configured_providers(org_id))
 
 
+def _platform_ids() -> frozenset[str]:
+    return platform_auth.providers()
+
+
 def _with_authenticated_list(
     listed: dict[str, dict[str, Any]],
     configured: set[str],
 ) -> dict[str, dict[str, Any]]:
+    platform = _platform_ids()
     return {
         provider: {
             **entry,
-            "authenticated": is_authenticated(provider, configured),
+            "authenticated": is_authenticated(provider, configured, platform),
+            "auth_source": auth_source(provider, configured, platform),
         }
         for provider, entry in listed.items()
     }
@@ -48,10 +55,12 @@ def _with_authenticated_entry(
     catalog: dict[str, Any],
     configured: set[str],
 ) -> dict[str, Any]:
-    provider = catalog.get("provider")
+    provider = str(catalog.get("provider") or "")
+    platform = _platform_ids()
     return {
         **catalog,
-        "authenticated": is_authenticated(str(provider or ""), configured),
+        "authenticated": is_authenticated(provider, configured, platform),
+        "auth_source": auth_source(provider, configured, platform),
     }
 
 
@@ -123,6 +132,26 @@ async def list_telephony(
         list_telephony_providers(),
         _configured_ids(current_user.get("org_id")),
     )
+
+
+@router.get("/defaults")
+async def defaults(
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Per-kind catalogs, the default provider picks, languages, and availability.
+
+    The default picks come from ``DEFAULT_SERVICE_PROVIDERS`` in the provider
+    registry, so the UI cannot drift from what is actually registered.
+    """
+    configured = _configured_ids(current_user.get("org_id"))
+    platform = _platform_ids()
+    envelope = configuration_defaults()
+    envelope["auth_sources"] = {
+        provider: auth_source(provider, configured, platform)
+        for kind in (Kind.STT.value, Kind.TTS.value, Kind.LLM.value)
+        for provider in envelope.get(kind, {})
+    }
+    return envelope
 
 
 @router.get("/stt/setting/{provider}")

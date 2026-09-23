@@ -24,6 +24,26 @@ def test_cloud_uses_configured_set():
     assert availability.is_authenticated("deepgram", set()) is False
 
 
+def test_platform_credentials_authenticate_a_cloud_provider():
+    assert availability.is_authenticated("deepgram", set(), {"deepgram"}) is True
+    assert availability.auth_source("deepgram", set(), {"deepgram"}) == "platform"
+
+
+def test_auth_source_precedence_is_local_then_org_then_platform(monkeypatch):
+    monkeypatch.setenv("MODEL_SERVER_URL", "http://gateway:8000/v1")
+    availability.register_local("indic_nemotron", "indic-nemotron")
+    with patch(
+        "apps.providers.availability._deployed_ids",
+        return_value=frozenset({"indic-nemotron"}),
+    ):
+        assert availability.auth_source(
+            "indic_nemotron", {"indic_nemotron"}, {"indic_nemotron"}
+        ) == "local"
+    # An org that brought its own key reads as "Connected", not "Included".
+    assert availability.auth_source("openai", {"openai"}, {"openai"}) == "org"
+    assert availability.auth_source("openai", set(), set()) is None
+
+
 def test_local_missing_env_is_false(monkeypatch):
     monkeypatch.delenv("MODEL_SERVER_URL", raising=False)
     availability.register_local("indic_nemotron", "indic-nemotron")

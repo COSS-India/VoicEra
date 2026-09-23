@@ -32,12 +32,17 @@ export interface AuthProviderCatalog {
 
 export type AuthCatalog = Record<string, AuthProviderCatalog>;
 
+/** Why a provider is usable: local model-server, the org's own credentials, or
+ * platform-supplied ones. `null` when it is not usable at all. */
+export type AuthSource = "local" | "org" | "platform" | null;
+
 export interface ProviderSummary {
   provider: string;
   name: string;
   provider_type?: string;
   /** Whether this org can use the provider (credentials / local readiness). */
   authenticated?: boolean;
+  auth_source?: AuthSource;
 }
 
 export type ProviderList = Record<string, ProviderSummary>;
@@ -75,8 +80,9 @@ export interface ProviderSettingsCatalog {
   description?: string;
   fields: Record<string, CatalogField>;
   capabilities?: Record<string, ModelCapability>;
-  /** Whether this org has stored credentials for this provider. */
+  /** Whether this org can use the provider (credentials / local readiness). */
   authenticated?: boolean;
+  auth_source?: AuthSource;
 }
 
 export type LanguagesMap = Record<string, string>;

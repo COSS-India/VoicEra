@@ -27,6 +27,7 @@ import {
   getAuthCatalog,
   getProviderAuth,
   listConfiguredProviders,
+  listPlatformProviders,
   upsertProviderAuth,
 } from "@/lib/api-client";
 import type { AuthCatalog, AuthProviderCatalog } from "@/lib/catalog-types";
@@ -299,6 +300,7 @@ export function Integrations({
 }) {
   const [catalog, setCatalog] = useState<AuthCatalog | null>(null);
   const [configured, setConfigured] = useState<string[]>([]);
+  const [platformProviders, setPlatformProviders] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
@@ -310,9 +312,14 @@ export function Integrations({
   const load = useCallback(async () => {
     setLoadError("");
     try {
-      const [cat, cfg] = await Promise.all([getAuthCatalog(), listConfiguredProviders()]);
+      const [cat, cfg, platform] = await Promise.all([
+        getAuthCatalog(),
+        listConfiguredProviders(),
+        listPlatformProviders(),
+      ]);
       setCatalog(cat);
       setConfigured(cfg);
+      setPlatformProviders(platform);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Could not load integrations.");
     } finally {
@@ -663,6 +670,9 @@ export function Integrations({
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
                 {availableList.map((entry) => {
                   const name = entry.catalog.name ?? entry.providerId;
+                  // Platform-supplied: usable right now, so the card offers an
+                  // upgrade path ("use your own key"), not a blocker.
+                  const included = platformProviders.includes(entry.providerId);
                   return (
                     <button
                       key={entry.providerId}
@@ -674,10 +684,15 @@ export function Integrations({
                         <span className="font-medium text-v-fg">{name}</span>
                         <span className="flex items-center gap-1 rounded-full border border-v-line px-2.5 py-1 text-xs font-medium text-v-muted opacity-0 transition-opacity group-hover:opacity-100">
                           <Plus className="size-3.5" strokeWidth={1.75} />
-                          Connect
+                          {included ? "Use your own key" : "Connect"}
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-1">
+                        {included ? (
+                          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                            Included
+                          </span>
+                        ) : null}
                         {(entry.catalog.kinds ?? []).map((k) => {
                           const meta = kindMeta(k);
                           return (
