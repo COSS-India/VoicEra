@@ -19,6 +19,7 @@ from typing import Any
 from app.config import settings
 from app.services import auth_service
 from app.services.provider_auth_catalog import validate_auth_payload
+from apps.telephony.schema import provider_level_auth as telephony_level_auth
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,15 @@ def _credentials() -> dict[str, dict[str, Any]]:
         if not isinstance(auth, dict):
             raise PlatformAuthConfigError(
                 f"PLATFORM_PROVIDER_AUTH[{provider!r}] must be an object of secret fields"
+            )
+        if telephony_level_auth(provider) is not None:
+            # Rejected loudly rather than ignored: a platform telephony key
+            # would let any signup provision applications on the platform's
+            # account and consume its numbers, and nothing in the limits layer
+            # meters that. agent_telephony_service reads org credentials only.
+            raise PlatformAuthConfigError(
+                f"PLATFORM_PROVIDER_AUTH[{provider!r}]: telephony providers cannot "
+                "be supplied by the platform — each organisation must connect its own"
             )
         try:
             # Same validation an org admin's payload gets: unknown provider,

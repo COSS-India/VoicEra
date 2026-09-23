@@ -92,6 +92,7 @@ def test_resolve_does_not_leak_the_cached_dict(monkeypatch):
         json.dumps(["openai"]),
         json.dumps({"openai": "sk-not-an-object"}),
         json.dumps({"does-not-exist": {"api_key": "x"}}),
+        json.dumps({"plivo": {"auth_id": "id", "auth_token": "tok"}}),
         json.dumps({"google": {"project_id": "not-a-secret"}}),
         json.dumps({"openai": {}}),
     ],
@@ -100,6 +101,7 @@ def test_resolve_does_not_leak_the_cached_dict(monkeypatch):
         "not-an-object",
         "provider-value-not-an-object",
         "unknown-provider",
+        "telephony-provider",
         "non-secret-field",
         "empty-auth",
     ],
@@ -108,6 +110,14 @@ def test_bad_config_aborts_startup(monkeypatch, value):
     _set_env(monkeypatch, value)
     with pytest.raises(PlatformAuthConfigError):
         platform_auth.validate_config()
+
+
+def test_telephony_rejection_names_the_reason(monkeypatch):
+    """Telephony provisioning is unmetered, so it must stay org-funded."""
+    _set_env(monkeypatch, json.dumps({"vobiz": {"auth_id": "id", "auth_token": "tok"}}))
+    with pytest.raises(PlatformAuthConfigError) as exc:
+        platform_auth.validate_config()
+    assert "telephony" in str(exc.value)
 
 
 def test_validate_config_accepts_a_good_blob(monkeypatch):
