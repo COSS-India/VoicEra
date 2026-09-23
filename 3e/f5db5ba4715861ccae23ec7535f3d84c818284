@@ -1,0 +1,21 @@
+docs/developer/sandbox-onboarding-plan.md
+  s_9b7dd51ed8863e::t_8a131aeffaae83 347-349
+  s_9b7dd51ed8863e::t_98724a8bf6f974 262-280
+  s_9b7dd51ed8863e::t_0d9088ab9a798c 187-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3ef5db5ba4715861ccae23ec7535f3d84c818284",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
