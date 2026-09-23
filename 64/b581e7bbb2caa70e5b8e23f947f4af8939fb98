@@ -1,0 +1,49 @@
+docs/developer/sandbox-onboarding-plan.md
+  s_9b7dd51ed8863e::t_2a0de690ab4ba1 459-464
+  s_9b7dd51ed8863e::t_5b9349fd0cae14 486-490
+frontend/src/components/dashboard/Integrations.tsx
+  s_9b7dd51ed8863e::t_200e720b7ecd9c 398-401,403-405,409,411
+  s_9b7dd51ed8863e::t_868e3938bf8c95 33-37
+  s_9b7dd51ed8863e::t_191560b3b1c1db 296
+  s_9b7dd51ed8863e::t_cd55723b6b02fb 789
+  s_9b7dd51ed8863e::t_032c5ed5cf169c 402
+  s_9b7dd51ed8863e::t_3ca1185ab4625f 588,590-591,597-598,600
+  s_9b7dd51ed8863e::t_df577c963cf025 561
+  s_9b7dd51ed8863e::t_fb1503075eaeeb 727-729
+  s_9b7dd51ed8863e::t_7330b91f0f8d24 454-457,460-465
+  s_9b7dd51ed8863e::t_c81c251a1ed051 323
+  s_9b7dd51ed8863e::t_12d01ae04f664a 556-560
+  s_9b7dd51ed8863e::t_c3c4483d902235 153,161-162
+  s_9b7dd51ed8863e::t_4fb143ddc1dafc 421
+  s_9b7dd51ed8863e::t_3b69894006094d 431
+  s_9b7dd51ed8863e::t_5c8fa88f08a227 172-173
+  s_9b7dd51ed8863e::t_75b4d692605e4f 744
+  s_9b7dd51ed8863e::t_4b9cf804442d86 174
+  s_9b7dd51ed8863e::t_29776e011d8b0f 224-230,233-240
+  s_9b7dd51ed8863e::t_acd369f92a3df3 587,589,596,599,601-605
+apps/api/tests/test_auth_routes.py
+  s_9b7dd51ed8863e::t_c7d47b1f867582 246-265
+frontend/src/lib/catalog-types.ts
+  s_9b7dd51ed8863e::t_1cec07831bbc94 39-45
+apps/api/app/routers/auth.py
+  s_9b7dd51ed8863e::t_c500ceb43c0782 90,93-96,98-101,109-113
+frontend/src/lib/api-client.ts
+  s_9b7dd51ed8863e::t_7c9ff7c5d0ebde 10
+  s_9b7dd51ed8863e::t_2b0dcdc6431e97 68-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "64b581e7bbb2caa70e5b8e23f947f4af8939fb98",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
