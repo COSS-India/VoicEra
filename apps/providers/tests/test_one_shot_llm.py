@@ -185,7 +185,7 @@ def test_call_local_model_server_uses_deployed_model_id_from_model_server():
     /models report rather than hardcoding "qwen3.5-4b", or any deployment
     with a different slot name 404s on every call."""
     with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
-        "apps.providers.one_shot_llm.deployed_model_ids", return_value=frozenset({"custom-slot-name"})
+        "apps.providers.one_shot_llm.deployed_llm_model_ids", return_value=frozenset({"custom-slot-name"})
     ), patch(
         "apps.providers.one_shot_llm.call_openai_compatible", return_value="translated"
     ) as mock_call:
@@ -199,7 +199,7 @@ def test_call_local_model_server_falls_back_to_default_model_when_undiscoverable
     racing a cold start), fall back to the historical default instead of
     calling with an empty/None model name."""
     with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
-        "apps.providers.one_shot_llm.deployed_model_ids", return_value=frozenset()
+        "apps.providers.one_shot_llm.deployed_llm_model_ids", return_value=frozenset()
     ), patch(
         "apps.providers.one_shot_llm.call_openai_compatible", return_value="translated"
     ):

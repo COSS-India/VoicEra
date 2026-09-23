@@ -36,7 +36,7 @@ from .adapters.kenpath.catalog import (
     resolve_completions_path as kenpath_resolve_completions_path,
 )
 from . import registry
-from .availability import deployed_model_ids, is_authenticated
+from .availability import deployed_llm_model_ids, is_authenticated
 from .cloud.aws_bedrock.catalog import DEFAULT_LLM_MODEL as BEDROCK_DEFAULT_MODEL
 from .cloud.atlascloud.catalog import BASE_URL as ATLASCLOUD_BASE_URL, DEFAULT_LLM_MODEL as ATLASCLOUD_DEFAULT_MODEL
 from .cloud.google_vertex.catalog import DEFAULT_LLM_MODEL as VERTEX_DEFAULT_MODEL
@@ -86,16 +86,6 @@ def available_providers(
     if is_authenticated(LOCAL_MODEL_SERVER_PROVIDER, configured):
         providers.append(LOCAL_MODEL_SERVER_PROVIDER)
     return providers
-
-
-def first_available_provider(
-    org_id: str, *, list_configured_providers: ListConfiguredProviders
-) -> str | None:
-    """The single point of truth: which LLM provider this org would use
-    first right now. See available_providers() for the full priority-
-    ordered candidate list."""
-    providers = available_providers(org_id, list_configured_providers=list_configured_providers)
-    return providers[0] if providers else None
 
 
 def call_openai_compatible(
@@ -186,7 +176,7 @@ def call_local_model_server(
     source of truth here too, rather than a hardcoded literal that 404s
     the moment a deployment picks a different model.
     """
-    resolved_model = model or next(iter(deployed_model_ids()), "qwen3.5-4b")
+    resolved_model = model or next(iter(deployed_llm_model_ids()), "qwen3.5-4b")
     base_url = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise OneShotLLMError("MODEL_SERVER_URL is not set")
