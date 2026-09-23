@@ -72,20 +72,59 @@ def _to_response(
     }
 
 
+def _merge_with_stored(
+    provider: str,
+    stored: Any,
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay ``incoming`` on the stored secrets, keeping omitted fields.
+
+    Clients never see stored secrets (they are masked), so they cannot resend
+    the fields they did not change. Without this merge, updating one field of a
+    multi-secret provider — bhashini has nine, none of them catalog-required —
+    would silently drop the rest on the ``$set``.
+    """
+    try:
+        current = decrypt_json(stored)
+    except Exception:
+        logger.warning(
+            "Could not decrypt existing auth for provider=%s; replacing it wholesale",
+            provider,
+        )
+        return dict(incoming)
+
+    if not isinstance(current, dict):
+        return dict(incoming)
+
+    # Drop anything the catalog no longer treats as a secret, or validation of
+    # the merged payload would reject a field this org never sent.
+    secrets = set(provider_auth_catalog(provider).get("secrets", []))
+    kept = {key: value for key, value in current.items() if key in secrets}
+    return {**kept, **incoming}
+
+
 def upsert_provider_auth(
     org_id: str,
     provider: str,
     auth: dict[str, Any],
 ) -> dict[str, Any]:
-    """Create or update encrypted auth for ``provider`` in ``org_id``."""
-    validated = validate_auth_payload(provider, auth)
-    encrypted = encrypt_json(validated)
+    """Create or update encrypted auth for ``provider`` in ``org_id``.
+
+    Fields omitted from ``auth`` keep their stored value; use
+    ``DELETE /auth/{provider}`` to clear credentials entirely.
+    """
     db = get_database()
     collection = db[COLLECTION]
     now = _now_iso()
 
     existing = collection.find_one({"org_id": org_id, "provider": provider})
     if existing:
+        # Validate the merged result so catalog-required fields stay enforced.
+        validated = validate_auth_payload(
+            provider,
+            _merge_with_stored(provider, existing.get("auth"), auth),
+        )
+        encrypted = encrypt_json(validated)
         collection.update_one(
             {"org_id": org_id, "provider": provider},
             {"$set": {"auth": encrypted, "updated_at": now}},
@@ -95,6 +134,8 @@ def upsert_provider_auth(
         assert doc is not None
         return _to_response(doc, mask_secrets=True)
 
+    validated = validate_auth_payload(provider, auth)
+    encrypted = encrypt_json(validated)
     doc = {
         "org_id": org_id,
         "provider": provider,
