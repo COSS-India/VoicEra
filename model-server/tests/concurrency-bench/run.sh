@@ -89,7 +89,8 @@ do_tts() {
 do_runaway() {
   "$PY" -u runaway_check.py --url "$TTS_URL" --health-path "$TTS_HEALTH_PATH" \
     --language "$LANGUAGE" --voice "${TTS_VOICE:-}" --length "$TTS_LENGTH" \
-    --n "${RUNAWAY_N:-200}" --out-dir "$OUT" 2>&1 | log
+    --n "${RUNAWAY_N:-200}" --protocol "${RUNAWAY_PROTOCOL:-ws}" --label "${RUNAWAY_LABEL:-}" \
+    --out-dir "$OUT" 2>&1 | log
 }
 
 do_report() {
