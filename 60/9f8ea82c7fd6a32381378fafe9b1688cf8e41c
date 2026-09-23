@@ -1,0 +1,37 @@
+.env.example
+  s_9b7dd51ed8863e::t_66d86468929ef7 31-37
+apps/api/app/config.py
+  s_9b7dd51ed8863e::t_66d86468929ef7 59-67
+apps/api/tests/test_auth_routes.py
+  s_9b7dd51ed8863e::t_66d86468929ef7 196,216
+apps/api/app/models/schemas.py
+  s_9b7dd51ed8863e::t_15db24d650748e 152-157
+apps/api/app/main.py
+  s_9b7dd51ed8863e::t_f04456aa1613d4 30
+  s_9b7dd51ed8863e::t_66d86468929ef7 47
+docs/developer/reference/environment-variables.md
+  s_9b7dd51ed8863e::t_66d86468929ef7 69,73
+  s_9b7dd51ed8863e::t_3cf6322e184e99 74
+apps/api/app/services/platform_auth.py
+  s_9b7dd51ed8863e::t_cf284f531cafeb 1-94
+apps/api/tests/test_platform_auth.py
+  s_9b7dd51ed8863e::t_3fafd2b4e64ca8 1-116
+apps/api/app/routers/auth.py
+  s_9b7dd51ed8863e::t_66d86468929ef7 12,17,105,113-116,120,125,130-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "609f8ea82c7fd6a32381378fafe9b1688cf8e41c",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
