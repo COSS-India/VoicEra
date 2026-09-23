@@ -9,6 +9,7 @@ from starlette.websockets import WebSocket
 from apps.runtime.services.ai_service_factory import build_ai_services
 from apps.runtime.services.pipecat.audio import prompts
 from apps.runtime.services.pipecat.config import pipeline_config_from_behaviour
+from apps.runtime.services.pipecat.duration_guard import configured_call_duration_seconds
 from apps.runtime.services.pipecat.events import register_all_handlers
 from apps.runtime.services.pipecat.factory import build_pipeline_components
 from apps.runtime.services.pipecat.hold import hold_from_behaviour
@@ -94,5 +95,6 @@ async def run_pipeline(
         sample_rate=sample_rate,
         transcript_writer=components.transcript_writer,
         metrics_writer=components.metrics_writer,
+        max_duration_seconds=configured_call_duration_seconds(behaviour),
     )
     await run_with_lifecycle(components.worker, ctx)

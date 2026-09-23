@@ -578,6 +578,11 @@ class CallLogUpdateRequest(BaseModel):
     end_time_utc: Optional[str] = None
     status: Optional[CallLogStatus] = None
     call_response: Optional[CallResponse] = None
+    # Set by the runtime's duration guard (Layer 3) when it ends a call for
+    # hitting MAX_CALL_DURATION_CEILING_SECONDS — otherwise indistinguishable
+    # from a normal hangup in call logs. Without this field pydantic silently
+    # drops the value on the wire; see rate-limiting-plan.md Layer 3.
+    end_reason: Optional[str] = None
 
 
 class CallMetricsBody(BaseModel):
@@ -626,6 +631,7 @@ class CallLogResponse(BaseModel):
     error_message: Optional[str] = None
     campaign_id: Optional[str] = None
     queued_run_id: Optional[str] = None
+    end_reason: Optional[str] = None
 
 
 class CallLogListResponse(BaseModel):

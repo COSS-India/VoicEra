@@ -92,16 +92,25 @@ def patch_call_log(org_id: str, call_id: str, patch: dict[str, Any]) -> dict[str
         patch.pop("call_response", None)
         patch.pop("status", None)
 
+    # Tracks whether this call is *newly* ending on this patch — i.e. its
+    # start_time_utc → end_time_utc transition hasn't already been recorded.
+    # Reused below (Layer 4) to increment the org's daily call-seconds usage
+    # exactly once per call, piggybacking on the same idempotency guard that
+    # already protects `duration` from a redelivered hangup webhook.
+    newly_ending = False
+
     end_time_utc = patch.get("end_time_utc")
     if end_time_utc is not None:
         if _has_end_time(doc):
             logger.debug("CallLog end_time already set call_id=%s", call_id)
             patch.pop("end_time_utc", None)
             patch.pop("duration", None)
-        elif patch.get("duration") is None:
-            computed = _compute_duration_seconds(doc.get("start_time_utc"), str(end_time_utc))
-            if computed is not None:
-                patch["duration"] = computed
+        else:
+            newly_ending = True
+            if patch.get("duration") is None:
+                computed = _compute_duration_seconds(doc.get("start_time_utc"), str(end_time_utc))
+                if computed is not None:
+                    patch["duration"] = computed
 
     if not patch:
         return _to_response(doc) or {}
@@ -120,6 +129,16 @@ def patch_call_log(org_id: str, call_id: str, patch: dict[str, Any]) -> dict[str
         org_id,
         list(patch.keys()),
     )
+
+    if newly_ending:
+        duration = patch.get("duration")
+        if isinstance(duration, (int, float)) and duration > 0:
+            from app.config import settings
+            from app.services.limits.counters import add_usage_sync
+
+            if settings.RATE_LIMIT_ENABLED:
+                add_usage_sync(org_id, float(duration))
+
     return _to_response(doc) or {}
 
 
