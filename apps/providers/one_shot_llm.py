@@ -20,6 +20,7 @@ shared by apps/runtime too and must not depend on apps/api's `app` package.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Callable
 
@@ -43,6 +44,8 @@ from .cloud.google_vertex.catalog import DEFAULT_LLM_MODEL as VERTEX_DEFAULT_MOD
 from .cloud.groq.catalog import BASE_URL as GROQ_BASE_URL, DEFAULT_LLM_MODEL as GROQ_DEFAULT_MODEL
 from .cloud.openai.catalog import DEFAULT_LLM_MODEL as OPENAI_DEFAULT_MODEL
 from .cloud.openrouter.catalog import BASE_URL as OPENROUTER_BASE_URL, DEFAULT_LLM_MODEL as OPENROUTER_DEFAULT_MODEL
+
+logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 60.0
 
@@ -173,13 +176,34 @@ def call_local_model_server(
     something this API process can read directly. model-server already
     reports the slot it deployed via GET /models (the same endpoint
     apps.providers.availability uses for readiness checks), so that's the
-    source of truth here too, rather than a hardcoded literal that 404s
-    the moment a deployment picks a different model.
+    source of truth here too. Raises rather than falling back to a
+    hardcoded default when nothing is reported deployed — a stale/guessed
+    model name would 404 against whatever's actually running, exactly the
+    failure this resolution logic exists to prevent.
     """
-    resolved_model = model or next(iter(deployed_llm_model_ids()), "qwen3.5-4b")
     base_url = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise OneShotLLMError("MODEL_SERVER_URL is not set")
+    if model is not None:
+        resolved_model = model
+    else:
+        deployed = deployed_llm_model_ids()
+        if not deployed:
+            # model-server is configured (base_url is set) but reports no
+            # deployed LLM right now — falling back to a hardcoded literal
+            # here would silently 404 against whatever's actually deployed,
+            # reproducing the exact bug this model-resolution logic exists
+            # to fix. Fail loudly instead so the real cause (model-server
+            # still starting up, or its LLM slot not enabled) is visible.
+            raise OneShotLLMError(
+                f"model-server at {base_url!r} reports no deployed LLM model — it may still "
+                "be starting up, or LLM_MODEL/COMPOSE_PROFILES may not include an llm slot"
+            )
+        # model-server serves exactly one LLM slot; sorted() makes the pick
+        # deterministic (not frozenset's undefined iteration order) for the
+        # rare instant where more than one entry is momentarily reported,
+        # e.g. mid model swap.
+        resolved_model = sorted(deployed)[0]
     # Worst case across scripts this product serves: BPE tokenizers commonly
     # split Devanagari/Tamil/etc. near 1 token per char, far worse than
     # Latin's ~4 — so 1 char of input is assumed to cost up to 1 token,
@@ -262,10 +286,15 @@ def call_kenpath(
         try:
             response = httpx.post(url, json=request_body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
+            data = response.json()
         except httpx.HTTPError as exc:
             raise OneShotLLMError(f"kenpath (bharatvistaar) request failed: {exc}") from exc
-
-        data = response.json()
+        except ValueError as exc:
+            # response.json() raises the stdlib json module's JSONDecodeError
+            # (a ValueError subclass), not httpx.HTTPError — a malformed body
+            # must still surface as OneShotLLMError so call_first_available's
+            # fallback loop advances to the next provider instead of dying.
+            raise OneShotLLMError(f"kenpath (bharatvistaar) returned a non-JSON response: {exc}") from exc
         # Non-streaming response contract isn't documented in this repo —
         # tolerate the two shapes that make sense for an OpenAI-styled API:
         # a plain OpenAI chat/completions shape, or a bare {"response": ...}.
@@ -498,14 +527,16 @@ def call_first_available(
     is reachable, instead of failing outright on the first candidate.
 
     Returns (provider, model, result), or None if no provider is
-    available at all. If every available provider fails, re-raises the
-    last provider's error (the one closest, in priority order, to what the
-    org actually has configured)."""
+    available at all. If every available provider fails, raises a single
+    OneShotLLMError whose message lists every provider tried and its own
+    failure reason — not just the last one — so a higher-priority
+    provider's real, fixable problem (e.g. a revoked key) isn't hidden
+    behind a lower-priority provider's unrelated failure."""
     providers = available_providers(org_id, list_configured_providers=list_configured_providers)
     if not providers:
         return None
 
-    last_error: OneShotLLMError | None = None
+    errors: list[tuple[str, OneShotLLMError]] = []
     for provider in providers:
         try:
             model, result = _dispatch(
@@ -518,9 +549,10 @@ def call_first_available(
                 max_tokens=max_tokens,
             )
         except OneShotLLMError as exc:
-            last_error = exc
+            logger.warning("one-shot LLM provider %r failed, trying next: %s", provider, exc)
+            errors.append((provider, exc))
             continue
         return provider, model, result
 
-    assert last_error is not None  # providers is non-empty, so the loop ran at least once
-    raise last_error
+    summary = "; ".join(f"{provider}: {exc}" for provider, exc in errors)
+    raise OneShotLLMError(f"every available LLM provider failed — {summary}")
