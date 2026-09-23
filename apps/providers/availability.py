@@ -17,7 +17,7 @@ from typing import AbstractSet
 LOCAL_GATEWAY_MODELS: dict[str, str] = {}
 
 _CACHE_TTL_S = 10.0
-_cache_ids: frozenset[str] = frozenset()
+_cache_entries: list[tuple[str, str, bool]] = []
 _cache_at: float = 0.0
 
 
@@ -34,14 +34,24 @@ def clear_local_registrations() -> None:
 
 def clear_deployed_cache() -> None:
     """Test helper: invalidate the deployed-models cache."""
-    global _cache_ids, _cache_at
-    _cache_ids = frozenset()
+    global _cache_entries, _cache_at
+    _cache_entries = []
     _cache_at = 0.0
 
 
-def deployed_model_ids() -> frozenset[str]:
-    """Model ids model-server currently reports via GET /models (10s cache)."""
-    return _deployed_ids()
+def deployed_llm_model_ids() -> frozenset[str]:
+    """Model id(s) model-server currently has *deployed* in its ``llm`` slot
+    (GET /models, 10s cache) — filtered by kind and deployed status, unlike
+    _deployed_ids() below, which is used for provider readiness checks
+    where any catalogued id (any kind, deployed or not) is an acceptable
+    match. A caller that needs the actual callable LLM model name (e.g. to
+    put in a chat-completion request's ``model`` field) needs this
+    narrower, correctly-filtered view instead — the unfiltered set can
+    otherwise just as easily yield an STT/TTS model id or an undeployed
+    LLM catalogue entry."""
+    return frozenset(
+        entry_id for entry_id, kind, deployed in _cached_catalogue_entries() if kind == "llm" and deployed
+    )
 
 
 def is_authenticated(provider: str, configured: AbstractSet[str]) -> bool:
@@ -53,32 +63,40 @@ def is_authenticated(provider: str, configured: AbstractSet[str]) -> bool:
 
 
 def _deployed_ids() -> frozenset[str]:
-    global _cache_ids, _cache_at
+    return frozenset(entry_id for entry_id, _kind, _deployed in _cached_catalogue_entries())
+
+
+def _cached_catalogue_entries() -> list[tuple[str, str, bool]]:
+    global _cache_entries, _cache_at
     now = time.monotonic()
     if _cache_at and (now - _cache_at) < _CACHE_TTL_S:
-        return _cache_ids
-    _cache_ids = _fetch_deployed_ids()
+        return _cache_entries
+    _cache_entries = _fetch_catalogue_entries()
     _cache_at = now
-    return _cache_ids
+    return _cache_entries
 
 
-def _fetch_deployed_ids() -> frozenset[str]:
+def _fetch_catalogue_entries() -> list[tuple[str, str, bool]]:
+    """Raw (id, kind, deployed) tuples from model-server's GET /models —
+    the full catalogue (every model of every kind model-server can host,
+    not just what's currently deployed)."""
     base = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
     if not base:
-        return frozenset()
+        return []
     url = f"{base}/models"
     try:
         with urllib.request.urlopen(url, timeout=2.0) as resp:
             payload = json.loads(resp.read().decode())
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
-        return frozenset()
+        return []
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
-        return frozenset()
-    ids: set[str] = set()
+        return []
+    entries: list[tuple[str, str, bool]] = []
     for entry in data:
-        if isinstance(entry, dict):
-            model_id = entry.get("id")
-            if isinstance(model_id, str) and model_id:
-                ids.add(model_id)
-    return frozenset(ids)
+        if not isinstance(entry, dict):
+            continue
+        entry_id = entry.get("id")
+        if isinstance(entry_id, str) and entry_id:
+            entries.append((entry_id, str(entry.get("kind") or ""), bool(entry.get("deployed"))))
+    return entries
