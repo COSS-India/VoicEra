@@ -133,13 +133,18 @@ services:
       # top_k is plumbed through now; it previously could not be set at all, so
       # sampling ran unrestricted over the whole vocabulary.
       #
-      # repetition_penalty is 1.0 (off): neither the card nor its inference.py
-      # mentions one, and on SNAC codes a penalty punishes legitimately
-      # recurring codes -- silence, sustained vowels -- not repeated words.
+      # repetition_penalty is 1.2, the project's standard for every Orpheus
+      # deployment. The card and its inference.py do not mention one, and a
+      # penalty on SNAC codes can in principle push against codes that recur
+      # legitimately (silence, sustained vowels). At 1.0, though, 13.5% of
+      # single requests (27 of 200, 95% CI 9.4-18.9%) missed the stop token and
+      # ran to the duration guard. 1.2 is kept deliberately; set the variable to
+      # override it, and re-measure the runaway rate with
+      # tests/concurrency-bench/runaway_check.py when you do.
       ORPHEUS_TEMPERATURE: ${ORPHEUS_TEMPERATURE:-0.6}
       ORPHEUS_TOP_P: ${ORPHEUS_TOP_P:-0.9}
       ORPHEUS_TOP_K: ${ORPHEUS_TOP_K:-50}
-      ORPHEUS_REPETITION_PENALTY: ${ORPHEUS_REPETITION_PENALTY:-1.0}
+      ORPHEUS_REPETITION_PENALTY: ${ORPHEUS_REPETITION_PENALTY:-1.2}
       ORPHEUS_MIN_TOKENS: ${ORPHEUS_MIN_TOKENS:-28}
       # 2520 = the card's max_new_tokens (~30 s), the horizon the model was
       # exercised at. 8192 let a missed stop token run ~100 s instead.

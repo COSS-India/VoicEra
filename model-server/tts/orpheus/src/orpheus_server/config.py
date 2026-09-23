@@ -175,11 +175,12 @@ class SamplingConfig(BaseModel):
                     "sampling ran unrestricted over the whole 156 960-token vocabulary.",
     )
     repetition_penalty: float = Field(
-        1.0,
-        description="1.0 = off, which is what the card and its inference.py use - neither "
-                    "mentions a repetition penalty. The previous 1.3 was invented here; on "
-                    "SNAC codes it penalises legitimately recurring codes (silence, "
-                    "sustained vowels) rather than repeated words.",
+        1.2,
+        description="1.2 = the project's standard for every Orpheus deployment. The card "
+                    "and its inference.py do not mention a penalty, and on SNAC codes one "
+                    "can push against codes that recur legitimately (silence, sustained "
+                    "vowels); at 1.0, though, 13.5% of single requests missed the stop "
+                    "token and ran to the duration guard. 1.0 turns it off.",
     )
     min_tokens: int = Field(
         28, ge=0,
