@@ -137,37 +137,29 @@ def _validate_update_telephony_fields(
         )
 
 
-async def create_agent(
+def build_agent_document(
     org_id: str,
     created_by_email: str,
     payload: AgentCreateRequest,
+    *,
+    agent_id: str,
+    telephony_attachment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Insert a new agent; returns the stored document."""
+    """Validate ``payload`` and shape the Agents document to insert.
+
+    Shared by :func:`create_agent` and the default-agent seeder so the stored
+    shape has exactly one definition.
+    """
     name = payload.name.strip()
     if not name:
         raise AgentConfigValidationError("name is required")
-
-    telephony_error = _validate_create_telephony_fields(payload)
-    if telephony_error:
-        raise AgentConfigValidationError(telephony_error)
 
     validated_config: AgentConfigPayload = validate_agent_config(
         payload.config,
         org_id=org_id,
     )
     now = _now_iso()
-    agent_id = str(uuid.uuid4())
-
-    telephony_attachment: dict[str, Any] | None = None
-    if _is_telephony_category(payload.agent_category):
-        assert payload.telephony_provider is not None
-        telephony_attachment = await agent_telephony_service.provision_application(
-            org_id,
-            payload.telephony_provider,
-            agent_id,
-        )
-
-    doc: dict[str, Any] = {
+    return {
         "agent_id": agent_id,
         "org_id": org_id,
         "name": name,
@@ -181,6 +173,37 @@ async def create_agent(
         "created_at": now,
         "updated_at": now,
     }
+
+
+async def create_agent(
+    org_id: str,
+    created_by_email: str,
+    payload: AgentCreateRequest,
+) -> dict[str, Any]:
+    """Insert a new agent; returns the stored document."""
+    if not payload.name.strip():
+        raise AgentConfigValidationError("name is required")
+
+    telephony_error = _validate_create_telephony_fields(payload)
+    if telephony_error:
+        raise AgentConfigValidationError(telephony_error)
+
+    agent_id = str(uuid.uuid4())
+
+    # Validate before provisioning: a bad config must not leave a telephony
+    # application behind.
+    doc = build_agent_document(org_id, created_by_email, payload, agent_id=agent_id)
+    name = doc["name"]
+
+    telephony_attachment: dict[str, Any] | None = None
+    if _is_telephony_category(payload.agent_category):
+        assert payload.telephony_provider is not None
+        telephony_attachment = await agent_telephony_service.provision_application(
+            org_id,
+            payload.telephony_provider,
+            agent_id,
+        )
+        doc["telephony"] = telephony_attachment
 
     collection = get_database()[COLLECTION]
     try:

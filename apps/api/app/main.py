@@ -27,7 +27,7 @@ from app.routers import (
     rag,
     users,
 )
-from app.services import platform_auth
+from app.services import agent_seed, platform_auth
 from app.services.limits.errors import LimitExceeded
 
 logging.basicConfig(
@@ -45,6 +45,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         connect_to_mongo()
         initialize_database()
         platform_auth.validate_config()
+        if settings.SANDBOX_SEED_AGENTS:
+            agent_seed.validate_templates()
         logger.info("Application started successfully")
     except Exception as exc:
         logger.error("Failed to start application: %s", exc)

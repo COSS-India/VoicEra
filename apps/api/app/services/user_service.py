@@ -12,7 +12,7 @@ from app.config import settings
 from app.database import get_database
 from app.database_init import ROLE_MEMBER, ROLE_SUPER_ADMIN
 from app.models.schemas import UserCreate
-from app.services import member_service, org_service
+from app.services import agent_seed, member_service, org_service
 from app.services.email_service import send_password_reset_email
 
 logger = logging.getLogger(__name__)
@@ -200,6 +200,14 @@ def sign_up_user(user_data: UserCreate) -> dict[str, Any]:
                 "created_at": now,
             }
         )
+
+        if settings.SANDBOX_SEED_AGENTS:
+            # Never fails signup: the account exists and the user is logged in.
+            # An empty agents list is degraded, not broken.
+            try:
+                agent_seed.seed_default_agents(org_id, user_data.email)
+            except Exception:
+                logger.exception("Default agent seeding failed for org %s", org_id)
 
         logger.info(
             "User signed up as super_admin: %s org=%s (%s)",

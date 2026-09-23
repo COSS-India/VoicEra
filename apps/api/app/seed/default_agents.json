@@ -1,0 +1,82 @@
+[
+  {
+    "name": "Demo Support Agent",
+    "agent_category": "websocket",
+    "config": {
+      "schema_version": 1,
+      "prompts": {
+        "system_prompt": "You are a friendly customer support agent for a small business. Answer in one or two short sentences, ask a clarifying question when the request is vague, and never invent order numbers, prices or policies. If you cannot help, say so and offer to pass the caller to a human.",
+        "greeting_message": "Hi! Thanks for calling support. How can I help you today?"
+      },
+      "behaviour": {
+        "interruption_min_words": 2,
+        "user_silence_hangup_seconds": 30,
+        "call_timeout_seconds": 300
+      },
+      "language": {
+        "primary": "en",
+        "secondary": []
+      },
+      "models": {
+        "stt_config": {
+          "provider": "openai",
+          "model": "gpt-4o-transcribe",
+          "language": "en"
+        },
+        "tts_config": {
+          "provider": "openai",
+          "model": "gpt-4o-mini-tts",
+          "language": "en",
+          "voice": "alloy"
+        },
+        "llm_config": {
+          "provider": "openai",
+          "model": "gpt-4.1-mini"
+        }
+      },
+      "knowledge_base": {
+        "enabled": false
+      }
+    }
+  },
+  {
+    "name": "Demo Hindi Assistant",
+    "agent_category": "websocket",
+    "config": {
+      "schema_version": 1,
+      "prompts": {
+        "system_prompt": "आप एक सहायक फ़ोन असिस्टेंट हैं। छोटे और स्पष्ट वाक्यों में हिंदी में उत्तर दें। जो जानकारी आपके पास नहीं है, उसका अनुमान न लगाएँ।",
+        "greeting_message": "नमस्ते! मैं आपकी किस प्रकार सहायता कर सकता हूँ?"
+      },
+      "behaviour": {
+        "interruption_min_words": 2,
+        "user_silence_hangup_seconds": 30,
+        "call_timeout_seconds": 300
+      },
+      "language": {
+        "primary": "hi",
+        "secondary": ["en"]
+      },
+      "models": {
+        "stt_config": {
+          "provider": "openai",
+          "model": "gpt-4o-transcribe",
+          "language": "hi"
+        },
+        "tts_config": {
+          "provider": "openai",
+          "model": "gpt-4o-mini-tts",
+          "language": "hi",
+          "voice": "coral"
+        },
+        "llm_config": {
+          "provider": "openai",
+          "model": "gpt-4.1-mini"
+        }
+      },
+      "knowledge_base": {
+        "enabled": false
+      }
+    }
+  }
+]

@@ -65,6 +65,13 @@ class Settings(BaseSettings):
             "never resolved from here — see docs/developer/sandbox-onboarding-plan.md."
         ),
     )
+    SANDBOX_SEED_AGENTS: bool = Field(
+        default=False,
+        description=(
+            "Seed the demo agents in app/seed/default_agents.json into every "
+            "newly created organisation"
+        ),
+    )
 
     CHROMA_BASE_DIR: str = Field(
         default="app/rag/chroma_data",
