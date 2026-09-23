@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from typing import Any, Iterator
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user
 from app.config import settings
+from app.services.call_admission import (
+    CallAdmissionError,
+    admit_call,
+    bind_admitted_call,
+    release_admitted_call,
+)
 from app.models.schemas import (
     CallAnalyticsResponse,
     CallLogListResponse,
@@ -78,6 +84,14 @@ def _raise_web_call_error(exc: WebCallError) -> None:
     ) from exc
 
 
+def _raise_admission_error(exc: CallAdmissionError) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=exc.message,
+        headers={"Retry-After": str(exc.retry_after)},
+    ) from exc
+
+
 def _raise_call_not_found(exc: CallLogNotFoundError) -> None:
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -129,7 +143,16 @@ async def create_outbound_call(
     """Initiate an outbound call and register a CallLog with status initiated."""
     org_id = _require_active_org(current_user)
     try:
-        return await initiate_outbound_call(
+        admitted = await admit_call(
+            org_id=org_id,
+            call_kind="outbound",
+            current_user_email=current_user.get("email"),
+        )
+    except CallAdmissionError as exc:
+        _raise_admission_error(exc)
+
+    try:
+        result = await initiate_outbound_call(
             org_id,
             body.agent_id,
             body.to_number,
@@ -137,7 +160,16 @@ async def create_outbound_call(
             custom_variables=body.custom_variables,
         )
     except OutboundCallError as exc:
+        await release_admitted_call(admitted)
         _raise_outbound_error(exc)
+    except Exception:
+        await release_admitted_call(admitted)
+        raise
+
+    call_id = result.get("call_id")
+    if call_id:
+        await bind_admitted_call(admitted, str(call_id))
+    return result
 
 
 @router.post(
@@ -152,7 +184,20 @@ async def create_inbound_call(
     """Register an inbound call when the voice runtime answer webhook fires."""
     org_id = _require_active_org(current_user)
     try:
-        return register_inbound_call(
+        # No per-IP concurrency here: the caller is the runtime relaying a
+        # telephony provider webhook, not the actual telephony caller — there
+        # is no request/IP with a meaningful client address (call_kind
+        # "inbound" skips per-IP in admit_call regardless).
+        admitted = await admit_call(
+            org_id=org_id,
+            call_kind="inbound",
+            current_user_email=current_user.get("email"),
+        )
+    except CallAdmissionError as exc:
+        _raise_admission_error(exc)
+
+    try:
+        result = register_inbound_call(
             org_id,
             body.agent_id,
             provider_call_sid=body.provider_call_sid,
@@ -160,7 +205,16 @@ async def create_inbound_call(
             to_number=body.to_number,
         )
     except InboundCallError as exc:
+        await release_admitted_call(admitted)
         _raise_inbound_error(exc)
+    except Exception:
+        await release_admitted_call(admitted)
+        raise
+
+    call_id = result.get("call_id")
+    if call_id:
+        await bind_admitted_call(admitted, str(call_id))
+    return result
 
 
 @router.post(
@@ -170,18 +224,42 @@ async def create_inbound_call(
 )
 async def create_web_call(
     body: WebCallRegisterRequest,
+    request: Request,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Register a browser websocket session for CallLog artifacts."""
     org_id = _require_active_org(current_user)
     try:
-        return register_web_call(
+        # The only call_kind where per-IP concurrency applies — this is the
+        # one path with a real client address (subject to Layer 2b's caveat:
+        # the runtime's self-mint fallback can still join a call without
+        # going through this admission check at all).
+        admitted = await admit_call(
+            org_id=org_id,
+            call_kind="web",
+            request=request,
+            current_user_email=current_user.get("email"),
+        )
+    except CallAdmissionError as exc:
+        _raise_admission_error(exc)
+
+    try:
+        result = register_web_call(
             org_id,
             body.agent_id,
             custom_variables=body.custom_variables,
         )
     except WebCallError as exc:
+        await release_admitted_call(admitted)
         _raise_web_call_error(exc)
+    except Exception:
+        await release_admitted_call(admitted)
+        raise
+
+    call_id = result.get("call_id")
+    if call_id:
+        await bind_admitted_call(admitted, str(call_id))
+    return result
 
 
 @router.patch("/by-provider-sid/{provider_call_sid}", response_model=CallLogResponse)
