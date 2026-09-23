@@ -1,0 +1,34 @@
+apps/api/app/services/call_admission.py
+  s_658b9567cc5882::t_610ba17a0b89dd 42
+  s_658b9567cc5882::t_b62500fdad5f90 84
+  s_658b9567cc5882::t_1681b691135450 1-41,43-83,85-196
+apps/api/tests/test_call_admission.py
+  s_658b9567cc5882::t_b730134a328d51 288,291-301,331
+  s_658b9567cc5882::t_a2d2e484f73d79 71-79
+  s_658b9567cc5882::t_b21a01771d77dd 34
+  s_658b9567cc5882::t_92c735b2270f57 325-330,332
+  s_658b9567cc5882::t_1c1fc22563c7d4 1-33,35-70,80-287,289-290,302-324,333-343
+apps/api/app/routers/calls.py
+  s_658b9567cc5882::t_ae049f58dec942 87-91
+  s_658b9567cc5882::t_5414bfa3d749ed 7,12-17
+  s_658b9567cc5882::t_18fced4dc9834e 227,233-247,253,255-262
+  s_658b9567cc5882::t_97399d37583cb2 187-200,208,210-217
+  s_658b9567cc5882::t_99a23c4eb781af 146-155,163,165-172
+  s_658b9567cc5882::t_b485c7483e9a10 92-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ca5224f7596a00c97f1ae997ec75341c11ba7aa4",
+  "prompts": {},
+  "sessions": {
+    "s_658b9567cc5882": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bf76bfc-cc33-46bc-b8ab-22fef4c72f03",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
