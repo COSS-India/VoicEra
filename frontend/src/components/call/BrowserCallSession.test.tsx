@@ -14,6 +14,7 @@ const {
   isTranslationPairAvailable,
   translateLines,
   translateCallTranscriptViaLlm,
+  fetchCallTranscriptText,
 } = vi.hoisted(() => ({
   connectBrowserCall: vi.fn(),
   isChromeTranslationAvailable: vi.fn(() => false),
@@ -21,6 +22,7 @@ const {
   isTranslationPairAvailable: vi.fn(),
   translateLines: vi.fn(),
   translateCallTranscriptViaLlm: vi.fn(),
+  fetchCallTranscriptText: vi.fn().mockResolvedValue("[00:00] user: Hola"),
 }));
 
 vi.mock("@/lib/pipecat/createBrowserClient", async () => {
@@ -44,6 +46,7 @@ vi.mock("@/lib/chrome-translation", () => ({
 
 vi.mock("@/lib/api/calls", () => ({
   translateCallTranscriptViaLlm,
+  fetchCallTranscriptText,
 }));
 
 function userMessage(content: string, createdAt = new Date().toISOString()): ConversationMessage {

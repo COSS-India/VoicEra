@@ -173,16 +173,22 @@ def call_local_model_server(
     # Latin's ~4 — so 1 char of input is assumed to cost up to 1 token,
     # keeping this estimate conservative regardless of script.
     estimated_input_tokens = len(system) + len(user)
-    estimated_total_tokens = estimated_input_tokens + (max_tokens or 0)
-    if max_tokens is not None and estimated_total_tokens > _LOCAL_MODEL_SERVER_CONTEXT_TOKENS:
+    remaining_tokens = _LOCAL_MODEL_SERVER_CONTEXT_TOKENS - estimated_input_tokens
+    if remaining_tokens <= 0:
         raise OneShotLLMError(
-            f"request (~{estimated_input_tokens} input + {max_tokens} output tokens) "
-            f"exceeds the self-hosted model's {_LOCAL_MODEL_SERVER_CONTEXT_TOKENS}-token "
-            "context window — this transcript is too large for the zero-credential "
-            "fallback; configure an LLM provider under Integrations instead"
+            f"request (~{estimated_input_tokens} input tokens) exceeds the self-hosted "
+            f"model's {_LOCAL_MODEL_SERVER_CONTEXT_TOKENS}-token context window — this "
+            "transcript is too large for the zero-credential fallback; configure an LLM "
+            "provider under Integrations instead"
         )
+    # Cap the *requested* max_tokens to what's actually left in the context
+    # window rather than rejecting outright — max_tokens is a ceiling on
+    # output length, not a promise the model will use all of it, so a large
+    # default (e.g. translation's MAX_OUTPUT_TOKENS) shouldn't blanket-reject
+    # short requests just because it alone would theoretically exceed the cap.
+    effective_max_tokens = min(max_tokens, remaining_tokens) if max_tokens is not None else remaining_tokens
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return call_openai_compatible(None, base_url, model, messages, max_tokens=max_tokens)
+    return call_openai_compatible(None, base_url, model, messages, max_tokens=effective_max_tokens)
 
 
 def call_kenpath(
@@ -251,15 +257,22 @@ def call_kenpath(
         # tolerate the two shapes that make sense for an OpenAI-styled API:
         # a plain OpenAI chat/completions shape, or a bare {"response": ...}.
         result = ""
+        finish_reason = None
         if isinstance(data, dict):
             choices = data.get("choices")
-            if isinstance(choices, list) and choices:
-                message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                message = choices[0].get("message")
                 result = str((message or {}).get("content") or "").strip()
+                finish_reason = choices[0].get("finish_reason")
             if not result:
                 result = str(data.get("response") or "").strip()
         if not result:
             raise OneShotLLMError("kenpath (bharatvistaar) returned an empty response")
+        if finish_reason == "length":
+            raise OneShotLLMError(
+                f"kenpath (bharatvistaar) truncated its response at max_tokens={max_tokens} "
+                "(finish_reason=length) — output was cut off mid-completion, not corrupted"
+            )
         return result, model
 
     # vistaar / voice_bhili: this is Kenpath's fixed-pair (source_lang/
@@ -331,6 +344,11 @@ def call_bedrock(
 
     if not result:
         raise OneShotLLMError("aws_bedrock returned an empty response")
+    if response.get("stopReason") == "max_tokens":
+        raise OneShotLLMError(
+            f"aws_bedrock truncated its response at max_tokens={max_tokens} "
+            "(stopReason=max_tokens) — output was cut off mid-completion, not corrupted"
+        )
     return result, model
 
 
@@ -393,6 +411,13 @@ def call_vertex(
     result = (response.text or "").strip()
     if not result:
         raise OneShotLLMError("google_vertex returned an empty response")
+    candidates = response.candidates or []
+    finish_reason = candidates[0].finish_reason if candidates else None
+    if finish_reason is not None and finish_reason.value == "MAX_TOKENS":
+        raise OneShotLLMError(
+            f"google_vertex truncated its response at max_tokens={max_tokens} "
+            "(finish_reason=MAX_TOKENS) — output was cut off mid-completion, not corrupted"
+        )
     return result, model
 
 

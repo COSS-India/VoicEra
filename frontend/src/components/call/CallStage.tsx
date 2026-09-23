@@ -22,6 +22,8 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Spinner } from "@/components/ui/Spinner";
 import { connectBrowserCall, createBrowserPipecatClient } from "@/lib/pipecat/createBrowserClient";
 import { useTranscriptTranslation } from "@/hooks/useTranscriptTranslation";
+import { fetchCallTranscriptText } from "@/lib/api/calls";
+import { parseTranscript } from "@/lib/transcript";
 
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -348,8 +350,9 @@ function CallStage({
   /** Translates the server-persisted transcript via the backend LLM
    * fallback, not the client's local message list — the two can have a
    * different number/segmentation of turns, so parsed backend lines are
-   * validated against the transcript's own persisted line count, not the
-   * live message count. */
+   * validated against the transcript's own persisted line count, fetched
+   * fresh here, not the live message count (mirrors CallDetailSheet, which
+   * already has the persisted transcript on hand from its own fetch). */
   async function handleTranslate() {
     const originalMessages: TranslatedLine[] = visibleMessages.map((m) => ({
       role: roleLabel(m.role),
@@ -357,11 +360,17 @@ function CallStage({
     }));
     if (originalMessages.length === 0) return;
 
+    // Only needed for the backend LLM-fallback path's structural check — skip
+    // the fetch when there's no callId yet (on-device translation still works).
+    const expectedLineCount = callId
+      ? parseTranscript(await fetchCallTranscriptText(callId)).length
+      : originalMessages.length;
+
     await translation.translate(targetLang, {
       originalLines: originalMessages,
       zipOnDeviceLine: (original, translatedText) => ({ role: original.role, content: translatedText }),
       callId,
-      expectedLineCount: originalMessages.length,
+      expectedLineCount,
       fromParsedLine: (line) => ({ role: roleLabel(line.role), content: line.content }),
     });
   }
