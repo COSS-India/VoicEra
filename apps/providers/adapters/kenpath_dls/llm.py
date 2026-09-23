@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import codecs
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 import httpx
+import jwt
 from loguru import logger
 from pipecat.frames.frames import (
     Frame,
@@ -48,11 +50,18 @@ class KenpathDlsLLMService(LLMService):
     def __init__(
         self,
         *,
+        private_key: str,
+        jwt_sub: str,
         base_url: str,
         model: str,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        if not private_key.strip():
+            raise ValueError("Kenpath DLS requires private_key")
+
+        self._private_key = private_key
+        self._jwt_sub = jwt_sub
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._call_id: str | None = None
@@ -73,6 +82,16 @@ class KenpathDlsLLMService(LLMService):
 
     def _session_id(self) -> str:
         return self._call_id or str(uuid.uuid4())
+
+    def _generate_jwt(self) -> str:
+        now = int(time.time())
+        payload = {
+            "sub": self._jwt_sub,
+            "iss": "voice-provider",
+            "iat": now,
+            "exp": now + 3600,
+        }
+        return jwt.encode(payload, self._private_key, algorithm="RS256")
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -184,6 +203,7 @@ class KenpathDlsLLMService(LLMService):
             "query": query,
             "session_id": session_id,
         }
+        headers = {"Authorization": f"Bearer {self._generate_jwt()}"}
 
         logger.info(
             "Kenpath DLS API request | session_id={} | query={}...",
@@ -193,7 +213,7 @@ class KenpathDlsLLMService(LLMService):
 
         client = await self._get_client()
         async with client.stream(
-            "GET", url, params=params, follow_redirects=True
+            "GET", url, params=params, headers=headers, follow_redirects=True
         ) as response:
             if response.status_code != 200:
                 error_text = await response.aread()
