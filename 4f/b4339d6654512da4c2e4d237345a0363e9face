@@ -1,0 +1,33 @@
+apps/api/tests/test_auth_routes.py
+  s_9b7dd51ed8863e::t_ec593323f46e0e 226-251
+apps/api/app/routers/auth.py
+  s_9b7dd51ed8863e::t_1b5eff49ed07e9 24
+  s_9b7dd51ed8863e::t_4733e683933e3a 87-99,104-109
+docs/developer/sandbox-onboarding-plan.md
+  s_9b7dd51ed8863e::t_24c9200f3d0deb 466,469-471,474-489
+  s_9b7dd51ed8863e::t_8e9110e7c1c9f2 18-22
+frontend/src/lib/api-client.ts
+  s_9b7dd51ed8863e::t_9f5d3055f39aae 9
+  s_9b7dd51ed8863e::t_fd4a721e2f1203 68-70
+frontend/src/components/dashboard/Integrations.tsx
+  s_9b7dd51ed8863e::t_113c35a880d463 315,318,322
+  s_9b7dd51ed8863e::t_2ea32899544efa 29,33
+  s_9b7dd51ed8863e::t_702c2ba3cd50da 303
+  s_9b7dd51ed8863e::t_2201e59d893742 673-677,682-684,688-693,696,701-705
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4fb4339d6654512da4c2e4d237345a0363e9face",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
