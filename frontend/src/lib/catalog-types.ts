@@ -36,6 +36,13 @@ export type AuthCatalog = Record<string, AuthProviderCatalog>;
  * platform-supplied ones. `null` when it is not usable at all. */
 export type AuthSource = "local" | "org" | "platform" | null;
 
+/** `source` is what is in effect; `provided` is whether the provider would
+ * still work with no organisation credentials at all. */
+export interface ProviderAvailability {
+  source: AuthSource;
+  provided: boolean;
+}
+
 export interface ProviderSummary {
   provider: string;
   name: string;

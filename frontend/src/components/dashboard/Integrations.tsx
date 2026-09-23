@@ -30,7 +30,11 @@ import {
   listConfiguredProviders,
   upsertProviderAuth,
 } from "@/lib/api-client";
-import type { AuthCatalog, AuthProviderCatalog, AuthSource } from "@/lib/catalog-types";
+import type {
+  AuthCatalog,
+  AuthProviderCatalog,
+  ProviderAvailability,
+} from "@/lib/catalog-types";
 import { AUTH_KIND_ORDER, formatProviderTypeLabel, humanizeFieldKey, secretFieldNames } from "@/lib/catalog-utils";
 
 const KIND_META: Record<
@@ -146,6 +150,7 @@ function SecretField({
 function ConnectModal({
   entry,
   configured,
+  provided,
   saving,
   onSave,
   onDisconnect,
@@ -153,6 +158,8 @@ function ConnectModal({
 }: {
   entry: ProviderEntry;
   configured: boolean;
+  /** Works without this org's credentials — so removing them falls back. */
+  provided: boolean;
   saving: boolean;
   onSave: (values: Record<string, string>) => Promise<void> | void;
   onDisconnect: () => Promise<void> | void;
@@ -162,6 +169,9 @@ function ConnectModal({
   const secrets = useMemo(() => secretFieldNames(catalog), [catalog]);
   const displayName = catalog.name ?? providerId;
   const kinds = catalog.kinds ?? [];
+  // The provider keeps working on the deployment's credentials if this org
+  // removes its own, so "Disconnect" would overstate what the button does.
+  const hasProvidedFallback = provided;
 
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(secrets.map((k) => [k, ""])),
@@ -211,13 +221,23 @@ function ConnectModal({
   return (
     <Dialog open onClose={onClose} widthClassName="max-w-md">
       <DialogHeader
-        title={`${configured ? "Manage" : "Connect"} ${displayName}`}
+        title={
+          configured
+            ? `Manage ${displayName}`
+            : hasProvidedFallback
+              ? `Use your own ${displayName} credentials`
+              : `Connect ${displayName}`
+        }
         subtitle={
           configured
-            ? "Update your credentials or disconnect this integration."
-            : `Enter your ${displayName} credentials to enable ${kinds
-                .map((k) => kindMeta(k).fullLabel)
-                .join(", ")}.`
+            ? hasProvidedFallback
+              ? `Update your credentials, or remove them to go back to the ones provided by this deployment.`
+              : "Update your credentials or disconnect this integration."
+            : hasProvidedFallback
+              ? `${displayName} currently runs on credentials provided by this deployment. Yours will replace them for this organisation.`
+              : `Enter your ${displayName} credentials to enable ${kinds
+                  .map((k) => kindMeta(k).fullLabel)
+                  .join(", ")}.`
         }
         onClose={onClose}
       />
@@ -273,7 +293,7 @@ function ConnectModal({
         {configured ? (
           <Button variant="danger-outline" size="sm" disabled={saving} onClick={onDisconnect} className="sm:mr-auto">
             <Trash2 className="size-3.5" strokeWidth={1.75} />
-            Disconnect
+            {hasProvidedFallback ? "Remove my credentials" : "Disconnect"}
           </Button>
         ) : null}
         <Button size="sm" disabled={saving || loadingAuth} onClick={handleSave} className="sm:ml-auto">
@@ -300,7 +320,7 @@ export function Integrations({
 }) {
   const [catalog, setCatalog] = useState<AuthCatalog | null>(null);
   const [configured, setConfigured] = useState<string[]>([]);
-  const [availability, setAvailability] = useState<Record<string, AuthSource>>({});
+  const [availability, setAvailability] = useState<Record<string, ProviderAvailability>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
@@ -375,12 +395,20 @@ export function Integrations({
     [activeProviderType],
   );
 
+  /** Usable right now — the org connected it, the platform supplies it, or it
+   * runs on the model-server. All three read as "connected" to the user; only
+   * the available actions differ. */
+  const isConnected = useCallback(
+    (providerId: string) => Boolean(availability[providerId]?.source),
+    [availability],
+  );
+
   const connectedList = useMemo(
     () =>
       nonTelephonyProviders.filter(
-        ({ providerId, catalog: entry }) => configured.includes(providerId) && matchesProviderType(entry),
+        ({ providerId, catalog: entry }) => isConnected(providerId) && matchesProviderType(entry),
       ),
-    [nonTelephonyProviders, configured, matchesProviderType],
+    [nonTelephonyProviders, isConnected, matchesProviderType],
   );
 
   const filteredTelephonyList = useMemo(
@@ -390,7 +418,7 @@ export function Integrations({
 
   const availableList = useMemo(() => {
     return nonTelephonyProviders.filter(({ providerId, catalog: entry }) => {
-      if (configured.includes(providerId)) return false;
+      if (isConnected(providerId)) return false;
       const name = entry.name ?? providerId;
       const matchesSearch =
         search.trim() === "" ||
@@ -400,7 +428,7 @@ export function Integrations({
       const matchesType = matchesProviderType(entry);
       return matchesSearch && matchesKind && matchesType;
     });
-  }, [nonTelephonyProviders, configured, search, activeKind, matchesProviderType]);
+  }, [nonTelephonyProviders, isConnected, search, activeKind, matchesProviderType]);
 
   async function handleSave(entry: ProviderEntry, values: Record<string, string>) {
     setSaving(true);
@@ -423,9 +451,18 @@ export function Integrations({
 
   async function handleDisconnect(entry: ProviderEntry) {
     setSaving(true);
+    const name = entry.catalog.name ?? entry.providerId;
+    // Deleting org credentials on a provided provider falls back to the
+    // deployment's — saying "disconnected" there would be untrue.
+    const fallsBack = availability[entry.providerId]?.provided ?? false;
     try {
       await deleteProviderAuth(entry.providerId);
-      onNotify("Removed", `${entry.catalog.name ?? entry.providerId} credentials deleted.`);
+      onNotify(
+        fallsBack ? "Reverted" : "Removed",
+        fallsBack
+          ? `${name} is back on the credentials provided by this deployment.`
+          : `${name} credentials deleted.`,
+      );
       setSelected(null);
       await load();
     } catch (err) {
@@ -516,6 +553,12 @@ export function Integrations({
                 <div className="divide-y divide-v-line">
                   {connectedList.map((entry) => {
                     const name = entry.catalog.name ?? entry.providerId;
+                    const source = availability[entry.providerId]?.source ?? null;
+                    // Provided = works without this org connecting anything.
+                    // Those can be overridden with your own credentials; local
+                    // ones have no credential to manage at all.
+                    const isProvided = source !== "org";
+                    const canOverride = secretFieldNames(entry.catalog).length > 0;
                     return (
                       <div
                         key={entry.providerId}
@@ -541,14 +584,25 @@ export function Integrations({
                                   );
                                 })}
                                 <ProviderTypeBadge providerType={entry.catalog.provider_type} />
+                                {isProvided ? (
+                                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                                    Provided
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
                           </div>
                         </div>
-                        <Button variant="ghost" size="sm" onClick={() => setSelected(entry)}>
-                          <Settings2 className="size-3.5" strokeWidth={1.75} />
-                          Manage
-                        </Button>
+                        {!isProvided || canOverride ? (
+                          <Button variant="ghost" size="sm" onClick={() => setSelected(entry)}>
+                            <Settings2 className="size-3.5" strokeWidth={1.75} />
+                            {isProvided ? "Use own credentials" : "Manage"}
+                          </Button>
+                        ) : (
+                          <span className="shrink-0 text-xs font-light text-v-muted">
+                            No setup needed
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -670,10 +724,9 @@ export function Integrations({
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
                 {availableList.map((entry) => {
                   const name = entry.catalog.name ?? entry.providerId;
-                  const source = availability[entry.providerId] ?? null;
-                  // Local providers run on the model-server and expose no
-                  // secret fields, so there is nothing to connect — opening the
-                  // dialog for them would be a dead end.
+                  // A provider with no secret fields has nothing to connect —
+                  // a local one shows up here only when the model-server is
+                  // unreachable, and opening the dialog would be a dead end.
                   const connectable = secretFieldNames(entry.catalog).length > 0;
                   return (
                     <button
@@ -688,21 +741,11 @@ export function Integrations({
                         {connectable ? (
                           <span className="flex items-center gap-1 rounded-full border border-v-line px-2.5 py-1 text-xs font-medium text-v-muted opacity-0 transition-opacity group-hover:opacity-100">
                             <Plus className="size-3.5" strokeWidth={1.75} />
-                            {source === "platform" ? "Use your own key" : "Connect"}
+                            Connect
                           </span>
                         ) : null}
                       </div>
                       <div className="flex flex-wrap gap-1">
-                        {source === "platform" ? (
-                          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                            Included
-                          </span>
-                        ) : null}
-                        {source === "local" ? (
-                          <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
-                            Runs locally
-                          </span>
-                        ) : null}
                         {(entry.catalog.kinds ?? []).map((k) => {
                           const meta = kindMeta(k);
                           return (
@@ -743,6 +786,7 @@ export function Integrations({
         <ConnectModal
           entry={selected}
           configured={configured.includes(selected.providerId)}
+          provided={availability[selected.providerId]?.provided ?? false}
           saving={saving}
           onSave={(values) => handleSave(selected, values)}
           onDisconnect={() => handleDisconnect(selected)}

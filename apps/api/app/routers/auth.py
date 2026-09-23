@@ -87,16 +87,18 @@ async def list_configured(
 @router.get("/availability")
 async def availability(
     current_user: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, str | None]:
+) -> dict[str, dict[str, Any]]:
     """Why each catalogued provider is (or is not) usable by this organisation.
 
-    ``"org"`` — credentials stored here; ``"platform"`` — supplied by the
-    deployment; ``"local"`` — runs on the model-server and needs no credential
-    at all; ``null`` — the organisation must connect it.
+    Per provider: ``source`` is what is in effect — ``"org"`` (credentials
+    stored here), ``"platform"`` (supplied by the deployment), ``"local"``
+    (runs on the model-server, no credential at all) or ``null``. ``provided``
+    says whether it would still work with no org credentials at all.
 
-    One call rather than three: the integrations page needs all three states to
-    decide whether a provider is actionable, and a provider with no secret
-    fields (every local one) has nothing to connect.
+    Both are needed, not just ``source``: an org that stores its own key on top
+    of a platform-supplied provider reads as ``"org"``, and without ``provided``
+    the UI cannot tell that deleting those credentials falls back rather than
+    disconnects.
 
     Registered before ``/{provider}`` on purpose — a single-segment literal
     route must win over the parameterised one.
@@ -104,7 +106,11 @@ async def availability(
     configured = set(auth_service.list_configured_providers(current_user["org_id"]))
     platform = platform_auth.providers()
     return {
-        provider: auth_source(provider, configured, platform)
+        provider: {
+            "source": auth_source(provider, configured, platform),
+            # Same question asked of an org that has connected nothing.
+            "provided": auth_source(provider, frozenset(), platform) is not None,
+        }
         for provider in all_auth_catalog()
     }
 

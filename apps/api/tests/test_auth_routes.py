@@ -243,10 +243,26 @@ def test_availability_reports_every_source(_cfg_m, monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["deepgram"] == "org"
-    assert body["openai"] == "platform"
-    assert body["indic_nemotron"] == "local"
-    assert body["elevenlabs"] is None
+    assert body["deepgram"] == {"source": "org", "provided": False}
+    assert body["openai"] == {"source": "platform", "provided": True}
+    assert body["indic_nemotron"] == {"source": "local", "provided": True}
+    assert body["elevenlabs"] == {"source": None, "provided": False}
+
+
+@patch("app.routers.auth.auth_service.list_configured_providers", side_effect=_configured)
+def test_availability_keeps_provided_visible_under_an_org_key(_cfg_m):
+    """Deleting an org key on a platform provider falls back, not disconnects."""
+    _STORE[("org-1", "openai")] = {"org_id": "org-1", "provider": "openai", "auth": {}}
+    client = _make_client(_admin_user)
+
+    with patch(
+        "app.routers.auth.platform_auth.providers",
+        return_value=frozenset({"openai"}),
+    ):
+        body = client.get("/api/v1/auth/availability").json()
+
+    # The org's own key is in effect, but the platform one is still underneath.
+    assert body["openai"] == {"source": "org", "provided": True}
 
 
 def test_internal_route_requires_org_id(monkeypatch):

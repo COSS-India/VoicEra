@@ -6,8 +6,8 @@ import type {
 } from "@/lib/api-types";
 import type {
   AuthCatalog,
-  AuthSource,
   LanguagesMap,
+  ProviderAvailability,
   ProviderList,
   ProviderSettingsCatalog,
 } from "@/lib/catalog-types";
@@ -65,9 +65,9 @@ export async function listConfiguredProviders(): Promise<string[]> {
   return apiFetch<string[]>("/auth/configured");
 }
 
-/** Per-provider reason it is usable: "org", "platform", "local", or null. */
-export async function getProviderAvailability(): Promise<Record<string, AuthSource>> {
-  return apiFetch<Record<string, AuthSource>>("/auth/availability");
+/** Per-provider: what credentials are in effect, and whether any are needed. */
+export async function getProviderAvailability(): Promise<Record<string, ProviderAvailability>> {
+  return apiFetch<Record<string, ProviderAvailability>>("/auth/availability");
 }
 
 export async function upsertProviderAuth(

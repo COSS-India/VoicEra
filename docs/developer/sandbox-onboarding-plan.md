@@ -456,10 +456,12 @@ labelling question, handled below.
 ### 6.3 Frontend
 
 - `catalog-types.ts` — add `auth_source?: "local" | "org" | "platform"`.
-- `Integrations.tsx` — badge per state: **Included** (platform), **Connected**
-  (org), **Local** (model-server), **Not configured** (none). For platform and
-  local, the primary action becomes "Use my own key" instead of "Connect", and
-  the card stops reading as a blocker.
+- `Integrations.tsx` — anything already usable lists under **Connected**,
+  whatever makes it usable. Platform- and model-server-backed providers carry a
+  **Default** badge there; org-owned ones look exactly as they did. The page
+  does not distinguish `local` from `platform` — "connected by default" is one
+  idea to a user, and the provider-type filter (`cloud` / `adapter` / `local`)
+  already covers where a provider runs.
 - Nothing else. The wizard, phone numbers, and knowledge base all key off
   `authenticated`, which now already accounts for platform credentials.
 
@@ -481,10 +483,11 @@ page listed them under "Available" with a Connect button that opened a dialog
 with no fields and a Save that threw "Enter at least one credential field".
 
 Returning the full `auth_source` map instead of a platform-only list fixes both:
-the page badges **Included** (platform), **Runs locally** (local), and — for any
-provider with no secret fields — renders the card as informational rather than
-actionable. Registered **before** `/{provider}`; both are single-segment, so the
-literal must win.
+the page treats any non-null source as connected (§6.3), and renders a card with
+no secret fields as informational rather than actionable — a local provider only
+reaches the "Available" grid when the model-server probe fails, and a Connect
+dialog with no inputs is a dead end either way. Registered **before**
+`/{provider}`; both are single-segment, so the literal must win.
 
 It returns sources only, never credentials.
 
