@@ -7,6 +7,7 @@ from typing import Any, Iterator, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from minio.error import S3Error
 
 from app.auth import get_current_user
 from app.config import settings
@@ -52,7 +53,6 @@ from app.services.translation_service import (
 )
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
-from minio.error import S3Error
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 

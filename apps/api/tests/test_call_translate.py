@@ -107,7 +107,6 @@ def test_translate_returns_translated_text(
     assert body == {
         "translated_text": "[00:01] user: नमस्ते",
         "target_lang": "hi",
-        "source_lang": None,
     }
     mock_translate.assert_called_once_with("[00:01] user: hello", "hi", "org-1")
 

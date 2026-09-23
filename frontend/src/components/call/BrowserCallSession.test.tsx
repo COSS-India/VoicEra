@@ -316,7 +316,6 @@ describe("CallStage — Translate", () => {
     translateCallTranscriptViaLlm.mockResolvedValue({
       translated_text: "[00:00] user: Hello",
       target_lang: "en",
-      source_lang: "es",
     });
 
     const user = await endedCallWithTranscript();
@@ -375,7 +374,6 @@ describe("CallStage — Translate", () => {
     translateCallTranscriptViaLlm.mockResolvedValue({
       translated_text: "not a parseable transcript at all",
       target_lang: "en",
-      source_lang: "es",
     });
 
     const user = await endedCallWithTranscript();
@@ -386,7 +384,7 @@ describe("CallStage — Translate", () => {
 
   it("invalidates an in-flight translate when a new call starts before it resolves", async () => {
     isChromeTranslationAvailable.mockReturnValue(false);
-    let resolveTranslate: (v: { translated_text: string; target_lang: string; source_lang: string }) => void;
+    let resolveTranslate: (v: { translated_text: string; target_lang: string }) => void;
     translateCallTranscriptViaLlm.mockReturnValue(
       new Promise((resolve) => {
         resolveTranslate = resolve;
@@ -402,7 +400,7 @@ describe("CallStage — Translate", () => {
 
     // Now resolve the stale translate — it must not apply to the new session.
     act(() => {
-      resolveTranslate({ translated_text: "[00:00] user: stale result", target_lang: "en", source_lang: "es" });
+      resolveTranslate({ translated_text: "[00:00] user: stale result", target_lang: "en" });
     });
 
     await waitFor(() => {

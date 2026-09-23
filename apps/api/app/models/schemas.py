@@ -863,4 +863,3 @@ class CallTranslateResponse(BaseModel):
 
     translated_text: str
     target_lang: str
-    source_lang: Optional[str] = None

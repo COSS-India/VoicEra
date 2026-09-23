@@ -27,23 +27,38 @@ from typing import Any, Callable
 import httpx
 from openai import OpenAI, OpenAIError
 
+from . import registry
 from .adapters.kenpath.catalog import (
     BHARAT_VISTAAR_CHAT_MODEL,
+)
+from .adapters.kenpath.catalog import (
     DEFAULT_LLM_MODEL as KENPATH_DEFAULT_MODEL,
+)
+from .adapters.kenpath.catalog import (
     generate_jwt as kenpath_generate_jwt,
+)
+from .adapters.kenpath.catalog import (
     resolve_auth_secret as kenpath_resolve_auth_secret,
+)
+from .adapters.kenpath.catalog import (
     resolve_backend as kenpath_resolve_backend,
+)
+from .adapters.kenpath.catalog import (
     resolve_base_url as kenpath_resolve_base_url,
+)
+from .adapters.kenpath.catalog import (
     resolve_completions_path as kenpath_resolve_completions_path,
 )
-from . import registry
 from .availability import deployed_llm_model_ids, is_authenticated
+from .cloud.atlascloud.catalog import BASE_URL as ATLASCLOUD_BASE_URL
+from .cloud.atlascloud.catalog import DEFAULT_LLM_MODEL as ATLASCLOUD_DEFAULT_MODEL
 from .cloud.aws_bedrock.catalog import DEFAULT_LLM_MODEL as BEDROCK_DEFAULT_MODEL
-from .cloud.atlascloud.catalog import BASE_URL as ATLASCLOUD_BASE_URL, DEFAULT_LLM_MODEL as ATLASCLOUD_DEFAULT_MODEL
 from .cloud.google_vertex.catalog import DEFAULT_LLM_MODEL as VERTEX_DEFAULT_MODEL
-from .cloud.groq.catalog import BASE_URL as GROQ_BASE_URL, DEFAULT_LLM_MODEL as GROQ_DEFAULT_MODEL
+from .cloud.groq.catalog import BASE_URL as GROQ_BASE_URL
+from .cloud.groq.catalog import DEFAULT_LLM_MODEL as GROQ_DEFAULT_MODEL
 from .cloud.openai.catalog import DEFAULT_LLM_MODEL as OPENAI_DEFAULT_MODEL
-from .cloud.openrouter.catalog import BASE_URL as OPENROUTER_BASE_URL, DEFAULT_LLM_MODEL as OPENROUTER_DEFAULT_MODEL
+from .cloud.openrouter.catalog import BASE_URL as OPENROUTER_BASE_URL
+from .cloud.openrouter.catalog import DEFAULT_LLM_MODEL as OPENROUTER_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 

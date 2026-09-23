@@ -263,19 +263,23 @@ export function CallDetailSheet({
   const [hasLatencyData, setHasLatencyData] = useState(false);
 
   // Translation is computed client-side per session — never persisted, never
-  // cached across calls. `translation.result.lines` holds already-structured
-  // TranscriptLine[], not free text: the Chrome path builds this 1:1 from the
-  // original transcript, and the LLM fallback path parses + validates its
-  // response before ever setting the result, so rendering never needs to
-  // re-parse or guess at a possibly-corrupted shape.
+  // cached across calls. This is a deliberate privacy/cost trade-off, not an
+  // oversight: call transcripts are sensitive data, so no cross-session or
+  // cross-reload cache is kept, even though it means re-paying the LLM cost
+  // on every view/reopen of the same call. `translation.result.lines` holds
+  // already-structured TranscriptLine[], not free text: the Chrome path
+  // builds this 1:1 from the original transcript, and the LLM fallback path
+  // parses + validates its response before ever setting the result, so
+  // rendering never needs to re-parse or guess at a possibly-corrupted shape.
   const translation = useTranscriptTranslation<TranscriptLine>();
   // Always the viewer's own browser language — no manual picker. General LLMs
   // (and Chrome's on-device Translator) don't reliably support low-resource
   // languages like Bhili or Dogri; letting users pick from the full catalog
   // silently produced wrong-language output (e.g. Marathi/Bhojpuri substituted
   // for Bhili) instead of a clear error. Restricting to the browser's own
-  // language avoids that gap entirely.
-  const targetLang = (navigator.language || "en").split("-")[0]!;
+  // language avoids that gap entirely. Guarded for a future server-rendered
+  // variant of this component, though today it only ever mounts client-side.
+  const targetLang = ((typeof navigator !== "undefined" && navigator.language) || "en").split("-")[0]!;
 
   useEffect(() => {
     let cancelled = false;
@@ -324,8 +328,8 @@ export function CallDetailSheet({
     setTranscriptError("");
     // Reset translation state on call change too — a stale translation from
     // the previous call must never leak into the newly-opened one. `targetLang`
-    // is deliberately NOT reset: a user's chosen output language should
-    // persist across calls viewed in one session.
+    // is deliberately NOT reset here: it's derived once from the browser's
+    // locale, not a user choice, so there's nothing to re-derive per call.
     translation.reset();
     fetchCallTranscriptText(call.call_id)
       .then((text) => {
@@ -417,8 +421,9 @@ export function CallDetailSheet({
   }
 
   // A cached translation is only valid for the language it was produced in —
-  // changing the target-language dropdown must force a fresh handleTranslate
-  // call rather than showing a stale-language result.
+  // if targetLang ever changed mid-session (it currently doesn't; there's no
+  // picker, it's fixed from navigator.language), this check keys off the
+  // language so a stale-language result is never shown as current.
   const hasCachedTranslation = translation.hasCachedTranslation(targetLang);
 
   function translateButtonLabel(): string {
@@ -554,7 +559,7 @@ export function CallDetailSheet({
           ) : (
             <>
               {translation.error ? (
-                <p className="py-2 text-center text-xs text-v-muted">{translation.error}</p>
+                <p className="py-2 text-center text-xs text-v-danger">{translation.error}</p>
               ) : null}
               <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
                 {(translation.showing && translation.result ? translation.result.lines : transcript).map((line, i) => (

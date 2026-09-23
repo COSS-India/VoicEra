@@ -75,6 +75,12 @@ export function useTranscriptTranslation<TLine>() {
 
     try {
       if (isChromeTranslationAvailable()) {
+        // Detection runs once on the whole joined transcript, not per line —
+        // a code-switched call (e.g. Hinglish, Marathi/English mixed within
+        // one transcript) gets one detected source language applied to every
+        // line below, so some lines may translate from the wrong assumed
+        // source. Per-line detection would fix this but multiplies detector
+        // calls per transcript; out of scope for now.
         const sampleText = originalLines.map((l) => l.content).join("\n");
         const detected = await detectTextLanguage(sampleText);
         const sourceLanguage = detected?.language;
