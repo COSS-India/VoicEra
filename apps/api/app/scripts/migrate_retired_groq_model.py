@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 
 from app.database import get_database
 from apps.providers.cloud.groq.catalog import DEFAULT_LLM_MODEL
@@ -27,11 +28,15 @@ RETIRED_MODEL = "llama-3.3-70b-versatile"
 COLLECTION = "Agents"
 
 
-def migrate(dry_run: bool = False, assume_yes: bool = False) -> int:
+def migrate(dry_run: bool = False, assume_yes: bool = False) -> int | None:
     """Remap Agents with config.models.llm_config.provider=groq and
     model=RETIRED_MODEL to DEFAULT_LLM_MODEL.
 
-    Returns the number of documents matched (updated, unless dry_run).
+    Returns the number of documents actually modified (or matched, in
+    dry-run mode). Returns None if matches existed but the migration was
+    aborted without writing (declined confirmation, or no interactive
+    terminal to confirm on) — callers must treat that as a failure, not a
+    no-op success.
     """
     collection = get_database()[COLLECTION]
     query = {
@@ -48,24 +53,52 @@ def migrate(dry_run: bool = False, assume_yes: bool = False) -> int:
             doc.get("name"),
         )
 
-    if not dry_run and matches:
-        if not assume_yes:
-            reply = input(f"Update {len(matches)} agent(s) above? [y/N] ")
-            if reply.strip().lower() not in ("y", "yes"):
-                logger.info("Aborted, no changes made.")
-                return 0
-        collection.update_many(
-            query, {"$set": {"config.models.llm_config.model": DEFAULT_LLM_MODEL}}
+    if dry_run:
+        logger.info(
+            "Would migrate %d agent(s) (groq %s -> %s)",
+            len(matches),
+            RETIRED_MODEL,
+            DEFAULT_LLM_MODEL,
         )
+        return len(matches)
 
-    logger.info(
-        "%s %d agent(s) (groq %s -> %s)",
-        "Would migrate" if dry_run else "Migrated",
-        len(matches),
-        RETIRED_MODEL,
-        DEFAULT_LLM_MODEL,
+    if not matches:
+        logger.info("Migrated 0 agent(s) (groq %s -> %s)", RETIRED_MODEL, DEFAULT_LLM_MODEL)
+        return 0
+
+    if not assume_yes:
+        try:
+            reply = input(f"Update {len(matches)} agent(s) above? [y/N] ")
+        except EOFError:
+            logger.info("No interactive terminal to confirm on; aborting without --yes.")
+            return None
+        if reply.strip().lower() not in ("y", "yes"):
+            logger.info("Aborted, no changes made.")
+            return None
+
+    matched_ids = [doc["_id"] for doc in matches]
+    result = collection.update_many(
+        {"_id": {"$in": matched_ids}},
+        {"$set": {"config.models.llm_config.model": DEFAULT_LLM_MODEL}},
     )
-    return len(matches)
+    modified_count = result.modified_count
+    if modified_count != len(matches):
+        logger.info(
+            "Migrated %d/%d agent(s) (groq %s -> %s) — modified count did not match "
+            "documents found, investigate before assuming this is complete",
+            modified_count,
+            len(matches),
+            RETIRED_MODEL,
+            DEFAULT_LLM_MODEL,
+        )
+    else:
+        logger.info(
+            "Migrated %d agent(s) (groq %s -> %s)",
+            modified_count,
+            RETIRED_MODEL,
+            DEFAULT_LLM_MODEL,
+        )
+    return modified_count
 
 
 if __name__ == "__main__":
@@ -77,4 +110,5 @@ if __name__ == "__main__":
         "--yes", action="store_true", help="Skip the confirmation prompt"
     )
     args = parser.parse_args()
-    migrate(dry_run=args.dry_run, assume_yes=args.yes)
+    outcome = migrate(dry_run=args.dry_run, assume_yes=args.yes)
+    sys.exit(1 if outcome is None else 0)
