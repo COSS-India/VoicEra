@@ -160,13 +160,6 @@ def call_via_openai_compatible_provider(
 # vLLM rejects the request outright (a generic 502, not an actionable error).
 _LOCAL_MODEL_SERVER_CONTEXT_TOKENS = 8000
 
-# Worst-case chars-per-token floor across scripts this product serves: BPE
-# tokenizers commonly split Devanagari/Tamil/etc. near 1 token per 1-2 chars,
-# far worse than Latin's ~4. Estimating input tokens from chars at this floor
-# means the guard below stays conservative regardless of script.
-_MIN_CHARS_PER_TOKEN = 1
-
-
 def call_local_model_server(
     system: str, user: str, *, model: str = "qwen3.5-4b", max_tokens: int | None = None
 ) -> str:
@@ -175,7 +168,11 @@ def call_local_model_server(
     base_url = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise OneShotLLMError("MODEL_SERVER_URL is not set")
-    estimated_input_tokens = (len(system) + len(user)) // _MIN_CHARS_PER_TOKEN
+    # Worst case across scripts this product serves: BPE tokenizers commonly
+    # split Devanagari/Tamil/etc. near 1 token per char, far worse than
+    # Latin's ~4 — so 1 char of input is assumed to cost up to 1 token,
+    # keeping this estimate conservative regardless of script.
+    estimated_input_tokens = len(system) + len(user)
     estimated_total_tokens = estimated_input_tokens + (max_tokens or 0)
     if max_tokens is not None and estimated_total_tokens > _LOCAL_MODEL_SERVER_CONTEXT_TOKENS:
         raise OneShotLLMError(
