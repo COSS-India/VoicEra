@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from apps.providers.adapters.kenpath.catalog import BHARAT_VISTAAR_PROD_MODEL
 from apps.providers.one_shot_llm import (
     OneShotLLMError,
     call_first_available,
@@ -41,6 +42,34 @@ def test_kenpath_vistaar_refuses_instead_of_mistranslating():
             "user prompt",
             resolve_auth=resolve_auth,
         )
+
+
+def test_kenpath_bharatvistaar_malformed_json_raises_one_shot_llm_error():
+    """response.json() must be inside the same try/except as the request
+    itself — otherwise a malformed/truncated 200 body raises
+    json.JSONDecodeError (a ValueError, not httpx.HTTPError), which escapes
+    uncaught past call_first_available's `except OneShotLLMError` and kills
+    the whole provider-fallback loop instead of advancing to the next
+    candidate."""
+
+    def resolve_auth(org_id: str, provider: str) -> dict:
+        return {"bharat_prod_private_key": "fake-private-key"}
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    with patch("apps.providers.one_shot_llm.httpx.post", return_value=mock_response), patch(
+        "apps.providers.one_shot_llm.kenpath_generate_jwt", return_value="fake-jwt"
+    ):
+        with pytest.raises(OneShotLLMError, match="non-JSON response"):
+            call_kenpath(
+                ORG_ID,
+                BHARAT_VISTAAR_PROD_MODEL,
+                "system prompt",
+                "user prompt",
+                resolve_auth=resolve_auth,
+            )
 
 
 def test_openai_compatible_provider_uses_first_rotation_key():
@@ -164,13 +193,17 @@ def test_call_local_model_server_rejects_request_exceeding_context_window():
     its requested max_tokens can exceed that outright — this must fail with
     an actionable error instead of a generic 502 from vLLM."""
     huge_user_text = "x" * 20_000
-    with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}):
+    with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
+        "apps.providers.one_shot_llm.deployed_llm_model_ids", return_value=frozenset({"qwen3.5-4b"})
+    ):
         with pytest.raises(OneShotLLMError, match="context window"):
             call_local_model_server("system prompt", huge_user_text, max_tokens=12_000)
 
 
 def test_call_local_model_server_allows_request_within_context_window():
     with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
+        "apps.providers.one_shot_llm.deployed_llm_model_ids", return_value=frozenset({"qwen3.5-4b"})
+    ), patch(
         "apps.providers.one_shot_llm.call_openai_compatible", return_value="translated"
     ) as mock_call:
         result, model = call_local_model_server("short system", "short user", max_tokens=200)
@@ -194,17 +227,30 @@ def test_call_local_model_server_uses_deployed_model_id_from_model_server():
     assert mock_call.call_args.args[2] == "custom-slot-name"
 
 
-def test_call_local_model_server_falls_back_to_default_model_when_undiscoverable():
-    """If model-server's /models is unreachable (network hiccup, cache miss
-    racing a cold start), fall back to the historical default instead of
-    calling with an empty/None model name."""
+def test_call_local_model_server_raises_when_no_llm_reported_deployed():
+    """If model-server's /models reports no deployed LLM (unreachable,
+    still starting up, or the llm slot isn't enabled), this must fail
+    loudly rather than guessing a hardcoded model name — a stale/wrong
+    guess would silently 404, reproducing the exact bug this resolution
+    logic exists to prevent."""
     with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
         "apps.providers.one_shot_llm.deployed_llm_model_ids", return_value=frozenset()
-    ), patch(
-        "apps.providers.one_shot_llm.call_openai_compatible", return_value="translated"
     ):
+        with pytest.raises(OneShotLLMError, match="no deployed LLM model"):
+            call_local_model_server("short system", "short user", max_tokens=200)
+
+
+def test_call_local_model_server_picks_deterministically_among_multiple_deployed():
+    """deployed_llm_model_ids() returns a frozenset (no defined iteration
+    order) — picking via next(iter(...)) would be non-deterministic if
+    model-server ever momentarily reports more than one deployed LLM
+    entry (e.g. mid model swap). sorted()[0] must be used instead."""
+    with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
+        "apps.providers.one_shot_llm.deployed_llm_model_ids",
+        return_value=frozenset({"z-model", "a-model"}),
+    ), patch("apps.providers.one_shot_llm.call_openai_compatible", return_value="translated"):
         _, model = call_local_model_server("short system", "short user", max_tokens=200)
-    assert model == "qwen3.5-4b"
+    assert model == "a-model"
 
 
 def test_call_first_available_falls_back_to_next_provider_on_failure():
@@ -240,7 +286,12 @@ def test_call_first_available_falls_back_to_next_provider_on_failure():
     assert dispatched == ("voicera_model_server", "qwen3.5-4b", "translated")
 
 
-def test_call_first_available_raises_last_error_when_all_providers_fail():
+def test_call_first_available_raises_combined_error_when_all_providers_fail():
+    """Every provider's own failure reason must be visible in the raised
+    error — not just the last one tried — or a real, fixable problem on a
+    higher-priority provider (bad key, misconfig) gets hidden behind an
+    unrelated failure from whatever provider happened to be tried last."""
+
     def resolve_auth(org_id: str, provider: str) -> dict:
         return {}
 
@@ -253,7 +304,7 @@ def test_call_first_available_raises_last_error_when_all_providers_fail():
         "apps.providers.one_shot_llm.call_local_model_server",
         side_effect=OneShotLLMError("local model server failed"),
     ):
-        with pytest.raises(OneShotLLMError, match="local model server failed"):
+        with pytest.raises(OneShotLLMError, match="kenpath failed") as exc_info:
             call_first_available(
                 ORG_ID,
                 "system",
@@ -261,3 +312,5 @@ def test_call_first_available_raises_last_error_when_all_providers_fail():
                 resolve_auth=resolve_auth,
                 list_configured_providers=lambda org_id: ["kenpath"],
             )
+
+    assert "local model server failed" in str(exc_info.value)
