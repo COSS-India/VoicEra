@@ -67,7 +67,7 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `VOICE_SERVER_BASE_URL` | empty | Yes for telephony | Public base URL of the runtime. Required when creating or updating a telephony agent. |
 | `ENABLE_CAMPAIGN_ORCHESTRATOR` | `True` | No | Lets API startup spawn the orchestrator. Docker runs it as a separate service instead. |
 | `PLATFORM_PROVIDER_AUTH` | empty | No | JSON map of provider id → secret fields, used when an organisation has not connected that provider itself. Empty disables the fallback. |
-| `SANDBOX_SEED_AGENTS` | `False` | No | Seed the demo agents in `apps/api/app/seed/default_agents.json` into every newly created organisation. |
+| `SANDBOX_SEED_AGENTS` | `False` in code, `True` in `.env.example` | No | Seed the six demo agents in `apps/api/app/seed/default_agents.json` into every newly created organisation. |
 
 Rotating `PROVIDER_AUTH_ENCRYPTION_KEY` makes every stored `ProviderAuth` blob undecryptable. Existing provider credentials must be re-entered after a rotation.
 
