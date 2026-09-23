@@ -110,6 +110,12 @@ export function formToAgentCreatePayload(
           enabled: form.autoCallEndingEnabled,
           graceful_llm_call_ending: form.autoCallEndingGraceful,
         },
+        vad: {
+          confidence: form.vadConfidence,
+          start_secs: form.vadStartSecs,
+          stop_secs: form.vadStopSecs,
+          min_volume: form.vadMinVolume,
+        },
       },
       language: { primary, secondary },
       models,
@@ -193,6 +199,21 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
     autoCallEndingGraceful: Boolean(
       (behaviour.automatic_call_ending as { graceful_llm_call_ending?: boolean } | undefined)
         ?.graceful_llm_call_ending,
+    ),
+    vadConfidence: Number(
+      (behaviour.vad as { confidence?: number } | undefined)?.confidence ??
+        DEFAULT_FORM.vadConfidence,
+    ),
+    vadStartSecs: Number(
+      (behaviour.vad as { start_secs?: number } | undefined)?.start_secs ??
+        DEFAULT_FORM.vadStartSecs,
+    ),
+    vadStopSecs: Number(
+      (behaviour.vad as { stop_secs?: number } | undefined)?.stop_secs ?? DEFAULT_FORM.vadStopSecs,
+    ),
+    vadMinVolume: Number(
+      (behaviour.vad as { min_volume?: number } | undefined)?.min_volume ??
+        DEFAULT_FORM.vadMinVolume,
     ),
   };
 }
