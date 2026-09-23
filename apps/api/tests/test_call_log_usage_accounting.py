@@ -33,7 +33,10 @@ class _FakeCollection:
 
     def find_one(self, query: dict[str, Any]) -> dict[str, Any] | None:
         for doc in self._store.values():
-            if all(doc.get(k) == v for k, v in query.items()):
+            if all(
+                doc.get(k) in v["$in"] if isinstance(v, dict) else doc.get(k) == v
+                for k, v in query.items()
+            ):
                 return dict(doc)
         return None
 
@@ -127,6 +130,31 @@ async def test_redelivered_hangup_does_not_double_count():
     usage = await client.get(usage_key("org-usage"))
     await client.aclose()
     assert usage is None  # never incremented — call was already ended
+
+
+@pytest.mark.asyncio
+async def test_racing_end_patches_count_usage_once():
+    """Runtime finalize and provider hangup both read the call before either
+    writes end_time_utc; only the one whose conditional update lands counts."""
+    _CALL_STORE["call-1"] = _in_progress_call()
+    with patch("app.services.call_log_service.get_database", side_effect=_fake_db):
+        call_log_service.patch_call_log(
+            "org-usage", "call-1", {"end_time_utc": "2026-01-01T00:05:00+00:00"}
+        )
+        with patch("app.services.call_log_service._has_end_time", return_value=False):
+            call_log_service.patch_call_log(
+                "org-usage",
+                "call-1",
+                {"end_time_utc": "2026-01-01T00:06:00+00:00", "call_response": "busy"},
+            )
+
+    client = aioredis.from_url(TEST_REDIS_URL, decode_responses=True)
+    usage = await client.get(usage_key("org-usage"))
+    await client.aclose()
+    assert float(usage) == pytest.approx(300.0)
+    stored = _CALL_STORE["call-1"]
+    assert stored["end_time_utc"] == "2026-01-01T00:05:00+00:00"
+    assert stored["call_response"] == "busy"  # loser's other fields still applied
 
 
 @pytest.mark.asyncio

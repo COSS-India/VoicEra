@@ -137,6 +137,67 @@ async def test_bind_admitted_call_survives_without_admission(monkeypatch):
     await release_admitted_call(admitted)
 
 
+@pytest.mark.asyncio
+async def test_limiter_outage_fails_open(monkeypatch):
+    monkeypatch.setattr(
+        call_admission.call_concurrency,
+        "acquire_org_slot",
+        AsyncMock(side_effect=ConnectionError("redis down")),
+    )
+    admitted = await admit_call(org_id="org-down", call_kind="outbound")
+    assert admitted.slot is None
+
+
+@pytest.mark.asyncio
+async def test_limiter_outage_fails_closed_with_503(monkeypatch):
+    monkeypatch.setattr(settings, "RATE_LIMIT_FAIL_OPEN", False)
+    monkeypatch.setattr(
+        call_admission.call_concurrency,
+        "acquire_org_slot",
+        AsyncMock(side_effect=ConnectionError("redis down")),
+    )
+    with pytest.raises(CallAdmissionError) as exc_info:
+        await admit_call(org_id="org-down", call_kind="outbound")
+    assert exc_info.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_call_end_patch_releases_the_slot(monkeypatch):
+    monkeypatch.setattr(settings, "DEFAULT_ORG_CONCURRENCY_LIMIT", 1)
+    admitted = await admit_call(org_id="org-end", call_kind="outbound")
+    await bind_admitted_call(admitted, "call-end")
+    await calls._sync_call_slot("call-end", {"end_time_utc": "2026-01-01T00:05:00+00:00"})
+    again = await admit_call(org_id="org-end", call_kind="outbound")
+    assert again.slot is not None
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_web_slot_expires_after_grace(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(settings, "DEFAULT_ORG_CONCURRENCY_LIMIT", 1)
+    monkeypatch.setattr(call_admission, "WEB_CONNECT_GRACE_SECONDS", 0.05)
+    admitted = await admit_call(org_id="org-web", call_kind="web", request=_make_request())
+    await bind_admitted_call(admitted, "call-abandoned")
+    await asyncio.sleep(0.1)
+    again = await admit_call(org_id="org-web", call_kind="web", request=_make_request())
+    assert again.slot is not None
+
+
+@pytest.mark.asyncio
+async def test_confirmed_web_slot_is_kept(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(settings, "DEFAULT_ORG_CONCURRENCY_LIMIT", 1)
+    monkeypatch.setattr(call_admission, "WEB_CONNECT_GRACE_SECONDS", 0.05)
+    admitted = await admit_call(org_id="org-web", call_kind="web", request=_make_request())
+    await bind_admitted_call(admitted, "call-live")
+    await calls._sync_call_slot("call-live", {"status": "in_progress"})
+    await asyncio.sleep(0.1)
+    with pytest.raises(CallAdmissionError):
+        await admit_call(org_id="org-web", call_kind="web", request=_make_request())
+
+
 # ---------------------------------------------------------------------------
 # Per-IP concurrency (web calls only)
 # ---------------------------------------------------------------------------

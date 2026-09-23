@@ -17,6 +17,10 @@ _TOKEN_TTL_SECONDS = 25 * 60
 class BackendError(RuntimeError):
     """Raised when the Voicera API request fails."""
 
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class BackendClient:
     """Thin async client with per-org cached bot JWTs."""
@@ -116,7 +120,8 @@ class BackendClient:
                 response = await client.post(url, headers=headers, json=payload)
         if response.status_code >= 400:
             raise BackendError(
-                f"POST calls/inbound failed ({response.status_code}): {response.text}"
+                f"POST calls/inbound failed ({response.status_code}): {response.text}",
+                response.status_code,
             )
         return response.json()
 
@@ -142,7 +147,8 @@ class BackendClient:
                 response = await client.post(url, headers=headers, json=payload)
         if response.status_code >= 400:
             raise BackendError(
-                f"POST calls/web failed ({response.status_code}): {response.text}"
+                f"POST calls/web failed ({response.status_code}): {response.text}",
+                response.status_code,
             )
         return response.json()
 

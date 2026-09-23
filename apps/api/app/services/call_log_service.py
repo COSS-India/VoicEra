@@ -116,10 +116,18 @@ def patch_call_log(org_id: str, call_id: str, patch: dict[str, Any]) -> dict[str
         return _to_response(doc) or {}
 
     patch["updated_at"] = _now_iso()
-    result = get_database()[COLLECTION].update_one(
-        {"org_id": org_id, "call_id": call_id},
-        {"$set": patch},
-    )
+    collection = get_database()[COLLECTION]
+    query: dict[str, Any] = {"org_id": org_id, "call_id": call_id}
+    # Compare-and-set on end_time_utc: the runtime's finalize and the provider
+    # hangup webhook race to end the same call, and only one may record usage.
+    end_guard = {"end_time_utc": {"$in": [None, ""]}} if newly_ending else {}
+    result = collection.update_one({**query, **end_guard}, {"$set": patch})
+    if result.matched_count == 0 and newly_ending:
+        # Lost the race: keep the winner's timing, still apply the other fields.
+        newly_ending = False
+        patch.pop("end_time_utc", None)
+        patch.pop("duration", None)
+        result = collection.update_one(query, {"$set": patch})
     if result.matched_count == 0:
         raise CallLogNotFoundError(call_id)
     doc = get_database()[COLLECTION].find_one({"org_id": org_id, "call_id": call_id})

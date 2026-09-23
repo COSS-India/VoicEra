@@ -20,6 +20,17 @@ from app.utils.client_ip import ip_in_allowlist, resolve_client_ip, hash_subject
 logger = logging.getLogger(__name__)
 
 
+def _limiter_unavailable(scope: str, exc: Exception) -> None:
+    """Apply ``RATE_LIMIT_FAIL_OPEN`` to a Redis error: log and allow, or 503."""
+    logger.error("rate_limit.fail_open scope=%s error=%s", scope, exc)
+    if not settings.RATE_LIMIT_FAIL_OPEN:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Rate limiter unavailable",
+            headers={"Retry-After": "5"},
+        ) from exc
+
+
 async def _enforce_window(*, scope: str, subject_hash: str, limit: int, ttl: int) -> None:
     """Increment the fixed-window counter for (scope, subject_hash) and enforce it.
 
@@ -31,13 +42,7 @@ async def _enforce_window(*, scope: str, subject_hash: str, limit: int, ttl: int
     try:
         allowed, count, retry_after = await counters.incr_window(key, limit, ttl)
     except Exception as exc:
-        logger.error("rate_limit.fail_open scope=%s error=%s", scope, exc)
-        if not settings.RATE_LIMIT_FAIL_OPEN:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Rate limiter unavailable",
-                headers={"Retry-After": "5"},
-            ) from exc
+        _limiter_unavailable(scope, exc)
         return
 
     if not allowed:
@@ -98,7 +103,12 @@ async def signup_success_budget_guard(request: Request) -> None:
     normalised, subject_hash = _client_ip_hash(request)
     if _is_allowlisted(normalised):
         return
-    hourly = await _peek_window(scope="signup_orgs_hour", subject_hash=subject_hash)
+    try:
+        hourly = await _peek_window(scope="signup_orgs_hour", subject_hash=subject_hash)
+        daily = await _peek_window(scope="signup_orgs_day", subject_hash=subject_hash)
+    except Exception as exc:
+        _limiter_unavailable("signup_orgs", exc)
+        return
     if hourly >= settings.SIGNUP_ORGS_PER_IP_PER_HOUR:
         logger.info(
             "rate_limit.deny scope=signup_orgs_hour subject=%s limit=%s count=%s",
@@ -111,7 +121,6 @@ async def signup_success_budget_guard(request: Request) -> None:
             limit=settings.SIGNUP_ORGS_PER_IP_PER_HOUR,
             retry_after=3600,
         )
-    daily = await _peek_window(scope="signup_orgs_day", subject_hash=subject_hash)
     if daily >= settings.SIGNUP_ORGS_PER_IP_PER_DAY:
         logger.info(
             "rate_limit.deny scope=signup_orgs_day subject=%s limit=%s count=%s",

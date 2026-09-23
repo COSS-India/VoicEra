@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -249,6 +250,20 @@ async def test_signup_attempts_guard_enforces_hourly_limit(monkeypatch):
     with pytest.raises(LimitExceeded) as exc_info:
         await deps.signup_attempts_guard(req)
     assert exc_info.value.scope == "signup_attempts"
+
+
+@pytest.mark.asyncio
+async def test_signup_success_budget_guard_honours_fail_open(monkeypatch):
+    monkeypatch.setattr(
+        deps.counters, "get_usage", AsyncMock(side_effect=ConnectionError("redis down"))
+    )
+    req = _make_request("203.0.113.51")
+    await deps.signup_success_budget_guard(req)  # fail-open: allowed
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_FAIL_OPEN", False)
+    with pytest.raises(HTTPException) as exc_info:
+        await deps.signup_success_budget_guard(req)
+    assert exc_info.value.status_code == 503
 
 
 @pytest.mark.asyncio

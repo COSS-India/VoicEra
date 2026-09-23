@@ -22,7 +22,10 @@ class _FakeCollection:
 
     def find_one(self, query: dict[str, Any]) -> dict[str, Any] | None:
         for doc in self._store.values():
-            if all(doc.get(k) == v for k, v in query.items()):
+            if all(
+                doc.get(k) in v["$in"] if isinstance(v, dict) else doc.get(k) == v
+                for k, v in query.items()
+            ):
                 return dict(doc)
         return None
 

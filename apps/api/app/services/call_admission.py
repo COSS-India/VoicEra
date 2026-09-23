@@ -57,12 +57,20 @@ CallKind = Literal["outbound", "inbound", "web"]
 # clean refusal (rate-limiting-plan.md §9, Layer 2).
 _MIN_REMAINING_SECONDS = 30
 
+# A web call's slot is only pending until the runtime confirms the browser
+# connected (``confirm_call_slot``); a page that registers a call and never
+# opens the WebSocket frees its slot after this long, not the full reaper window.
+WEB_CONNECT_GRACE_SECONDS = 60
+
 
 class CallAdmissionError(Exception):
-    """Raised when admission denies a call. Mapped to HTTP 429 by the router."""
+    """Raised when admission denies a call. Mapped to ``status_code`` by the router."""
 
-    def __init__(self, *, reason: str, message: str, retry_after: int = 5) -> None:
+    def __init__(
+        self, *, reason: str, message: str, retry_after: int = 5, status_code: int = 429
+    ) -> None:
         self.reason = reason
+        self.status_code = status_code
         self.message = message
         self.retry_after = retry_after
         super().__init__(message)
@@ -156,6 +164,7 @@ async def admit_call(
             timeout=0,
             scope_key=scope_key,
             scope_max_concurrent=scope_max_concurrent,
+            pending_grace=WEB_CONNECT_GRACE_SECONDS if call_kind == "web" else None,
         )
     except CallConcurrencyLimitError as exc:
         # try_acquire_concurrent_slot_details returns a bare rejection
@@ -174,6 +183,15 @@ async def admit_call(
             message="Concurrent call limit reached",
             retry_after=5,
         ) from exc
+    except Exception as exc:
+        logger.error("rate_limit.fail_open scope=call_admission error=%s", exc)
+        if not settings.RATE_LIMIT_FAIL_OPEN:
+            raise CallAdmissionError(
+                reason="limiter_unavailable",
+                message="Rate limiter unavailable",
+                status_code=503,
+            ) from exc
+        return AdmittedCall(slot=None)
 
     return AdmittedCall(slot=slot)
 
@@ -184,7 +202,12 @@ async def bind_admitted_call(admitted: AdmittedCall, call_id: str) -> None:
     (``RATE_LIMIT_ENABLED=false`` or Layer 2b/legacy campaign paths)."""
     if admitted.slot is None:
         return
-    await call_concurrency.bind_call_slot(admitted.slot, call_id)
+    try:
+        await call_concurrency.bind_call_slot(admitted.slot, call_id)
+    except Exception as exc:
+        # The call already exists; failing the request now would orphan it.
+        # An unbound slot is reclaimed by the reaper.
+        logger.error("rate_limit.fail_open scope=call_bind call_id=%s error=%s", call_id, exc)
 
 
 async def release_admitted_call(admitted: AdmittedCall) -> None:

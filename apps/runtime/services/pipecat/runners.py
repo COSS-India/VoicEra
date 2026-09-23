@@ -4,12 +4,29 @@ from __future__ import annotations
 
 from typing import Any
 
+from pipecat.frames.frames import Frame, InterruptionFrame
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from starlette.websockets import WebSocket
 
 from apps.runtime.constants import telephony_sample_rate, websocket_sample_rate
 from apps.runtime.services.pipecat.pipeline import run_pipeline
 from apps.telephony.serializers import create_frame_serializer
+
+
+class BrowserFrameSerializer(ProtobufFrameSerializer):
+    """Protobuf serializer limited to the frames the browser client can decode.
+
+    Pipecat's websocket output writes an ``InterruptionFrame`` to the client on
+    every barge-in, but ``@pipecat-ai/websocket-transport`` only decodes
+    ``audio`` and ``message`` frames — it throws "Unknown frame kind" on the
+    rest and drops them. The frame was never acted on, so not sending it only
+    removes the console error.
+    """
+
+    async def serialize(self, frame: Frame) -> str | bytes | None:
+        if isinstance(frame, InterruptionFrame):
+            return None
+        return await super().serialize(frame)
 
 
 async def run_telephony_bot(
@@ -54,7 +71,7 @@ async def run_websocket_bot(
 ) -> None:
     """Run the Pipecat pipeline for a browser WebSocket client (RTVI/protobuf)."""
     sample_rate = websocket_sample_rate()
-    serializer = ProtobufFrameSerializer()
+    serializer = BrowserFrameSerializer()
     session_label = (
         f"call_id={call_id}" if call_id else f"agent_id={agent.get('agent_id')}"
     )

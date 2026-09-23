@@ -70,6 +70,7 @@ class CallConcurrencyService:
         scope_key: str | None = None,
         scope_max_concurrent: int | None = None,
         retry_interval: float = 1,
+        pending_grace: float | None = None,
     ) -> CallConcurrencySlot:
         max_concurrent = await self.get_org_concurrent_limit(organization_id)
         if scope_max_concurrent is not None:
@@ -81,6 +82,7 @@ class CallConcurrencyService:
                 max_concurrent,
                 scope_key=scope_key,
                 scope_max_concurrent=scope_max_concurrent,
+                pending_grace=pending_grace,
             )
             if acquisition:
                 return CallConcurrencySlot(
@@ -119,6 +121,11 @@ class CallConcurrencyService:
             slot.organization_id, slot.slot_id, scope_key=slot.scope_key
         )
         return bool(released)
+
+    async def confirm_call_slot(self, call_id: str) -> None:
+        mapping = await rate_limiter.get_call_slot_mapping(call_id)
+        if mapping:
+            await rate_limiter.confirm_concurrent_slot(*mapping)
 
     async def release_call_slot(self, call_id: str) -> bool:
         mapping = await rate_limiter.get_call_slot_mapping(call_id)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -15,6 +16,7 @@ from app.services.call_admission import (
     bind_admitted_call,
     release_admitted_call,
 )
+from app.services.call_concurrency import call_concurrency
 from app.models.schemas import (
     CallAnalyticsResponse,
     CallLogListResponse,
@@ -48,6 +50,8 @@ from app.services.call_metrics_service import (
 from app.services.inbound_call_service import InboundCallError, register_inbound_call
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
 from app.services.web_call_service import WebCallError, register_web_call
+
+logger = logging.getLogger(__name__)
 from app.storage.minio_client import MinIOStorage
 
 router = APIRouter(prefix="/calls", tags=["calls"])
@@ -86,10 +90,27 @@ def _raise_web_call_error(exc: WebCallError) -> None:
 
 def _raise_admission_error(exc: CallAdmissionError) -> None:
     raise HTTPException(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        status_code=exc.status_code,
         detail=exc.message,
         headers={"Retry-After": str(exc.retry_after)},
     ) from exc
+
+
+async def _sync_call_slot(call_id: str, patch: dict[str, Any]) -> None:
+    """Free the call's concurrency slot when the CallLog records the end, and
+    confirm a pending web slot once the runtime reports the session live.
+
+    Done here rather than only via the runtime's terminal notify so a slot is
+    released on every path that ends a call (finalize, hangup by call_id or
+    provider SID). Release is idempotent; a Redis error must not fail the patch.
+    """
+    try:
+        if patch.get("end_time_utc"):
+            await call_concurrency.release_call_slot(call_id)
+        elif patch.get("status") == "in_progress":
+            await call_concurrency.confirm_call_slot(call_id)
+    except Exception as exc:
+        logger.error("call_slot.sync_failed call_id=%s error=%s", call_id, exc)
 
 
 def _raise_call_not_found(exc: CallLogNotFoundError) -> None:
@@ -280,6 +301,8 @@ async def patch_call_by_provider_sid(
         doc = patch_call_log_by_provider_sid(org_id, provider_call_sid, patch)
     except CallLogNotFoundError as exc:
         _raise_call_not_found(exc)
+    if doc.get("call_id"):
+        await _sync_call_slot(str(doc["call_id"]), patch)
     return transform_call_log_urls(doc, api_prefix=settings.API_V1_PREFIX)
 
 
@@ -301,6 +324,7 @@ async def patch_call(
         doc = patch_call_log(org_id, call_id, patch)
     except CallLogNotFoundError as exc:
         _raise_call_not_found(exc)
+    await _sync_call_slot(call_id, patch)
     return transform_call_log_urls(doc, api_prefix=settings.API_V1_PREFIX)
 
 

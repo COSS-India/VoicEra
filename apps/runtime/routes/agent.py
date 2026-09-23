@@ -20,6 +20,18 @@ from apps.telephony import parse_stream_start
 
 router = APIRouter()
 
+# API call-admission refusals (rate limit / limiter unavailable). Unlike other
+# registration failures, running the call anyway would bypass the limit.
+_ADMISSION_DENIED = frozenset({429, 503})
+
+
+async def _close_if_denied(websocket: WebSocket, exc: BackendError) -> bool:
+    if exc.status_code not in _ADMISSION_DENIED:
+        return False
+    logger.warning("Call admission denied — closing: {}", exc)
+    await websocket.close(code=1013, reason="Call limit reached")
+    return True
+
 
 @router.websocket("/agent/{org_id}/{agent_id}")
 async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> None:
@@ -66,6 +78,12 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
                         )
                         call_id = None
                         call_log = None
+                    elif call_log.get("end_time_utc"):
+                        # An ended call's slot is released; reusing its id
+                        # would run a new call without admission.
+                        logger.warning("Ignoring call_id={} — call already ended", call_id)
+                        call_id = None
+                        call_log = None
                 except BackendError as exc:
                     logger.warning(
                         "Failed to load web call log call_id={} org_id={}: {}",
@@ -91,11 +109,25 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
                                 exc,
                             )
                 except BackendError as exc:
+                    if await _close_if_denied(websocket, exc):
+                        return
                     logger.warning(
                         "Web call registration failed org_id={} agent_id={}: {}",
                         org_id,
                         agent_id,
                         exc,
+                    )
+
+            if call_id:
+                # Confirms the call's pending concurrency slot now that the
+                # browser has actually connected (see call_admission.py).
+                try:
+                    await backend_client.update_call(
+                        call_id, org_id, {"status": "in_progress"}
+                    )
+                except BackendError as exc:
+                    logger.warning(
+                        "Web call slot confirm failed call_id={}: {}", call_id, exc
                     )
 
             custom_variables = resolve_custom_variables(agent, call_log)
@@ -156,6 +188,8 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
                     call_sid,
                 )
             except BackendError as exc:
+                if await _close_if_denied(websocket, exc):
+                    return
                 logger.warning(
                     "WebSocket inbound registration failed org_id={} call_sid={}: {}",
                     org_id,

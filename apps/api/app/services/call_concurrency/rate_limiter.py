@@ -102,7 +102,12 @@ class RateLimiter:
         *,
         scope_key: str | None = None,
         scope_max_concurrent: int | None = None,
+        pending_grace: float | None = None,
     ) -> ConcurrentSlotAcquisition | None:
+        """Reserve a slot. With ``pending_grace``, the slot is backdated so the
+        reapers drop it after that many seconds unless ``confirm_concurrent_slot``
+        refreshes it — a reservation that is never used cannot pin a slot for
+        the full stale window."""
         redis_client = await self._get_redis()
         concurrent_key = f"concurrent_calls:{organization_id}"
         scope_concurrent_key = f"concurrent_calls:{scope_key}" if scope_key else ""
@@ -113,6 +118,12 @@ class RateLimiter:
         # cannot afford to share the org's more patient reaper window.
         scope_stale_cutoff = now - self.scope_stale_call_timeout
         slot_id = f"{int(now * 1000)}_{uuid.uuid4().hex[:8]}"
+        org_score = scope_score = now
+        if pending_grace:
+            org_score = stale_cutoff + min(pending_grace, self.stale_call_timeout)
+            scope_score = scope_stale_cutoff + min(
+                pending_grace, self.scope_stale_call_timeout
+            )
         lua_script = """
         local key = KEYS[1]
         local scope_key = KEYS[2]
@@ -124,6 +135,8 @@ class RateLimiter:
         local scope_max_concurrent = tonumber(ARGV[5])
         local fleet_member = ARGV[6]
         local scope_stale_cutoff = tonumber(ARGV[7])
+        local org_score = tonumber(ARGV[8])
+        local scope_score = tonumber(ARGV[9])
         redis.call('ZREMRANGEBYSCORE', key, 0, stale_cutoff)
         local current_count = redis.call('ZCARD', key)
         if current_count >= max_concurrent then
@@ -134,13 +147,13 @@ class RateLimiter:
             if redis.call('ZCARD', scope_key) >= scope_max_concurrent then
                 return nil
             end
-            redis.call('ZADD', scope_key, now, slot_id)
+            redis.call('ZADD', scope_key, scope_score, slot_id)
             redis.call('EXPIRE', scope_key, 3600)
         end
-        redis.call('ZADD', key, now, slot_id)
+        redis.call('ZADD', key, org_score, slot_id)
         redis.call('EXPIRE', key, 3600)
         redis.call('ZREMRANGEBYSCORE', fleet_key, 0, stale_cutoff)
-        redis.call('ZADD', fleet_key, now, fleet_member)
+        redis.call('ZADD', fleet_key, org_score, fleet_member)
         redis.call('EXPIRE', fleet_key, 3600)
         return {slot_id, current_count + 1}
         """
@@ -152,6 +165,8 @@ class RateLimiter:
             scope_max_concurrent if scope_max_concurrent is not None else 0,
             f"{organization_id}:{slot_id}",
             scope_stale_cutoff,
+            org_score,
+            scope_score,
         )
         if self._acquire_slot_sha is None:
             self._acquire_slot_sha = await redis_client.script_load(lua_script)
@@ -184,6 +199,20 @@ class RateLimiter:
             slot_id=str(acquired_slot_id),
             active_count=int(active_count),
         )
+
+    async def confirm_concurrent_slot(
+        self, organization_id: str, slot_id: str, scope_key: str | None = None
+    ) -> None:
+        """Mark a pending slot as in use (score = now). ``xx`` never resurrects
+        a slot that was already reaped or released."""
+        redis_client = await self._get_redis()
+        now = time.time()
+        pipe = redis_client.pipeline()
+        pipe.zadd(f"concurrent_calls:{organization_id}", {slot_id: now}, xx=True)
+        pipe.zadd(FLEET_CONCURRENT_KEY, {f"{organization_id}:{slot_id}": now}, xx=True)
+        if scope_key:
+            pipe.zadd(f"concurrent_calls:{scope_key}", {slot_id: now}, xx=True)
+        await pipe.execute()
 
     async def release_concurrent_slot(
         self,
