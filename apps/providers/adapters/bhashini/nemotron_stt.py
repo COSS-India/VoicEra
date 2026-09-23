@@ -27,6 +27,7 @@ from pipecat.utils.time import time_now_iso8601
 from apps.providers.runtime_language import update_stt_settings_with_language
 from . import asr_pb2, asr_pb2_grpc
 from .catalog import DEFAULT_GRPC_URL
+from .stt import VADProcessor
 
 SAMPLE_RATE = 16000
 MAX_MSG = 4 * 1024 * 1024
@@ -34,6 +35,12 @@ _CHANNEL_OPTS = [
     ("grpc.max_receive_message_length", MAX_MSG),
     ("grpc.max_send_message_length", MAX_MSG),
 ]
+# Same energy gate as Dhruva websocket STT. Internal only: does not emit
+# UserStarted/Stopped frames or replace Silero's Pipecat turn signals.
+_ENERGY_CHUNK_MS = 200
+_PRE_ROLL_MS = 800
+_ENERGY_CHUNK_BYTES = int(SAMPLE_RATE * _ENERGY_CHUNK_MS / 1000) * 2
+_PRE_ROLL_BYTES = int(SAMPLE_RATE * _PRE_ROLL_MS / 1000) * 2
 
 # Outbound queue sentinels (audio is raw bytes).
 _COMMIT = object()
@@ -53,6 +60,10 @@ class BhashiniNemotronSTTService(STTService):
     Server-side VAD is assumed off. Partials stream while the user speaks; a
     final transcript is requested only on ``VADUserStoppedSpeakingFrame`` —
     matching local ``IndicNemotronSTTService`` ``flush_eos`` and Deepgram Finalize.
+
+    Quiet bursts (breath, air puffs) are dropped by an internal RMS gate before
+    audio reaches the model. Silero still owns Pipecat turn frames; this gate
+    does not emit ``UserStartedSpeakingFrame`` / ``UserStoppedSpeakingFrame``.
     """
 
     def __init__(
@@ -88,6 +99,10 @@ class BhashiniNemotronSTTService(STTService):
         self._ready = asyncio.Event()
         self._flush_event: Optional[asyncio.Event] = None
         self._pending_final: str = ""
+        self._energy_vad = VADProcessor(chunk_ms=_ENERGY_CHUNK_MS)
+        self._audio_buffer = bytearray()
+        self._pre_roll_buffer = bytearray()
+        self._sent_audio_this_turn = False
 
         logger.info(
             "Bhashini Nemotron STT initialized | grpc_host={} function_id={} language={}",
@@ -113,6 +128,51 @@ class BhashiniNemotronSTTService(STTService):
         if self._outbound is None:
             raise RuntimeError("Nemotron gRPC stream is not connected")
         await self._outbound.put(item)
+
+    def _reset_energy_gate(self) -> None:
+        self._energy_vad = VADProcessor(chunk_ms=_ENERGY_CHUNK_MS)
+        self._audio_buffer.clear()
+        self._pre_roll_buffer.clear()
+        self._sent_audio_this_turn = False
+
+    def _update_pre_roll(self, chunk: bytes) -> None:
+        if _PRE_ROLL_BYTES <= 0:
+            self._pre_roll_buffer.clear()
+            return
+        self._pre_roll_buffer.extend(chunk)
+        overflow = len(self._pre_roll_buffer) - _PRE_ROLL_BYTES
+        if overflow > 0:
+            del self._pre_roll_buffer[:overflow]
+
+    async def _handle_energy_chunk(self, chunk: bytes, pre_roll: bytes) -> None:
+        state = self._energy_vad.process_chunk(chunk)
+        if state == "START":
+            logger.debug("Nemotron energy gate speech start")
+            if pre_roll:
+                await self._enqueue(pre_roll)
+            await self._enqueue(chunk)
+            self._sent_audio_this_turn = True
+        elif state == "CONTINUE":
+            await self._enqueue(chunk)
+            self._sent_audio_this_turn = True
+
+    async def _drain_energy_buffer(self) -> None:
+        while len(self._audio_buffer) >= _ENERGY_CHUNK_BYTES:
+            pre_roll = bytes(self._pre_roll_buffer)
+            chunk = bytes(self._audio_buffer[:_ENERGY_CHUNK_BYTES])
+            del self._audio_buffer[:_ENERGY_CHUNK_BYTES]
+            await self._handle_energy_chunk(chunk, pre_roll)
+            self._update_pre_roll(chunk)
+
+    async def _flush_energy_remainder(self) -> None:
+        if not self._audio_buffer:
+            return
+        leftover = bytes(self._audio_buffer)
+        self._audio_buffer.clear()
+        if self._energy_vad.is_speaking or self._sent_audio_this_turn:
+            await self._enqueue(leftover)
+            self._sent_audio_this_turn = True
+        self._update_pre_roll(leftover)
 
     async def _request_generator(self):
         assert self._outbound is not None
@@ -290,17 +350,31 @@ class BhashiniNemotronSTTService(STTService):
                     )
             finally:
                 self._flush_event = None
+                self._sent_audio_this_turn = False
+
+    def _energy_confirmed_speech(self) -> bool:
+        return self._sent_audio_this_turn or self._energy_vad.is_speaking
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, VADUserStartedSpeakingFrame):
+            self._sent_audio_this_turn = False
             await self.start_ttfb_metrics()
             await self.start_processing_metrics()
         elif isinstance(frame, VADUserStoppedSpeakingFrame):
             # Commit only on Silero VAD stop — same as local Nemotron flush_eos.
             # Do NOT commit on UserStoppedSpeakingFrame (aggregator turn-stop).
             try:
+                if self._channel and self._outbound is not None:
+                    await self._flush_energy_remainder()
+                if not self._energy_confirmed_speech():
+                    logger.debug(
+                        "Nemotron skip CommitTurn; energy gate rejected quiet turn"
+                    )
+                    await self.stop_ttfb_metrics()
+                    await self.stop_processing_metrics()
+                    return
                 await self._flush_utterance()
             except Exception as e:
                 logger.error("Nemotron CommitTurn on VAD stop failed: {}", e)
@@ -309,6 +383,7 @@ class BhashiniNemotronSTTService(STTService):
     async def start(self, frame: StartFrame):
         await super().start(frame)
         self._closed = False
+        self._reset_energy_gate()
         try:
             await self._connect()
         except Exception as e:
@@ -324,6 +399,7 @@ class BhashiniNemotronSTTService(STTService):
                 event = asyncio.Event()
                 self._flush_event = event
                 try:
+                    await self._flush_energy_remainder()
                     await self._enqueue(_CLOSE)
                     self._outbound = None
                     await asyncio.wait_for(event.wait(), timeout=5.0)
@@ -336,11 +412,13 @@ class BhashiniNemotronSTTService(STTService):
                 finally:
                     self._flush_event = None
         finally:
+            self._reset_energy_gate()
             await self._disconnect()
             await super().stop(frame)
 
     async def cancel(self, frame: CancelFrame):
         self._closed = True
+        self._reset_energy_gate()
         await self._disconnect()
         await super().cancel(frame)
 
@@ -365,7 +443,8 @@ class BhashiniNemotronSTTService(STTService):
             return
 
         try:
-            await self._enqueue(outgoing)
+            self._audio_buffer.extend(outgoing)
+            await self._drain_energy_buffer()
         except Exception as e:
             logger.error("Nemotron STT send error: {}", e)
             yield ErrorFrame(f"Nemotron STT send failed: {e}")
