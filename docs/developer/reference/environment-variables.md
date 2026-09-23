@@ -120,6 +120,30 @@ Both REST and the browser test-call WebSocket are same-origin from the browser: 
 
 `DEFAULT_ORG_CONCURRENCY_LIMIT` is read twice: as a pydantic setting in `apps/api/app/config.py` and directly with `os.getenv` in `apps/api/app/constants/campaign.py`, where it is clamped to a minimum of `1`.
 
+## Rate limiting and abuse control
+
+See `docs/developer/rate-limiting-plan.md` for the design. All read by `apps/api/app/config.py`. `apps/runtime` reads four of them directly — `RATE_LIMIT_ENABLED`, `MAX_CALL_DURATION_SECONDS`, `MAX_CALL_DURATION_CEILING_SECONDS` (the duration guard) and `RUNTIME_SESSION_SECRET` — via `apps/runtime/constants.py`. Both services share the root `.env`, so one value configures both.
+
+| Variable | Default | Required | Purpose |
+|---|---|---|---|
+| `RATE_LIMIT_ENABLED` | `False` | No | Master switch. Every dependency below is a no-op while this is false, including the runtime's call-duration guard — nothing in this section changes behaviour until it is turned on. |
+| `RATE_LIMIT_FAIL_OPEN` | `True` | No | On a Redis outage: allow and log at ERROR (`True`), or 503 with `Retry-After` (`False`). |
+| `RATE_LIMIT_IP_SALT` | `""` | Yes, if `RATE_LIMIT_ENABLED=true` | Salt for hashing client IPs before they touch Redis or logs. Must not reuse `SECRET_KEY`. Startup aborts if enabled with this empty. |
+| `TRUST_PROXY_HEADERS` | `False` | No | Parse `X-Forwarded-For` for client IP resolution. Defaults false so a misconfigured deployment fails closed to the proxy's own IP rather than open to a spoofed header. |
+| `TRUSTED_PROXY_HOPS` | `1` | No | Hops between the client and this service. **Measure against the real deployment before changing** — there are two proxy hops in front of `apps/api` (nginx, then the Next.js rewrite proxy); guessing wrong collapses every per-IP limit to one global counter. See the plan's §7. |
+| `RATE_LIMIT_IP_ALLOWLIST` | `""` | No | Comma-separated IPs/CIDRs (v4 and v6) exempt from per-IP limits only — never from org-scoped limits. A malformed entry aborts startup. |
+| `RATE_LIMIT_SCOPE_STALE_SECONDS` | `900` | No | Reaper window for per-IP concurrency slots. Kept independent of and shorter than the org reaper (`MAX_CALL_DURATION_CEILING_SECONDS + 300`) — see the plan's S3b. |
+| `SIGNUP_ORGS_PER_IP_PER_HOUR` | `2` | No | Successful org creations per IP per hour. |
+| `SIGNUP_ORGS_PER_IP_PER_DAY` | `5` | No | Successful org creations per IP per day. |
+| `SIGNUP_ATTEMPTS_PER_IP_PER_HOUR` | `10` | No | `/users/signup` attempts per IP per hour, regardless of outcome. |
+| `AUTH_ATTEMPTS_PER_IP_PER_MINUTE` | `10` | No | Shared budget for `/login`, `/forgot-password`, `/reset-password`, `/users/check/{email}`. |
+| `RESET_MAILS_PER_EMAIL_PER_HOUR` | `3` | No | Password-reset emails per *target* email address per hour (not per requester IP). |
+| `MAX_CONCURRENT_CALLS_PER_IP` | `5` | No | Concurrent web calls per client IP. |
+| `ORG_DAILY_CALL_SECONDS` | `14400` (4h) | No | Default daily call-seconds quota per org. Overridable per org via `Organizations.daily_call_seconds`. |
+| `MAX_CALL_DURATION_SECONDS` | `600` | No | Default single-call duration cap, applied by the runtime only when `RATE_LIMIT_ENABLED=true`. Overridable per org via `Organizations.max_call_duration_seconds`, and per agent via `behaviour.call_timeout_seconds`. |
+| `MAX_CALL_DURATION_CEILING_SECONDS` | `1800` | No | Unconditional ceiling *relative to the overrides above* — applied server-side, so no override can exceed it. Still subject to `RATE_LIMIT_ENABLED`. |
+| `RUNTIME_SESSION_SECRET` | `""` | Yes, once Layer 2b ships | HMAC key for signing/verifying the runtime WebSocket admission token. Read by both `apps/api` (signs) and `apps/runtime` (verifies) — must be a dedicated key, not `SECRET_KEY`. |
+
 ## Object storage
 
 MinIO holds call recordings, transcripts, campaign source CSVs, and knowledge-base PDFs.

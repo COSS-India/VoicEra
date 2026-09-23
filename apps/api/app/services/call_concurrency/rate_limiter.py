@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Optional
 
 import redis.asyncio as aioredis
+from redis.exceptions import NoScriptError
 
 from app.config import settings
 
@@ -23,13 +25,27 @@ class ConcurrentSlotAcquisition:
 class RateLimiter:
     def __init__(self) -> None:
         self.redis_client: aioredis.Redis | None = None
-        self.stale_call_timeout = 1200
+        # Must stay strictly more patient than MAX_CALL_DURATION_CEILING_SECONDS,
+        # or a legitimate long call has its concurrency slot reaped while active
+        # (see docs/developer/rate-limiting-plan.md S3).
+        self.stale_call_timeout = max(
+            1200, settings.MAX_CALL_DURATION_CEILING_SECONDS + 300
+        )
+        # Independent, much shorter reaper for scope (e.g. per-IP) slots — a low
+        # per-IP concurrency limit turns a leaked slot into a long lockout if it
+        # shares the org's patient reaper window (S3b).
+        self.scope_stale_call_timeout = settings.RATE_LIMIT_SCOPE_STALE_SECONDS
+        self._redis_lock = asyncio.Lock()
+        self._acquire_token_sha: str | None = None
+        self._acquire_slot_sha: str | None = None
 
     async def _get_redis(self) -> aioredis.Redis:
         if self.redis_client is None:
-            self.redis_client = await aioredis.from_url(
-                settings.REDIS_URL, decode_responses=True
-            )
+            async with self._redis_lock:
+                if self.redis_client is None:
+                    self.redis_client = await aioredis.from_url(
+                        settings.REDIS_URL, decode_responses=True
+                    )
         return self.redis_client
 
     async def acquire_token(
@@ -43,24 +59,40 @@ class RateLimiter:
         key = f"rate_limit:{scope_key or organization_id}"
         now = time.time()
         window_start = now - 1.0
+        # Member includes a random suffix so two requests landing on the same
+        # float timestamp don't collide and overwrite each other in the ZADD,
+        # which would otherwise let more through than max_requests (S4).
+        member = f"{now}:{uuid.uuid4().hex[:8]}"
         lua_script = """
         local key = KEYS[1]
         local now = tonumber(ARGV[1])
         local window_start = tonumber(ARGV[2])
         local max_requests = tonumber(ARGV[3])
+        local member = ARGV[4]
         redis.call('ZREMRANGEBYSCORE', key, 0, window_start)
         local current_requests = redis.call('ZCARD', key)
         if current_requests < max_requests then
-            redis.call('ZADD', key, now, now)
+            redis.call('ZADD', key, now, member)
             redis.call('EXPIRE', key, 2)
             return 1
         else
             return 0
         end
         """
-        result = await redis_client.eval(
-            lua_script, 1, key, now, window_start, rate_limit
-        )
+        if self._acquire_token_sha is None:
+            self._acquire_token_sha = await redis_client.script_load(lua_script)
+        try:
+            result = await redis_client.evalsha(
+                self._acquire_token_sha, 1, key, now, window_start, rate_limit, member
+            )
+        except NoScriptError:
+            # Only on a genuine cache miss (Redis restart, SCRIPT FLUSH) —
+            # never on an arbitrary exception, which could re-run a script
+            # that already took effect.
+            self._acquire_token_sha = None
+            result = await redis_client.eval(
+                lua_script, 1, key, now, window_start, rate_limit, member
+            )
         return bool(result)
 
     async def try_acquire_concurrent_slot_details(
@@ -76,6 +108,10 @@ class RateLimiter:
         scope_concurrent_key = f"concurrent_calls:{scope_key}" if scope_key else ""
         now = time.time()
         stale_cutoff = now - self.stale_call_timeout
+        # Independent (shorter) cutoff for the scope zset — see S3b. A per-IP
+        # concurrency limit is typically much lower than the org limit, so it
+        # cannot afford to share the org's more patient reaper window.
+        scope_stale_cutoff = now - self.scope_stale_call_timeout
         slot_id = f"{int(now * 1000)}_{uuid.uuid4().hex[:8]}"
         lua_script = """
         local key = KEYS[1]
@@ -87,13 +123,14 @@ class RateLimiter:
         local slot_id = ARGV[4]
         local scope_max_concurrent = tonumber(ARGV[5])
         local fleet_member = ARGV[6]
+        local scope_stale_cutoff = tonumber(ARGV[7])
         redis.call('ZREMRANGEBYSCORE', key, 0, stale_cutoff)
         local current_count = redis.call('ZCARD', key)
         if current_count >= max_concurrent then
             return nil
         end
         if scope_key ~= '' then
-            redis.call('ZREMRANGEBYSCORE', scope_key, 0, stale_cutoff)
+            redis.call('ZREMRANGEBYSCORE', scope_key, 0, scope_stale_cutoff)
             if redis.call('ZCARD', scope_key) >= scope_max_concurrent then
                 return nil
             end
@@ -107,19 +144,39 @@ class RateLimiter:
         redis.call('EXPIRE', fleet_key, 3600)
         return {slot_id, current_count + 1}
         """
-        result = await redis_client.eval(
-            lua_script,
-            3,
-            concurrent_key,
-            scope_concurrent_key,
-            FLEET_CONCURRENT_KEY,
+        args = (
             now,
             max_concurrent,
             stale_cutoff,
             slot_id,
             scope_max_concurrent if scope_max_concurrent is not None else 0,
             f"{organization_id}:{slot_id}",
+            scope_stale_cutoff,
         )
+        if self._acquire_slot_sha is None:
+            self._acquire_slot_sha = await redis_client.script_load(lua_script)
+        try:
+            result = await redis_client.evalsha(
+                self._acquire_slot_sha,
+                3,
+                concurrent_key,
+                scope_concurrent_key,
+                FLEET_CONCURRENT_KEY,
+                *args,
+            )
+        except NoScriptError:
+            # See acquire_token: retrying this on any exception would risk
+            # acquiring a second slot for one call and leaking it, since the
+            # first ZADD may already have landed.
+            self._acquire_slot_sha = None
+            result = await redis_client.eval(
+                lua_script,
+                3,
+                concurrent_key,
+                scope_concurrent_key,
+                FLEET_CONCURRENT_KEY,
+                *args,
+            )
         if not result:
             return None
         acquired_slot_id, active_count = result

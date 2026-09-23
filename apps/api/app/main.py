@@ -6,8 +6,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import close_mongo_connection, connect_to_mongo, ping_database
@@ -26,6 +27,7 @@ from app.routers import (
     rag,
     users,
 )
+from app.services.limits.errors import LimitExceeded
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -72,6 +74,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(LimitExceeded)
+async def limit_exceeded_handler(_request: Request, exc: LimitExceeded) -> JSONResponse:
+    """429 with Retry-After. Body carries only scope/limit — never account info,
+    or the limiter itself becomes an enumeration oracle (S9)."""
+    return JSONResponse(
+        status_code=429,
+        headers={"Retry-After": str(exc.retry_after)},
+        content={
+            "code": "rate_limited",
+            "scope": exc.scope,
+            "retry_after": exc.retry_after,
+        },
+    )
+
 
 app.include_router(users.router, prefix=settings.API_V1_PREFIX)
 app.include_router(members.router, prefix=settings.API_V1_PREFIX)

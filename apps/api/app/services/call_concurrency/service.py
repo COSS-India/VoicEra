@@ -52,9 +52,14 @@ class CallConcurrencyService:
         self.default_concurrent_limit = int(settings.DEFAULT_ORG_CONCURRENCY_LIMIT)
 
     async def get_org_concurrent_limit(self, organization_id: str) -> int:
-        from app.services.campaign.campaign_repository import get_org_concurrent_limit
+        # Delegates to the cached, threadpooled resolver in limits/policy.py
+        # rather than calling the synchronous campaign_repository lookup
+        # directly on the event loop — this method is on the hot path for
+        # every call admission (see rate-limiting-plan.md §6, per-org
+        # overrides).
+        from app.services.limits.policy import get_org_concurrency_limit
 
-        return get_org_concurrent_limit(organization_id)
+        return await get_org_concurrency_limit(organization_id)
 
     async def acquire_org_slot(
         self,

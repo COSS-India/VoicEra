@@ -131,7 +131,7 @@ async def verify_api_key(
             detail="Missing API key",
         )
 
-    if x_api_key != settings.INTERNAL_API_KEY:
+    if not secrets.compare_digest(x_api_key, settings.INTERNAL_API_KEY):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",

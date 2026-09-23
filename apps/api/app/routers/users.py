@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.auth import create_access_token, get_current_user, verify_api_key
 from app.database_init import ROLE_ADMIN
@@ -21,6 +21,14 @@ from app.models.schemas import (
     UserResponse,
 )
 from app.services import org_service, user_service
+from app.services.limits.deps import (
+    auth_attempts_guard,
+    check_user_join_guard,
+    record_signup_success,
+    reset_mail_guard,
+    signup_attempts_guard,
+    signup_success_budget_guard,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -28,8 +36,13 @@ router = APIRouter(prefix="/users", tags=["users"])
 BOT_SERVICE_EMAIL = "bot@voicera.internal"
 
 
-@router.post("/signup", response_model=UserLoginResponse, status_code=status.HTTP_201_CREATED)
-async def sign_up(user_data: UserCreate) -> dict[str, Any]:
+@router.post(
+    "/signup",
+    response_model=UserLoginResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(signup_attempts_guard), Depends(signup_success_budget_guard)],
+)
+async def sign_up(user_data: UserCreate, request: Request) -> dict[str, Any]:
     """Create a user and organisation; caller becomes super_admin and receives a JWT."""
     result = user_service.sign_up_user(user_data)
     if result["status"] == "fail":
@@ -37,10 +50,15 @@ async def sign_up(user_data: UserCreate) -> dict[str, Any]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result["message"],
         )
+    await record_signup_success(request)
     return result
 
 
-@router.post("/login", response_model=UserLoginResponse)
+@router.post(
+    "/login",
+    response_model=UserLoginResponse,
+    dependencies=[Depends(auth_attempts_guard)],
+)
 async def login(credentials: UserLogin) -> dict[str, Any]:
     """Authenticate and return a JWT for the user's default organisation."""
     result = user_service.validate_user_and_get_token(
@@ -135,7 +153,11 @@ async def get_current_user_info(
     return profile
 
 
-@router.get("/check/{email}", response_model=CheckEmailResponse)
+@router.get(
+    "/check/{email}",
+    response_model=CheckEmailResponse,
+    dependencies=[Depends(check_user_join_guard)],
+)
 async def check_user_join_eligibility(
     email: str,
     org_id: str | None = Query(
@@ -168,9 +190,14 @@ async def get_user(
     return profile
 
 
-@router.post("/forgot-password", response_model=dict[str, Any])
+@router.post(
+    "/forgot-password",
+    response_model=dict[str, Any],
+    dependencies=[Depends(auth_attempts_guard)],
+)
 async def forgot_password(request: ForgotPasswordRequest) -> dict[str, Any]:
     """Request a password-reset email (public)."""
+    await reset_mail_guard(request.email)
     result = user_service.request_password_reset(request.email)
     if result["status"] == "fail":
         raise HTTPException(
@@ -180,7 +207,11 @@ async def forgot_password(request: ForgotPasswordRequest) -> dict[str, Any]:
     return result
 
 
-@router.post("/reset-password", response_model=dict[str, Any])
+@router.post(
+    "/reset-password",
+    response_model=dict[str, Any],
+    dependencies=[Depends(auth_attempts_guard)],
+)
 async def reset_password(request: ResetPasswordRequest) -> dict[str, Any]:
     """Reset password using a reset token (public)."""
     result = user_service.reset_password_with_token(
