@@ -1,0 +1,40 @@
+apps/api/app/services/auth_service.py
+  s_9b7dd51ed8863e::t_fcf9a3bbb69393 96,107,111,117-122,127-136
+apps/api/app/services/agent_telephony_service.py
+  s_9b7dd51ed8863e::t_9a9bf175578953 83-85
+apps/runtime/services/backend.py
+  s_9b7dd51ed8863e::t_da8b72a12a5a6d 242-252,254
+apps/api/tests/test_auth_routes.py
+  s_9b7dd51ed8863e::t_655783e19517a1 55-56,60,66-67,74,80-86
+  s_9b7dd51ed8863e::t_bb580c78f65cdc 138,150-151,159
+  s_9b7dd51ed8863e::t_4ddbfdc4a71278 252-253
+  s_9b7dd51ed8863e::t_0e5dac54ad82f4 178-194,197-200,206-234
+  s_9b7dd51ed8863e::t_c5a74b3661f5b0 87-88
+  s_9b7dd51ed8863e::t_fd560d11b4bfb4 177
+frontend/src/components/dashboard/Integrations.tsx
+  s_9b7dd51ed8863e::t_faa98e386fb189 78-83
+  s_9b7dd51ed8863e::t_1883a969567810 258
+  s_9b7dd51ed8863e::t_983e2de8352e17 101,111
+  s_9b7dd51ed8863e::t_57440e3d801690 169,179-181
+  s_9b7dd51ed8863e::t_e991a10192d4b7 125
+apps/api/app/routers/auth.py
+  s_9b7dd51ed8863e::t_36d9c792e17305 7,9
+  s_9b7dd51ed8863e::t_6e99493e0d3064 105-111,115-117,119-122,124-127,129-130,136-140,148
+  s_9b7dd51ed8863e::t_34fc0c4e66afb7 104,112-114,118,123,128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a79569dac52e650ba72a923c6f5b2f1937c816d9",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
