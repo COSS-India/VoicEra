@@ -17,6 +17,7 @@ import {
   voiceFieldFromSettings,
   voiceFieldIsFreeText,
   voiceOptionsFromSettings,
+  withSelectedOption,
 } from "@/lib/use-wizard-catalogs";
 
 /** The subset of agent fields this shares between the creation wizard and the agent edit page. */
@@ -235,9 +236,9 @@ export function AgentStackFields({
   const sttHasConfigured = sttOpts.some((o) => !o.disabled);
   const ttsHasConfigured = ttsOpts.some((o) => !o.disabled);
   const llmHasConfigured = llmOpts.some((o) => !o.disabled);
-  const llmModels = modelOptionsFromSettings(catalogs.llmSettings);
-  const sttModels = modelOptionsFromSettings(catalogs.sttSettings);
-  const ttsModels = modelOptionsFromSettings(catalogs.ttsSettings);
+  const llmModels = withSelectedOption(modelOptionsFromSettings(catalogs.llmSettings), value.llmModel);
+  const sttModels = withSelectedOption(modelOptionsFromSettings(catalogs.sttSettings), value.sttModel);
+  const ttsModels = withSelectedOption(modelOptionsFromSettings(catalogs.ttsSettings), value.ttsModel);
   // Provider settings can vary by (model, language) via `capabilities` — the
   // primary language is what everything below resolves against.
   const primaryLang = value.langs[0];

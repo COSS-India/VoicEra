@@ -115,7 +115,8 @@ def test_llm_and_telephony_authenticated_flag():
     assert plivo_settings.json()["authenticated"] is True
 
 
-def test_local_authenticated_from_model_server_probe():
+def test_local_providers_are_authenticated_without_credentials():
+    """Bundled with the deployment — every org gets them, nothing to connect."""
     from apps.providers.availability import register_local
     from apps.providers.local.indic_nemotron.catalog import (
         GATEWAY_MODEL_ID as NEMO_ID,
@@ -126,15 +127,9 @@ def test_local_authenticated_from_model_server_probe():
 
     register_local("indic_nemotron", NEMO_ID)
     register_local("indic_orpheus", ORPHEUS_ID)
-    with (
-        patch(
-            "app.routers.configuration.auth_service.list_configured_providers",
-            return_value=[],
-        ),
-        patch(
-            "apps.providers.availability._deployed_ids",
-            return_value=frozenset({NEMO_ID, ORPHEUS_ID}),
-        ),
+    with patch(
+        "app.routers.configuration.auth_service.list_configured_providers",
+        return_value=[],
     ):
         stt = client.get("/api/v1/configuration/stt")
         tts = client.get("/api/v1/configuration/tts")
@@ -146,33 +141,6 @@ def test_local_authenticated_from_model_server_probe():
     assert nemotron.json()["authenticated"] is True
     assert orpheus.json()["authenticated"] is True
     assert stt.json()["deepgram"]["authenticated"] is False
-
-
-def test_local_authenticated_false_when_model_missing():
-    from apps.providers.availability import register_local
-    from apps.providers.local.indic_nemotron.catalog import (
-        GATEWAY_MODEL_ID as NEMO_ID,
-    )
-    from apps.providers.local.indic_orpheus.catalog import (
-        GATEWAY_MODEL_ID as ORPHEUS_ID,
-    )
-
-    register_local("indic_nemotron", NEMO_ID)
-    register_local("indic_orpheus", ORPHEUS_ID)
-    with (
-        patch(
-            "app.routers.configuration.auth_service.list_configured_providers",
-            return_value=[],
-        ),
-        patch(
-            "apps.providers.availability._deployed_ids",
-            return_value=frozenset({"indic-conformer"}),
-        ),
-    ):
-        stt = client.get("/api/v1/configuration/stt")
-        tts = client.get("/api/v1/configuration/tts")
-    assert stt.json()["indic_nemotron"]["authenticated"] is False
-    assert tts.json()["indic_orpheus"]["authenticated"] is False
 
 
 def test_platform_credentials_make_a_provider_selectable():

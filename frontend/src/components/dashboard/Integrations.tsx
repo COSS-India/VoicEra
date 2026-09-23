@@ -103,7 +103,7 @@ function SecretField({
   onToggleVisible,
   onChange,
   disabled,
-  placeholder,
+  savedMask,
 }: {
   fieldKey: string;
   label: string;
@@ -113,8 +113,12 @@ function SecretField({
   onToggleVisible: () => void;
   onChange: (value: string) => void;
   disabled?: boolean;
-  placeholder?: string;
+  /** Stored value as the API masks it (`*********ab12`), if one exists. */
+  savedMask?: string;
 }) {
+  // Only the trailing characters identify the stored value; the asterisks are
+  // padded to its length and would read as noise in the UI.
+  const savedTail = savedMask ? savedMask.replace(/^\*+/, "") : "";
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={fieldKey} className="text-[13px] font-medium text-v-fg">
@@ -127,7 +131,9 @@ function SecretField({
           autoComplete="off"
           spellCheck={false}
           disabled={disabled}
-          placeholder={disabled ? "Loading…" : (placeholder ?? `Enter ${label.toLowerCase()}`)}
+          placeholder={
+            disabled ? "Loading…" : savedMask ? "Enter a new value" : `Enter ${label.toLowerCase()}`
+          }
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="w-full rounded-v-sm border border-v-line-strong bg-white py-2.5 pl-3.5 pr-10 text-[14px] transition-colors focus:border-v-accent focus:outline-none disabled:cursor-wait disabled:bg-v-soft/60"
@@ -143,6 +149,12 @@ function SecretField({
         </button>
       </div>
       {description ? <span className="text-xs font-light text-v-muted">{description}</span> : null}
+      {savedMask ? (
+        <span className="text-xs font-light text-v-muted">
+          {savedTail ? `Currently set, ending in ${savedTail}.` : "Currently set."} Leave blank to
+          keep it.
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -187,8 +199,8 @@ function ConnectModal({
     setLoadingAuth(true);
     getProviderAuth(providerId)
       .then((res) => {
-        // Hints only. The inputs stay empty: saving replaces the stored
-        // credential outright, so a masked value must never become the value.
+        // Hints only. The inputs stay empty: a field left blank keeps its
+        // stored value, so a masked value must never become the value.
         if (!cancelled) setHints(authValuesToHints(secrets, res.auth));
       })
       .catch((err) => {
@@ -203,7 +215,11 @@ function ConnectModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configured, providerId]);
 
-  const hasRequiredValues = secrets.every((k) => (catalog.required?.includes(k) ? values[k]?.trim() : true));
+  // A required field that already has a stored value may be left blank — the
+  // API merges omitted fields over the stored ones rather than clearing them.
+  const hasRequiredValues = secrets.every((k) =>
+    catalog.required?.includes(k) && !hints[k] ? Boolean(values[k]?.trim()) : true,
+  );
 
   async function handleSave() {
     setError("");
@@ -234,7 +250,7 @@ function ConnectModal({
               ? `Update your credentials, or remove them to go back to the ones provided by this deployment.`
               : "Update your credentials or disconnect this integration."
             : hasProvidedFallback
-              ? `${displayName} currently runs on credentials provided by this deployment. Yours will replace them for this organisation.`
+              ? `${displayName} currently runs on credentials provided VoicEra. Yours will replace them for this organisation.`
               : `Enter your ${displayName} credentials to enable ${kinds
                   .map((k) => kindMeta(k).fullLabel)
                   .join(", ")}.`
@@ -276,7 +292,7 @@ function ConnectModal({
                 onToggleVisible={() => setVisible((prev) => ({ ...prev, [key]: !prev[key] }))}
                 onChange={(v) => setValues((prev) => ({ ...prev, [key]: v }))}
                 disabled={loadingAuth}
-                placeholder={hints[key] ? `Current ${hints[key]} — enter a new value to replace` : undefined}
+                savedMask={hints[key] || undefined}
               />
             );
           })}
@@ -439,7 +455,7 @@ export function Integrations({
         const v = values[key]?.trim();
         if (v) auth[key] = v;
       }
-      if (!Object.keys(auth).length) throw new Error("Enter at least one credential field.");
+      if (!Object.keys(auth).length) throw new Error("Enter a new value for at least one field.");
       await upsertProviderAuth(entry.providerId, auth);
       onNotify("Saved", `${entry.catalog.name ?? entry.providerId} credentials updated.`);
       setSelected(null);
@@ -460,7 +476,7 @@ export function Integrations({
       onNotify(
         fallsBack ? "Reverted" : "Removed",
         fallsBack
-          ? `${name} is back on the credentials provided by this deployment.`
+          ? `${name} is back on the credentials provided VoicEra.`
           : `${name} credentials deleted.`,
       );
       setSelected(null);
@@ -584,11 +600,6 @@ export function Integrations({
                                   );
                                 })}
                                 <ProviderTypeBadge providerType={entry.catalog.provider_type} />
-                                {isProvided ? (
-                                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                                    Provided
-                                  </span>
-                                ) : null}
                               </div>
                             </div>
                           </div>
@@ -598,11 +609,7 @@ export function Integrations({
                             <Settings2 className="size-3.5" strokeWidth={1.75} />
                             {isProvided ? "Use own credentials" : "Manage"}
                           </Button>
-                        ) : (
-                          <span className="shrink-0 text-xs font-light text-v-muted">
-                            No setup needed
-                          </span>
-                        )}
+                        ) : null}
                       </div>
                     );
                   })}

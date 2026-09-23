@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -29,78 +28,31 @@ def test_platform_credentials_authenticate_a_cloud_provider():
     assert availability.auth_source("deepgram", set(), {"deepgram"}) == "platform"
 
 
-def test_auth_source_precedence_is_local_then_org_then_platform(monkeypatch):
-    monkeypatch.setenv("MODEL_SERVER_URL", "http://gateway:8000/v1")
+def test_auth_source_precedence_is_local_then_org_then_platform():
     availability.register_local("indic_nemotron", "indic-nemotron")
-    with patch(
-        "apps.providers.availability._deployed_ids",
-        return_value=frozenset({"indic-nemotron"}),
-    ):
-        assert availability.auth_source(
-            "indic_nemotron", {"indic_nemotron"}, {"indic_nemotron"}
-        ) == "local"
+    assert availability.auth_source(
+        "indic_nemotron", {"indic_nemotron"}, {"indic_nemotron"}
+    ) == "local"
     # An org that brought its own key reads as "Connected", not "Included".
     assert availability.auth_source("openai", {"openai"}, {"openai"}) == "org"
     assert availability.auth_source("openai", set(), set()) is None
 
 
-def test_local_missing_env_is_false(monkeypatch):
+def test_local_needs_no_credentials_or_env(monkeypatch):
+    """Ships with the deployment: free for every org, nothing to configure."""
     monkeypatch.delenv("MODEL_SERVER_URL", raising=False)
     availability.register_local("indic_nemotron", "indic-nemotron")
-    assert availability.is_authenticated("indic_nemotron", set()) is False
-
-
-def test_local_model_present(monkeypatch):
-    monkeypatch.setenv("MODEL_SERVER_URL", "http://gateway:8000/v1")
-    availability.register_local("indic_nemotron", "indic-nemotron")
-    body = json.dumps(
-        {
-            "object": "list",
-            "data": [{"id": "indic-nemotron", "object": "model"}],
-        }
-    ).encode()
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = body
-    mock_resp.__enter__.return_value = mock_resp
-    mock_resp.__exit__.return_value = None
-    with patch("urllib.request.urlopen", return_value=mock_resp) as urlopen:
-        assert availability.is_authenticated("indic_nemotron", set()) is True
-        urlopen.assert_called_once()
-        assert urlopen.call_args.args[0] == "http://gateway:8000/v1/models"
-
-
-def test_local_model_absent(monkeypatch):
-    monkeypatch.setenv("MODEL_SERVER_URL", "http://gateway:8000/v1")
     availability.register_local("indic_orpheus", "orpheus")
-    body = json.dumps(
-        {"object": "list", "data": [{"id": "indic-nemotron"}]}
-    ).encode()
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = body
-    mock_resp.__enter__.return_value = mock_resp
-    mock_resp.__exit__.return_value = None
-    with patch("urllib.request.urlopen", return_value=mock_resp):
-        assert availability.is_authenticated("indic_orpheus", set()) is False
+    assert availability.is_authenticated("indic_nemotron", set()) is True
+    assert availability.is_authenticated("indic_orpheus", set()) is True
 
 
-def test_local_probe_failure_is_false(monkeypatch):
-    monkeypatch.setenv("MODEL_SERVER_URL", "http://gateway:8000/v1")
+def test_local_availability_does_not_probe_the_model_server():
+    """The gateway being briefly down must not hide a bundled provider."""
     availability.register_local("indic_nemotron", "indic-nemotron")
-    with patch("urllib.request.urlopen", side_effect=TimeoutError):
-        assert availability.is_authenticated("indic_nemotron", set()) is False
+    with patch("urllib.request.urlopen", side_effect=AssertionError("probed")):
+        assert availability.is_authenticated("indic_nemotron", set()) is True
 
 
-def test_deployed_ids_are_cached(monkeypatch):
-    monkeypatch.setenv("MODEL_SERVER_URL", "http://gateway:8000/v1")
-    availability.register_local("indic_nemotron", "indic-nemotron")
-    body = json.dumps(
-        {"object": "list", "data": [{"id": "indic-nemotron"}]}
-    ).encode()
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = body
-    mock_resp.__enter__.return_value = mock_resp
-    mock_resp.__exit__.return_value = None
-    with patch("urllib.request.urlopen", return_value=mock_resp) as urlopen:
-        assert availability.is_authenticated("indic_nemotron", set()) is True
-        assert availability.is_authenticated("indic_nemotron", set()) is True
-        assert urlopen.call_count == 1
+def test_unregistered_provider_is_not_local():
+    assert availability.auth_source("indic_orpheus", set(), set()) is None

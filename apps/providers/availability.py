@@ -2,42 +2,26 @@
 
 Cloud / adapter / telephony: org has stored credentials, or the platform
 supplies them on the org's behalf.
-Local: model-server lists the provider's gateway model id.
+Local: always usable — the deployment ships the model-server, so these need no
+credential and are offered to every organisation for free.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import time
-import urllib.error
-import urllib.request
 from typing import AbstractSet
 
 # provider_id -> model-server slot id (GET /v1/models ``data[].id``).
 LOCAL_GATEWAY_MODELS: dict[str, str] = {}
 
-_CACHE_TTL_S = 10.0
-_cache_ids: frozenset[str] = frozenset()
-_cache_at: float = 0.0
-
 
 def register_local(provider: str, gateway_model_id: str) -> None:
-    """Register a local provider's model-server slot id for readiness checks."""
+    """Mark a provider as served by the model-server, under this slot id."""
     LOCAL_GATEWAY_MODELS[provider] = gateway_model_id
 
 
 def clear_local_registrations() -> None:
     """Test helper: drop registered local providers."""
     LOCAL_GATEWAY_MODELS.clear()
-    clear_deployed_cache()
-
-
-def clear_deployed_cache() -> None:
-    """Test helper: invalidate the deployed-models cache."""
-    global _cache_ids, _cache_at
-    _cache_ids = frozenset()
-    _cache_at = 0.0
 
 
 def is_authenticated(
@@ -59,44 +43,15 @@ def auth_source(
     Local first (needs no credential at all), then the org's own credentials,
     then the platform's — an org that connected its own key should read as
     "Connected", not "Included".
+
+    Local providers are assumed deployed rather than probed: they are part of
+    the deployment, so a momentarily unreachable model-server must not make
+    them vanish from the UI.
     """
-    gateway_id = LOCAL_GATEWAY_MODELS.get(provider)
-    if gateway_id is not None:
-        return "local" if gateway_id in _deployed_ids() else None
+    if provider in LOCAL_GATEWAY_MODELS:
+        return "local"
     if provider in configured:
         return "org"
     if provider in platform:
         return "platform"
     return None
-
-
-def _deployed_ids() -> frozenset[str]:
-    global _cache_ids, _cache_at
-    now = time.monotonic()
-    if _cache_at and (now - _cache_at) < _CACHE_TTL_S:
-        return _cache_ids
-    _cache_ids = _fetch_deployed_ids()
-    _cache_at = now
-    return _cache_ids
-
-
-def _fetch_deployed_ids() -> frozenset[str]:
-    base = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
-    if not base:
-        return frozenset()
-    url = f"{base}/models"
-    try:
-        with urllib.request.urlopen(url, timeout=2.0) as resp:
-            payload = json.loads(resp.read().decode())
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
-        return frozenset()
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, list):
-        return frozenset()
-    ids: set[str] = set()
-    for entry in data:
-        if isinstance(entry, dict):
-            model_id = entry.get("id")
-            if isinstance(model_id, str) and model_id:
-                ids.add(model_id)
-    return frozenset(ids)

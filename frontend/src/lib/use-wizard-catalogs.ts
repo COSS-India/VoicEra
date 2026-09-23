@@ -377,6 +377,18 @@ export function modelOptionsFromSettings(settings: ProviderSettingsCatalog | nul
   return modelIds(settings).map((id) => ({ value: id, label: id }));
 }
 
+/** Keep an already-saved value selectable even when the catalog no longer lists
+ * it. Model fields accept custom input, and catalogs get retired entries, so a
+ * stored id can legitimately be absent from `examples` — a `<select>` whose
+ * value matches no option renders as unselected and hides the real setting. */
+export function withSelectedOption(
+  options: { value: string; label: string }[],
+  selected: string,
+) {
+  if (!selected || options.some((o) => o.value === selected)) return options;
+  return [{ value: selected, label: `${selected} (not in catalog)` }, ...options];
+}
+
 /** The given (model, language)'s voice `CatalogField`, or undefined — for direct
  * rendering (placeholder / description) rather than the option-list shape above. */
 export function voiceFieldFromSettings(
