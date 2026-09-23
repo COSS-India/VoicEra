@@ -190,18 +190,18 @@ def test_translate_non_missing_s3_error_returns_503(
 
 @_patch_db("app.services.call_log_service.get_database")
 @patch("app.routers.calls.MinIOStorage")
-def test_translate_non_utf8_transcript_returns_503(
+def test_translate_non_utf8_transcript_returns_500(
     storage_cls: MagicMock,
     _calls_db: MagicMock,
 ) -> None:
-    """A stored transcript that isn't valid UTF-8 must surface as a clean
-    503, not an unhandled UnicodeDecodeError."""
+    """A stored transcript that isn't valid UTF-8 is corrupt data, not a
+    transient failure — must surface as a clean 500 error"""
     _CALL_STORE["call-abc-123"] = _sample_call_doc()
     _minio_storage_mock(storage_cls, raw_transcript=b"\xff\xfe\x00invalid")
 
     client = _make_client()
     response = client.post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
-    assert response.status_code == 503
+    assert response.status_code == 500
     assert "not valid UTF-8" in response.json()["detail"]
 
 

@@ -432,8 +432,10 @@ def translate_call_transcript(
             try:
                 raw_text = response.read().decode("utf-8")
             except UnicodeDecodeError as exc:
+                # Corrupt stored data, not a transient dependency failure —
+                # retrying never fixes this. 500 error
                 raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Stored transcript {object_name} is not valid UTF-8 text.",
                 ) from exc
         finally:
