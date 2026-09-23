@@ -188,6 +188,15 @@ class AutomaticCallEnding(BaseModel):
     graceful_llm_call_ending: bool = False
 
 
+class VadSettings(BaseModel):
+    """Silero VAD thresholds for turn detection (Pipecat VADParams)."""
+
+    confidence: float = Field(default=0.3, ge=0, le=1)
+    start_secs: float = Field(default=0.1, ge=0)
+    stop_secs: float = Field(default=0.4, ge=0)
+    min_volume: float = Field(default=0.5, ge=0, le=1)
+
+
 class AgentBehaviour(BaseModel):
     """Call / turn behaviour settings (aligned with mono voice-server knobs)."""
 
@@ -209,6 +218,12 @@ class AgentBehaviour(BaseModel):
                     "automatic_call_ending": {
                         "enabled": True,
                         "graceful_llm_call_ending": True,
+                    },
+                    "vad": {
+                        "confidence": 0.3,
+                        "start_secs": 0.1,
+                        "stop_secs": 0.4,
+                        "min_volume": 0.5,
                     },
                 }
             ]
@@ -266,6 +281,7 @@ class AgentBehaviour(BaseModel):
         description="Spoken after the last online-detection prompt, before hangup.",
     )
     automatic_call_ending: AutomaticCallEnding = AutomaticCallEnding()
+    vad: VadSettings = VadSettings()
 
 
 class AgentLanguage(BaseModel):

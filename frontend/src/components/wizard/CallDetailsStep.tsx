@@ -282,6 +282,54 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
           </div>
         ) : null}
       </div>
+
+      <div className="flex flex-col gap-5 rounded-v-md border border-v-line bg-white p-5">
+        <SectionHeader
+          title="Voice activity detection"
+          subtitle="How the agent decides when the caller starts and stops speaking."
+          tip="These tune Silero VAD for turn detection. Lower confidence and volume make the agent more sensitive to quiet speech."
+        />
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <NumberField
+            label="Confidence"
+            tipKey="vadConfidence"
+            value={form.vadConfidence}
+            min={0}
+            max={1}
+            step={0.1}
+            onChange={(v) => onChange("vadConfidence", v)}
+          />
+          <NumberField
+            label="Speech start"
+            tipKey="vadStartSecs"
+            unit="s"
+            value={form.vadStartSecs}
+            min={0}
+            max={2}
+            step={0.1}
+            onChange={(v) => onChange("vadStartSecs", v)}
+          />
+          <NumberField
+            label="Speech stop"
+            tipKey="vadStopSecs"
+            unit="s"
+            value={form.vadStopSecs}
+            min={0}
+            max={2}
+            step={0.1}
+            onChange={(v) => onChange("vadStopSecs", v)}
+          />
+          <NumberField
+            label="Min volume"
+            tipKey="vadMinVolume"
+            value={form.vadMinVolume}
+            min={0}
+            max={1}
+            step={0.1}
+            onChange={(v) => onChange("vadMinVolume", v)}
+          />
+        </div>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -29,6 +28,7 @@ from apps.runtime.services.pipecat.call_ending import configure_call_ending
 from apps.runtime.services.language_switch.tools import configure_language_switching
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
+from apps.runtime.services.pipecat.vad import vad_params_from_behaviour
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
 
@@ -66,12 +66,7 @@ def build_pipeline_components(
 
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
-        params=VADParams(
-            stop_secs=0.4,
-            min_volume=0.5,
-            confidence=0.3,
-            start_secs=0.1,
-        ),
+        params=vad_params_from_behaviour(behaviour),
     )
 
     audiobuffer = AudioBufferProcessor(

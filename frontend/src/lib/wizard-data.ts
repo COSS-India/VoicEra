@@ -208,6 +208,10 @@ export const TIPS: Record<string, string> = {
   onlineClosing: "Said right before hanging up, after the last unanswered check.",
   autoEnding: "Lets the agent end the call itself once it detects the conversation is done.",
   autoEndingGraceful: "Says a closing line and waits a beat before hanging up, instead of ending abruptly.",
+  vadConfidence: "How sure Silero must be that the caller is speaking before a turn starts. Lower is more sensitive.",
+  vadStartSecs: "How long continuous speech must last before the agent treats it as the start of a turn.",
+  vadStopSecs: "How long silence must last after speech before the agent ends the caller's turn.",
+  vadMinVolume: "Minimum audio level treated as speech. Raise this to ignore quiet noise on the line.",
 };
 
 export interface AgentForm {
@@ -242,6 +246,10 @@ export interface AgentForm {
   onlineDetectionClosingMessage: string;
   autoCallEndingEnabled: boolean;
   autoCallEndingGraceful: boolean;
+  vadConfidence: number;
+  vadStartSecs: number;
+  vadStopSecs: number;
+  vadMinVolume: number;
 }
 
 export const DEFAULT_FORM: AgentForm = {
@@ -272,6 +280,10 @@ export const DEFAULT_FORM: AgentForm = {
   onlineDetectionClosingMessage: "I'll end the call now. Goodbye.",
   autoCallEndingEnabled: false,
   autoCallEndingGraceful: false,
+  vadConfidence: 0.3,
+  vadStartSecs: 0.1,
+  vadStopSecs: 0.4,
+  vadMinVolume: 0.5,
 };
 
 export const TPL_CATS = [
