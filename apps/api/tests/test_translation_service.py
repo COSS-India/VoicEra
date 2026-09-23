@@ -8,6 +8,7 @@ import pytest
 from openai import OpenAIError
 
 from app.services.translation_service import (
+    MAX_OUTPUT_TOKENS,
     MAX_TRANSCRIPT_CHARS,
     TranslationError,
     TranslationErrorReason,
@@ -17,6 +18,17 @@ from app.services.translation_service import (
 )
 
 ORG_ID = "org-1"
+
+
+def test_max_output_tokens_covers_worst_case_script():
+    """MAX_OUTPUT_TOKENS must stay >= MAX_TRANSCRIPT_CHARS (1 output token
+    per input char is the worst case across scripts this product serves,
+    e.g. Devanagari/Tamil BPE tokenization) or a full-length transcript
+    translated into an Indic target routinely gets truncated mid-completion
+    — the exact unfixable-retry failure this cap exists to prevent. A future
+    edit to either constant in isolation must fail this, not silently
+    reintroduce the bug."""
+    assert MAX_OUTPUT_TOKENS >= MAX_TRANSCRIPT_CHARS
 
 
 def _mock_openai_response(content: str) -> MagicMock:

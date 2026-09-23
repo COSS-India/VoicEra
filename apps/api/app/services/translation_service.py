@@ -23,13 +23,21 @@ from apps.providers.one_shot_llm import OneShotLLMError, call_first_available
 
 MAX_TRANSCRIPT_CHARS = 22_000  # ~20 min call
 
-# Generous fixed cap for the translated completion. Output is roughly
-# input-sized (some languages run longer per word), plus room for the
-# occasional bracketed [note: ...] the model appends to garbled lines. Must
-# stay ahead of MAX_TRANSCRIPT_CHARS's token-equivalent, or completions get
-# silently truncated mid-transcript and _count_transcript_lines() rejects
-# the result with an error that a retry can never fix.
-MAX_OUTPUT_TOKENS = 12_000
+# Output cap sized for the worst-case *target script*, not an average one.
+# "Output is roughly input-sized" only holds in characters — the cap here is
+# in tokens, and BPE tokenizers split Devanagari/Tamil/etc. far more finely
+# than Latin (commonly ~1 char/token vs Latin's ~4). Sizing this from an
+# average or from Latin-only throughput silently truncates most Indic-target
+# translations of a full-length transcript — exactly the unfixable-retry
+# failure this cap exists to prevent, and the common case for this product's
+# audience, not an edge case. So: assume 1 char of input can produce up to 1
+# output token (the worst case across scripts we serve), plus fixed headroom
+# for the occasional bracketed [note: ...] the model appends to garbled
+# lines. Must stay ahead of MAX_TRANSCRIPT_CHARS's worst-case token-
+# equivalent, or completions get silently truncated mid-transcript and
+# _count_transcript_lines() rejects the result with an error that a retry
+# can never fix.
+MAX_OUTPUT_TOKENS = MAX_TRANSCRIPT_CHARS + 2_000
 
 # BCP-47-ish language tag shape. Both target_lang and source_lang are
 # spliced unescaped into _user_prompt's instruction text — a tag can't smuggle

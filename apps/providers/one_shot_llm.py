@@ -116,9 +116,15 @@ def call_openai_compatible(
     except OpenAIError as exc:
         raise OneShotLLMError(f"request to {base_url!r} failed: {exc}") from exc
 
-    result = (completion.choices[0].message.content or "").strip()
+    choice = completion.choices[0]
+    result = (choice.message.content or "").strip()
     if not result:
         raise OneShotLLMError(f"{base_url!r} returned an empty response")
+    if choice.finish_reason == "length":
+        raise OneShotLLMError(
+            f"{base_url!r} truncated its response at max_tokens={max_tokens} "
+            "(finish_reason=length) — output was cut off mid-completion, not corrupted"
+        )
     return result
 
 
@@ -148,6 +154,19 @@ def call_via_openai_compatible_provider(
     )
 
 
+# qwen3.5-4b's serving context (model-server/models.yaml, mirrored by
+# VLLM_MAX_MODEL_LEN in model-server/.env.example) — capped for telephony,
+# not the model's native window. Input + max_tokens must fit inside it, or
+# vLLM rejects the request outright (a generic 502, not an actionable error).
+_LOCAL_MODEL_SERVER_CONTEXT_TOKENS = 8000
+
+# Worst-case chars-per-token floor across scripts this product serves: BPE
+# tokenizers commonly split Devanagari/Tamil/etc. near 1 token per 1-2 chars,
+# far worse than Latin's ~4. Estimating input tokens from chars at this floor
+# means the guard below stays conservative regardless of script.
+_MIN_CHARS_PER_TOKEN = 1
+
+
 def call_local_model_server(
     system: str, user: str, *, model: str = "qwen3.5-4b", max_tokens: int | None = None
 ) -> str:
@@ -156,6 +175,15 @@ def call_local_model_server(
     base_url = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise OneShotLLMError("MODEL_SERVER_URL is not set")
+    estimated_input_tokens = (len(system) + len(user)) // _MIN_CHARS_PER_TOKEN
+    estimated_total_tokens = estimated_input_tokens + (max_tokens or 0)
+    if max_tokens is not None and estimated_total_tokens > _LOCAL_MODEL_SERVER_CONTEXT_TOKENS:
+        raise OneShotLLMError(
+            f"request (~{estimated_input_tokens} input + {max_tokens} output tokens) "
+            f"exceeds the self-hosted model's {_LOCAL_MODEL_SERVER_CONTEXT_TOKENS}-token "
+            "context window — this transcript is too large for the zero-credential "
+            "fallback; configure an LLM provider under Integrations instead"
+        )
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     return call_openai_compatible(None, base_url, model, messages, max_tokens=max_tokens)
 
