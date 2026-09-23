@@ -1,0 +1,31 @@
+docs/developer/sandbox-onboarding-plan.md
+  s_9b7dd51ed8863e::t_f634c483b96a60 540-548
+  s_9b7dd51ed8863e::t_47874015f1c8db 655
+  s_9b7dd51ed8863e::t_9a5817eee3ac1c 441-455
+  s_9b7dd51ed8863e::t_0e719786df8931 496-501,506-515
+  s_9b7dd51ed8863e::t_6803abbab6f8b7 1-2,23-94,96-173,190-231,239-259,266-394,411-439,457-495,502-505,516-539,549-654,656-660
+  s_9b7dd51ed8863e::t_cb15acf4606bad 3-22
+  s_9b7dd51ed8863e::t_809f2e07e926b4 456
+  s_9b7dd51ed8863e::t_27f5205e704203 260-265
+  s_9b7dd51ed8863e::t_43a8a9479233e9 95
+  s_9b7dd51ed8863e::t_3d05f7329c4ce2 232-238
+  s_9b7dd51ed8863e::t_04625ea40642f9 395-410
+  s_9b7dd51ed8863e::t_9dddcfcf2d3e72 174-189
+  s_9b7dd51ed8863e::t_c72e67cd3a1d18 440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dfbb53699f56ceb5529403e4f3a6d1fa6a0e2c5a",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
