@@ -10,6 +10,7 @@ These scripts measure how many requests a model server can handle at the same ti
 - [Metrics and the pass rule](#metrics-and-the-pass-rule)
 - [Output](#output)
 - [Reading the results, and caveats](#reading-the-results-and-caveats)
+- [Diagnosing TTS runaways](#diagnosing-tts-runaways)
 - [Troubleshooting](#troubleshooting)
 
 ## What the tests measure
@@ -112,10 +113,11 @@ python tts_load.py --url http://HOST:8100 --language mr --voice Anagha \
     --out-dir results/run1 --note ORPHEUS_MAX_NUM_SEQS=256
 ```
 
-**4. Optional: the runaway check.**
+**4. Optional: the runaway check.** Details are in [Diagnosing TTS runaways](#diagnosing-tts-runaways).
 
 ```bash
-python runaway_check.py --url http://HOST:8100 --language mr --n 200 --out-dir results/run1
+python runaway_check.py --url http://HOST:8100 --language mr --n 200 --protocol ws \
+    --out-dir results/run1
 ```
 
 **5. Write the report.**
@@ -138,6 +140,7 @@ Options you are likely to change:
 | `--gpu-index` | off | stt, tts |
 | `--seed` | 1234 | stt, tts |
 | `--percentile`, `--rtf-threshold`, `--runaways-fail` | p95, 1.0, off | report |
+| `--protocol`, `--label`, `--save-normal` | http, none, 5 | runaway |
 
 **Pointing at a model container directly** instead of the gateway. The STT container serves its health check at `/health`:
 
@@ -197,6 +200,33 @@ The per-request files let later questions be answered without a rerun, such as a
 - **CER depends on the corpus.** With synthesised clips, a clip where the TTS mis-spoke inflates CER even when the STT is right. Listen to outliers, which `requests_*.jsonl` lets you find, before drawing conclusions about accuracy.
 - **Test B opens its sockets together.** For STT, each round opens its N sockets at the start and begins each utterance's speech at its random time. For TTS, each request is sent at its random time.
 - **Repeatability.** Clip choice and arrival times come from `--seed`, so two runs with the same seed and settings send the same traffic.
+
+## Diagnosing TTS runaways
+
+`runaway_check.py` sends `--n` requests one at a time, with no load, and counts how many run to the duration guard. With `--protocol ws` it uses the Orpheus WebSocket (`/tts/v1/tts/ws` through the gateway). That route runs the same engine and guard as `/v1/audio/speech`, and its closing `done` frame reports, for every stream:
+
+| Field | Values |
+|---|---|
+| `finish_reason` | `end_of_speech` (the model stopped itself), `text_eos` (stopped on the text end token), `max_tokens` (the guard cut it) |
+| `soft_eos_ignored` | How many text end tokens the server dropped as padding because too little audio existed yet (`ORPHEUS_SOFT_TEXT_EOS`) |
+
+`summary.md` cross-tabulates these for runaways against normal clips:
+
+- **Runaways mostly had an ignored text end token, and normal clips mostly did not.** The soft text-eos rule is involved: the model tried to stop, the server treated the token as padding, and the model never produced end-of-speech.
+- **Runaways had no ignored text end token.** The model never tried to stop, which is a sampling problem.
+
+To test a hypothesis, change one server setting, restart the TTS container, wait until it is ready, and rerun with a label, so each run gets its own folder:
+
+```bash
+python runaway_check.py --url http://HOST:8100 --protocol ws --n 200 --out-dir results/rw \
+    --label baseline --note "deployed settings"
+# restart TTS with ORPHEUS_SOFT_TEXT_EOS=false, then:
+python runaway_check.py --url http://HOST:8100 --protocol ws --n 200 --out-dir results/rw \
+    --label soft-eos-off --note ORPHEUS_SOFT_TEXT_EOS=false
+# likewise ORPHEUS_TEMPERATURE=0.4, ORPHEUS_REPETITION_PENALTY=1.1
+```
+
+When you turn `ORPHEUS_SOFT_TEXT_EOS` off, also listen for clips cut short: that setting exists to stop the text end token from truncating speech. Each folder also keeps `runaway_*.wav` and five `normal_*.wav` clips (`--save-normal`) to listen to side by side. With 200 requests per setting, the 95% confidence interval is about ±5 points around a 13% rate. Differences smaller than that need more requests.
 
 ## Troubleshooting
 

@@ -2,7 +2,7 @@
 #
 # Three things were missing, and none of them failed loudly.
 #
-# 1. THE WEIGHTS HAD NOWHERE TO ARRIVE. The folder's own .env.example says
+# 1. THE WEIGHTS HAD NOWHERE TO ARRIVE. The folder's own .env.example said
 #    "./models is bind-mounted to /models by compose" -- true of upstream's
 #    docker-compose.yml, which was not vendored with the code. This slot mounts
 #    only the folder itself at /app, so ORPHEUS_MODEL_PATH=/models/... pointed at
