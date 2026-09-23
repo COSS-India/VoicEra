@@ -1,0 +1,43 @@
+apps/api/tests/test_auth_routes.py
+  s_96a61bafe9558e::t_440d37b57ee3e1 232-234
+frontend/src/lib/use-wizard-catalogs.ts
+  s_96a61bafe9558e::t_526735fb0a8f42 380-391
+frontend/src/components/wizard/AgentStackFields.tsx
+  s_96a61bafe9558e::t_bc4d3f53d63afc 20
+  s_96a61bafe9558e::t_3e05094bfd9b06 239-241
+apps/providers/availability.py
+  s_96a61bafe9558e::t_26b4ff466bd64a 5-6,18,46-49,51-52
+apps/api/tests/test_configuration_routes.py
+  s_96a61bafe9558e::t_298679f4165740 118-119,130-132
+frontend/src/components/dashboard/Integrations.tsx
+  s_96a61bafe9558e::t_375746a74eefda 202-203
+  s_96a61bafe9558e::t_d9cfb55e461473 134-136
+  s_96a61bafe9558e::t_9d5269dab4e680 612
+  s_96a61bafe9558e::t_499fd9cdb509f6 152-157
+  s_96a61bafe9558e::t_eb17753a405160 458
+  s_96a61bafe9558e::t_5c0839cb729684 218-222
+  s_96a61bafe9558e::t_75704b2c6370c1 295
+  s_96a61bafe9558e::t_0ab8c7d646b70f 106,116-117,119-121
+  s_96a61bafe9558e::t_259655e7f3f4a3 253,479
+apps/api/app/seed/default_agents.json
+  s_96a61bafe9558e::t_15a22e0dbf01d6 35,76,117,158,199,240
+apps/providers/tests/test_availability.py
+  s_96a61bafe9558e::t_a14e6d0f280847 31,33-35,41-42,45-47,50-51,53,57-58
+  s_96a61bafe9558e::t_b95ff174ba56f4 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d631de55ef808fb7c0d294bdcbf2d82cb507518e",
+  "prompts": {},
+  "sessions": {
+    "s_96a61bafe9558e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "60552110-0e61-4239-a2a6-8d543ef4b0e8",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
