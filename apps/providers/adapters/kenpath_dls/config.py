@@ -7,25 +7,31 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ...base import BaseLLMConfig, BaseLLMSettings
-from .catalog import DEFAULT_LLM_MODEL, DEFAULT_URL, LLM_MODELS
+from .catalog import DEFAULT_LLM_MODEL, LLM_MODELS, VISTAAR_AUTH_SECRET
 
 
 class KenpathDlsAuth(BaseModel):
-    """DLS host identity — base URL only (no JWT / PEM)."""
+    """Vistaar JWT signing key (same PEM as Kenpath ``/api/voice/``)."""
 
-    url: str = Field(
-        default=DEFAULT_URL,
+    private_key: str = Field(
+        default="",
         description=(
-            "Vistaar DLS base URL "
-            "(e.g. https://vistaar-dev.mahapocra.gov.in). "
-            "Requests go to {url}/api/voice-dls/."
+            "RSA PEM for Vistaar JWTs (iss=voice-provider). "
+            f"Mono: jwt_private_key.pem. Catalog auth secret: {VISTAAR_AUTH_SECRET}."
         ),
-        json_schema_extra={"secret": True},
+        json_schema_extra={"multiline": True, "secret": True},
     )
 
 
 class KenpathDlsLLMSettings(BaseLLMSettings):
-    """No extra knobs — language is chosen by the DLS service via markers."""
+    jwt_sub: str = Field(
+        default="+91-9036722772",
+        description="JWT subject (phone) claim for Vistaar /api/voice-dls/.",
+    )
+    base_url: str | None = Field(
+        default=None,
+        description="Override the catalog base URL for the selected model.",
+    )
 
 
 class KenpathDlsLLMConfig(KenpathDlsAuth, KenpathDlsLLMSettings, BaseLLMConfig):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import jwt
 import pytest
 from pipecat.frames.frames import (
     EndWorkerFrame,
@@ -29,10 +30,24 @@ from apps.providers.adapters.kenpath_dls.language_markers import (
 from apps.providers.adapters.kenpath_dls.llm import KenpathDlsLLMService
 from apps.runtime.services.language_switch.frames import LanguageSwitchFrame
 
+_TEST_PRIVATE_KEY = """-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy0AHB7MZpHmaFjdNT4zLmg
+7cHZnn2qgQNO2gHr2x5mH7Vb2f9lP4mJ8nQ6sT1uV3wX5yZ7aB9cD1eF3gH5iJ7k
+L9mN1oP3qR5sT7uV9wX1yZ3aB5cD7eF9gH1iJ3kL5mN7oP9qR1sT3uV5wX7yZ9aB
+1cD3eF5gH7iJ9kL1mN3oP5qR7sT9uV1wX3yZ5aB7cD9eF1gH3iJ5kL7mN9oP1qR3
+sT5uV7wX9yZ1aB3cD5eF7gH9iJ1kL3mN5oP7qR9sT1uV3wX5yZ7aB9cD1eF3gH5iJ7
+kL9mN1oP3qR5sT7uV9wX1yZ3aB5cD7eF9gH1iJ3kL5mN7oP9qR1sT3uV5wX7yZ9aB
+1cD3eF5gH7iJ9kL1mN3oP5qR7sT9uV1wX3yZ5aB7cD9eF1gH3iJ5kL7mN9oP1qR3
+sT5uV7wX9yZ1aB3cD5eF7gH9iJ1kL3mN5oP7qR9sT1uV3wX5yZ7aB9cD1eF3gH5iJ7
+kQIDAQABAoIBADxmockkeypaddingnotavalidrsakeyforproductionuseonly==
+-----END RSA PRIVATE KEY-----"""
+
 
 @pytest.fixture
 def service() -> KenpathDlsLLMService:
     return KenpathDlsLLMService(
+        private_key=_TEST_PRIVATE_KEY,
+        jwt_sub="+91-9000000000",
         base_url=DEFAULT_URL,
         model=DEFAULT_LLM_MODEL,
     )
@@ -63,30 +78,70 @@ def test_flush_speakable_holds_incomplete_marker():
     assert "lang" not in full
 
 
-def test_create_llm_requires_url():
+def test_create_llm_requires_private_key():
     from apps.providers.adapters.kenpath_dls.service import create_llm
 
-    cfg = KenpathDlsLLMConfig.model_validate({"url": "   ", "model": DEFAULT_LLM_MODEL})
-    with pytest.raises(ValueError, match="requires auth url"):
+    cfg = KenpathDlsLLMConfig.model_validate({"model": DEFAULT_LLM_MODEL})
+    with pytest.raises(ValueError, match="private_key"):
         create_llm(cfg)
 
 
-def test_create_llm_uses_auth_url():
+def test_create_llm_uses_catalog_base_url():
     from apps.providers.adapters.kenpath_dls.service import create_llm
 
     cfg = KenpathDlsLLMConfig.model_validate(
         {
-            "url": "https://vistaar-dev.mahapocra.gov.in/",
+            "private_key": _TEST_PRIVATE_KEY,
+            "jwt_sub": "+91-9000000000",
             "model": DEFAULT_LLM_MODEL,
         }
     )
     svc = create_llm(cfg)
     assert isinstance(svc, KenpathDlsLLMService)
-    assert svc._base_url == "https://vistaar-dev.mahapocra.gov.in"
+    assert svc._base_url == DEFAULT_URL.rstrip("/")
+    assert svc._private_key == _TEST_PRIVATE_KEY
+    assert svc._jwt_sub == "+91-9000000000"
+
+
+def test_create_llm_base_url_override():
+    from apps.providers.adapters.kenpath_dls.service import create_llm
+
+    cfg = KenpathDlsLLMConfig.model_validate(
+        {
+            "private_key": _TEST_PRIVATE_KEY,
+            "base_url": "https://custom.example/",
+            "model": DEFAULT_LLM_MODEL,
+        }
+    )
+    svc = create_llm(cfg)
+    assert svc._base_url == "https://custom.example"
+
+
+def test_generate_jwt_payload(service: KenpathDlsLLMService, monkeypatch):
+    captured: dict = {}
+
+    def fake_encode(payload, key, algorithm):
+        captured["payload"] = payload
+        captured["key"] = key
+        captured["algorithm"] = algorithm
+        return "signed-token"
+
+    monkeypatch.setattr(jwt, "encode", fake_encode)
+    token = service._generate_jwt()
+    assert token == "signed-token"
+    assert captured["algorithm"] == "RS256"
+    assert captured["key"] == _TEST_PRIVATE_KEY
+    assert captured["payload"]["sub"] == "+91-9000000000"
+    assert captured["payload"]["iss"] == "voice-provider"
+    assert "iat" in captured["payload"]
+    assert "exp" in captured["payload"]
 
 
 @pytest.mark.asyncio
-async def test_stream_voice_dls_uses_session_id(service: KenpathDlsLLMService):
+async def test_stream_voice_dls_uses_session_id(
+    service: KenpathDlsLLMService, monkeypatch
+):
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
     service.set_call_id("dls-call-1")
 
     stream_cm = AsyncMock()
@@ -111,16 +166,17 @@ async def test_stream_voice_dls_uses_session_id(service: KenpathDlsLLMService):
     mock_client.stream.assert_called_once()
     call_args = mock_client.stream.call_args
     assert call_args.args[0] == "GET"
-    assert call_args.args[1] == f"{DEFAULT_URL}{VOICE_DLS_PATH}"
+    assert call_args.args[1] == f"{DEFAULT_URL.rstrip('/')}{VOICE_DLS_PATH}"
     assert call_args.kwargs["params"]["session_id"] == "dls-call-1"
     assert call_args.kwargs["params"]["query"] == "namaste"
-    assert "headers" not in call_args.kwargs or "Authorization" not in (
-        call_args.kwargs.get("headers") or {}
-    )
+    assert call_args.kwargs["headers"]["Authorization"] == "Bearer signed-token"
 
 
 @pytest.mark.asyncio
-async def test_stream_voice_dls_non_200_raises(service: KenpathDlsLLMService):
+async def test_stream_voice_dls_non_200_raises(
+    service: KenpathDlsLLMService, monkeypatch
+):
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
     stream_cm = AsyncMock()
     response = AsyncMock()
     response.status_code = 500
@@ -140,8 +196,9 @@ async def test_stream_voice_dls_non_200_raises(service: KenpathDlsLLMService):
 
 @pytest.mark.asyncio
 async def test_lang_marker_queues_switch_frame_and_strips_tts(
-    service: KenpathDlsLLMService,
+    service: KenpathDlsLLMService, monkeypatch
 ):
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
     stream_cm = AsyncMock()
     response = AsyncMock()
     response.status_code = 200
@@ -196,7 +253,10 @@ async def test_lang_marker_queues_switch_frame_and_strips_tts(
 
 
 @pytest.mark.asyncio
-async def test_bhb_marker_maps_to_canonical_bh(service: KenpathDlsLLMService):
+async def test_bhb_marker_maps_to_canonical_bh(
+    service: KenpathDlsLLMService, monkeypatch
+):
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
     stream_cm = AsyncMock()
     response = AsyncMock()
     response.status_code = 200
@@ -236,7 +296,10 @@ async def test_bhb_marker_maps_to_canonical_bh(service: KenpathDlsLLMService):
 
 
 @pytest.mark.asyncio
-async def test_goodbye_pushes_end_worker_after_response(service: KenpathDlsLLMService):
+async def test_goodbye_pushes_end_worker_after_response(
+    service: KenpathDlsLLMService, monkeypatch
+):
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
     stream_cm = AsyncMock()
     response = AsyncMock()
     response.status_code = 200
