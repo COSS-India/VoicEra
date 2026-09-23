@@ -110,7 +110,7 @@ _SYSTEM_PROMPT = " ".join(
 # Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format —
 # used to detect when the model has merged/split/dropped lines despite being
 # told to keep the same line structure, since nothing else validates that.
-_TRANSCRIPT_LINE_RE = re.compile(r"^\[[^\]]+]\s*\w+:\s*.*$")
+_TRANSCRIPT_LINE_RE = re.compile(r"^\[[^\]]+]\s*[^:\]]+:\s*.*$")
 
 
 def _count_transcript_lines(text: str) -> int:
@@ -224,7 +224,10 @@ def translate_transcript(
         raise TranslationError(
             "Translation returned an empty result.", reason=TranslationErrorReason.UPSTREAM
         )
-    if _count_transcript_lines(result) != _count_transcript_lines(text):
+    # If the original transcript has zero matching lines, the count comparison
+    # can't detect corruption (0 != 0 trivially passes) — nothing to compare against.
+    original_line_count = _count_transcript_lines(text)
+    if original_line_count > 0 and _count_transcript_lines(result) != original_line_count:
         raise TranslationError(
             "The translation model changed the transcript's line structure. Please try again.",
             reason=TranslationErrorReason.UPSTREAM,

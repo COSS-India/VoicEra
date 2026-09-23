@@ -239,6 +239,34 @@ def test_accepts_response_with_matching_line_count(monkeypatch):
     assert result == translated
 
 
+def test_freeform_text_with_no_matching_lines_is_not_falsely_validated(monkeypatch):
+    """When the original transcript has zero lines matching the structural
+    format (e.g. free-form text, not `[ts] role: content`), the line-count
+    check must not compare 0 == 0 and trivially pass — it must simply not
+    run, since there's nothing structural to validate either way."""
+    _configure_openai(monkeypatch)
+    freeform = "just some free-form text, no brackets here"
+    with patch("apps.providers.one_shot_llm.OpenAI") as mock_openai_cls:
+        client = mock_openai_cls.return_value
+        client.chat.completions.create.return_value = _mock_openai_response("translated free text")
+        result = translate_transcript(freeform, "hi", ORG_ID)
+    assert result == "translated free text"
+
+
+def test_accepts_response_with_spaced_role_name(monkeypatch):
+    """Role names aren't guaranteed to be a single \\w+ token (e.g. a display
+    name with a space, or non-ASCII characters) — the structural regex must
+    not treat such a line as non-matching on both sides of the comparison."""
+    _configure_openai(monkeypatch)
+    one_line = "[00:01] Call Agent: hola"
+    translated = "[00:01] Call Agent: hi"
+    with patch("apps.providers.one_shot_llm.OpenAI") as mock_openai_cls:
+        client = mock_openai_cls.return_value
+        client.chat.completions.create.return_value = _mock_openai_response(translated)
+        result = translate_transcript(one_line, "en", ORG_ID)
+    assert result == translated
+
+
 def test_system_prompt_resolves_mandi_wholesale_market_ambiguity():
     """Regression guard for a real observed mistranslation: 'mandi' (wholesale
     market) was translated as the unrelated body part 'knee', since both are
