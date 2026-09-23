@@ -515,9 +515,6 @@ Constraints:
 - **`websocket` category only.** A telephony template would call
   `agent_telephony_service.provision_application` against a provider the new org
   has not connected. Enforced by a startup assertion, not left to a reviewer.
-- **Two or three templates, not ten.** The sandbox goal is "click one and talk",
-  not a catalogue. The old branch's larger set mostly existed to demo providers
-  that F4 now surfaces directly.
 - Templates must reference providers that are local or platform-supplied.
 - **`knowledge_base.enabled` must be `false`.** Not a style preference: with KB
   enabled *and* an `org_id`, `_validate_knowledge_base`
@@ -525,6 +522,47 @@ Constraints:
   `knowledge_service.assert_documents_ready`, which hits Mongo. A seeded agent
   cannot reference documents of an org created seconds ago anyway. Enforced by
   the same startup assertion as the category check.
+
+### 7.1a The shipped set — ported from `dev-sandbox`
+
+The six domain agents from the old branch's `default_agents.json`, carried over
+with **system prompts, greeting messages and agent names byte-identical** to
+`origin/dev-sandbox`:
+
+| Agent | Language | Persona | Orpheus voice |
+|---|---|---|---|
+| Skilling & Jobs Agent | `hi` | Rohan | Amit |
+| Inclusion Agent | `hi` | Deepa | Kavya |
+| Health Agent | `hi` | Kavya | Kavya |
+| Governance Agent | `hi` | Vikram | Amit |
+| Education Agent | `hi` | Anjali | Kavya |
+| Agriculture Agent | `mr` | Mitra | Anagha |
+
+Three deliberate changes, none touching prompt text:
+
+- **Providers re-pointed to the v2 registry.** Old: AI4Bharat
+  `indic-conformer-stt` / `indic-parler-tts` with a free-text voice
+  `description`. New: `indic_nemotron` (STT) and `indic_orpheus` (TTS) — both
+  **local**, so the speech half of every seeded agent runs on the model-server
+  with no credential at all, and only the LLM needs a platform key. Orpheus
+  exposes a closed `voice` set per language (`hi`: Kavya/Amit, `mr`:
+  Anagha/Chinmay), so each old persona maps to the nearest voice and the old
+  free-text tone description becomes `style: "Customer Care"`. The LLM stays on
+  the old `openai` / `gpt-4o-mini` — still a valid model id in the v2 catalog.
+- **`telephony` (Vobiz) → `websocket`.** The old agents were provisioned against
+  Vobiz. Seeding that would call `provision_application` against a telephony
+  provider the brand-new org has not connected — which is exactly the failure
+  §7.1 forbids. Seeded agents are browser-testable; attaching telephony stays a
+  deliberate user action.
+- **Knowledge base left disabled**, per §7.1.
+
+**Known caveat, not a defect:** the Agriculture prompt grounds itself in an
+attached knowledge base five times ("answer … using only the knowledge base
+attached to you"). With KB disabled it will honestly decline most agronomic
+questions and offer human routing — safe, but a weak demo. The prompt was ported
+verbatim rather than silently rewritten, since it encodes domain safety rules.
+Fix at the ops level: upload documents, then enable KB on that agent. The single
+Health-agent KB mention is a deflection boundary and degrades safely.
 
 ### 7.2 Startup validation
 
