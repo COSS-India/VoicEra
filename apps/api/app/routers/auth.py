@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.auth import get_current_user
+from app.auth import get_current_user, verify_api_key
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.models.schemas import (
     ProviderAuthResponse,
@@ -32,10 +32,6 @@ def _require_write_role(current_user: dict[str, Any]) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can manage provider credentials",
         )
-
-
-def _mask_for_user(current_user: dict[str, Any]) -> bool:
-    return current_user.get("role") not in _WRITE_ROLES
 
 
 def _catalog_http_error(exc: Exception) -> None:
@@ -105,12 +101,43 @@ async def upsert_auth(
         raise
 
 
+@router.get("/internal/{provider}", response_model=ProviderAuthResponse)
+async def resolve_auth_internal(
+    provider: str,
+    org_id: str = Query(..., description="Organisation the call belongs to"),
+    _: bool = Depends(verify_api_key),
+) -> dict[str, Any]:
+    """Decrypted credentials for the voice runtime (``X-API-Key`` only).
+
+    The single route in the API that returns a plaintext secret. Deliberately
+    separate from ``GET /auth/{provider}``, which is always masked, so a leaked
+    user or bot JWT cannot be traded for provider credentials.
+    """
+    try:
+        provider_auth_catalog(provider)
+        stored = auth_service.get_provider_auth(org_id, provider)
+    except Exception as exc:
+        _catalog_http_error(exc)
+        raise
+
+    if not stored:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No auth stored for provider: {provider}",
+        )
+    return stored
+
+
 @router.get("/{provider}", response_model=ProviderAuthResponse)
 async def get_auth(
     provider: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Stored auth for one provider in the caller's organisation."""
+    """Stored auth for one provider, with every secret masked.
+
+    Masked for every role, admins included: a sandbox signup is the
+    ``super_admin`` of its own organisation, so role is not a boundary here.
+    """
     try:
         provider_auth_catalog(provider)
     except Exception as exc:
@@ -118,10 +145,9 @@ async def get_auth(
         raise
 
     try:
-        stored = auth_service.get_provider_auth(
+        stored = auth_service.get_provider_auth_masked(
             current_user["org_id"],
             provider,
-            mask_secrets=_mask_for_user(current_user),
         )
     except Exception as exc:
         _catalog_http_error(exc)

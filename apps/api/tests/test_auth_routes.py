@@ -52,31 +52,38 @@ def _upsert(org_id: str, provider: str, auth_body: dict[str, Any]) -> dict[str, 
             "updated_at": now,
         }
     _STORE[key] = doc
+    from app.services.auth_service import mask_auth_secrets
+
     return {
         "org_id": org_id,
         "provider": provider,
-        "auth": validated,
+        "auth": mask_auth_secrets(provider, validated),
         "created_at": doc["created_at"],
         "updated_at": doc["updated_at"],
     }
 
 
-def _get(org_id: str, provider: str, *, mask_secrets: bool = False) -> dict[str, Any] | None:
-    from app.services.auth_service import mask_auth_secrets
-
+def _get(org_id: str, provider: str) -> dict[str, Any] | None:
+    """Stand-in for the unmasked service call (internal route only)."""
     doc = _STORE.get((org_id, provider))
     if not doc:
         return None
-    auth_body = dict(doc["auth"])
-    if mask_secrets:
-        auth_body = mask_auth_secrets(provider, auth_body)
     return {
         "org_id": doc["org_id"],
         "provider": doc["provider"],
-        "auth": auth_body,
+        "auth": dict(doc["auth"]),
         "created_at": doc["created_at"],
         "updated_at": doc["updated_at"],
     }
+
+
+def _get_masked(org_id: str, provider: str) -> dict[str, Any] | None:
+    from app.services.auth_service import mask_auth_secrets
+
+    stored = _get(org_id, provider)
+    if not stored:
+        return None
+    return {**stored, "auth": mask_auth_secrets(provider, stored["auth"])}
 
 
 def _configured(org_id: str) -> list[str]:
@@ -128,7 +135,7 @@ def test_auth_catalog_unknown_provider_404():
 
 
 @patch("app.routers.auth.auth_service.upsert_provider_auth", side_effect=_upsert)
-@patch("app.routers.auth.auth_service.get_provider_auth", side_effect=_get)
+@patch("app.routers.auth.auth_service.get_provider_auth_masked", side_effect=_get_masked)
 @patch("app.routers.auth.auth_service.list_configured_providers", side_effect=_configured)
 @patch("app.routers.auth.auth_service.delete_provider_auth", side_effect=_delete)
 def test_post_get_configured_delete_flow(_delete_m, _cfg_m, _get_m, _upsert_m):
@@ -140,7 +147,8 @@ def test_post_get_configured_delete_flow(_delete_m, _cfg_m, _get_m, _upsert_m):
     )
     assert created.status_code == 201
     assert created.json()["provider"] == "openai"
-    assert created.json()["auth"]["api_key"] == "sk-secret-key-1234"
+    # The key just sent is never echoed back, not even to the admin who set it.
+    assert created.json()["auth"]["api_key"] == "**************1234"
 
     configured = client.get("/api/v1/auth/configured")
     assert configured.status_code == 200
@@ -148,7 +156,7 @@ def test_post_get_configured_delete_flow(_delete_m, _cfg_m, _get_m, _upsert_m):
 
     fetched = client.get("/api/v1/auth/openai")
     assert fetched.status_code == 200
-    assert fetched.json()["auth"]["api_key"] == "sk-secret-key-1234"
+    assert fetched.json()["auth"]["api_key"] == "**************1234"
 
     deleted = client.delete("/api/v1/auth/openai")
     assert deleted.status_code == 200
@@ -167,19 +175,63 @@ def test_member_cannot_write(_upsert_m):
 
 
 @patch("app.routers.auth.auth_service.upsert_provider_auth", side_effect=_upsert)
-@patch("app.routers.auth.auth_service.get_provider_auth", side_effect=_get)
-def test_member_sees_masked_secrets(_get_m, _upsert_m):
+@patch("app.routers.auth.auth_service.get_provider_auth_masked", side_effect=_get_masked)
+def test_every_role_sees_masked_secrets(_get_m, _upsert_m):
+    """Role is not a boundary here: a sandbox signup is super_admin of its org."""
     admin = _make_client(_admin_user)
     admin.post(
         "/api/v1/auth",
         json={"provider": "openai", "auth": {"api_key": "sk-secret-key-1234"}},
     )
-    member = _make_client(_member_user)
-    response = member.get("/api/v1/auth/openai")
-    assert response.status_code == 200
-    key = response.json()["auth"]["api_key"]
-    assert key.endswith("1234")
-    assert key.startswith("*")
+    for client in (admin, _make_client(_member_user)):
+        response = client.get("/api/v1/auth/openai")
+        assert response.status_code == 200
+        key = response.json()["auth"]["api_key"]
+        assert key.endswith("1234")
+        assert key.startswith("*")
+        assert "sk-secret" not in key
+
+
+@patch("app.routers.auth.auth_service.upsert_provider_auth", side_effect=_upsert)
+@patch("app.routers.auth.auth_service.get_provider_auth", side_effect=_get)
+def test_internal_route_returns_plaintext_for_api_key(_get_m, _upsert_m, monkeypatch):
+    from app import auth as auth_mod
+
+    monkeypatch.setattr(auth_mod.settings, "INTERNAL_API_KEY", "test-internal-key")
+    admin = _make_client(_admin_user)
+    admin.post(
+        "/api/v1/auth",
+        json={"provider": "openai", "auth": {"api_key": "sk-secret-key-1234"}},
+    )
+
+    url = "/api/v1/auth/internal/openai"
+    params = {"org_id": "org-1"}
+
+    assert admin.get(url, params=params).status_code == 401
+    assert admin.get(url, params=params, headers={"X-API-Key": "wrong"}).status_code == 401
+
+    ok = admin.get(url, params=params, headers={"X-API-Key": "test-internal-key"})
+    assert ok.status_code == 200
+    assert ok.json()["auth"]["api_key"] == "sk-secret-key-1234"
+
+    missing = admin.get(
+        url,
+        params={"org_id": "org-unknown"},
+        headers={"X-API-Key": "test-internal-key"},
+    )
+    assert missing.status_code == 404
+
+
+def test_internal_route_requires_org_id(monkeypatch):
+    from app import auth as auth_mod
+
+    monkeypatch.setattr(auth_mod.settings, "INTERNAL_API_KEY", "test-internal-key")
+    client = _make_client(_admin_user)
+    response = client.get(
+        "/api/v1/auth/internal/openai",
+        headers={"X-API-Key": "test-internal-key"},
+    )
+    assert response.status_code == 422
 
 
 @patch("app.routers.auth.auth_service.upsert_provider_auth", side_effect=_upsert)
@@ -197,7 +249,8 @@ def test_google_accepts_secret_fields_only(_upsert_m):
     )
     assert response.status_code == 201
     auth_body = response.json()["auth"]
-    assert auth_body["api_key"] == "ai-studio-key"
+    assert auth_body["api_key"].endswith("-key")
+    assert auth_body["api_key"].startswith("*")
     assert "credentials" in auth_body
     assert "project_id" not in auth_body
 

@@ -75,7 +75,12 @@ function kindMeta(kind: string) {
 
 type ProviderEntry = { providerId: string; catalog: AuthProviderCatalog };
 
-function authValuesToForm(secrets: string[], auth: Record<string, unknown>): Record<string, string> {
+/**
+ * Stored secrets come back masked (e.g. `****1234`) — the API never returns a
+ * key in plaintext. These are display hints only; they must never be submitted
+ * back as values.
+ */
+function authValuesToHints(secrets: string[], auth: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(
     secrets.map((k) => {
       const v = auth[k];
@@ -93,6 +98,7 @@ function SecretField({
   onToggleVisible,
   onChange,
   disabled,
+  placeholder,
 }: {
   fieldKey: string;
   label: string;
@@ -102,6 +108,7 @@ function SecretField({
   onToggleVisible: () => void;
   onChange: (value: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -115,7 +122,7 @@ function SecretField({
           autoComplete="off"
           spellCheck={false}
           disabled={disabled}
-          placeholder={disabled ? "Loading…" : `Enter ${label.toLowerCase()}`}
+          placeholder={disabled ? "Loading…" : (placeholder ?? `Enter ${label.toLowerCase()}`)}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="w-full rounded-v-sm border border-v-line-strong bg-white py-2.5 pl-3.5 pr-10 text-[14px] transition-colors focus:border-v-accent focus:outline-none disabled:cursor-wait disabled:bg-v-soft/60"
@@ -159,6 +166,7 @@ function ConnectModal({
     Object.fromEntries(secrets.map((k) => [k, ""])),
   );
   const [visible, setVisible] = useState<Record<string, boolean>>({});
+  const [hints, setHints] = useState<Record<string, string>>({});
   const [loadingAuth, setLoadingAuth] = useState(configured);
   const [error, setError] = useState("");
 
@@ -168,7 +176,9 @@ function ConnectModal({
     setLoadingAuth(true);
     getProviderAuth(providerId)
       .then((res) => {
-        if (!cancelled) setValues(authValuesToForm(secrets, res.auth));
+        // Hints only. The inputs stay empty: saving replaces the stored
+        // credential outright, so a masked value must never become the value.
+        if (!cancelled) setHints(authValuesToHints(secrets, res.auth));
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load saved credentials.");
@@ -245,6 +255,7 @@ function ConnectModal({
                 onToggleVisible={() => setVisible((prev) => ({ ...prev, [key]: !prev[key] }))}
                 onChange={(v) => setValues((prev) => ({ ...prev, [key]: v }))}
                 disabled={loadingAuth}
+                placeholder={hints[key] ? `Current ${hints[key]} — enter a new value to replace` : undefined}
               />
             );
           })}

@@ -239,16 +239,19 @@ class BackendClient:
         return response.json()
 
     async def get_provider_auth(self, provider: str, org_id: str) -> dict[str, Any]:
-        """Return decrypted auth secrets for ``provider`` (bot JWT is admin)."""
-        url = f"{self._base()}/auth/{provider}"
-        headers = await self._auth_headers(org_id)
+        """Return decrypted auth secrets for ``provider``.
+
+        Uses the internal ``X-API-Key`` route, not the bot JWT: ``GET
+        /auth/{provider}`` is masked for every caller. An API key does not
+        expire, so there is no 401-refresh path here.
+        """
+        url = f"{self._base()}/auth/internal/{quote(provider, safe='')}"
+        headers = {
+            "X-API-Key": os.getenv("INTERNAL_API_KEY", ""),
+            "Accept": "application/json",
+        }
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=headers)
-        if response.status_code == 401:
-            await self.get_bot_token(org_id, force=True)
-            headers = await self._auth_headers(org_id)
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=headers, params={"org_id": org_id})
         if response.status_code == 404:
             raise BackendError(
                 f"No auth stored for provider '{provider}' in org {org_id}"

@@ -80,7 +80,9 @@ def get_provider_dial_credentials(org_id: str, provider: str) -> dict[str, str]:
 def _build_config(org_id: str, provider: str):
     provider = _require_provider(provider)
 
-    stored = auth_service.get_provider_auth(org_id, provider, mask_secrets=False)
+    # Org credentials only — no platform fallback. A platform telephony key
+    # would let any signup provision applications on the platform's account.
+    stored = auth_service.get_provider_auth(org_id, provider)
     if not stored or not stored.get("auth"):
         raise AgentTelephonyError(
             f"Telephony credentials for provider '{provider}' are not configured "

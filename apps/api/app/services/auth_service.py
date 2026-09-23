@@ -93,7 +93,7 @@ def upsert_provider_auth(
         logger.info("Provider auth updated org=%s provider=%s", org_id, provider)
         doc = collection.find_one({"org_id": org_id, "provider": provider})
         assert doc is not None
-        return _to_response(doc, mask_secrets=False)
+        return _to_response(doc, mask_secrets=True)
 
     doc = {
         "org_id": org_id,
@@ -104,28 +104,36 @@ def upsert_provider_auth(
     }
     collection.insert_one(doc)
     logger.info("Provider auth created org=%s provider=%s", org_id, provider)
-    # Return decrypted view (do not echo ciphertext to clients).
+    # Masked view: never echo ciphertext, and never echo the key just stored.
     return {
         "org_id": org_id,
         "provider": provider,
-        "auth": validated,
+        "auth": mask_auth_secrets(provider, validated),
         "created_at": now,
         "updated_at": now,
     }
 
 
-def get_provider_auth(
-    org_id: str,
-    provider: str,
-    *,
-    mask_secrets: bool = False,
-) -> dict[str, Any] | None:
-    """Fetch stored auth for one provider, or ``None`` if missing."""
+def get_provider_auth(org_id: str, provider: str) -> dict[str, Any] | None:
+    """Decrypted stored auth, or ``None`` if missing.
+
+    Internal callers only. Never return this from a user-facing route — use
+    :func:`get_provider_auth_masked`.
+    """
     db = get_database()
     doc = db[COLLECTION].find_one({"org_id": org_id, "provider": provider})
     if not doc:
         return None
-    return _to_response(doc, mask_secrets=mask_secrets)
+    return _to_response(doc, mask_secrets=False)
+
+
+def get_provider_auth_masked(org_id: str, provider: str) -> dict[str, Any] | None:
+    """Stored auth with every secret masked — the only form a client may see."""
+    db = get_database()
+    doc = db[COLLECTION].find_one({"org_id": org_id, "provider": provider})
+    if not doc:
+        return None
+    return _to_response(doc, mask_secrets=True)
 
 
 def list_configured_providers(org_id: str) -> list[str]:
@@ -133,15 +141,6 @@ def list_configured_providers(org_id: str) -> list[str]:
     db = get_database()
     providers = db[COLLECTION].distinct("provider", {"org_id": org_id})
     return sorted(str(p) for p in providers)
-
-
-def list_provider_auth_for_org(org_id: str) -> list[dict[str, Any]]:
-    """All decrypted provider credentials for ``org_id`` (bot / unmasked)."""
-    db = get_database()
-    docs = list(db[COLLECTION].find({"org_id": org_id}))
-    results = [_to_response(doc, mask_secrets=False) for doc in docs]
-    results.sort(key=lambda item: str(item.get("provider") or ""))
-    return results
 
 
 def delete_provider_auth(org_id: str, provider: str) -> bool:
