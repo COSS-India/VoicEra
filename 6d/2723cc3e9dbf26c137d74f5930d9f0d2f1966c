@@ -1,0 +1,24 @@
+apps/api/app/services/auth_service.py
+  s_9b7dd51ed8863e::t_2122d231596ff4 137-138
+  s_9b7dd51ed8863e::t_924d950b9853f6 75-105,111-115,122-127
+apps/api/tests/test_provider_auth_upsert.py
+  s_9b7dd51ed8863e::t_8f5bc6ec97ce33 40-51,57-60
+  s_9b7dd51ed8863e::t_3cbdbe275bc09d 1-12,14-39,52-56,61-153
+  s_9b7dd51ed8863e::t_807a5d17862eef 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6d2723cc3e9dbf26c137d74f5930d9f0d2f1966c",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
