@@ -190,7 +190,7 @@ function CallStage({
 
   const isConnected = transportState === "ready" || transportState === "connected";
   const showDetails = isLive || hasEnded;
-  const targetLang = (navigator.language || "en").split("-")[0]!;
+  const targetLang = ((typeof navigator !== "undefined" && navigator.language) || "en").split("-")[0]!;
 
   useEffect(() => {
     if (!isConnected) return;
@@ -304,6 +304,8 @@ function CallStage({
     // twice), most likely because the runtime hasn't fully released the
     // prior call's resources yet. This doesn't fix the underlying race, it
     // just gives teardown a head start.
+    // TODO: track a real fix for the underlying teardown race instead of
+    // this timing workaround.
     const id = window.setTimeout(() => {
       void startCall();
     }, 750);

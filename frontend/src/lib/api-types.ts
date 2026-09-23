@@ -267,7 +267,6 @@ export interface CallMetricsResponse {
 export interface CallTranslateResponse {
   translated_text: string;
   target_lang: string;
-  source_lang?: string | null;
 }
 
 export interface ProviderAuthResponse {
