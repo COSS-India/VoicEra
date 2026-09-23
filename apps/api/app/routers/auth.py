@@ -21,6 +21,7 @@ from app.services.provider_auth_catalog import (
     provider_auth_catalog,
 )
 from app.services.secret_crypto import EncryptionNotConfiguredError
+from apps.providers.availability import auth_source
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -83,16 +84,29 @@ async def list_configured(
     return auth_service.list_configured_providers(current_user["org_id"])
 
 
-@router.get("/platform")
-async def list_platform(
-    _current_user: dict[str, Any] = Depends(get_current_user),
-) -> list[str]:
-    """Provider ids usable without the organisation connecting anything.
+@router.get("/availability")
+async def availability(
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, str | None]:
+    """Why each catalogued provider is (or is not) usable by this organisation.
+
+    ``"org"`` — credentials stored here; ``"platform"`` — supplied by the
+    deployment; ``"local"`` — runs on the model-server and needs no credential
+    at all; ``null`` — the organisation must connect it.
+
+    One call rather than three: the integrations page needs all three states to
+    decide whether a provider is actionable, and a provider with no secret
+    fields (every local one) has nothing to connect.
 
     Registered before ``/{provider}`` on purpose — a single-segment literal
     route must win over the parameterised one.
     """
-    return sorted(platform_auth.providers())
+    configured = set(auth_service.list_configured_providers(current_user["org_id"]))
+    platform = platform_auth.providers()
+    return {
+        provider: auth_source(provider, configured, platform)
+        for provider in all_auth_catalog()
+    }
 
 
 @router.post("", response_model=ProviderAuthResponse, status_code=status.HTTP_201_CREATED)

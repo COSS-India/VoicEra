@@ -26,11 +26,11 @@ import {
   deleteProviderAuth,
   getAuthCatalog,
   getProviderAuth,
+  getProviderAvailability,
   listConfiguredProviders,
-  listPlatformProviders,
   upsertProviderAuth,
 } from "@/lib/api-client";
-import type { AuthCatalog, AuthProviderCatalog } from "@/lib/catalog-types";
+import type { AuthCatalog, AuthProviderCatalog, AuthSource } from "@/lib/catalog-types";
 import { AUTH_KIND_ORDER, formatProviderTypeLabel, humanizeFieldKey, secretFieldNames } from "@/lib/catalog-utils";
 
 const KIND_META: Record<
@@ -300,7 +300,7 @@ export function Integrations({
 }) {
   const [catalog, setCatalog] = useState<AuthCatalog | null>(null);
   const [configured, setConfigured] = useState<string[]>([]);
-  const [platformProviders, setPlatformProviders] = useState<string[]>([]);
+  const [availability, setAvailability] = useState<Record<string, AuthSource>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
@@ -312,14 +312,14 @@ export function Integrations({
   const load = useCallback(async () => {
     setLoadError("");
     try {
-      const [cat, cfg, platform] = await Promise.all([
+      const [cat, cfg, sources] = await Promise.all([
         getAuthCatalog(),
         listConfiguredProviders(),
-        listPlatformProviders(),
+        getProviderAvailability(),
       ]);
       setCatalog(cat);
       setConfigured(cfg);
-      setPlatformProviders(platform);
+      setAvailability(sources);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Could not load integrations.");
     } finally {
@@ -670,27 +670,37 @@ export function Integrations({
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
                 {availableList.map((entry) => {
                   const name = entry.catalog.name ?? entry.providerId;
-                  // Platform-supplied: usable right now, so the card offers an
-                  // upgrade path ("use your own key"), not a blocker.
-                  const included = platformProviders.includes(entry.providerId);
+                  const source = availability[entry.providerId] ?? null;
+                  // Local providers run on the model-server and expose no
+                  // secret fields, so there is nothing to connect — opening the
+                  // dialog for them would be a dead end.
+                  const connectable = secretFieldNames(entry.catalog).length > 0;
                   return (
                     <button
                       key={entry.providerId}
                       type="button"
-                      onClick={() => setSelected(entry)}
-                      className="group flex cursor-pointer flex-col gap-2 rounded-v-md border border-v-line bg-white p-4 text-left transition-shadow hover:shadow-[0_4px_16px_rgba(11,11,12,0.08)]"
+                      disabled={!connectable}
+                      onClick={connectable ? () => setSelected(entry) : undefined}
+                      className="group flex flex-col gap-2 rounded-v-md border border-v-line bg-white p-4 text-left transition-shadow enabled:cursor-pointer enabled:hover:shadow-[0_4px_16px_rgba(11,11,12,0.08)] disabled:cursor-default"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <span className="font-medium text-v-fg">{name}</span>
-                        <span className="flex items-center gap-1 rounded-full border border-v-line px-2.5 py-1 text-xs font-medium text-v-muted opacity-0 transition-opacity group-hover:opacity-100">
-                          <Plus className="size-3.5" strokeWidth={1.75} />
-                          {included ? "Use your own key" : "Connect"}
-                        </span>
+                        {connectable ? (
+                          <span className="flex items-center gap-1 rounded-full border border-v-line px-2.5 py-1 text-xs font-medium text-v-muted opacity-0 transition-opacity group-hover:opacity-100">
+                            <Plus className="size-3.5" strokeWidth={1.75} />
+                            {source === "platform" ? "Use your own key" : "Connect"}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap gap-1">
-                        {included ? (
+                        {source === "platform" ? (
                           <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
                             Included
+                          </span>
+                        ) : null}
+                        {source === "local" ? (
+                          <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
+                            Runs locally
                           </span>
                         ) : null}
                         {(entry.catalog.kinds ?? []).map((k) => {

@@ -15,11 +15,11 @@ Tests: `apps/api/tests/test_platform_auth.py`,
 `apps/api/tests/test_configuration_routes.py` and
 `apps/providers/tests/test_availability.py`.
 
-One deviation from the plan as written: F4 also added `GET /auth/platform`
-(§6.5). The integrations page builds its "connected" list from
-`/auth/configured` and never reads `/configuration/*`, so without it the page
-had no cheap way to know a provider was platform-supplied — the alternative was
-pulling the full `/configuration/defaults` envelope on every page load.
+One deviation from the plan as written: F4 also added `GET /auth/availability`
+(§6.4). The integrations page builds its lists from `/auth/configured` and never
+reads `/configuration/*`, so without it the page had no way to know a provider
+was already usable — the alternative was pulling the full
+`/configuration/defaults` envelope on every page load.
 
 | # | Feature | Old branch | New home |
 |---|---------|-----------|----------|
@@ -463,21 +463,30 @@ labelling question, handled below.
 - Nothing else. The wizard, phone numbers, and knowledge base all key off
   `authenticated`, which now already accounts for platform credentials.
 
-### 6.4 `GET /auth/platform` (added during implementation)
+### 6.4 `GET /auth/availability` (added during implementation)
 
 ```python
-@router.get("/platform")
-async def list_platform(_current_user=Depends(get_current_user)) -> list[str]:
-    """Provider ids usable without the organisation connecting anything."""
+@router.get("/availability")
+async def availability(current_user=Depends(get_current_user)) -> dict[str, str | None]:
+    """Why each catalogued provider is usable: "org" | "platform" | "local" | null."""
 ```
 
-Symmetric with `/auth/configured`: same router, same `list[str]` shape, same
-"what can this org use" question. Registered **before** `/{provider}` — both are
-single-segment, so the literal must win. The integrations page fetches it
-alongside the catalog and the configured list, and badges those providers
-**Included** with a "Use your own key" action instead of "Connect".
+The integrations page builds its lists from `/auth/catalog` and
+`/auth/configured` and never reads `/configuration/*`, so it had no way to know
+a provider was already usable. A first cut returned only the platform-supplied
+ids (`GET /auth/platform`); that was wrong in a way testing surfaced
+immediately — **local providers were left out**. `indic_nemotron` and
+`indic_orpheus` are in the auth catalog with `secrets: None, fields: []`, so the
+page listed them under "Available" with a Connect button that opened a dialog
+with no fields and a Save that threw "Enter at least one credential field".
 
-It returns provider ids only, never the credentials.
+Returning the full `auth_source` map instead of a platform-only list fixes both:
+the page badges **Included** (platform), **Runs locally** (local), and — for any
+provider with no secret fields — renders the card as informational rather than
+actionable. Registered **before** `/{provider}`; both are single-segment, so the
+literal must win.
+
+It returns sources only, never credentials.
 
 ### 6.5 Tests
 

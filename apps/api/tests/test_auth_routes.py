@@ -223,6 +223,32 @@ def test_internal_route_returns_plaintext_for_api_key(_get_m, _upsert_m, monkeyp
     assert missing.status_code == 404
 
 
+@patch("app.routers.auth.auth_service.list_configured_providers", side_effect=_configured)
+def test_availability_reports_every_source(_cfg_m, monkeypatch):
+    """Local providers need no credential — the page must not offer 'Connect'."""
+    _STORE[("org-1", "deepgram")] = {"org_id": "org-1", "provider": "deepgram", "auth": {}}
+    client = _make_client(_admin_user)
+
+    with (
+        patch(
+            "app.routers.auth.platform_auth.providers",
+            return_value=frozenset({"openai"}),
+        ),
+        patch(
+            "apps.providers.availability._deployed_ids",
+            return_value=frozenset({"indic-nemotron"}),
+        ),
+    ):
+        response = client.get("/api/v1/auth/availability")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["deepgram"] == "org"
+    assert body["openai"] == "platform"
+    assert body["indic_nemotron"] == "local"
+    assert body["elevenlabs"] is None
+
+
 def test_internal_route_requires_org_id(monkeypatch):
     from app import auth as auth_mod
 
