@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Optional, Union
 
 import grpc
+import numpy as np
 from loguru import logger
 from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import (
@@ -27,7 +29,6 @@ from pipecat.utils.time import time_now_iso8601
 from apps.providers.runtime_language import update_stt_settings_with_language
 from . import asr_pb2, asr_pb2_grpc
 from .catalog import DEFAULT_GRPC_URL
-from .stt import VADProcessor
 
 SAMPLE_RATE = 16000
 MAX_MSG = 4 * 1024 * 1024
@@ -52,6 +53,60 @@ def _strip_bearer(token: str) -> str:
     if key.lower().startswith("bearer "):
         return key[7:].strip()
     return key
+
+
+@dataclass
+class VADProcessor:
+    """Energy-based VAD for Bhashini websocket segment boundaries.
+
+    ``min_speech_ms`` (350) while the bot is talking — barge-in noise gate.
+    ``min_speech_ms_idle`` (200) only when the bot is silent — short user turns.
+    """
+
+    speech_start_rms: float = 0.035
+    speech_end_rms: float = 0.012
+    min_speech_ms: int = 350
+    min_speech_ms_idle: int = 200
+    min_pause_ms: int = 400
+    chunk_ms: int = 200
+
+    is_speaking: bool = False
+    bot_speaking: bool = False
+    speech_run_ms: int = 0
+    silence_run_ms: int = 0
+
+    def _active_min_speech_ms(self) -> int:
+        return self.min_speech_ms if self.bot_speaking else self.min_speech_ms_idle
+
+    def process_chunk(self, audio_data: bytes) -> str:
+        samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+        if samples.size == 0:
+            return "IDLE"
+
+        rms = float(np.sqrt(np.mean(samples**2)))
+
+        if not self.is_speaking:
+            if rms > self.speech_start_rms:
+                self.speech_run_ms += self.chunk_ms
+                if self.speech_run_ms >= self._active_min_speech_ms():
+                    self.is_speaking = True
+                    self.speech_run_ms = 0
+                    self.silence_run_ms = 0
+                    return "START"
+            else:
+                self.speech_run_ms = 0
+        else:
+            if rms < self.speech_end_rms:
+                self.silence_run_ms += self.chunk_ms
+                if self.silence_run_ms >= self.min_pause_ms:
+                    self.is_speaking = False
+                    self.silence_run_ms = 0
+                    self.speech_run_ms = 0
+                    return "STOP"
+            else:
+                self.silence_run_ms = 0
+
+        return "CONTINUE" if self.is_speaking else "IDLE"
 
 
 class BhashiniNemotronSTTService(STTService):
