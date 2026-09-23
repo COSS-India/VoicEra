@@ -184,9 +184,20 @@ fallback: `provider_auth_catalog` merges telephony into the same provider
 namespace, so a `plivo` entry in `PLATFORM_PROVIDER_AUTH` would otherwise let any
 sandbox signup provision applications on the platform's telephony account and
 consume its numbers. Media providers (STT/TTS/LLM) are metered by the limits
-layer; telephony provisioning is not. Keeping `platform_auth.resolve` reachable
-from exactly one route (§5.3) is what enforces this — not a check in
-`agent_telephony_service`.
+layer; telephony provisioning is not.
+
+An earlier draft claimed this was enforced structurally, by `platform_auth.resolve`
+having exactly one caller. That is not enforcement: `/auth/internal/{provider}`
+accepts *any* provider id, so a telephony entry in the env would have been served
+to the runtime, listed by `/auth/platform`, and reported `authenticated: true` by
+`/configuration/telephony` — while `agent_telephony_service._build_config` still
+read org credentials only, so agent creation would fail with "Telephony
+credentials … are not configured". Config that is documented as unsupported but
+silently half-works is worse than either extreme.
+
+`platform_auth._credentials()` now **rejects telephony provider ids at startup**,
+with a message naming the reason. The invariant is checked where the config is
+parsed, not spread across the consumers.
 
 ### 4.2 Routes — `app/routers/auth.py`
 
@@ -248,12 +259,25 @@ The dialog currently fetches saved credentials and prefills the form
 (`authValuesToForm(secrets, res.auth)`). With masking it would prefill
 `****abcd`, and saving would store that string as the key.
 
-Change: do not prefill. When `configured`, show the masked value as read-only
-helper text ("Current key ····abcd") and leave the input empty with placeholder
-"Enter a new key to replace". Upsert keeps full-replace semantics — the form
-submits all secret fields for that provider or nothing. Almost every provider in
-the catalog has a single secret field; partial-merge upsert would complicate
-`validate_auth_payload`'s required-field check for no real gain.
+Change: do not prefill. When `configured`, show the masked value as placeholder
+text ("Current ····abcd — enter a new value to replace") and leave the input
+empty.
+
+**Upsert must merge, not replace.** An earlier draft of this section claimed
+full-replace was fine because "almost every provider has a single secret field".
+That is false: `bhashini` has nine secrets, `kenpath` three and `google` two,
+and all three have no catalog-`required` entries — so a partial submission
+validates cleanly and the `$set` silently drops every field the user did not
+retype. Since clients can no longer read stored secrets, they cannot resend the
+unchanged ones, which makes replace-on-update lossy by construction.
+
+`upsert_provider_auth` therefore overlays the incoming fields on the decrypted
+stored blob and validates the *merged* result, so catalog-required fields stay
+enforced. Stale field names (a secret the catalog no longer lists) are dropped
+before merging, and an undecryptable blob — after a
+`PROVIDER_AUTH_ENCRYPTION_KEY` rotation — falls back to wholesale replacement so
+the org can re-enter its credentials instead of being wedged.
+`DELETE /auth/{provider}` remains the way to clear credentials.
 
 ### 4.5 Tests
 
@@ -320,7 +344,9 @@ def resolve(org_id: str, provider: str) -> tuple[dict[str, Any], str] | None:
 `validate_auth_payload` is reused as-is: an unknown provider id, a non-secret
 field, or a missing required secret in `PLATFORM_PROVIDER_AUTH` aborts startup
 with the same message an org admin would get. The platform's own credentials get
-no weaker validation than a user's.
+no weaker validation than a user's. On top of that, a **telephony** provider id
+aborts startup too (§4.1) — the one rule the catalog cannot express, because it
+merges telephony and media into a single provider namespace.
 
 `validate_config()` is called from `main.py`'s `lifespan`, alongside
 `initialize_database()`. Fail fast, same as the limits layer's startup checks.
