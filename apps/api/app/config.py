@@ -56,6 +56,15 @@ class Settings(BaseSettings):
         default="",
         description="Fernet key for encrypting ProviderAuth credential blobs",
     )
+    PLATFORM_PROVIDER_AUTH: str = Field(
+        default="",
+        description=(
+            "JSON map of provider id → secret fields, used when an organisation "
+            'has not connected that provider itself, e.g. {"deepgram":{"api_key":"…"}}. '
+            "Empty disables platform credentials entirely. Telephony providers are "
+            "never resolved from here — see docs/developer/sandbox-onboarding-plan.md."
+        ),
+    )
 
     CHROMA_BASE_DIR: str = Field(
         default="app/rag/chroma_data",

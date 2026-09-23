@@ -27,6 +27,7 @@ from app.routers import (
     rag,
     users,
 )
+from app.services import platform_auth
 from app.services.limits.errors import LimitExceeded
 
 logging.basicConfig(
@@ -43,6 +44,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         connect_to_mongo()
         initialize_database()
+        platform_auth.validate_config()
         logger.info("Application started successfully")
     except Exception as exc:
         logger.error("Failed to start application: %s", exc)

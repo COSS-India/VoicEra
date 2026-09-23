@@ -66,8 +66,11 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `FRONTEND_URL` | `http://localhost:3000` | No | Base URL used to build the password-reset link. |
 | `VOICE_SERVER_BASE_URL` | empty | Yes for telephony | Public base URL of the runtime. Required when creating or updating a telephony agent. |
 | `ENABLE_CAMPAIGN_ORCHESTRATOR` | `True` | No | Lets API startup spawn the orchestrator. Docker runs it as a separate service instead. |
+| `PLATFORM_PROVIDER_AUTH` | empty | No | JSON map of provider id → secret fields, used when an organisation has not connected that provider itself. Empty disables the fallback. |
 
 Rotating `PROVIDER_AUTH_ENCRYPTION_KEY` makes every stored `ProviderAuth` blob undecryptable. Existing provider credentials must be re-entered after a rotation.
+
+`PLATFORM_PROVIDER_AUTH` is validated against the provider catalog at startup: an unknown provider id, a non-secret field, or a missing required secret aborts the API rather than failing at the first call. Organisation-owned credentials always win over it, and telephony providers are never resolved from it — a platform telephony key would let any signup provision applications on the platform's account. Set it together with `RATE_LIMIT_ENABLED=True`: the limits layer is what bounds the spend on the platform's own keys.
 
 Generate the three secrets by hand if you are not using the start script:
 

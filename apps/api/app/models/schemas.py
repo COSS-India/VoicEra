@@ -149,6 +149,12 @@ class ProviderAuthResponse(BaseModel):
     updated_at: Optional[str] = None
 
 
+class ProviderAuthResolved(ProviderAuthResponse):
+    """Credentials resolved for the runtime, with where they came from."""
+
+    source: str = Field(description='"org" for stored credentials, "platform" for the fallback')
+
+
 class BotTokenRequest(BaseModel):
     """Service request: exchange internal key for an org-scoped JWT."""
 

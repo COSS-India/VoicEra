@@ -9,11 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.auth import get_current_user, verify_api_key
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.models.schemas import (
+    ProviderAuthResolved,
     ProviderAuthResponse,
     ProviderAuthUpsert,
     SuccessResponse,
 )
-from app.services import auth_service
+from app.services import auth_service, platform_auth
 from app.services.provider_auth_catalog import (
     UnknownAuthProviderError,
     all_auth_catalog,
@@ -101,7 +102,7 @@ async def upsert_auth(
         raise
 
 
-@router.get("/internal/{provider}", response_model=ProviderAuthResponse)
+@router.get("/internal/{provider}", response_model=ProviderAuthResolved)
 async def resolve_auth_internal(
     provider: str,
     org_id: str = Query(..., description="Organisation the call belongs to"),
@@ -109,23 +110,26 @@ async def resolve_auth_internal(
 ) -> dict[str, Any]:
     """Decrypted credentials for the voice runtime (``X-API-Key`` only).
 
-    The single route in the API that returns a plaintext secret. Deliberately
-    separate from ``GET /auth/{provider}``, which is always masked, so a leaked
-    user or bot JWT cannot be traded for provider credentials.
+    The single route in the API that returns a plaintext secret, and the only
+    caller of the platform-credential fallback. Deliberately separate from
+    ``GET /auth/{provider}``, which is always masked, so a leaked user or bot
+    JWT cannot be traded for provider credentials.
     """
     try:
         provider_auth_catalog(provider)
-        stored = auth_service.get_provider_auth(org_id, provider)
+        resolved = platform_auth.resolve(org_id, provider)
     except Exception as exc:
         _catalog_http_error(exc)
         raise
 
-    if not stored:
+    if not resolved:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No auth stored for provider: {provider}",
         )
-    return stored
+
+    auth, source = resolved
+    return {"org_id": org_id, "provider": provider, "auth": auth, "source": source}
 
 
 @router.get("/{provider}", response_model=ProviderAuthResponse)

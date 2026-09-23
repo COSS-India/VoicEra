@@ -193,7 +193,7 @@ def test_every_role_sees_masked_secrets(_get_m, _upsert_m):
 
 
 @patch("app.routers.auth.auth_service.upsert_provider_auth", side_effect=_upsert)
-@patch("app.routers.auth.auth_service.get_provider_auth", side_effect=_get)
+@patch("app.services.platform_auth.auth_service.get_provider_auth", side_effect=_get)
 def test_internal_route_returns_plaintext_for_api_key(_get_m, _upsert_m, monkeypatch):
     from app import auth as auth_mod
 
@@ -213,6 +213,7 @@ def test_internal_route_returns_plaintext_for_api_key(_get_m, _upsert_m, monkeyp
     ok = admin.get(url, params=params, headers={"X-API-Key": "test-internal-key"})
     assert ok.status_code == 200
     assert ok.json()["auth"]["api_key"] == "sk-secret-key-1234"
+    assert ok.json()["source"] == "org"
 
     missing = admin.get(
         url,
