@@ -161,6 +161,51 @@ def test_translate_missing_transcript_object_returns_404(
 
 
 @_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_non_missing_s3_error_returns_503(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    """Any S3 error other than NoSuchKey (AccessDenied, InvalidAccessKeyId,
+    SlowDown, ...) is a storage-backend failure, not a missing file — it
+    must surface as a clean 503, not an unhandled 500 from a bare S3Error
+    escaping the route."""
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
+    error = S3Error(
+        code="AccessDenied",
+        message="denied",
+        resource="/voicera-calls/org-1/call-abc-123/transcript.txt",
+        request_id="req-1",
+        host_id="host-1",
+        response=MagicMock(),
+    )
+    storage_cls.return_value.client.get_object.side_effect = error
+
+    client = _make_client()
+    response = client.post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+    assert response.status_code == 503
+    assert "Storage error" in response.json()["detail"]
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_non_utf8_transcript_returns_503(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    """A stored transcript that isn't valid UTF-8 must surface as a clean
+    503, not an unhandled UnicodeDecodeError."""
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _minio_storage_mock(storage_cls, raw_transcript=b"\xff\xfe\x00invalid")
+
+    client = _make_client()
+    response = client.post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+    assert response.status_code == 503
+    assert "not valid UTF-8" in response.json()["detail"]
+
+
+@_patch_db("app.services.call_log_service.get_database")
 @patch("app.routers.calls.translate_transcript")
 @patch("app.routers.calls.MinIOStorage")
 def test_translate_oversized_transcript_returns_413(
