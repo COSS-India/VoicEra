@@ -1,0 +1,43 @@
+.env.example
+  s_9b7dd51ed8863e::t_c9391afea205e1 37-38
+apps/api/app/main.py
+  s_9b7dd51ed8863e::t_c9391afea205e1 30,48-49
+apps/api/app/services/agent_service.py
+  s_9b7dd51ed8863e::t_2f492ed5bf9d6e 140,144-146,148-152,162,177-192,198-205
+  s_9b7dd51ed8863e::t_9a77390cc4729d 193-197,206
+  s_9b7dd51ed8863e::t_bcd14110b7352d 207
+apps/api/app/services/user_service.py
+  s_9b7dd51ed8863e::t_8d61b405798a50 15
+  s_9b7dd51ed8863e::t_e9c7fef292dd1b 204-210
+  s_9b7dd51ed8863e::t_8c29542adc1c89 211
+apps/api/app/seed/default_agents.json
+  s_9b7dd51ed8863e::t_128f92f5aee516 1-82
+docs/developer/reference/environment-variables.md
+  s_9b7dd51ed8863e::t_c9391afea205e1 70
+apps/api/tests/test_agent_seed.py
+  s_9b7dd51ed8863e::t_9a759c9bf8ecfc 133-144,149,151-190
+  s_9b7dd51ed8863e::t_11c738bc3ca460 1-132
+  s_9b7dd51ed8863e::t_40cbdbf8db685e 145-148,150
+apps/api/app/services/agent_seed.py
+  s_9b7dd51ed8863e::t_3e0dda8093e7fa 26-29
+  s_9b7dd51ed8863e::t_55d483faec4282 72-77
+  s_9b7dd51ed8863e::t_b2839278dc9582 1-25,30-71,78-115
+apps/api/app/config.py
+  s_9b7dd51ed8863e::t_c9391afea205e1 68-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f22c9540ea88c53e4e30e7807e0f824415c124a2",
+  "prompts": {},
+  "sessions": {
+    "s_9b7dd51ed8863e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10a709b8-e381-4a52-a028-bd3f72b6be8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
