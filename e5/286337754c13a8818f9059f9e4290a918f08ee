@@ -1,0 +1,50 @@
+apps/runtime/tests/test_duration_guard.py
+  s_16e0bd9ace0a09::t_959580668b72d2 23
+  s_658b9567cc5882::t_59fd007a9eb934 261-263
+  s_658b9567cc5882::t_3527f9556594e0 1-22,24-67,90-260,264-268
+  s_16e0bd9ace0a09::t_a28ae03493ceae 68-89
+apps/runtime/services/pipecat/pipeline.py
+  s_16e0bd9ace0a09::t_18946fa4a95af6 12
+  s_16e0bd9ace0a09::t_d8751bef60c695 98
+apps/runtime/constants.py
+  s_16e0bd9ace0a09::t_1f34300639db39 25-39
+  s_658b9567cc5882::t_e4f13d6c612cbe 23-24,40-52
+apps/runtime/services/pipecat/duration_guard.py
+  s_16e0bd9ace0a09::t_b0a387663000ab 42-55
+  s_658b9567cc5882::t_c2c08db760602e 1-19,21-41,56-87
+  s_16e0bd9ace0a09::t_d66efcf2045cc4 20
+apps/api/tests/test_call_log_usage_accounting.py
+  s_658b9567cc5882::t_4cc66284a77132 1-181
+apps/api/app/models/schemas.py
+  s_658b9567cc5882::t_ac2b6312b99344 634
+  s_658b9567cc5882::t_39eb02d080f654 581-585
+apps/runtime/services/pipecat/lifecycle.py
+  s_658b9567cc5882::t_ed1065d41524e8 14-17,32-33,36-45,47,65-82,87-88,94-95
+apps/api/app/services/call_log_service.py
+  s_658b9567cc5882::t_02eed96ca2bf9e 95-101,108-113,132-135,137-138,141
+  s_658b9567cc5882::t_9e78152f8899d7 136,139-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e5286337754c13a8818f9059f9e4290a918f08ee",
+  "prompts": {},
+  "sessions": {
+    "s_16e0bd9ace0a09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "958723ad-704a-4fcc-9ece-e3d472840681",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_658b9567cc5882": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bf76bfc-cc33-46bc-b8ab-22fef4c72f03",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
