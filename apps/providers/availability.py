@@ -39,6 +39,11 @@ def clear_deployed_cache() -> None:
     _cache_at = 0.0
 
 
+def deployed_model_ids() -> frozenset[str]:
+    """Model ids model-server currently reports via GET /models (10s cache)."""
+    return _deployed_ids()
+
+
 def is_authenticated(provider: str, configured: AbstractSet[str]) -> bool:
     """Return whether ``provider`` should show as authenticated."""
     gateway_id = LOCAL_GATEWAY_MODELS.get(provider)

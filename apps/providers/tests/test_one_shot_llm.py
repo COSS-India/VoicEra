@@ -84,7 +84,7 @@ def test_first_available_forwards_max_tokens_to_kenpath():
         return {}
 
     with patch(
-        "apps.providers.one_shot_llm.first_available_provider", return_value="kenpath"
+        "apps.providers.one_shot_llm.available_providers", return_value=["kenpath"]
     ), patch(
         "apps.providers.one_shot_llm.call_kenpath", return_value=("translated", "some-model")
     ) as mock_call:
@@ -105,10 +105,11 @@ def test_first_available_forwards_max_tokens_to_local_model_server():
         return {}
 
     with patch(
-        "apps.providers.one_shot_llm.first_available_provider",
-        return_value="voicera_model_server",
+        "apps.providers.one_shot_llm.available_providers",
+        return_value=["voicera_model_server"],
     ), patch(
-        "apps.providers.one_shot_llm.call_local_model_server", return_value="translated"
+        "apps.providers.one_shot_llm.call_local_model_server",
+        return_value=("translated", "qwen3.5-4b"),
     ) as mock_call:
         call_first_available(
             ORG_ID,
@@ -172,6 +173,91 @@ def test_call_local_model_server_allows_request_within_context_window():
     with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
         "apps.providers.one_shot_llm.call_openai_compatible", return_value="translated"
     ) as mock_call:
-        result = call_local_model_server("short system", "short user", max_tokens=200)
+        result, model = call_local_model_server("short system", "short user", max_tokens=200)
     assert result == "translated"
+    assert model == "qwen3.5-4b"
     assert mock_call.call_args.kwargs["max_tokens"] == 200
+
+
+def test_call_local_model_server_uses_deployed_model_id_from_model_server():
+    """model-server's actually-deployed LLM slot is configurable (LLM_MODEL
+    env var on model-server's own side) — this must ask model-server's own
+    /models report rather than hardcoding "qwen3.5-4b", or any deployment
+    with a different slot name 404s on every call."""
+    with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
+        "apps.providers.one_shot_llm.deployed_model_ids", return_value=frozenset({"custom-slot-name"})
+    ), patch(
+        "apps.providers.one_shot_llm.call_openai_compatible", return_value="translated"
+    ) as mock_call:
+        result, model = call_local_model_server("short system", "short user", max_tokens=200)
+    assert model == "custom-slot-name"
+    assert mock_call.call_args.args[2] == "custom-slot-name"
+
+
+def test_call_local_model_server_falls_back_to_default_model_when_undiscoverable():
+    """If model-server's /models is unreachable (network hiccup, cache miss
+    racing a cold start), fall back to the historical default instead of
+    calling with an empty/None model name."""
+    with patch.dict("os.environ", {"MODEL_SERVER_URL": "http://model-server:8000"}), patch(
+        "apps.providers.one_shot_llm.deployed_model_ids", return_value=frozenset()
+    ), patch(
+        "apps.providers.one_shot_llm.call_openai_compatible", return_value="translated"
+    ):
+        _, model = call_local_model_server("short system", "short user", max_tokens=200)
+    assert model == "qwen3.5-4b"
+
+
+def test_call_first_available_falls_back_to_next_provider_on_failure():
+    """An org whose only configured provider is Kenpath Vistaar/Voice-Bhili
+    (call_kenpath raises for that backend — see
+    test_kenpath_vistaar_refuses_instead_of_mistranslating) must still reach
+    a reachable self-hosted model-server fallback, instead of failing
+    outright because the first candidate in priority order didn't work."""
+
+    def resolve_auth(org_id: str, provider: str) -> dict:
+        return {}
+
+    with patch(
+        "apps.providers.one_shot_llm.available_providers",
+        return_value=["kenpath", "voicera_model_server"],
+    ), patch(
+        "apps.providers.one_shot_llm.call_kenpath",
+        side_effect=OneShotLLMError("vistaar/voice_bhili does not support one-shot completions"),
+    ) as mock_kenpath, patch(
+        "apps.providers.one_shot_llm.call_local_model_server",
+        return_value=("translated", "qwen3.5-4b"),
+    ) as mock_local:
+        dispatched = call_first_available(
+            ORG_ID,
+            "system",
+            "user",
+            resolve_auth=resolve_auth,
+            list_configured_providers=lambda org_id: ["kenpath"],
+        )
+
+    mock_kenpath.assert_called_once()
+    mock_local.assert_called_once()
+    assert dispatched == ("voicera_model_server", "qwen3.5-4b", "translated")
+
+
+def test_call_first_available_raises_last_error_when_all_providers_fail():
+    def resolve_auth(org_id: str, provider: str) -> dict:
+        return {}
+
+    with patch(
+        "apps.providers.one_shot_llm.available_providers",
+        return_value=["kenpath", "voicera_model_server"],
+    ), patch(
+        "apps.providers.one_shot_llm.call_kenpath", side_effect=OneShotLLMError("kenpath failed")
+    ), patch(
+        "apps.providers.one_shot_llm.call_local_model_server",
+        side_effect=OneShotLLMError("local model server failed"),
+    ):
+        with pytest.raises(OneShotLLMError, match="local model server failed"):
+            call_first_available(
+                ORG_ID,
+                "system",
+                "user",
+                resolve_auth=resolve_auth,
+                list_configured_providers=lambda org_id: ["kenpath"],
+            )
