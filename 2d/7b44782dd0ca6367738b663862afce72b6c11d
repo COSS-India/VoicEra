@@ -1,0 +1,97 @@
+apps/api/app/services/limits/errors.py
+  s_658b9567cc5882::t_576718c9716c0e 1-22
+apps/api/app/auth.py
+  s_658b9567cc5882::t_6ac2bf20164ec5 134
+apps/api/app/utils/client_ip.py
+  s_658b9567cc5882::t_d19a3e1755f1e8 1-51,66-133
+  s_16e0bd9ace0a09::t_3eb0c878e9de63 52-65
+apps/api/app/main.py
+  s_658b9567cc5882::t_dca84d2e964c97 9,11,30
+  s_658b9567cc5882::t_99ccb2ec239cd8 78-92
+apps/api/app/services/call_concurrency/rate_limiter.py
+  s_658b9567cc5882::t_acce1101a4ef3a 111-114,126,133,147,154,156-166,172-179
+  s_16e0bd9ace0a09::t_de4cd6bcfea3c2 88-92
+  s_16e0bd9ace0a09::t_218d5e251e691d 12
+  s_658b9567cc5882::t_016958343fad82 5,28-40,44-48,62-65,71,75,82-87,93-95
+  s_16e0bd9ace0a09::t_cfdca465ef3d18 167-171
+docs/developer/reference/environment-variables.md
+  s_16e0bd9ace0a09::t_a681d20d83f3aa 143-144
+  s_16e0bd9ace0a09::t_32157ed286be4b 125
+  s_16e0bd9ace0a09::t_52324a19746b1a 129
+  s_658b9567cc5882::t_a1ab9b6284ac35 123-124,126-128,130-142,145-146
+apps/api/app/routers/users.py
+  s_658b9567cc5882::t_4449e343636fa3 39-45,53,57-61
+  s_658b9567cc5882::t_5ebc616e204e18 193-197,200,210-214
+  s_658b9567cc5882::t_b91c97e1540e3e 7,24-31
+  s_658b9567cc5882::t_b8c6aba23aeb49 156-160
+docs/developer/rate-limiting-plan.md
+  s_658b9567cc5882::t_31d85674ee05d5 88-90,94-99,111-117,119-143,162-165,175-179,183,188-190,209-215,217-225,239-241,245,262,274-288,290-292,297-299,303,307-309,323,338-341,351,355-359,375-379,384-386,389-400,402,404-407,413-414,420,423-425,432-459,464,466-470,484-487,489,491-494,496-497,499-505,507-513,518-523,525,543-546,551-553,555,571,579-594,598-632,642,644-655,658-661,663,665-677,689-690,693-721,735-738,742-743,753-754,758,760-768,772-773,777-778,783-793,795-797,799-800,809-810,812,816-817
+  s_16e0bd9ace0a09::t_d3b1be8d9fc9a6 514-517
+  s_658b9567cc5882::t_2281a9f3736f35 13-19,24-30,35-46,48-50
+  s_a32ceb90ce88f2::t_1baafa6d35865c 1-2,52-87,91-93,100-110,118,144-161,166-174,180-182,184-187,191-208,216,226-238,242-244,246-261,263-273,289,293-296,300-302,304-306,310-322,324-337,342-350,352-354,360-374,380-383,387-388,401,403,408-412,415-419,421-422,426-431,460-463,465,471-483,488,490,495,498,506,524,526-542,547-550,554,556-570,572-578,595-597,633-641,643,656-657,662,664,678-688,691-692,722-734,739-741,744-752,755-757,759,769-771,774-776,779-782,794,798,801-808,811,813-815
+  s_658b9567cc5882::t_8e808fcf4e2173 3-12,31-34,47,51
+  s_16e0bd9ace0a09::t_f66398a17b1e7c 20-23
+apps/api/app/services/limits/policy.py
+  s_658b9567cc5882::t_6159be1e3948a8 1-102
+.env.example
+  s_658b9567cc5882::t_23fffa87e3bf94 55-77
+apps/api/app/services/limits/deps.py
+  s_658b9567cc5882::t_07d3a87f7ddee4 1-191
+apps/api/app/config.py
+  s_658b9567cc5882::t_217547137a1f4d 191-201,215-216
+  s_658b9567cc5882::t_be1178cac0415a 109-152
+  s_658b9567cc5882::t_83dbea7c5ab898 3-4,12
+  s_658b9567cc5882::t_b6c26540653bf8 9
+  s_658b9567cc5882::t_7e49772ec230f2 171-190,202-214
+  s_658b9567cc5882::t_f78be75bcc6e0f 13
+apps/api/app/services/limits/__init__.py
+  s_658b9567cc5882::t_ea3482604bb4d8 1-6
+apps/api/app/services/limits/counters.py
+  s_658b9567cc5882::t_9b12d1da35c0e8 126-175
+  s_16e0bd9ace0a09::t_7623f72b1f18d5 73-78
+  s_658b9567cc5882::t_103d895ff8bbdc 1-15,17-18,20,22-72,79-125
+  s_658b9567cc5882::t_6ca21cf23231e0 16,19
+  s_16e0bd9ace0a09::t_c35bfb05a6cd9a 21
+apps/api/app/services/call_concurrency/service.py
+  s_658b9567cc5882::t_7b7aede6bd3e8a 55-60,62
+apps/api/tests/test_limits.py
+  s_658b9567cc5882::t_84ee0db6a2096d 48
+  s_658b9567cc5882::t_10603581dd0a22 18
+  s_16e0bd9ace0a09::t_7976eec605ec3f 164-183
+  s_658b9567cc5882::t_9c14b684916ceb 29-31
+  s_658b9567cc5882::t_ab215a38a7abe8 1-2,10-17,19-28,32-47,49-59,68-74,78-163,184-376
+  s_658b9567cc5882::t_ac52f26c8a1b08 3-9
+  s_658b9567cc5882::t_a3f25431d11e9a 60-67,75-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2d7b44782dd0ca6367738b663862afce72b6c11d",
+  "prompts": {},
+  "sessions": {
+    "s_16e0bd9ace0a09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "958723ad-704a-4fcc-9ece-e3d472840681",
+        "model": "claude-opus-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_658b9567cc5882": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bf76bfc-cc33-46bc-b8ab-22fef4c72f03",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_a32ceb90ce88f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "928e3bfe-4836-4b94-af8b-b179653ea8d7",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    }
+  }
+}
