@@ -1,0 +1,19 @@
+frontend/src/components/dashboard/ProviderConnections.tsx
+  s_19c23ad6ac1206::t_7968ca10e115be 369-370
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "22a7d805e3b5a7ea6985cff4d91c5f43603017fe",
+  "prompts": {},
+  "sessions": {
+    "s_19c23ad6ac1206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c65a2e47-51ab-4a15-a242-69a08dff9391",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
