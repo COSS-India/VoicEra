@@ -366,9 +366,8 @@ function ConnectionDialog({
             Send the caller&apos;s phone number
           </span>
           <span className="text-xs font-light text-v-muted">
-            Adds metadata.caller_phone (digits with country code) to every
-            request. Calls with no known number, such as web calls, will not
-            start.
+            Sends the caller&apos;s number as metadata.caller_phone. Web calls
+            are not supported.
           </span>
         </div>
 
