@@ -1,0 +1,31 @@
+apps/providers/cloud/openai_compatible/service.py
+  s_19c23ad6ac1206::t_41e5550aff1921 59-61
+docs/api-reference/provider-connections.md
+  s_19c23ad6ac1206::t_41e5550aff1921 65
+apps/api/app/models/schemas.py
+  s_19c23ad6ac1206::t_41e5550aff1921 192
+apps/runtime/tests/test_ai_service_factory.py
+  s_19c23ad6ac1206::t_41e5550aff1921 244,247
+  s_19c23ad6ac1206::t_8b8b8320e104d9 245-246
+frontend/src/components/dashboard/ProviderConnections.tsx
+  s_19c23ad6ac1206::t_41e5550aff1921 369-370
+apps/providers/tests/test_openai_compatible_llm.py
+  s_19c23ad6ac1206::t_41e5550aff1921 238,240
+  s_19c23ad6ac1206::t_8b8b8320e104d9 239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c88a4907ad9073231b95a5c9c449126786de1b7f",
+  "prompts": {},
+  "sessions": {
+    "s_19c23ad6ac1206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c65a2e47-51ab-4a15-a242-69a08dff9391",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
