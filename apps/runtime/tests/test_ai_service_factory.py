@@ -5,11 +5,17 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from apps.providers import AgentConfig, create_llm_service
+from apps.runtime.services import ai_service_factory
 from apps.runtime.services.ai_service_factory import (
+    ServiceBuildError,
     _requires_stored_auth,
+    build_ai_services,
     merge_models_with_auth,
 )
+from apps.runtime.services.pipecat.audio import caller_phone
 
 
 def test_local_providers_do_not_require_stored_auth():
@@ -205,3 +211,51 @@ def test_a_connection_that_predates_the_setting_keeps_the_full_conversation():
     )
     llm = _llm_from(_agent_on_a_connection({}), client)
     assert _sent_messages(llm, _HISTORY) == _HISTORY
+
+
+def _llm_for_a_call(monkeypatch, caller: str | None, send_caller_phone: bool):
+    """``build_ai_services`` with the local STT / TTS builds stubbed out."""
+    monkeypatch.setattr(ai_service_factory, "create_stt_service", MagicMock())
+    monkeypatch.setattr(ai_service_factory, "create_tts_service", MagicMock())
+    client = MagicMock()
+    client.get_provider_auth = AsyncMock(
+        return_value={
+            "base_url": "http://vllm.internal:8000/v1",
+            "api_key": "sk-local",
+            "endpoint_send_caller_phone": send_caller_phone,
+        },
+    )
+    _, _, llm = asyncio.run(
+        build_ai_services(_agent_on_a_connection({}), client, caller_phone=caller)
+    )
+    return llm
+
+
+def test_the_callers_number_reaches_the_request(monkeypatch):
+    llm = _llm_for_a_call(monkeypatch, "919900112233", send_caller_phone=True)
+    params = llm.build_chat_completion_params({"messages": _HISTORY})
+    assert params["metadata"] == {"caller_phone": "919900112233"}
+
+
+def test_a_connection_without_the_toggle_sends_no_metadata(monkeypatch):
+    llm = _llm_for_a_call(monkeypatch, "919900112233", send_caller_phone=False)
+    assert "metadata" not in llm.build_chat_completion_params({"messages": _HISTORY})
+
+
+def test_the_toggle_with_no_number_refuses_to_build(monkeypatch):
+    with pytest.raises(ServiceBuildError, match="phone number"):
+        _llm_for_a_call(monkeypatch, None, send_caller_phone=True)
+
+
+@pytest.mark.parametrize(
+    ("call_log", "expected"),
+    [
+        ({"call_type": "inbound", "from_number": "+91 99001-12233", "to_number": "+918000000000"}, "919900112233"),
+        ({"call_type": "outbound", "from_number": "+918000000000", "to_number": "+919900112233"}, "919900112233"),
+        ({"call_type": "inbound", "from_number": "unknown"}, None),
+        ({"call_type": "web", "from_number": "browser", "to_number": "agent"}, None),
+        (None, None),
+    ],
+)
+def test_caller_phone_is_the_remote_party_as_digits(call_log, expected):
+    assert caller_phone(call_log) == expected

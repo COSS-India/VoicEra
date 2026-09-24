@@ -54,10 +54,22 @@ def create_llm(cfg: OpenAICompatibleLLMConfig):
     if not cfg.model:
         raise ValueError("openai_compatible requires a model id")
 
+    settings = llm_settings(cfg)
+    if cfg.endpoint_send_caller_phone:
+        # The endpoint keys its records on this number and rejects a request
+        # without it, so a call with no number cannot usefully start.
+        if not cfg.caller_phone:
+            raise ValueError(
+                "This provider connection sends the caller's phone number, "
+                "but none is known for this call"
+            )
+        # ``extra`` is merged into every request body the service builds.
+        settings["extra"] = {"metadata": {"caller_phone": cfg.caller_phone}}
+
     common = {
         "api_key": api_key(cfg.api_key),
         "base_url": cfg.base_url,
-        "settings": OpenAILLMSettings(**llm_settings(cfg)),
+        "settings": OpenAILLMSettings(**settings),
     }
 
     shape_messages = message_shaper(

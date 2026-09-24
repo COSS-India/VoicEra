@@ -36,6 +36,7 @@ interface FormState {
   supportsTools: boolean;
   historyMode: HistoryMode;
   systemPromptMode: SystemPromptMode;
+  sendCallerPhone: boolean;
   enabled: boolean;
 }
 
@@ -56,6 +57,7 @@ function emptyForm(provider: string): FormState {
     supportsTools: false,
     historyMode: "full",
     systemPromptMode: "send",
+    sendCallerPhone: false,
     enabled: true,
   };
 }
@@ -72,6 +74,7 @@ function formFrom(connection: ProviderConnection): FormState {
     supportsTools: connection.supports_tools,
     historyMode: connection.history_mode ?? "full",
     systemPromptMode: connection.system_prompt_mode ?? "send",
+    sendCallerPhone: connection.send_caller_phone ?? false,
     enabled: connection.enabled,
   };
 }
@@ -177,6 +180,7 @@ function ConnectionDialog({
         supports_tools: form.supportsTools,
         history_mode: form.historyMode,
         system_prompt_mode: form.systemPromptMode,
+        send_caller_phone: form.sendCallerPhone,
         enabled: form.enabled,
       };
       if (editing) {
@@ -352,6 +356,22 @@ function ConnectionDialog({
           </span>
         </div>
 
+        <div className="flex flex-col gap-1.5 text-[13px] font-medium">
+          <span className="flex items-center gap-3">
+            <Switch
+              checked={form.sendCallerPhone}
+              label="Send the caller's phone number"
+              onChange={(checked) => set("sendCallerPhone", checked)}
+            />
+            Send the caller&apos;s phone number
+          </span>
+          <span className="text-xs font-light text-v-muted">
+            Adds metadata.caller_phone (digits with country code) to every
+            request. Calls with no known number, such as web calls, will not
+            start.
+          </span>
+        </div>
+
         <label className="flex items-center gap-2 text-[13px] font-medium">
           <input
             type="checkbox"
@@ -522,6 +542,11 @@ export function ProviderConnections({
                       {connection.system_prompt_mode === "omit" ? (
                         <span className="rounded-full border border-v-line bg-v-soft px-1.5 py-0.5 text-[10px] font-medium text-v-muted-2">
                           No system prompt
+                        </span>
+                      ) : null}
+                      {connection.send_caller_phone ? (
+                        <span className="rounded-full border border-v-line bg-v-soft px-1.5 py-0.5 text-[10px] font-medium text-v-muted-2">
+                          Caller phone
                         </span>
                       ) : null}
                     </div>

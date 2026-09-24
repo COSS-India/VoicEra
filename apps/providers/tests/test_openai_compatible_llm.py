@@ -207,3 +207,42 @@ def test_the_trim_does_not_mutate_the_context_messages():
     ]
     trim_to_current_turn(messages)
     assert len(messages) == 3
+
+
+# ---------------------------------------------------------------------------
+# Caller phone
+# ---------------------------------------------------------------------------
+
+
+def _request_params(cfg: OpenAICompatibleLLMConfig) -> dict:
+    return create_llm(cfg).build_chat_completion_params({"messages": [_SYSTEM]})
+
+
+def test_no_metadata_unless_the_endpoint_asks_for_it():
+    params = _request_params(_config(caller_phone="919900112233"))
+    assert "metadata" not in params
+
+
+def test_the_caller_phone_rides_every_request_as_metadata():
+    cfg = _config(endpoint_send_caller_phone=True, caller_phone="919900112233")
+    assert _request_params(cfg)["metadata"] == {"caller_phone": "919900112233"}
+    # The shaped service builds its body the same way.
+    cfg = _config(
+        endpoint_send_caller_phone=True,
+        caller_phone="919900112233",
+        history_mode="current_turn",
+    )
+    assert _request_params(cfg)["metadata"] == {"caller_phone": "919900112233"}
+
+
+def test_a_call_with_no_number_fails_at_setup():
+    with pytest.raises(ValueError, match="phone number"):
+        create_llm(_config(endpoint_send_caller_phone=True))
+
+
+def test_the_caller_phone_fields_are_not_agent_form_fields():
+    auth_fields = _auth_field_names(OpenAICompatibleLLMConfig)
+    assert {"endpoint_send_caller_phone", "caller_phone"} <= auth_fields
+    fields = provider_settings(Kind.LLM, "openai_compatible")["fields"]
+    assert "endpoint_send_caller_phone" not in fields
+    assert "caller_phone" not in fields

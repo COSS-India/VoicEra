@@ -34,6 +34,21 @@ def resolve_custom_variables(
     return {**config_vars, **call_vars}
 
 
+def caller_phone(call_log: dict[str, Any] | None) -> str | None:
+    """The remote party's number as digits only, country code first.
+
+    That is ``from_number`` on an inbound call and ``to_number`` on an
+    outbound one; a web call, or a number never learned, gives ``None``.
+    """
+    call_log = call_log or {}
+    field = {"inbound": "from_number", "outbound": "to_number"}.get(
+        str(call_log.get("call_type") or "")
+    )
+    if field is None:
+        return None
+    return re.sub(r"\D", "", str(call_log.get(field) or "")) or None
+
+
 def prompts(
     agent: dict[str, Any],
     *,

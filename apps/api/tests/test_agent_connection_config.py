@@ -113,7 +113,13 @@ def test_the_agents_own_system_prompt_mode_is_saved():
 
 
 @pytest.mark.parametrize(
-    "field", ["endpoint_history_mode", "endpoint_system_prompt_mode"]
+    "field",
+    [
+        "endpoint_history_mode",
+        "endpoint_system_prompt_mode",
+        "endpoint_send_caller_phone",
+        "caller_phone",
+    ],
 )
 def test_the_endpoints_own_defaults_are_refused_on_the_agent(field):
     """They belong to the connection, so they are auth-layer fields like base_url."""

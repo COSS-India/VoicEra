@@ -233,6 +233,7 @@ def _to_response(doc: dict[str, Any], *, mask_secrets: bool) -> dict[str, Any]:
     # Rows written before a mode existed read as the behaviour they had.
     for name, (_, default) in _ENDPOINT_MODES.items():
         prepared.setdefault(name, default)
+    prepared.setdefault("send_caller_phone", False)
     stored = prepared.pop("secret", None)
     api_key = decrypt_json(stored).get("api_key", "") if stored else ""
     prepared["api_key"] = _mask(api_key) if mask_secrets else api_key
@@ -280,6 +281,7 @@ def create_connection(
             name: _validate_mode(name, payload.get(name))
             for name in _ENDPOINT_MODES
         },
+        "send_caller_phone": bool(payload.get("send_caller_phone", False)),
         "enabled": bool(payload.get("enabled", True)),
         "verified_at": None,
         "created_at": now,
@@ -369,6 +371,8 @@ def update_connection(
         if payload.get(name) is not None:
             # Takes effect on the next call for every agent set to inherit.
             updates[name] = _validate_mode(name, payload[name])
+    if payload.get("send_caller_phone") is not None:
+        updates["send_caller_phone"] = bool(payload["send_caller_phone"])
     if "enabled" in payload and payload["enabled"] is not None:
         enabled = bool(payload["enabled"])
         if not enabled and existing.get("enabled", True):
@@ -475,6 +479,7 @@ def resolve_auth(org_id: str, connection_id: str) -> dict[str, Any]:
             f"endpoint_{name}": stored.get(name, default)
             for name, (_, default) in _ENDPOINT_MODES.items()
         },
+        "endpoint_send_caller_phone": bool(stored.get("send_caller_phone", False)),
     }
 
 

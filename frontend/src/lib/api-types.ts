@@ -295,6 +295,7 @@ export interface ProviderConnection {
   supports_tools: boolean;
   history_mode: HistoryMode;
   system_prompt_mode: SystemPromptMode;
+  send_caller_phone: boolean;
   enabled: boolean;
   verified_at?: string | null;
   created_at?: string;
@@ -311,6 +312,7 @@ export interface ProviderConnectionPayload {
   supports_tools?: boolean;
   history_mode?: HistoryMode;
   system_prompt_mode?: SystemPromptMode;
+  send_caller_phone?: boolean;
   enabled?: boolean;
 }
 

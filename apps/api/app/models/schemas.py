@@ -184,6 +184,14 @@ class ProviderConnectionCreate(BaseModel):
             "or 'omit' for an endpoint that composes its own instructions."
         ),
     )
+    send_caller_phone: bool = Field(
+        default=False,
+        description=(
+            "Send the caller's number, digits only with country code, as "
+            "metadata.caller_phone on every request. A call with no known "
+            "number then fails at setup."
+        ),
+    )
     enabled: bool = True
 
 
@@ -198,6 +206,7 @@ class ProviderConnectionUpdate(BaseModel):
     supports_tools: Optional[bool] = None
     history_mode: Optional[HistoryMode] = None
     system_prompt_mode: Optional[SystemPromptMode] = None
+    send_caller_phone: Optional[bool] = None
     enabled: Optional[bool] = None
 
 
@@ -217,6 +226,7 @@ class ProviderConnectionResponse(BaseModel):
     supports_tools: bool = False
     history_mode: HistoryMode = "full"
     system_prompt_mode: SystemPromptMode = "send"
+    send_caller_phone: bool = False
     enabled: bool = True
     verified_at: Optional[str] = None
     created_at: Optional[str] = None

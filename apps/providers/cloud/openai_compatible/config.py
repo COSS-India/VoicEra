@@ -18,6 +18,10 @@ layer for the same reason: they belong to the endpoint, so they are never
 stored on an agent and never show up in the agent form. The agent's own
 ``history_mode`` / ``system_prompt_mode`` default to ``inherit``, and the
 ``effective_*`` properties pick between the two.
+
+``endpoint_send_caller_phone`` is likewise the connection's, and
+``caller_phone`` is per-call context the runtime adds at call setup; both sit
+on the Auth layer so neither can be saved on an agent.
 """
 
 from __future__ import annotations
@@ -67,6 +71,20 @@ class OpenAICompatibleAuth(BaseModel):
         description=(
             "The connection's own system-prompt default, applied to every "
             "agent that leaves its system_prompt_mode on 'inherit'."
+        ),
+    )
+    endpoint_send_caller_phone: bool = Field(
+        default=False,
+        description=(
+            "Whether the endpoint requires the caller's number as "
+            "metadata.caller_phone on every request. Set on the connection."
+        ),
+    )
+    caller_phone: str | None = Field(
+        default=None,
+        description=(
+            "The caller's number for this call, digits only with country code. "
+            "Merged in by the runtime per call; never stored on an agent."
         ),
     )
 

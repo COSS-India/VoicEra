@@ -43,6 +43,7 @@ Bearer, `admin` or `super_admin`. `201`.
   "supports_tools": true,
   "history_mode": "full",
   "system_prompt_mode": "send",
+  "send_caller_phone": false,
   "enabled": true
 }
 ```
@@ -60,6 +61,8 @@ Both are defaults for every agent on this endpoint; an agent overrides either wi
 ```json
 { "messages": [{ "role": "user", "content": "yes, the first one" }] }
 ```
+
+`send_caller_phone` (default `false`) adds the caller's number to every request as `"metadata": { "caller_phone": "919900112233" }` — digits only, country code first, no `+`. The number is the call's `from_number` on an inbound call and its `to_number` on an outbound one. It has no agent override. A call with no known number — a web call, or an inbound call whose number was never learned — fails at setup instead of sending requests the endpoint would reject.
 
 ## `POST /provider-connections/probe`
 

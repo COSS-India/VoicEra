@@ -121,7 +121,9 @@ puts the connection's message-shaping defaults on Auth as
 `endpoint_history_mode` and `endpoint_system_prompt_mode`, while the agent's
 own `history_mode` / `system_prompt_mode` (`inherit` by default) stay normal
 Settings fields. The `effective_*` properties on the config pick between the
-two.
+two. `endpoint_send_caller_phone` follows the same rule; when it is on, the
+runtime also merges the call's `caller_phone` in and the service sends it as
+`metadata.caller_phone` on every request.
 
 ## Languages + capabilities (STT / TTS)
 

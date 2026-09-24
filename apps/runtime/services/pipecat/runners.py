@@ -22,6 +22,7 @@ async def run_telephony_bot(
     call_id: str | None,
     agent: dict[str, Any],
     custom_variables: dict[str, Any] | None = None,
+    caller_phone: str | None = None,
 ) -> None:
     """Run the Pipecat pipeline for a telephony media stream."""
     sample_rate = telephony_sample_rate()
@@ -39,6 +40,7 @@ async def run_telephony_bot(
         sample_rate=sample_rate,
         call_id=call_id,
         custom_variables=custom_variables,
+        caller_phone=caller_phone,
         session_label=f"call_sid={call_sid}",
         finalize_call=True,
     )

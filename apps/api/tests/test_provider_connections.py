@@ -341,6 +341,38 @@ def test_history_mode_patches_like_any_other_field():
     assert collection.update_one.call_args.args[1]["$set"]["history_mode"] == "current_turn"
 
 
+def test_send_caller_phone_defaults_off_and_patches():
+    with patch.object(svc, "create_connection", return_value=_STORED) as mocked:
+        response = client.post(
+            "/api/v1/provider-connections",
+            json={
+                "name": "Local vLLM",
+                "base_url": "http://vllm.internal:8000/v1",
+                "api_key": "sk-local",
+            },
+        )
+    assert response.status_code == 201
+    assert mocked.call_args.args[1]["send_caller_phone"] is False
+
+    database, collection = _mongo_returning({**_STORED, "enabled": True})
+    with (
+        patch.object(svc, "get_database", return_value=database),
+        patch.object(svc, "agents_using", return_value=[]),
+    ):
+        svc.update_connection("org-1", "conn-1", {"send_caller_phone": True})
+    assert collection.update_one.call_args.args[1]["$set"]["send_caller_phone"] is True
+
+
+def test_resolved_carries_send_caller_phone():
+    database, _ = _mongo_returning({**_STORED, "send_caller_phone": True})
+    with patch.object(svc, "get_database", return_value=database):
+        assert svc.resolve_auth("org-1", "conn-1")["endpoint_send_caller_phone"] is True
+    # A row written before the setting existed reads as off.
+    database, _ = _mongo_returning(dict(_STORED))
+    with patch.object(svc, "get_database", return_value=database):
+        assert svc.resolve_auth("org-1", "conn-1")["endpoint_send_caller_phone"] is False
+
+
 def test_resolved_is_admin_only():
     _as(_MEMBER)
     response = client.get("/api/v1/provider-connections/conn-1/resolved")
