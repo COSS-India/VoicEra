@@ -58,6 +58,9 @@ LAYOUT = codec.CodecLayout(
     audio_end_token_id=277394,
     frame_rate_hz=12.5,
     speakers=("Ira", "Aisha", "Siya", "Zoya"),
+    bos_token_id=2,
+    text_start_token_id=277392,
+    audio_start_token_id=277393,
 )
 
 
@@ -189,3 +192,46 @@ def test_codes_tensor_has_the_shape_mimi_decode_wants():
     # [1, Q, T]: quantizer-major, frame-minor -- the transpose is the whole point.
     assert tensor[0, :, 0].tolist() == list(EIGHT)
     assert tensor[0, 0, :].tolist() == [EIGHT[0], NINE[0]]
+
+
+# ------------------------------------------------------------ prompt framing
+#
+# The model card: "[BOS] <text>{SPEAKER}: ... {TEXT}<audio>", with the BOS added
+# by the tokenizer. A tokenizer that stops adding BOS, or splits a marker into
+# sub-word pieces, degrades the voice without an error anywhere else -- so the
+# engine checks one real prompt at startup, and these pin that check.
+
+BOS, TEXT, AUDIO = 2, 277392, 277393
+
+
+def test_a_correctly_framed_prompt_passes():
+    codec.check_prompt_ids([BOS, TEXT, 1000, 1001, 1002, AUDIO], LAYOUT)
+
+
+def test_a_missing_bos_is_refused():
+    with pytest.raises(ValueError, match="BOS"):
+        codec.check_prompt_ids([TEXT, 1000, AUDIO], LAYOUT)
+
+
+def test_a_text_marker_split_into_pieces_is_refused():
+    with pytest.raises(ValueError, match="<text>"):
+        codec.check_prompt_ids([BOS, 27, 1000, 29, 1000, AUDIO], LAYOUT)
+
+
+def test_a_missing_audio_marker_is_refused():
+    with pytest.raises(ValueError, match="<audio>"):
+        codec.check_prompt_ids([BOS, TEXT, 1000, 27, 1001, 29], LAYOUT)
+
+
+def test_an_empty_encoding_is_refused():
+    with pytest.raises(ValueError):
+        codec.check_prompt_ids([], LAYOUT)
+
+
+def test_ids_the_layout_does_not_declare_are_not_checked():
+    bare = codec.CodecLayout(
+        first_unit_id=261008, last_unit_id=277391, num_quantizers=8,
+        codebook_size=2048, audio_end_token_id=277394, frame_rate_hz=12.5,
+        speakers=("Ira",),
+    )
+    codec.check_prompt_ids([1000, 1001], bare)

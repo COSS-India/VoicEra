@@ -5,11 +5,12 @@ This arithmetic used to be borrowed: the first build called the checkpoint's own
 deciding whether output is speech or noise lived in one place and that place was
 upstream's.
 
-The vLLM engine gives it up on purpose. Serving through vLLM means loading the
-checkpoint as a plain ``Cohere2ForCausalLM`` -- which is what it is, since
-``RumikOSSForCausalLM`` subclasses it and adds only a stop head we no longer
-need. That removes ``trust_remote_code`` and with it the coupling to whichever
-`transformers` version vLLM happens to pin. The cost is this file. It is twenty
+The vLLM engine gives it up on purpose. Serving through vLLM loads the
+checkpoint through vLLM's own Cohere2 implementation (see rumik_vllm_plugin.py),
+and never imports ``modeling_rumik_oss.py`` -- ``trust_remote_code`` is still
+needed, but only so transformers will read the config class. That removes the
+coupling to upstream's modeling code under whichever `transformers` vLLM happens
+to pin. The cost is this file. It is twenty
 lines of ``divmod``, and ``tests/test_rumik_codec.py`` pins every branch of it
 against the cases upstream's own implementation defines, so a transcription slip
 fails a test rather than producing plausible noise.
@@ -54,6 +55,11 @@ class CodecLayout:
     audio_end_token_id: int
     frame_rate_hz: float
     speakers: tuple[str, ...]
+    #: The prompt's framing ids. Optional so a layout can be written by hand in
+    #: a test; from_config always fills them, and check_prompt_ids uses them.
+    bos_token_id: int | None = None
+    text_start_token_id: int | None = None
+    audio_start_token_id: int | None = None
 
     @classmethod
     def from_config(cls, model_path: str | Path) -> CodecLayout:
@@ -86,6 +92,9 @@ class CodecLayout:
             audio_end_token_id=int(raw["audio_end_token_id"]),
             frame_rate_hz=float(raw.get("frame_rate_hz", 12.5)),
             speakers=tuple(raw.get("speakers") or ()),
+            bos_token_id=_optional_int(raw.get("bos_token_id")),
+            text_start_token_id=_optional_int(raw.get("text_start_token_id")),
+            audio_start_token_id=_optional_int(raw.get("audio_start_token_id")),
         )
 
     @property
@@ -102,12 +111,58 @@ class CodecLayout:
         """Every id the model may legally emit inside an <audio> span.
 
         The unit range plus ``</audio>`` -- exactly what the checkpoint's
-        ``audio_token_ids()`` returns, and what goes into vLLM's
-        ``SamplingParams.allowed_token_ids``. Leaving the end token out would
-        make the model unable to stop; leaving anything else in would let it
-        emit text ids mid-frame.
+        ``audio_token_ids()`` returns. NOT passed to vLLM's
+        ``SamplingParams.allowed_token_ids``, which is capped at 1024 entries;
+        the vLLM path applies the same set as a mask in the model's
+        ``compute_logits`` (rumik_vllm_plugin.py). Kept as the reference that
+        mask is checked against. Leaving the end token out would make the model
+        unable to stop; leaving anything else in would let it emit text ids
+        mid-frame.
         """
         return [*range(self.first_unit_id, self.last_unit_id + 1), self.audio_end_token_id]
+
+
+def _optional_int(value) -> int | None:
+    return None if value is None else int(value)
+
+
+def check_prompt_ids(ids, layout: CodecLayout) -> None:
+    """Refuse a tokenizer that does not frame the prompt the way the model was trained.
+
+    The model card: ``[BOS] <text>{SPEAKER}: ... {TEXT}<audio>`` -- "the
+    tokenizer adds [BOS] itself". Two ways that silently goes wrong, neither of
+    which errors anywhere downstream:
+
+      * no BOS, because a tokenizer or transformers upgrade changed the default
+        for ``add_special_tokens`` -- the model then conditions on a sequence
+        it never saw, and the voice degrades rather than breaks;
+      * ``<text>`` or ``<audio>`` split into ordinary sub-word pieces, because
+        they were not loaded as added tokens -- the model never sees the cue to
+        start speaking.
+
+    So the ids of one real prompt are checked once, at startup, against the ids
+    config.json declares. Ids the layout does not know are not checked.
+    """
+    ids = [int(i) for i in ids]
+    if not ids:
+        raise ValueError("the tokenizer produced no ids for the prompt")
+    problems = []
+    if layout.bos_token_id is not None and ids[0] != layout.bos_token_id:
+        problems.append(f"it does not start with BOS {layout.bos_token_id} (got {ids[0]})")
+    start = 1 if layout.bos_token_id is not None else 0
+    if (layout.text_start_token_id is not None
+            and (len(ids) <= start or ids[start] != layout.text_start_token_id)):
+        problems.append(f"<text> is not the single id {layout.text_start_token_id} after BOS")
+    if layout.audio_start_token_id is not None and ids[-1] != layout.audio_start_token_id:
+        problems.append(
+            f"it does not end with the single <audio> id {layout.audio_start_token_id} "
+            f"(got {ids[-1]})"
+        )
+    if problems:
+        raise ValueError(
+            "the tokenizer frames the prompt differently from the model card's "
+            "[BOS] <text>...<audio>: " + "; ".join(problems)
+        )
 
 
 def frames_from_tokens(token_ids, layout: CodecLayout) -> list[list[int]]:

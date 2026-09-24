@@ -16,8 +16,9 @@ A token source yields generated ids; everything downstream -- frame assembly,
 the windowed Mimi decode, the PCM -- is shared and does not know which produced
 them.
 
-`vllm` (default) serves the checkpoint as the `Cohere2ForCausalLM` it
-structurally is, with continuous batching and CUDA graphs. See vllm_backend.py.
+`vllm` (default) serves the checkpoint through vLLM's own Cohere2
+implementation plus upstream's stop head, with continuous batching and CUDA
+graphs. See vllm_backend.py and rumik_vllm_plugin.py.
 
 `transformers` runs upstream's own `generate_audio` -- a hand-written per-token
 Python loop with no streamer, no callback and no LogitsProcessor. It is kept
@@ -64,7 +65,7 @@ from dataclasses import dataclass
 
 import torch
 from audio import SAMPLE_RATE
-from codec import CodecLayout, codes_tensor, frames_from_tokens
+from codec import CodecLayout, check_prompt_ids, codes_tensor, frames_from_tokens
 from config import Config
 from prompt import PromptError, build_prompt, check_text
 from transformers import AutoFeatureExtractor, AutoTokenizer, MimiModel
@@ -167,6 +168,9 @@ class StreamStats:
     frames: int = 0
     pcm_bytes: int = 0
     gen_ms: float = 0.0
+    #: Generation hit the token cap rather than ending on its own. The audio
+    #: stops mid-utterance, and on the streamed path this is the only record.
+    truncated: bool = False
 
     @property
     def audio_ms(self) -> float:
@@ -189,6 +193,7 @@ class StreamStats:
             "rtf": self.rtf,
             "tokens": self.tokens,
             "tokens_per_s": self.tokens_per_s,
+            "truncated": self.truncated,
         }
 
 
@@ -318,6 +323,7 @@ class RumikTTSEngine:
             # The tokenizer the tap path loaded knows the remote code; prefer it
             # so both paths tokenize identically when compared.
             self.tokenizer = self._tokens.tokenizer or self.tokenizer
+            self._check_tokenizer(self.tokenizer)
 
         if cfg.warmup_enabled:
             await self._warmup()
@@ -341,6 +347,7 @@ class RumikTTSEngine:
         # No trust_remote_code: the tokenizer is a standard one, and the vLLM
         # path deliberately imports none of the checkpoint's code.
         self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_path)
+        self._check_tokenizer(self.tokenizer)
 
         self.mimi = (
             MimiModel.from_pretrained(f"{cfg.model_path}/codec", dtype=dtype)
@@ -368,6 +375,14 @@ class RumikTTSEngine:
             self.quantizers, self.samples_per_frame, self.frame_ms, self.sample_rate,
             cfg.engine,
         )
+
+    def _check_tokenizer(self, tokenizer) -> None:
+        """One real prompt, framed the way the model card says. See codec.check_prompt_ids."""
+        probe = build_prompt(voice=self.speakers[0], instructions="happy", text="नमस्ते")
+        try:
+            check_prompt_ids(tokenizer(probe)["input_ids"], self.layout)
+        except ValueError as exc:
+            raise TTSGenerationError(f"{exc}. Tokenizer: {type(tokenizer).__name__}") from exc
 
     async def stop(self) -> None:
         if self._tokens is not None:
@@ -488,6 +503,16 @@ class RumikTTSEngine:
                     self._record(stats, started, emitted, pcm)
                     yield pcm
 
+                if self._hit_cap(tokens, max_new_tokens):
+                    stats.truncated = True
+                    log.warning(
+                        "generation hit the %d-token cap (~%.1f s of audio) before the "
+                        "model ended the utterance; the audio is cut off. Shorten the "
+                        "input or raise RUMIK_MAX_NEW_TOKENS_LIMIT (the model card "
+                        "advises against more than ~35 s).",
+                        max_new_tokens, max_new_tokens / self.layout.tokens_per_second,
+                    )
+
                 tail = await asyncio.to_thread(
                     self._decode_new_frames, list(tokens), emitted, flush=True
                 )
@@ -497,6 +522,18 @@ class RumikTTSEngine:
                     yield pcm
             finally:
                 stats.gen_ms = (time.perf_counter() - started) * 1000.0
+
+    def _hit_cap(self, tokens: list[int], max_new_tokens: int) -> bool:
+        """True when the budget ran out rather than the model stopping.
+
+        Backend-agnostic on purpose. vLLM ends on `</audio>` and includes it in
+        the output; upstream's loop, when its stop head fires, appends the end
+        token outside the tapped sampler, so the tap sees fewer tokens than the
+        cap. Either way a finished utterance is shorter than the cap or ends in
+        `</audio>`, and a truncated one is neither.
+        """
+        return (len(tokens) >= max_new_tokens
+                and (not tokens or tokens[-1] != self.layout.audio_end_token_id))
 
     @staticmethod
     def _record(stats: StreamStats, started: float, frames: int, pcm: bytes) -> None:

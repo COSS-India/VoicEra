@@ -136,7 +136,7 @@ tts:
   - id: rumik-oss-1
     name: Rumik OSS-1 3B
     status: ready
-    runtime: transformers          # no vLLM: a per-token loop over a 3B backbone
+    runtime: vllm                  # RUMIK_ENGINE=transformers keeps upstream's loop as the reference
     sample_rate: 24000
     audio_format: pcm              # OpenAI's 16-bit LE mono, like orpheus
     streaming: true                # chunked while generating, and SSE audio deltas
@@ -158,7 +158,7 @@ tts:
       non-commercial use only, and a commercial deployment needs separate
       permission from Rumik. This is the only model in this catalogue with that
       restriction, which is why `license` appears here at all.
-      MEASURED, and it does not reach realtime. On ace-h200 GPU 1 (H200 NVL,
+      MEASURED ON THE TRANSFORMERS ENGINE, and that does not reach realtime. On ace-h200 GPU 1 (H200 NVL,
       Exclusive Process behind the shared MPS daemon), 15 Sep 2026: ~45 tok/s
       warm (43.1-48.9 over three runs), RTF 2.05-2.33, time-to-first-audio
       ~370 ms. Realtime needs 100 tok/s, so this is about 2.2x too slow to hold
@@ -169,10 +169,13 @@ tts:
       in Python, eager, no CUDA graphs, no continuous batching. Running
       `generate_audio` directly with no server, no tap and no streaming decode
       reproduces the same 45 tok/s to the decimal, so the slot's layer adds no
-      measurable overhead. Closing the gap means an inference engine, not
-      tuning -- vLLM already supports Cohere2, and the deltas here are an
-      enlarged vocab, a stop head and constrained sampling, so an adapter may
-      be tractable. Until then treat this as demo and evaluation grade.
+      measurable overhead. The vLLM engine (now the default) is the fix: vLLM's
+      own Cohere2 plus a plugin carrying upstream's stop head and the
+      audio-vocabulary mask, sampled at the card's settings (t 0.8, top_k 30,
+      top_p 1.0, <= 3072 tokens). It loads and captures CUDA graphs on the
+      H200 but has NOT yet produced a measured utterance, nor been compared
+      against the transformers reference -- so until it has, treat this as demo
+      and evaluation grade, and RUMIK_MAX_CONCURRENCY stays 1.
       Still unverified: the streaming decode's left-context window, a chosen 32
       frames rather than a measured one. The folder README says what to run.
 

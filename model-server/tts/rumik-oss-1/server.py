@@ -25,8 +25,9 @@ request.
 
 Cancellation needs no polling here. When the caller hangs up, Starlette cancels
 the body iterator, which throws into the async generator in engine.py, whose
-`finally` trips the sampling tap -- so generation stops inside the model's own
-loop rather than running to the end of a sentence nobody is listening to.
+`finally` aborts the vLLM request -- or, on the transformers engine, trips the
+sampling tap so generation stops inside the model's own loop -- rather than
+running to the end of a sentence nobody is listening to.
 """
 from __future__ import annotations
 
@@ -106,7 +107,9 @@ class SpeechRequest(BaseModel):
     max_new_tokens: int | None = Field(
         None, ge=8,
         description="Extension: cap on generated audio tokens. Eight make one 80 ms "
-                    "frame, so 2048 is about 20 s of speech.",
+                    "frame, so the default 3072 is about 30 s of speech -- the model "
+                    "card's maximum. Hitting it cuts the audio off: X-Truncated on a "
+                    "buffered response, `truncated` in the SSE done event.",
     )
 
 
@@ -341,6 +344,11 @@ def _timing_headers(stats: StreamStats) -> dict[str, str]:
         # raw model, which is a thing a response should never require.
         "X-Tokens": str(stats.tokens),
     }
+    if stats.truncated:
+        # The body is complete as a file but the utterance is not: generation
+        # hit the token cap mid-sentence. Said out loud rather than left for a
+        # listener to notice.
+        out["X-Truncated"] = "true"
     if stats.tokens_per_s is not None:
         out["X-Tokens-Per-Sec"] = f"{stats.tokens_per_s:.1f}"
     if stats.ttfa_ms is not None:
@@ -392,6 +400,7 @@ async def _sse_events(pcm_stream, fmt: str, stats: StreamStats):
         yield event({
             "type": "speech.audio.done",
             "usage": {"output_tokens": stats.tokens, "total_tokens": stats.tokens},
+            "truncated": stats.truncated,
             "audio": {
                 "duration_ms": round(stats.audio_ms, 1),
                 "format": fmt,

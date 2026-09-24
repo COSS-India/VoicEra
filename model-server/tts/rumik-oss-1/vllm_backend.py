@@ -8,45 +8,34 @@ than arithmetic. Overhead-bound is the good case: a batch of fifty costs barely
 more per step than a batch of one, which is the headroom vLLM harvests.
 
 --------------------------------------------------------------------------
-Why this needs no custom model class
+How upstream's loop maps onto vLLM
 
-`RumikOSSForCausalLM` subclasses `Cohere2ForCausalLM` and adds exactly one
-thing: a `stop_predictor` head. vLLM already implements Cohere2 --
-`"Cohere2ForCausalLM": ("commandr", "CohereForCausalLM")` in its registry -- so
-the transformer body needs nothing written.
-
-The head looked load-bearing and is not. Upstream's loop has two independent
-stop paths: the sigmoid head, and the model emitting `</audio>`, which
-`audio_token_ids()` explicitly includes in the allowed set. Disabling the head
-on hardware and generating three times, the model emitted `</audio>` itself
-every time, at 321-369 tokens against 273-361 with the head on. It is
-belt-and-braces. So every behaviour of that loop maps onto a sampling
-parameter:
+`RumikOSSForCausalLM` is `Cohere2ForCausalLM` plus one `stop_predictor` head,
+and vLLM already implements Cohere2 -- `"Cohere2ForCausalLM": ("commandr",
+"CohereForCausalLM")` in its registry. rumik_vllm_plugin registers a subclass
+of that implementation which adds the head back and the vocabulary mask, so
+every behaviour of upstream's `generate_audio` has a counterpart:
 
     upstream                                vLLM
-    ------------------------------------    -----------------------------
+    ------------------------------------    -----------------------------------
     allowed_ids = units + </audio>          a mask in compute_logits (*)
+    sigmoid(stop_predictor(h)) > 0.5        the same head, in compute_logits,
+                                            lifting </audio> (RUMIK_STOP_HEAD)
     break on </audio>                       stop_token_ids
     mask </audio> for min_new_tokens        min_tokens
-    temperature / top_k multinomial         temperature / top_k
+    temperature / top_k multinomial         temperature / top_k (top_p 1.0)
     max_new_tokens                          max_tokens
 
-and the stop head is simply not used.
-
 (*) not SamplingParams.allowed_token_ids, which is capped at 1024 entries
-against the 16,385 this vocabulary needs. See rumik_vllm_plugin.
+against the 16,385 this vocabulary needs.
 
 --------------------------------------------------------------------------
 How the checkpoint is resolved, after two wrong turns
 
-`rumik_vllm_plugin` registers `RumikOSSForCausalLM` with vLLM as a subclass of
-its Cohere2 implementation that drops the checkpoint's stop-head tensors. Both
-halves of that were learned the hard way:
-
 1. Rewriting `architectures` to `Cohere2ForCausalLM` via `hf_overrides`
    resolved fine and then failed loading weights -- `there is no module or
    parameter named 'stop_predictor'`. vLLM's loader raises on any name the
-   module does not have.
+   module does not have. The plugin's class now HAS that module.
 2. Registering the class from this process would not have helped either.
    vLLM runs EngineCore in a SPAWNED process ("We must use the `spawn`
    multiprocessing start method ... CUDA is initialized"), which never imports
@@ -54,17 +43,11 @@ halves of that were learned the hard way:
 
 `trust_remote_code=True` is required on top, and not optional: config.json
 carries an `auto_map`, and transformers refuses to read such a repo without the
-flag -- before any override could reach it. It is narrower than it sounds. The
-only remote file imported is `configuration_rumik_oss.py`, a `Cohere2Config`
-subclass adding five integers; `modeling_rumik_oss.py`, with the hand-written
-decode loop and the stop head, is never imported.
-
-It is narrower than it sounds. With `architectures` overridden, the only
-remote file transformers imports is `configuration_rumik_oss.py`, a
-`Cohere2Config` subclass adding five integers. `modeling_rumik_oss.py` -- the
-hand-written decode loop and the stop head -- is never imported, which is the
-part that mattered: this folder still does not depend on that file continuing
-to import cleanly against whichever `transformers` vLLM pins.
+flag. It is narrower than it sounds. The only remote file imported is
+`configuration_rumik_oss.py`, a `Cohere2Config` subclass adding a handful of
+fields; `modeling_rumik_oss.py`, with the hand-written decode loop, is never
+imported, so this folder does not depend on that file importing cleanly against
+whichever `transformers` vLLM pins.
 
 What it does cost is the frame arithmetic, which `codec.py` now owns and
 `tests/test_rumik_codec.py` pins.
@@ -74,11 +57,57 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from codec import CodecLayout
 from config import Config
 
 log = logging.getLogger("rumik.vllm")
+
+_GIB = 1024 ** 3
+
+#: What vLLM needs on top of the weights before it can hold a single sequence:
+#: CUDA graphs, activations for the profiling pass, the sampler's logits over a
+#: 277k vocabulary, and a first slice of KV cache. Measured on this model at
+#: 0.12 of an H200 (17 GB): 10.06 GiB of KV left after 6.76 GB of weights, so
+#: the overhead there was well under this. Generous rather than tight on
+#: purpose -- the check exists to turn a guaranteed failure into a readable one,
+#: not to predict vLLM's profiler.
+_ENGINE_OVERHEAD_BYTES = 3 * _GIB
+
+
+def weights_bytes(model_path: str) -> int | None:
+    """Size of the checkpoint's top-level safetensors shards; None if not a directory.
+
+    Top level only: `codec/` holds Mimi, which vLLM never loads.
+    """
+    root = Path(model_path)
+    if not root.is_dir():
+        return None
+    return sum(p.stat().st_size for p in root.glob("*.safetensors")) or None
+
+
+def check_memory_budget(*, total_bytes: int, fraction: float, weights: int) -> None:
+    """Refuse a RUMIK_GPU_MEMORY_UTILIZATION that cannot hold the model at all.
+
+    The fraction is of the CARD'S TOTAL, and 0.12 was sized for a 143 GB H200.
+    On a 24 GB card 0.12 is 2.9 GB, less than the weights alone, and vLLM then
+    dies deep in its profiler with a message about KV cache blocks. Said here
+    instead, in the operator's terms, with the number that would work.
+    """
+    budget = total_bytes * fraction
+    need = weights + _ENGINE_OVERHEAD_BYTES
+    if budget >= need:
+        return
+    suggested = min(0.95, round(need / total_bytes + 0.02, 2))
+    raise RuntimeError(
+        f"RUMIK_GPU_MEMORY_UTILIZATION={fraction} reserves {budget / _GIB:.1f} GiB of "
+        f"this {total_bytes / _GIB:.0f} GiB GPU, but the weights alone are "
+        f"{weights / _GIB:.1f} GiB and vLLM needs ~{_ENGINE_OVERHEAD_BYTES / _GIB:.0f} "
+        f"GiB more before it can hold one sequence. The default 0.12 is sized for a "
+        f"143 GB H200. Try RUMIK_GPU_MEMORY_UTILIZATION={suggested} or higher on this "
+        f"card, leaving room for anything else sharing it."
+    )
 
 
 class VllmTokenSource:
@@ -102,6 +131,7 @@ class VllmTokenSource:
         from vllm import AsyncEngineArgs, AsyncLLMEngine
 
         cfg = self.cfg
+        self._preflight_memory()
         args = AsyncEngineArgs(
             model=cfg.model_path,
             dtype=cfg.dtype,
@@ -118,7 +148,7 @@ class VllmTokenSource:
             # Cohere2ForCausalLM, which resolved correctly and then failed
             # loading weights on the checkpoint's stop head. rumik_vllm_plugin
             # now registers RumikOSSForCausalLM under its real name, as a
-            # subclass of vLLM's Cohere2 that drops those tensors -- so the
+            # subclass of vLLM's Cohere2 that carries that head -- so the
             # architecture in config.json is honoured rather than disguised.
         )
         log.info(
@@ -128,10 +158,42 @@ class VllmTokenSource:
         )
         self._engine = AsyncLLMEngine.from_engine_args(args)
 
+    def _preflight_memory(self) -> None:
+        """See check_memory_budget. Skipped when there is nothing to measure."""
+        import torch
+
+        weights = weights_bytes(self.cfg.model_path)
+        if weights is None or not torch.cuda.is_available():
+            return
+        # Device 0 of what this container can see, which is the card vLLM will use.
+        total = int(torch.cuda.get_device_properties(0).total_memory)
+        check_memory_budget(
+            total_bytes=total, fraction=self.cfg.gpu_memory_utilization, weights=weights
+        )
+
     async def stop(self) -> None:
+        """Shut the engine down, which is what ends its spawned EngineCore process.
+
+        `shutdown()` is the method this vLLM has (0.25's AsyncLLM). The previous
+        code looked for V0's `shutdown_background_loop`, found nothing, and
+        silently left the worker -- and its GPU reservation -- to be reaped with
+        the container.
+        """
         engine, self._engine = self._engine, None
-        if engine is not None and hasattr(engine, "shutdown_background_loop"):
-            engine.shutdown_background_loop()
+        if engine is None:
+            return
+        shutdown = getattr(engine, "shutdown", None) or getattr(
+            engine, "shutdown_background_loop", None
+        )
+        if shutdown is None:
+            log.warning("vLLM engine has no shutdown method; leaving it to exit")
+            return
+        try:
+            shutdown()
+        except Exception:  # noqa: BLE001
+            # Shutting down during container stop; a failure here must not
+            # mask whatever stopped the server.
+            log.exception("vLLM engine shutdown failed")
 
     def sampling_params(self, *, max_new_tokens: int, temperature: float, top_k: int):
         from vllm import SamplingParams
@@ -142,7 +204,9 @@ class VllmTokenSource:
             max_tokens=max_new_tokens,
             # Upstream masks </audio> for its first min_new_tokens steps; below
             # one frame's worth of tokens the model can stop before a single
-            # complete frame exists and the response is empty.
+            # complete frame exists and the response is empty. This also
+            # overrides the stop head for those steps, as upstream's
+            # `step >= min_new_tokens` guard does.
             min_tokens=self.cfg.min_new_tokens,
             # NOT allowed_token_ids. vLLM caps that at 1024 entries and this
             # model's audio vocabulary is 16,385, so the first request died on

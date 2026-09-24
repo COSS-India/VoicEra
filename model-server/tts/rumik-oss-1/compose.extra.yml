@@ -49,6 +49,12 @@ services:
       # production. 0.12 is what orpheus settled on for a 3B model on this same
       # card: ~17 GB, against 6.76 GB of weights, 0.4 GB of codec and KV at
       # ~72 KB/token, so fifty streams of ~500 tokens is under 2 GB.
+      #
+      # 0.12 IS H200-SPECIFIC. The same fraction is 9.6 GB of an 80 GB card
+      # (fine) and 2.9 GB of a 24 GB one (less than the weights). Size it as
+      # (6.8 GB weights + ~3 GB engine + the KV you want) / card total -- e.g.
+      # ~0.45 on 24 GB, ~0.25 on 48 GB. The server refuses at startup, naming a
+      # working value, when the fraction cannot hold the weights at all.
       RUMIK_GPU_MEMORY_UTILIZATION: ${RUMIK_GPU_MEMORY_UTILIZATION:-0.12}
       # vLLM's own batch ceiling. Distinct from RUMIK_MAX_CONCURRENCY, which is
       # the slot's admission limit: this bounds what the scheduler will run at
@@ -58,6 +64,14 @@ services:
       # loop this replaces. Set true only to debug a suspected graph-capture
       # problem.
       RUMIK_ENFORCE_EAGER: ${RUMIK_ENFORCE_EAGER:-false}
+      # Upstream's sigmoid stop head, run in the vLLM model's compute_logits.
+      # On by default because upstream's generate_audio stops on it: without
+      # it the model still emits </audio> by itself, but later (321-369 tokens
+      # against 273-361 on the same prompts), i.e. extra tail audio. false is
+      # for comparing the two. Read by the vLLM worker process itself (see
+      # rumik_vllm_plugin.py), which is why it is an environment variable. No
+      # effect on RUMIK_ENGINE=transformers, which runs upstream's own loop.
+      RUMIK_STOP_HEAD: ${RUMIK_STOP_HEAD:-true}
 
       # ---- model -------------------------------------------------------
       # A directory under the mount below, or a HuggingFace repo id -- in which
@@ -72,22 +86,29 @@ services:
       # bfloat16 is what the checkpoint was saved in (config.json: dtype
       # bfloat16). float16 would load and would quietly change the audio.
       RUMIK_DTYPE: ${RUMIK_DTYPE:-bfloat16}
+      # transformers engine only; vLLM picks its own attention backend.
       # sdpa is what their own server asks for. 'eager' is the fallback on a
       # stack where sdpa's kernels are unavailable; flash_attention_2 needs the
       # package and is unverified here.
       RUMIK_ATTN_IMPLEMENTATION: ${RUMIK_ATTN_IMPLEMENTATION:-sdpa}
 
       # ---- capacity, sized for a shared card ---------------------------
-      # An admission limit, and it is 1 because that is what the measurement
-      # says. This model has NO continuous batching: generation is a
-      # hand-written per-token Python loop over a 3B model, measured at ~45
-      # tok/s against the 100 tok/s realtime needs -- so a SINGLE stream already
-      # runs at RTF ~2.2 and underruns. Admitting two makes it ~4.4, not two
-      # streams at 2.2. Each concurrent stream also holds its own KV cache,
-      # about 1.2 GB at the full 8192 context. Raise this only with an X-RTF
-      # under 1.0 in hand.
+      # The slot's admission limit. Still 1, but NO LONGER for the reason it
+      # was set: that was the transformers loop, which has no batching and ran
+      # one stream at RTF ~2.2. vLLM batches continuously, so this is now the
+      # one thing keeping it to a single stream -- RUMIK_MAX_NUM_SEQS=64 is
+      # unreachable while this is 1. It stays 1 only because the vLLM path has
+      # not been measured yet. Once a single stream shows X-RTF well under 1.0,
+      # raise it and re-measure at each step; the number to watch is per-stream
+      # RTF staying under 1.0, not total throughput. Only affects the
+      # transformers engine as a hard ceiling -- keep it at 1 there.
       RUMIK_MAX_CONCURRENCY: ${RUMIK_MAX_CONCURRENCY:-1}
-      RUMIK_MAX_INPUT_CHARS: ${RUMIK_MAX_INPUT_CHARS:-1000}
+      # ~30 s of speech at a typical 12-15 characters per second, which is the
+      # model card's limit ("training utterances are limited to 30 seconds";
+      # do not exceed ~35 s) and what RUMIK_MAX_NEW_TOKENS_LIMIT allows. 1000
+      # characters was ~70 s of speech: it was accepted and then cut off at the
+      # token cap. A longer input is now a 400 saying so, not truncated audio.
+      RUMIK_MAX_INPUT_CHARS: ${RUMIK_MAX_INPUT_CHARS:-400}
 
       # ---- server ------------------------------------------------------
       # PORT is set by the slot, not here; see config.py on why there is no
@@ -97,9 +118,10 @@ services:
       RUMIK_CORS_ORIGINS: ${RUMIK_CORS_ORIGINS:-}
 
       # ---- synthesis defaults ------------------------------------------
-      # Restated from the model card's inference example (t 0.8, top_k 30,
-      # 2048 new tokens) rather than inherited from their server.py, which is
-      # not the file this deployment runs.
+      # Restated from the model card's recommended settings (temperature 0.8,
+      # top_k 30, top_p 1.0, at most 3072 tokens) rather than inherited from
+      # their server.py, which is not the file this deployment runs. top_p 1.0
+      # is vLLM's default and so not a knob.
       RUMIK_DEFAULT_VOICE: ${RUMIK_DEFAULT_VOICE:-Ira}
       # Empty means no <description=...> prefix at all, which is NOT the same as
       # an empty description -- the model would condition on that. Set a house
@@ -111,11 +133,13 @@ services:
       # Their server's floor. Below one frame's worth of tokens the stop head
       # can fire before any complete frame exists and the response is empty.
       RUMIK_MIN_NEW_TOKENS: ${RUMIK_MIN_NEW_TOKENS:-8}
-      # Eight tokens make one 80 ms frame, so 2048 is ~20 s of speech. The cap
-      # is also bounded at request time by what is left of the 8192-position
-      # context after the prompt.
-      RUMIK_MAX_NEW_TOKENS_DEFAULT: ${RUMIK_MAX_NEW_TOKENS_DEFAULT:-2048}
-      RUMIK_MAX_NEW_TOKENS_LIMIT: ${RUMIK_MAX_NEW_TOKENS_LIMIT:-2048}
+      # Eight tokens make one 80 ms frame, so 3072 is ~30.7 s of speech -- the
+      # model card's stated maximum. It is a ceiling, not a target: the stop
+      # head ends each utterance on its own. The cap is also bounded at request
+      # time by what is left of the 8192-position context after the prompt.
+      # Hitting it is logged, and reported as X-Truncated / SSE `truncated`.
+      RUMIK_MAX_NEW_TOKENS_DEFAULT: ${RUMIK_MAX_NEW_TOKENS_DEFAULT:-3072}
+      RUMIK_MAX_NEW_TOKENS_LIMIT: ${RUMIK_MAX_NEW_TOKENS_LIMIT:-3072}
 
       # ---- streaming decode --------------------------------------------
       # Emit every 2 frames = 160 ms of audio. Smaller chunks cut

@@ -22,9 +22,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-#: Shipped defaults, from the model card's own inference example: t 0.8, top_k
-#: 30, 2048 new tokens. Restated here rather than inherited from their
-#: server.py, which is not the file this deployment runs.
+#: Shipped defaults, from the model card's recommended settings: temperature
+#: 0.8, top_k 30, top_p 1.0 (vLLM's default, so not a knob), at most 3072 new
+#: tokens. Restated here rather than inherited from their server.py, which is
+#: not the file this deployment runs.
 _TRUE = {"1", "true", "yes", "on"}
 
 
@@ -122,16 +123,16 @@ class Config:
             log_level=_text(os.getenv("RUMIK_LOG_LEVEL"), "INFO").upper(),
             cors_origins=_csv(os.getenv("RUMIK_CORS_ORIGINS")),
             max_concurrency=int(_number(os.getenv("RUMIK_MAX_CONCURRENCY"), 1, int)),
-            max_input_chars=int(_number(os.getenv("RUMIK_MAX_INPUT_CHARS"), 1000, int)),
+            max_input_chars=int(_number(os.getenv("RUMIK_MAX_INPUT_CHARS"), 400, int)),
             default_voice=_text(os.getenv("RUMIK_DEFAULT_VOICE"), "Ira"),
             default_instructions=_text(os.getenv("RUMIK_DEFAULT_INSTRUCTIONS"), ""),
             temperature=float(_number(os.getenv("RUMIK_TEMPERATURE"), 0.8, float)),
             top_k=int(_number(os.getenv("RUMIK_TOP_K"), 30, int)),
             min_new_tokens=int(_number(os.getenv("RUMIK_MIN_NEW_TOKENS"), 8, int)),
             max_new_tokens_default=int(
-                _number(os.getenv("RUMIK_MAX_NEW_TOKENS_DEFAULT"), 2048, int)
+                _number(os.getenv("RUMIK_MAX_NEW_TOKENS_DEFAULT"), 3072, int)
             ),
-            max_new_tokens_limit=int(_number(os.getenv("RUMIK_MAX_NEW_TOKENS_LIMIT"), 2048, int)),
+            max_new_tokens_limit=int(_number(os.getenv("RUMIK_MAX_NEW_TOKENS_LIMIT"), 3072, int)),
             decoder_device=_text(os.getenv("RUMIK_DECODER_DEVICE"), "cuda"),
             decode_chunk_frames=int(_number(os.getenv("RUMIK_DECODE_CHUNK_FRAMES"), 2, int)),
             decode_context_frames=int(
@@ -150,6 +151,10 @@ class Config:
             # repeats samples it has already sent.
             raise ValueError(
                 "RUMIK_DECODE_CONTEXT_FRAMES must be >= RUMIK_DECODE_CHUNK_FRAMES"
+            )
+        if self.max_new_tokens_default > self.max_new_tokens_limit:
+            raise ValueError(
+                "RUMIK_MAX_NEW_TOKENS_DEFAULT must be <= RUMIK_MAX_NEW_TOKENS_LIMIT"
             )
         if self.max_concurrency < 1:
             raise ValueError("RUMIK_MAX_CONCURRENCY must be at least 1")

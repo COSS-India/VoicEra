@@ -72,6 +72,25 @@ work inline in `input`.
 shift pitch. Ask for pace in `instructions`. A non-default value comes back as
 `X-Speed-Ignored` rather than being silently dropped.
 
+`input` is capped at 400 characters (`RUMIK_MAX_INPUT_CHARS`), about 30 s of
+speech — the model card's limit ("training utterances are limited to 30
+seconds"; it advises against more than ~35 s). Generation is capped at 3072
+tokens (~30.7 s), the card's stated maximum. If an utterance still reaches the
+cap it is cut off, and says so: `X-Truncated: true` on a buffered response,
+`"truncated": true` in the SSE `speech.audio.done` event, and a warning in the
+log on every path (a chunked stream has sent its headers before it can know).
+
+## Sampling, and where it matches the model card
+
+| | model card / upstream | here |
+|---|---|---|
+| prompt | `[BOS] <text>{SPEAKER}: <description="..."> {TEXT}<audio>`, BOS added by the tokenizer | `prompt.build_prompt`; the framing ids are checked against `config.json` at startup |
+| temperature / top_k / top_p | 0.8 / 30 / 1.0 | `RUMIK_TEMPERATURE` / `RUMIK_TOP_K` / vLLM's default |
+| max tokens | 2048 in the example, 3072 maximum | 3072 (`RUMIK_MAX_NEW_TOKENS_*`) |
+| min new tokens | 8 | `RUMIK_MIN_NEW_TOKENS`, as vLLM `min_tokens` |
+| vocabulary | units + `</audio>` only | a mask in the model's `compute_logits` |
+| stopping | sigmoid stop head > 0.5, or `</audio>` | the same head in `compute_logits` (`RUMIK_STOP_HEAD`), or `</audio>` |
+
 ## Why this folder does not use the checkpoint's own server.py
 
 The repo ships a working FastAPI server that already answers
@@ -109,7 +128,10 @@ From `config.json`, not from a blog post:
 | 2048 tokens | ≈ 20.5 s of speech |
 | weights | 6.76 GB in two shards, plus 385 MB of codec |
 
-## Measured: it does not reach realtime
+## Measured on the transformers engine: it does not reach realtime
+
+These numbers are `RUMIK_ENGINE=transformers`, upstream's own loop. The vLLM
+engine, now the default, has not been measured yet — see below.
 
 Run on ace-h200 GPU 1 (H200 NVL 143 GB, Exclusive Process behind the shared MPS
 daemon), 15 September 2026:
@@ -140,20 +162,40 @@ The de-interleaver is correct, which that run also settles: `DROPPED` was 1
 token every time — the trailing partial frame, discarded as designed. The
 round-robin resync rule never fires, so no generated audio is being thrown away.
 
-**Closing the gap means an inference engine, not tuning.** The most promising
-route is vLLM, which already supports `Cohere2ForCausalLM`; the deltas here are
-an enlarged vocabulary (16,384 audio units, so a bigger embedding), the
-`stop_predictor` head — and note `config.json` declares
-`audio_end_token_id: 277394`, so a real end token may make that head
-unnecessary — and sampling constrained to the audio range, which maps onto
-vLLM's logit processors. That is an adapter to investigate, not a port from
-scratch. `torch.compile` with a static KV cache is the fallback, worth 2–4× on
-HF decode, but it means owning their generation loop, which is exactly what the
-sampling tap exists to avoid.
+## The vLLM engine
 
-Until one of those lands, treat this as **demo and evaluation grade**. That is
-why `RUMIK_MAX_CONCURRENCY` is 1: a single stream already underruns, and
-admitting two makes it ~4.4× realtime rather than two streams at 2.2×.
+`RUMIK_ENGINE=vllm` (the default) serves the checkpoint through vLLM's own
+Cohere2 implementation. `rumik_vllm_plugin.py` registers `RumikOSSForCausalLM`
+as a subclass of it that adds exactly what upstream's class adds — the
+`stop_predictor` head — plus the audio-vocabulary mask, both applied in
+`compute_logits`. The plugin is an entry point because vLLM's EngineCore runs in
+a spawned process; `vllm_backend.py` explains the mapping line by line.
+
+The stop head is kept on purpose. Disabled, the model still ends on `</audio>`
+by itself, but later (321–369 tokens against 273–361 with it, on the same
+prompts), so dropping it is a change from the reference. `RUMIK_STOP_HEAD=false`
+turns it off for comparison.
+
+**Not yet verified on hardware.** The engine loads, captures CUDA graphs and
+allocates KV cache on the H200; no utterance has been measured through it yet,
+and it has not been compared against the transformers reference. Before relying
+on it:
+
+1. Synthesize the same few prompts on both engines and listen — the vLLM
+   output should be indistinguishable in voice and end at the same place.
+2. Record single-stream `X-RTF` and `X-Tokens-Per-Sec` here.
+3. Only then raise `RUMIK_MAX_CONCURRENCY`, a step at a time, watching per-stream
+   RTF stay under 1.0. It is 1 today because that was right for the
+   transformers loop; under vLLM it is the only thing stopping batching —
+   `RUMIK_MAX_NUM_SEQS=64` is unreachable while it is 1.
+
+`RUMIK_GPU_MEMORY_UTILIZATION` is a fraction of the card's **total** memory and
+0.12 is sized for the 143 GB H200. On a 24 GB card that is less than the
+weights; use roughly (6.8 GB + ~3 GB + the KV you want) ÷ card total — ~0.45 on
+24 GB, ~0.25 on 48 GB. The server refuses at startup, naming a working value,
+when the fraction cannot hold the weights at all.
+
+Until the checks above are done, treat this as **demo and evaluation grade**.
 
 Every response carries the evidence: `X-Tokens`, `X-Tokens-Per-Sec`, `X-RTF`,
 `X-TTFA-Ms`, `X-Generation-Ms` and `X-Audio-Duration-Sec` on the buffered path,
@@ -191,12 +233,20 @@ number that worked here.
   reason that looks like a broken Dockerfile. Freeze the whole set into a
   `constraints.txt` on the first successful build, as `tts/orpheus` did — the
   command is in `requirements.txt`.
-- **`transformers` is pinned to 4.57.6** because that is what `config.json` was
-  saved with and the model loads custom code through `trust_remote_code`.
-  Upstream permits `<6`; 5.x is untested here.
-- **`trust_remote_code=True` runs `modeling_rumik_oss.py` from the downloaded
-  repo.** Normal for a custom HF architecture, and worth knowing: the weights
-  directory contains executable code, and `fetch.sh` is what put it there.
+- **`transformers` is 5.14.1, vLLM's pin, not the 4.57.6 `config.json` was
+  saved with.** The vLLM path imports only `configuration_rumik_oss.py` from
+  the checkpoint (it loads cleanly on 5.14.1: RoPE theta, the 36 sliding/full
+  layer types and the audio ids all come through). `RUMIK_ENGINE=transformers`
+  runs upstream's `modeling_rumik_oss.py`, authored against 4.57.6, and is
+  best-effort on 5.x — see `requirements.txt`.
+- **`trust_remote_code=True` runs code from the downloaded repo** — on the vLLM
+  path only the config class, on the transformers path the modeling file too.
+  Normal for a custom HF architecture, and worth knowing: the weights directory
+  contains executable code, and `fetch.sh` is what put it there.
+- **The tokenizer is checked at startup.** One real prompt must encode as BOS,
+  the single `<text>` id, …, the single `<audio>` id, as `config.json` declares.
+  A tokenizer that stopped adding BOS would otherwise degrade the voice with no
+  error anywhere.
 - **This folder runs airgapped; do not copy orpheus's `HF_HUB_OFFLINE` pin.**
   Orpheus pins it to `0` because its SNAC codec is a *separate* HuggingFace repo
   fetched at startup, so an `.env` carrying `HF_HUB_OFFLINE=1` for
