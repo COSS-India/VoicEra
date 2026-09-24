@@ -24,6 +24,7 @@ from app.routers import (
     organisations,
     phone_numbers,
     rag,
+    tts_preview,
     users,
 )
 
@@ -85,6 +86,7 @@ app.include_router(calls.router, prefix=settings.API_V1_PREFIX)
 app.include_router(campaign.router, prefix=settings.API_V1_PREFIX)
 app.include_router(knowledge.router, prefix=settings.API_V1_PREFIX)
 app.include_router(rag.router, prefix=settings.API_V1_PREFIX)
+app.include_router(tts_preview.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/")
