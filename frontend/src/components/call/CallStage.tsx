@@ -350,9 +350,11 @@ function CallStage({
   /** Translates the server-persisted transcript via the backend LLM
    * fallback, not the client's local message list — the two can have a
    * different number/segmentation of turns, so parsed backend lines are
-   * validated against the transcript's own persisted line count, fetched
-   * fresh here, not the live message count (mirrors CallDetailSheet, which
-   * already has the persisted transcript on hand from its own fetch). */
+   * validated against the transcript's own persisted line count. That count
+   * is fetched lazily (only on the LLM-fallback path, inside the hook's own
+   * try/catch) so a not-yet-persisted transcript surfaces the hook's normal
+   * "still being saved" error instead of throwing ahead of it, and so the
+   * free on-device path never pays for this fetch at all. */
   async function handleTranslate() {
     const originalMessages: TranslatedLine[] = visibleMessages.map((m) => ({
       role: roleLabel(m.role),
@@ -360,17 +362,12 @@ function CallStage({
     }));
     if (originalMessages.length === 0) return;
 
-    // Only needed for the backend LLM-fallback path's structural check — skip
-    // the fetch when there's no callId yet (on-device translation still works).
-    const expectedLineCount = callId
-      ? parseTranscript(await fetchCallTranscriptText(callId)).length
-      : originalMessages.length;
-
     await translation.translate(targetLang, {
       originalLines: originalMessages,
       zipOnDeviceLine: (original, translatedText) => ({ role: original.role, content: translatedText }),
       callId,
-      expectedLineCount,
+      resolveExpectedLineCount: async () =>
+        callId ? parseTranscript(await fetchCallTranscriptText(callId)).length : originalMessages.length,
       fromParsedLine: (line) => ({ role: roleLabel(line.role), content: line.content }),
     });
   }

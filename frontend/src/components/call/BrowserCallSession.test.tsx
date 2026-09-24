@@ -269,6 +269,7 @@ describe("CallStage — Translate", () => {
     isTranslationPairAvailable.mockReset();
     translateLines.mockReset();
     translateCallTranscriptViaLlm.mockReset();
+    fetchCallTranscriptText.mockReset().mockResolvedValue("[00:00] user: Hola");
     pipecatTestStore.reset();
   });
 
@@ -338,6 +339,35 @@ describe("CallStage — Translate", () => {
     await waitFor(() =>
       expect(screen.getByText(/still being saved/i)).toBeInTheDocument(),
     );
+  });
+
+  it("does not fetch the persisted transcript on the free on-device path", async () => {
+    isChromeTranslationAvailable.mockReturnValue(true);
+    detectTextLanguage.mockResolvedValue({ language: "es", confidence: 0.9 });
+    isTranslationPairAvailable.mockResolvedValue(true);
+    translateLines.mockResolvedValue(["Hello"]);
+
+    const user = await endedCallWithTranscript();
+    await user.click(screen.getByRole("button", { name: /^translate$/i }));
+
+    await waitFor(() => expect(screen.getByText(/Hello/)).toBeInTheDocument());
+    expect(fetchCallTranscriptText).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the still-being-saved error when the transcript fetch itself 404s", async () => {
+    const { ApiError } = await import("@/lib/api/http");
+    isChromeTranslationAvailable.mockReturnValue(false);
+    translateCallTranscriptViaLlm.mockResolvedValue({
+      translated_text: "[00:00] user: Hello",
+      target_lang: "en",
+      source_lang: "es",
+    });
+    fetchCallTranscriptText.mockRejectedValue(new ApiError("Not found", 404));
+
+    const user = await endedCallWithTranscript();
+    await user.click(screen.getByRole("button", { name: /^translate$/i }));
+
+    await waitFor(() => expect(screen.getByText(/still being saved/i)).toBeInTheDocument());
   });
 
   it("shows a corrupted-format error when the LLM response has no parseable lines", async () => {
