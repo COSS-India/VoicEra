@@ -16,6 +16,7 @@ from app.models.schemas import (
     CallLogUpdateRequest,
     CallMetricsBody,
     CallMetricsResponse,
+    CallTranslateResponse,
     InboundCallRegisterRequest,
     InboundCallRegisterResponse,
     OutboundCallRequest,
@@ -41,8 +42,10 @@ from app.services.call_metrics_service import (
 )
 from app.services.inbound_call_service import InboundCallError, register_inbound_call
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
+from app.services.translation_service import TranslationError, translate_transcript
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
+from minio.error import S3Error
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
@@ -102,11 +105,25 @@ def _artifact_content_type(object_name: str, default: str) -> str:
     return default
 
 
+def _get_object_or_404(storage: MinIOStorage, bucket_name: str, object_name: str):
+    """Fetch an object, turning a delete-after-exists-check race into the
+    same 404 the existence check itself would have raised."""
+    try:
+        return storage.client.get_object(bucket_name, object_name)
+    except S3Error as exc:
+        if exc.code == "NoSuchKey":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File not found: {object_name}",
+            ) from exc
+        raise
+
+
 def _stream_minio_object(bucket_name: str, object_name: str, content_type: str):
     storage = MinIOStorage()
 
     def iterator() -> Iterator[bytes]:
-        response = storage.client.get_object(bucket_name, object_name)
+        response = _get_object_or_404(storage, bucket_name, object_name)
         try:
             for chunk in response.stream(32 * 1024):
                 yield chunk
@@ -115,6 +132,33 @@ def _stream_minio_object(bucket_name: str, object_name: str, content_type: str):
             response.release_conn()
 
     return StreamingResponse(iterator(), media_type=content_type)
+
+
+def _resolve_transcript_object(org_id: str, call_id: str) -> tuple[str, str]:
+    """Fetches the call log and validates/parses its transcript_url into a
+    (bucket, object_name) pair, raising the same HTTP errors regardless of
+    which route (stream vs. translate) is calling this."""
+    try:
+        call = get_call_log(org_id, call_id)
+    except CallLogNotFoundError as exc:
+        _raise_call_not_found(exc)
+
+    transcript_url = call.get("transcript_url")
+    if not transcript_url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transcript not found for this call",
+        )
+
+    parsed = MinIOStorage.parse_minio_url(str(transcript_url))
+    if not parsed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid transcript URL on call log",
+        )
+
+    bucket_name, object_name = parsed
+    return bucket_name, object_name
 
 
 @router.post(
@@ -271,35 +315,51 @@ async def get_call_transcript(
 ) -> StreamingResponse:
     """Stream the call transcript from MinIO."""
     org_id = _require_active_org(current_user)
-    try:
-        call = get_call_log(org_id, call_id)
-    except CallLogNotFoundError as exc:
-        _raise_call_not_found(exc)
-
-    transcript_url = call.get("transcript_url")
-    if not transcript_url:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Transcript not found for this call",
-        )
-
-    parsed = MinIOStorage.parse_minio_url(str(transcript_url))
-    if not parsed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid transcript URL on call log",
-        )
-
-    bucket_name, object_name = parsed
-    storage = MinIOStorage()
-    if not storage.object_exists(bucket_name, object_name):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Transcript file not found: {object_name}",
-        )
-
+    bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
     content_type = _artifact_content_type(object_name, "text/plain; charset=utf-8")
     return _stream_minio_object(bucket_name, object_name, content_type)
+
+
+def _raise_translation_error(exc: TranslationError) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE if exc.is_oversized else status.HTTP_502_BAD_GATEWAY,
+        detail=exc.message,
+    ) from exc
+
+
+@router.post("/{call_id}/translate", response_model=CallTranslateResponse)
+def translate_call_transcript(
+    call_id: str,
+    target_lang: str = Query(...),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> CallTranslateResponse:
+    """LLM-backed fallback translation, used only when the client's on-device
+    Chrome Translator API is unavailable. Stateless — not persisted.
+
+    Deliberately a SYNC route (not `async def`): it calls the sync OpenAI
+    client and sync MinIO client. FastAPI runs sync route handlers in a
+    worker threadpool, so a slow translation blocks one worker thread, not
+    the server's single event loop. Declaring this `async def` while calling
+    blocking I/O inside it would freeze the entire process for the duration
+    of the LLM call, blocking every other request on the server.
+    """
+    org_id = _require_active_org(current_user)
+    bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
+
+    storage = MinIOStorage()
+    response = _get_object_or_404(storage, bucket_name, object_name)
+    try:
+        raw_text = response.read().decode("utf-8")
+    finally:
+        response.close()
+        response.release_conn()
+
+    try:
+        translated_text = translate_transcript(raw_text, target_lang, org_id)
+    except TranslationError as exc:
+        _raise_translation_error(exc)
+
+    return CallTranslateResponse(translated_text=translated_text, target_lang=target_lang)
 
 
 @router.get("/{call_id}/metrics", response_model=CallMetricsResponse)

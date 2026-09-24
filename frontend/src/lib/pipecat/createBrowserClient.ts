@@ -35,7 +35,7 @@ export async function connectBrowserCall(
   client: PipecatClient,
   orgId: string,
   agentId: string,
-): Promise<void> {
+): Promise<string | undefined> {
   if (!orgId || !agentId) {
     throw new Error("Missing org or agent id");
   }
@@ -51,4 +51,6 @@ export async function connectBrowserCall(
   await client.connect({
     wsUrl: getBrowserWsUrl(orgId, agentId, callId),
   });
+
+  return callId;
 }

@@ -2,13 +2,24 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity, ArrowLeft, Download, Pause, Play } from "lucide-react";
+import { Activity, ArrowLeft, Download, Languages, Pause, Play } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { CallTypeBadge } from "@/components/ui/CallTypeBadge";
 import { Spinner } from "@/components/ui/Spinner";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { fetchCallRecordingBlob, fetchCallTranscriptText, getCallMetrics } from "@/lib/api/calls";
+import {
+  fetchCallRecordingBlob,
+  fetchCallTranscriptText,
+  getCallMetrics,
+  translateCallTranscriptViaLlm,
+} from "@/lib/api/calls";
+import {
+  detectTextLanguage,
+  isChromeTranslationAvailable,
+  isTranslationPairAvailable,
+  translateLines,
+} from "@/lib/chrome-translation";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
 import type { CallLogItem } from "@/lib/api-types";
@@ -261,6 +272,28 @@ export function CallDetailSheet({
   const audioElRef = useRef<HTMLAudioElement>(null);
   const [hasLatencyData, setHasLatencyData] = useState(false);
 
+  // Translation is computed client-side per session — never persisted, never
+  // cached across calls. `translation.lines` holds already-structured
+  // TranscriptLine[], not free text: the Chrome path builds this 1:1 from the
+  // original transcript, and the LLM fallback path parses + validates its
+  // response before ever calling setTranslation, so rendering never needs to
+  // re-parse or guess at a possibly-corrupted shape.
+  const [translation, setTranslation] = useState<{ lines: TranscriptLine[]; lang: string } | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState("");
+  const [showTranslated, setShowTranslated] = useState(false);
+  // Always the viewer's own browser language — no manual picker. General LLMs
+  // (and Chrome's on-device Translator) don't reliably support low-resource
+  // languages like Bhili or Dogri; letting users pick from the full catalog
+  // silently produced wrong-language output (e.g. Marathi/Bhojpuri substituted
+  // for Bhili) instead of a clear error. Restricting to the browser's own
+  // language avoids that gap entirely.
+  const targetLang = (navigator.language || "en").split("-")[0]!;
+  // Tracks which call an in-flight translate request belongs to, so a slow
+  // response landing after the user has switched to a different call is
+  // discarded instead of overwriting the newly-selected call's state.
+  const translateRequestCallId = useRef<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     setHasLatencyData(false);
@@ -306,6 +339,15 @@ export function CallDetailSheet({
     let cancelled = false;
     setTranscript(null);
     setTranscriptError("");
+    // Reset translation state on call change too — a stale translation from
+    // the previous call must never leak into the newly-opened one. `targetLang`
+    // is deliberately NOT reset: a user's chosen output language should
+    // persist across calls viewed in one session.
+    translateRequestCallId.current = null;
+    setTranslation(null);
+    setTranslating(false);
+    setTranslateError("");
+    setShowTranslated(false);
     fetchCallTranscriptText(call.call_id)
       .then((text) => {
         if (cancelled) return;
@@ -371,6 +413,82 @@ export function CallDetailSheet({
     a.download = `${call.call_id}-transcript.txt`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  /** Hybrid translate: tries the free, on-device Chrome Translator API first,
+   * falling back to the backend LLM endpoint only when that API is
+   * unavailable or doesn't support the requested language pair. Guards
+   * against a response landing after the user has switched to a different
+   * call (translateRequestCallId) and against the LLM fallback returning text
+   * that doesn't parse back into the same number of transcript lines — that
+   * case surfaces an explicit error rather than silently reverting to the
+   * original transcript, since a spinner that stops with nothing visibly
+   * different looks exactly like the app doing nothing. */
+  async function handleTranslate() {
+    if (!transcript || transcript.length === 0) return;
+
+    const requestingCallId = call.call_id;
+    translateRequestCallId.current = requestingCallId;
+    setTranslating(true);
+    setTranslateError("");
+    const isStale = () => translateRequestCallId.current !== requestingCallId;
+
+    try {
+      if (isChromeTranslationAvailable()) {
+        const sampleText = transcript.map((line) => line.content).join("\n");
+        const detected = await detectTextLanguage(sampleText);
+        const sourceLanguage = detected?.language;
+        const pairSupported = sourceLanguage
+          ? await isTranslationPairAvailable(sourceLanguage, targetLang)
+          : false;
+
+        if (sourceLanguage && pairSupported) {
+          const originalLines = transcript.map((line) => line.content);
+          const translatedContents = await translateLines(originalLines, sourceLanguage, targetLang);
+          if (isStale()) return;
+          const structuredLines: TranscriptLine[] = transcript.map((line, i) => ({
+            ...line,
+            content: translatedContents[i] ?? line.content,
+          }));
+          setTranslation({ lines: structuredLines, lang: targetLang });
+          setShowTranslated(true);
+          return; // free on-device path — no backend call made
+        }
+      }
+
+      // Fallback: Chrome API unavailable, or language pair unsupported on-device.
+      const response = await translateCallTranscriptViaLlm(requestingCallId, targetLang);
+      if (isStale()) return;
+      const parsedLines = parseTranscript(response.translated_text);
+      if (parsedLines.length !== transcript.length) {
+        setTranslateError("The translation model corrupted the transcript format. Please try again.");
+        return;
+      }
+      setTranslation({ lines: parsedLines, lang: response.target_lang });
+      setShowTranslated(true);
+    } catch (err) {
+      if (isStale()) return;
+      setTranslateError(err instanceof Error ? err.message : "Failed to translate transcript. Please try again.");
+    } finally {
+      if (!isStale()) setTranslating(false);
+    }
+  }
+
+  // A cached translation is only valid for the language it was produced in —
+  // changing the target-language dropdown must force a fresh handleTranslate
+  // call rather than showing a stale-language result.
+  const hasCachedTranslation = translation !== null && translation.lang === targetLang;
+
+  function translateButtonLabel(): string {
+    if (showTranslated) return "Show original";
+    if (hasCachedTranslation) return "Show translation";
+    return "Translate";
+  }
+
+  function onTranslateButtonClick(): void {
+    if (showTranslated) setShowTranslated(false);
+    else if (hasCachedTranslation) setShowTranslated(true);
+    else handleTranslate();
   }
 
   return (
@@ -460,14 +578,25 @@ export function CallDetailSheet({
             ))}
           </div>
           {tab === "transcript" && transcript && transcript.length > 0 ? (
-            <button
-              type="button"
-              onClick={downloadTranscript}
-              className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent"
-            >
-              <Download className="size-3.5" strokeWidth={1.75} />
-              Export
-            </button>
+            <div className="mb-2 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onTranslateButtonClick}
+                disabled={translating}
+                className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {translating ? <Spinner light={false} /> : <Languages className="size-3.5" strokeWidth={1.75} />}
+                {translateButtonLabel()}
+              </button>
+              <button
+                type="button"
+                onClick={downloadTranscript}
+                className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent"
+              >
+                <Download className="size-3.5" strokeWidth={1.75} />
+                Export
+              </button>
+            </div>
           ) : null}
         </div>
 
@@ -481,11 +610,16 @@ export function CallDetailSheet({
           ) : transcript.length === 0 ? (
             <p className="py-8 text-center text-sm text-v-muted">No transcript for this call.</p>
           ) : (
-            <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
-              {transcript.map((line, i) => (
-                <TranscriptBubble key={i} line={line} active={i === activeIndex} onSeek={seekTo} />
-              ))}
-            </div>
+            <>
+              {translateError ? (
+                <p className="py-2 text-center text-xs text-v-muted">{translateError}</p>
+              ) : null}
+              <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
+                {(showTranslated && translation ? translation.lines : transcript).map((line, i) => (
+                  <TranscriptBubble key={i} line={line} active={i === activeIndex} onSeek={seekTo} />
+                ))}
+              </div>
+            </>
           )
         ) : (
           <dl className="flex flex-col gap-3">
