@@ -118,7 +118,14 @@ def _raise_404_on_missing_key(exc: S3Error, object_name: str) -> NoReturn:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"File not found: {object_name}",
         ) from exc
-    raise exc
+    # Any other S3 error code (AccessDenied, InvalidAccessKeyId, SlowDown,
+    # ...) is a storage-backend failure, not a client mistake — surface it
+    # as a clean 503 instead of letting a bare S3Error escape as an
+    # unhandled 500.
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"Storage error while accessing {object_name}: {exc.code}",
+    ) from exc
 
 
 def _get_object_or_404(storage: MinIOStorage, bucket_name: str, object_name: str):
@@ -422,7 +429,15 @@ def translate_call_transcript(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail=f"Transcript is too long to translate in one request ({content_length} bytes).",
                 )
-            raw_text = response.read().decode("utf-8")
+            try:
+                raw_text = response.read().decode("utf-8")
+            except UnicodeDecodeError as exc:
+                # Corrupt stored data, not a transient dependency failure —
+                # retrying never fixes this. 500 error
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Stored transcript {object_name} is not valid UTF-8 text.",
+                ) from exc
         finally:
             response.close()
             response.release_conn()
