@@ -1,0 +1,53 @@
+apps/runtime/tests/test_ai_service_factory.py
+  s_19c23ad6ac1206::t_ae838df3049720 8-9,11,13,15,18,214-261
+apps/providers/README.md
+  s_19c23ad6ac1206::t_249bd78cf8586b 124-126
+apps/runtime/services/ai_service_factory.py
+  s_19c23ad6ac1206::t_249bd78cf8586b 88-89,91-95,97-98
+apps/api/app/services/provider_connection_service.py
+  s_19c23ad6ac1206::t_d8ab78cecdf3af 236,284,374-375,482
+apps/runtime/services/pipecat/audio.py
+  s_19c23ad6ac1206::t_249bd78cf8586b 37-51
+apps/providers/tests/test_openai_compatible_llm.py
+  s_19c23ad6ac1206::t_ae838df3049720 210-248
+apps/api/tests/test_agent_connection_config.py
+  s_19c23ad6ac1206::t_a93635621181bd 116-122
+frontend/src/components/dashboard/ProviderConnections.tsx
+  s_19c23ad6ac1206::t_0f6f332ec37274 39,60,77,183,359-374,547-549
+  s_19c23ad6ac1206::t_35db80e1198afb 550-551
+apps/providers/cloud/openai_compatible/service.py
+  s_19c23ad6ac1206::t_d3f6ce2adb1df8 57-68,72
+apps/api/app/models/schemas.py
+  s_19c23ad6ac1206::t_d8ab78cecdf3af 187-194,209,229
+apps/runtime/routes/agent.py
+  s_19c23ad6ac1206::t_249bd78cf8586b 17,195
+frontend/src/lib/api-types.ts
+  s_19c23ad6ac1206::t_0f6f332ec37274 298,315
+apps/providers/cloud/openai_compatible/config.py
+  s_19c23ad6ac1206::t_d3f6ce2adb1df8 21-24,76-89
+apps/api/tests/test_provider_connections.py
+  s_19c23ad6ac1206::t_a93635621181bd 344-375
+apps/runtime/services/pipecat/pipeline.py
+  s_19c23ad6ac1206::t_249bd78cf8586b 29,34
+apps/runtime/services/pipecat/runners.py
+  s_19c23ad6ac1206::t_249bd78cf8586b 25,43
+docs/api-reference/provider-connections.md
+  s_19c23ad6ac1206::t_3d8a927a6c5c7e 46,65
+  s_19c23ad6ac1206::t_7d9df578665611 66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d4c573be1394e8b876fce40bec7ea4975e446c51",
+  "prompts": {},
+  "sessions": {
+    "s_19c23ad6ac1206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c65a2e47-51ab-4a15-a242-69a08dff9391",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
