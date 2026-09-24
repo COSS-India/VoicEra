@@ -115,6 +115,14 @@ it and merges the pair back in at call setup. Catalog dumps carry
 `connection_based: true` so the API and dashboard route such a provider to the
 connections store rather than the per-org credential store.
 
+Anything else the **endpoint** owns rides the same layer, under a name of its
+own so the merge can never overwrite the agent's field: `openai_compatible`
+puts the connection's message-shaping defaults on Auth as
+`endpoint_history_mode` and `endpoint_system_prompt_mode`, while the agent's
+own `history_mode` / `system_prompt_mode` (`inherit` by default) stay normal
+Settings fields. The `effective_*` properties on the config pick between the
+two.
+
 ## Languages + capabilities (STT / TTS)
 
 Canonical ids and labels live in root `languages.py` (`hi`, `en`, `en-US`, `multi`, …).

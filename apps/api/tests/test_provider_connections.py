@@ -271,6 +271,76 @@ def test_other_fields_still_patch_on_a_connection_in_use():
     assert collection.update_one.call_args.args[1]["$set"]["name"] == "Renamed"
 
 
+def test_system_prompt_mode_defaults_to_send_and_rejects_anything_else():
+    with patch.object(svc, "create_connection", return_value=_STORED) as mocked:
+        response = client.post(
+            "/api/v1/provider-connections",
+            json={
+                "name": "Local vLLM",
+                "base_url": "http://vllm.internal:8000/v1",
+                "api_key": "sk-local",
+            },
+        )
+    assert response.status_code == 201
+    assert mocked.call_args.args[1]["system_prompt_mode"] == "send"
+
+    response = client.post(
+        "/api/v1/provider-connections",
+        json={
+            "name": "Local vLLM",
+            "base_url": "http://vllm.internal:8000/v1",
+            "api_key": "sk-local",
+            "system_prompt_mode": "strip",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_system_prompt_mode_patches_like_any_other_field():
+    database, collection = _mongo_returning({**_STORED, "enabled": True})
+    with (
+        patch.object(svc, "get_database", return_value=database),
+        patch.object(svc, "agents_using", return_value=[]),
+    ):
+        svc.update_connection("org-1", "conn-1", {"system_prompt_mode": "omit"})
+    assert collection.update_one.call_args.args[1]["$set"]["system_prompt_mode"] == "omit"
+
+
+def test_history_mode_defaults_to_full_and_rejects_anything_else():
+    with patch.object(svc, "create_connection", return_value=_STORED) as mocked:
+        response = client.post(
+            "/api/v1/provider-connections",
+            json={
+                "name": "Local vLLM",
+                "base_url": "http://vllm.internal:8000/v1",
+                "api_key": "sk-local",
+            },
+        )
+    assert response.status_code == 201
+    assert mocked.call_args.args[1]["history_mode"] == "full"
+
+    response = client.post(
+        "/api/v1/provider-connections",
+        json={
+            "name": "Local vLLM",
+            "base_url": "http://vllm.internal:8000/v1",
+            "api_key": "sk-local",
+            "history_mode": "one_message",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_history_mode_patches_like_any_other_field():
+    database, collection = _mongo_returning({**_STORED, "enabled": True})
+    with (
+        patch.object(svc, "get_database", return_value=database),
+        patch.object(svc, "agents_using", return_value=[]),
+    ):
+        svc.update_connection("org-1", "conn-1", {"history_mode": "current_turn"})
+    assert collection.update_one.call_args.args[1]["$set"]["history_mode"] == "current_turn"
+
+
 def test_resolved_is_admin_only():
     _as(_MEMBER)
     response = client.get("/api/v1/provider-connections/conn-1/resolved")
@@ -278,11 +348,37 @@ def test_resolved_is_admin_only():
 
 
 def test_resolved_returns_endpoint_and_key_for_the_runtime():
-    resolved = {"base_url": "http://vllm.internal:8000/v1", "api_key": "sk-local"}
+    resolved = {
+        "base_url": "http://vllm.internal:8000/v1",
+        "api_key": "sk-local",
+        "endpoint_history_mode": "full",
+        "endpoint_system_prompt_mode": "send",
+    }
     with patch.object(svc, "resolve_auth", return_value=resolved):
         response = client.get("/api/v1/provider-connections/conn-1/resolved")
     assert response.status_code == 200
     assert response.json() == resolved
+
+
+def test_resolved_carries_the_endpoint_defaults():
+    """Prefixed apart from the agent's own fields so the merge cannot clash."""
+    database, _ = _mongo_returning(
+        {**_STORED, "history_mode": "current_turn", "system_prompt_mode": "omit"}
+    )
+    with patch.object(svc, "get_database", return_value=database):
+        resolved = svc.resolve_auth("org-1", "conn-1")
+    assert resolved["endpoint_history_mode"] == "current_turn"
+    assert resolved["endpoint_system_prompt_mode"] == "omit"
+    assert "history_mode" not in resolved
+    assert "system_prompt_mode" not in resolved
+
+
+def test_resolved_defaults_a_row_written_before_the_modes_existed():
+    database, _ = _mongo_returning(dict(_STORED))
+    with patch.object(svc, "get_database", return_value=database):
+        resolved = svc.resolve_auth("org-1", "conn-1")
+    assert resolved["endpoint_history_mode"] == "full"
+    assert resolved["endpoint_system_prompt_mode"] == "send"
 
 
 # ---------------------------------------------------------------------------

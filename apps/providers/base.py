@@ -11,6 +11,8 @@ Config classes inherit those three layers. Credentials never live on the bases.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
@@ -40,6 +42,20 @@ CONNECTION_PROVIDERS = frozenset({"openai_compatible"})
 def is_connection_based(provider: str) -> bool:
     """True when ``provider`` stores credentials per endpoint, not per org."""
     return provider in CONNECTION_PROVIDERS
+
+
+#: How much of the conversation a turn sends to the endpoint. ``full`` is every
+#: message so far; ``current_turn`` is the system prompt plus the current user
+#: turn only, for an endpoint that keeps its own session state or that degrades
+#: on long prompts. Lives here rather than on the vendor config because a
+#: provider connection carries the same setting as its per-endpoint default.
+HistoryMode = Literal["full", "current_turn"]
+
+#: Whether the agent's system prompt goes on the wire. ``send`` is the normal
+#: case; ``omit`` is for an endpoint that composes its own instructions and
+#: ignores (or charges for) anything we send. Independent of ``HistoryMode``:
+#: an endpoint can want the whole conversation and still build its own prompt.
+SystemPromptMode = Literal["send", "omit"]
 
 
 class BaseProviderConfig(BaseModel):

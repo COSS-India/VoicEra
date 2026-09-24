@@ -17,7 +17,7 @@ import socket
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, get_args
 from urllib.parse import urlsplit
 
 import httpx
@@ -27,7 +27,11 @@ from app.config import settings
 from app.database import get_database
 from app.services.secret_crypto import decrypt_json, encrypt_json
 from app.utils.mongo_utils import prepare_mongo_response
-from apps.providers.base import CONNECTION_PROVIDERS
+from apps.providers.base import (
+    CONNECTION_PROVIDERS,
+    HistoryMode,
+    SystemPromptMode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,14 @@ KIND = "llm"
 
 _URL_SCHEMES = ("http://", "https://")
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
+
+# How this endpoint wants its requests shaped. Agents follow these unless they
+# set their own; each default is what every endpoint did before the setting
+# existed, so stored rows without the field need no backfill.
+_ENDPOINT_MODES: dict[str, tuple[frozenset[str], str]] = {
+    "history_mode": (frozenset(get_args(HistoryMode)), "full"),
+    "system_prompt_mode": (frozenset(get_args(SystemPromptMode)), "send"),
+}
 
 # Paths a user may paste from vendor docs; the base URL sits above them.
 _OPERATION_SUFFIXES = ("/chat/completions", "/completions", "/responses")
@@ -200,9 +212,27 @@ def _validate_key(api_key: str | list[str]) -> str | list[str]:
     return key
 
 
+def _validate_mode(name: str, value: Any) -> str:
+    """Normalise one of the endpoint's message-shaping modes.
+
+    An absent value takes the default, so a row written before the field
+    existed reads as the behaviour it already had.
+    """
+    allowed, default = _ENDPOINT_MODES[name]
+    mode = str(value or default).strip()
+    if mode not in allowed:
+        raise ProviderConnectionError(
+            f"{name} must be one of {', '.join(sorted(allowed))}"
+        )
+    return mode
+
+
 def _to_response(doc: dict[str, Any], *, mask_secrets: bool) -> dict[str, Any]:
     prepared = prepare_mongo_response(doc) or {}
     prepared.pop("_id", None)
+    # Rows written before a mode existed read as the behaviour they had.
+    for name, (_, default) in _ENDPOINT_MODES.items():
+        prepared.setdefault(name, default)
     stored = prepared.pop("secret", None)
     api_key = decrypt_json(stored).get("api_key", "") if stored else ""
     prepared["api_key"] = _mask(api_key) if mask_secrets else api_key
@@ -246,6 +276,10 @@ def create_connection(
         "models": models,
         "default_model": default_model,
         "supports_tools": bool(payload.get("supports_tools", False)),
+        **{
+            name: _validate_mode(name, payload.get(name))
+            for name in _ENDPOINT_MODES
+        },
         "enabled": bool(payload.get("enabled", True)),
         "verified_at": None,
         "created_at": now,
@@ -331,6 +365,10 @@ def update_connection(
         updates["default_model"] = (payload["default_model"] or "").strip() or None
     if "supports_tools" in payload and payload["supports_tools"] is not None:
         updates["supports_tools"] = bool(payload["supports_tools"])
+    for name in _ENDPOINT_MODES:
+        if payload.get(name) is not None:
+            # Takes effect on the next call for every agent set to inherit.
+            updates[name] = _validate_mode(name, payload[name])
     if "enabled" in payload and payload["enabled"] is not None:
         enabled = bool(payload["enabled"])
         if not enabled and existing.get("enabled", True):
@@ -419,13 +457,25 @@ def configured_providers(org_id: str) -> list[str]:
 
 
 def resolve_auth(org_id: str, connection_id: str) -> dict[str, Any]:
-    """Decrypted ``{base_url, api_key}`` for the runtime to merge into a config."""
+    """Endpoint-owned config for the runtime to merge into an agent's LLM config.
+
+    The secrets plus every setting that belongs to the endpoint rather than to
+    the agent. Each mode is prefixed ``endpoint_`` so it cannot collide with
+    the agent's own field of that name when the runtime merges the two.
+    """
     stored = get_connection(org_id, connection_id, mask_secrets=False)
     if not stored.get("enabled", True):
         raise ProviderConnectionError(
             f"Provider connection is disabled: {connection_id}"
         )
-    return {"base_url": stored["base_url"], "api_key": stored["api_key"]}
+    return {
+        "base_url": stored["base_url"],
+        "api_key": stored["api_key"],
+        **{
+            f"endpoint_{name}": stored.get(name, default)
+            for name, (_, default) in _ENDPOINT_MODES.items()
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -81,6 +81,48 @@ def test_endpoint_or_key_in_the_agent_payload_is_refused():
     assert "base_url" in str(exc.value)
 
 
+def test_the_agents_own_history_mode_is_saved():
+    with patch(
+        "app.services.provider_connection_service.connection_exists",
+        return_value=True,
+    ):
+        validated = validate_agent_config(
+            _config({**_LLM, "history_mode": "current_turn"}), org_id="org-1"
+        )
+    assert validated.models.llm_config["history_mode"] == "current_turn"
+
+
+def test_an_agent_that_says_nothing_inherits_the_endpoint():
+    with patch(
+        "app.services.provider_connection_service.connection_exists",
+        return_value=True,
+    ):
+        validated = validate_agent_config(_config(_LLM), org_id="org-1")
+    assert validated.models.llm_config["history_mode"] == "inherit"
+
+
+def test_the_agents_own_system_prompt_mode_is_saved():
+    with patch(
+        "app.services.provider_connection_service.connection_exists",
+        return_value=True,
+    ):
+        validated = validate_agent_config(
+            _config({**_LLM, "system_prompt_mode": "omit"}), org_id="org-1"
+        )
+    assert validated.models.llm_config["system_prompt_mode"] == "omit"
+
+
+@pytest.mark.parametrize(
+    "field", ["endpoint_history_mode", "endpoint_system_prompt_mode"]
+)
+def test_the_endpoints_own_defaults_are_refused_on_the_agent(field):
+    """They belong to the connection, so they are auth-layer fields like base_url."""
+    config = _config({**_LLM, field: "omit"})
+    with pytest.raises(AgentConfigValidationError) as exc:
+        validate_agent_config(config, org_id="org-1")
+    assert field in str(exc.value)
+
+
 def test_kb_tool_mode_follows_the_endpoint_flag_not_the_provider_id():
     """A vendor id says nothing about what an operator pointed the URL at."""
     config = _config(

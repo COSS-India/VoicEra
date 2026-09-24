@@ -50,7 +50,10 @@ function DropdownControl({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const options = (field.examples ?? []).map((ex) => ({ value: String(ex), label: String(ex) }));
+  const options = (field.examples ?? []).map((ex) => {
+    const value = String(ex);
+    return { value, label: field.option_labels?.[value] ?? value };
+  });
   const current =
     value !== undefined && value !== null
       ? String(value)

@@ -57,6 +57,10 @@ _OMIT_FIELDS = frozenset({"kind", "provider", "name"})
 _EXTRA_KEYS = (
     "secret",
     "examples",
+    # option value -> label, for an enum whose wire values are not readable
+    # (``current_turn`` -> "Current turn only"). Options without an entry, and
+    # every field without the key, render their value as before.
+    "option_labels",
     "multiline",
     "model_options",
     "language_codes",

@@ -41,6 +41,8 @@ Bearer, `admin` or `super_admin`. `201`.
   "models": ["Qwen/Qwen3-8B-Instruct"],
   "default_model": "Qwen/Qwen3-8B-Instruct",
   "supports_tools": true,
+  "history_mode": "full",
+  "system_prompt_mode": "send",
   "enabled": true
 }
 ```
@@ -48,6 +50,16 @@ Bearer, `admin` or `super_admin`. `201`.
 `name` must be unique in the organisation (`409` otherwise). A non-connection-based provider returns `422`. `api_key` accepts a list for rotation; the runtime uses the first entry.
 
 `supports_tools` declares that the endpoint implements OpenAI tool calling — a knowledge base in `"tool"` mode requires it. The provider id cannot tell you this, because the operator chooses what the URL points at.
+
+`history_mode` is how much of the conversation the endpoint is sent on each turn: `"full"` (default) is every message so far, `"current_turn"` is the current user turn only — for an endpoint that keeps its own session state, or that degrades as the prompt grows.
+
+`system_prompt_mode` is whether the agent's system prompt goes on the wire: `"send"` (default), or `"omit"` for an endpoint that composes its own instructions and ignores ours. The two are independent — an endpoint can want the whole conversation and still build its own prompt.
+
+Both are defaults for every agent on this endpoint; an agent overrides either with `llm_config.history_mode` / `llm_config.system_prompt_mode`, whose own default `"inherit"` follows the endpoint. Editing them here applies to inheriting agents on their next call. Setting both to their non-default values sends exactly one bare user message:
+
+```json
+{ "messages": [{ "role": "user", "content": "yes, the first one" }] }
+```
 
 ## `POST /provider-connections/probe`
 

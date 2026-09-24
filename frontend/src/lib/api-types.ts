@@ -271,6 +271,14 @@ export interface ProviderAuthResponse {
   updated_at?: string;
 }
 
+/** How much of the conversation an endpoint is sent each turn. An agent
+ * inherits its endpoint's mode unless its own `history_mode` overrides it. */
+export type HistoryMode = "full" | "current_turn";
+
+/** Whether an endpoint is sent the agent's system prompt. `omit` suits an
+ * endpoint that composes its own instructions and ignores ours. */
+export type SystemPromptMode = "send" | "omit";
+
 /** One named endpoint for a connection-based provider (OpenAI-compatible LLMs).
  * `api_key` comes back masked from every route except the runtime's own. */
 export interface ProviderConnection {
@@ -285,6 +293,8 @@ export interface ProviderConnection {
   models: string[];
   default_model?: string | null;
   supports_tools: boolean;
+  history_mode: HistoryMode;
+  system_prompt_mode: SystemPromptMode;
   enabled: boolean;
   verified_at?: string | null;
   created_at?: string;
@@ -299,6 +309,8 @@ export interface ProviderConnectionPayload {
   models?: string[];
   default_model?: string | null;
   supports_tools?: boolean;
+  history_mode?: HistoryMode;
+  system_prompt_mode?: SystemPromptMode;
   enabled?: boolean;
 }
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, DialogHeader } from "@/components/ui/Dialog";
 import { Input, Select } from "@/components/ui/Field";
 import { Spinner } from "@/components/ui/Spinner";
+import { Switch } from "@/components/ui/Switch";
 import {
   createProviderConnection,
   deleteProviderConnection,
@@ -15,7 +16,7 @@ import {
   testProviderConnection,
   updateProviderConnection,
 } from "@/lib/api-client";
-import type { ProviderConnection } from "@/lib/api-types";
+import type { HistoryMode, ProviderConnection, SystemPromptMode } from "@/lib/api-types";
 
 /** A provider whose endpoint the operator supplies (`connection_based` in the
  * auth catalog). Each one can hold several endpoints, so the vendor key form
@@ -33,8 +34,16 @@ interface FormState {
   models: string;
   defaultModel: string;
   supportsTools: boolean;
+  historyMode: HistoryMode;
+  systemPromptMode: SystemPromptMode;
   enabled: boolean;
 }
+
+const HISTORY_MODE_LABELS: Record<HistoryMode, string> = {
+  full: "Full conversation",
+  current_turn: "Current turn only",
+};
+
 
 function emptyForm(provider: string): FormState {
   return {
@@ -45,6 +54,8 @@ function emptyForm(provider: string): FormState {
     models: "",
     defaultModel: "",
     supportsTools: false,
+    historyMode: "full",
+    systemPromptMode: "send",
     enabled: true,
   };
 }
@@ -59,6 +70,8 @@ function formFrom(connection: ProviderConnection): FormState {
     models: connection.models.join(", "),
     defaultModel: connection.default_model ?? "",
     supportsTools: connection.supports_tools,
+    historyMode: connection.history_mode ?? "full",
+    systemPromptMode: connection.system_prompt_mode ?? "send",
     enabled: connection.enabled,
   };
 }
@@ -162,6 +175,8 @@ function ConnectionDialog({
         models: parseModels(form.models),
         default_model: form.defaultModel.trim() || null,
         supports_tools: form.supportsTools,
+        history_mode: form.historyMode,
+        system_prompt_mode: form.systemPromptMode,
         enabled: form.enabled,
       };
       if (editing) {
@@ -301,6 +316,41 @@ function ConnectionDialog({
             spellCheck={false}
           />
         </label>
+
+        <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+          Conversation history
+          <Select
+            value={form.historyMode}
+            onChange={(e) => set("historyMode", e.target.value as HistoryMode)}
+          >
+            {(Object.keys(HISTORY_MODE_LABELS) as HistoryMode[]).map((mode) => (
+              <option key={mode} value={mode}>
+                {HISTORY_MODE_LABELS[mode]}
+              </option>
+            ))}
+          </Select>
+          <span className="text-xs font-light text-v-muted">
+            What every agent on this endpoint sends each turn, unless the agent
+            overrides it.
+          </span>
+        </label>
+
+        {/* Two states, so a switch rather than the history picker's select —
+         * the wire value stays the `send` / `omit` pair an agent also uses. */}
+        <div className="flex flex-col gap-1.5 text-[13px] font-medium">
+          <span className="flex items-center gap-3">
+            <Switch
+              checked={form.systemPromptMode === "send"}
+              label="Send the agent's system prompt"
+              onChange={(checked) => set("systemPromptMode", checked ? "send" : "omit")}
+            />
+            Send the agent&apos;s system prompt
+          </span>
+          <span className="text-xs font-light text-v-muted">
+            Turn this off when the endpoint composes its own instructions and
+            ignores whatever we send.
+          </span>
+        </div>
 
         <label className="flex items-center gap-2 text-[13px] font-medium">
           <input
@@ -459,6 +509,19 @@ export function ProviderConnections({
                       {connection.supports_tools ? (
                         <span className="rounded-full border border-purple-500/20 bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
                           Tools
+                        </span>
+                      ) : null}
+                      {connection.history_mode === "current_turn" ? (
+                        // Only the non-default modes are worth a badge; the
+                        // defaults are what every endpoint did before these
+                        // settings existed.
+                        <span className="rounded-full border border-v-line bg-v-soft px-1.5 py-0.5 text-[10px] font-medium text-v-muted-2">
+                          Current turn only
+                        </span>
+                      ) : null}
+                      {connection.system_prompt_mode === "omit" ? (
+                        <span className="rounded-full border border-v-line bg-v-soft px-1.5 py-0.5 text-[10px] font-medium text-v-muted-2">
+                          No system prompt
                         </span>
                       ) : null}
                     </div>

@@ -5,6 +5,10 @@ export interface CatalogField {
   description?: string;
   default?: unknown;
   examples?: unknown[];
+  /** Display text per `examples` value, for an enum whose wire values are not
+   * readable on their own (`current_turn` -> "Current turn only"). An option with
+   * no entry here shows its raw value. */
+  option_labels?: Record<string, string>;
   secret?: boolean;
   input_mode?: string;
   minimum?: number;

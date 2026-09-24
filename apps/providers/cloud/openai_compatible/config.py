@@ -12,6 +12,12 @@ machinery already does the right thing with them: the auth catalog renders the
 connection form, and ``validate_persisted_model_config`` keeps both out of the
 saved agent. The agent stores ``connection_id``; the runtime resolves it and
 merges the pair back in just before the pipeline starts.
+
+``endpoint_history_mode`` and ``endpoint_system_prompt_mode`` ride the same
+layer for the same reason: they belong to the endpoint, so they are never
+stored on an agent and never show up in the agent form. The agent's own
+``history_mode`` / ``system_prompt_mode`` default to ``inherit``, and the
+``effective_*`` properties pick between the two.
 """
 
 from __future__ import annotations
@@ -20,7 +26,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from ...base import BaseLLMConfig, BaseLLMSettings
+from ...base import (
+    BaseLLMConfig,
+    BaseLLMSettings,
+    HistoryMode,
+    SystemPromptMode,
+)
 
 _URL_SCHEMES = ("http://", "https://")
 
@@ -41,6 +52,22 @@ class OpenAICompatibleAuth(BaseModel):
             "refuses to start without one."
         ),
         json_schema_extra={"secret": True},
+    )
+
+    endpoint_history_mode: HistoryMode = Field(
+        default="full",
+        description=(
+            "The connection's own history default, applied to every agent that "
+            "leaves its history_mode on 'inherit'. Set on the endpoint, not the "
+            "agent; the runtime merges it in alongside base_url and api_key."
+        ),
+    )
+    endpoint_system_prompt_mode: SystemPromptMode = Field(
+        default="send",
+        description=(
+            "The connection's own system-prompt default, applied to every "
+            "agent that leaves its system_prompt_mode on 'inherit'."
+        ),
     )
 
     @field_validator("base_url")
@@ -64,6 +91,40 @@ class OpenAICompatibleAuth(BaseModel):
 class OpenAICompatibleLLMSettings(BaseLLMSettings):
     """OpenAI sampling knobs, passed through to the endpoint unchanged."""
 
+    history_mode: Literal["inherit", "full", "current_turn"] = Field(
+        default="inherit",
+        description=(
+            "How much of the conversation each turn sends. 'inherit' follows "
+            "the endpoint's own setting; 'full' sends every message so far; "
+            "'current_turn' sends the system prompt plus the current user turn "
+            "only, so the endpoint sees no earlier exchanges."
+        ),
+        json_schema_extra={
+            "examples": ["inherit", "full", "current_turn"],
+            "option_labels": {
+                "inherit": "Inherit from endpoint",
+                "full": "Full conversation",
+                "current_turn": "Current turn only",
+            },
+        },
+    )
+    system_prompt_mode: Literal["inherit", "send", "omit"] = Field(
+        default="inherit",
+        description=(
+            "Whether the agent's system prompt is sent. 'inherit' follows the "
+            "endpoint's own setting; 'send' puts it at the head of every "
+            "request; 'omit' leaves it out, for an endpoint that composes its "
+            "own instructions and ignores ours."
+        ),
+        json_schema_extra={
+            "examples": ["inherit", "send", "omit"],
+            "option_labels": {
+                "inherit": "Inherit from endpoint",
+                "send": "Send the system prompt",
+                "omit": "Endpoint builds its own",
+            },
+        },
+    )
     top_p: float | None = Field(
         default=None,
         ge=0.0,
@@ -134,3 +195,17 @@ class OpenAICompatibleLLMConfig(
         ),
         json_schema_extra={"allow_custom_input": True},
     )
+
+    @property
+    def effective_history_mode(self) -> HistoryMode:
+        """The agent's choice, or the endpoint's default when it defers."""
+        if self.history_mode == "inherit":
+            return self.endpoint_history_mode
+        return self.history_mode
+
+    @property
+    def effective_system_prompt_mode(self) -> SystemPromptMode:
+        """The agent's choice, or the endpoint's default when it defers."""
+        if self.system_prompt_mode == "inherit":
+            return self.endpoint_system_prompt_mode
+        return self.system_prompt_mode

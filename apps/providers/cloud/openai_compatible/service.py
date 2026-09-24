@@ -2,8 +2,43 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import lru_cache
+from typing import Any
+
 from ...registry import register_llm, api_key, llm_settings
 from .config import OpenAICompatibleLLMConfig
+from .history import Messages, message_shaper
+
+
+@lru_cache(maxsize=1)
+def _shaping_service_class() -> type:
+    """``OpenAILLMService`` that sends a shaped message list.
+
+    ``build_chat_completion_params`` is the single point where a context turns
+    into a request body — streaming completions and out-of-band inference both
+    go through it — so overriding it covers every call the service makes.
+    """
+    from pipecat.services.openai.llm import OpenAILLMService
+
+    class ShapedMessagesOpenAILLMService(OpenAILLMService):
+        def __init__(
+            self,
+            *,
+            shape_messages: Callable[[Messages], Messages],
+            **kwargs: Any,
+        ) -> None:
+            super().__init__(**kwargs)
+            self._shape_messages = shape_messages
+
+        def build_chat_completion_params(
+            self, params_from_context: Any
+        ) -> dict[str, Any]:
+            params = super().build_chat_completion_params(params_from_context)
+            params["messages"] = self._shape_messages(params["messages"])
+            return params
+
+    return ShapedMessagesOpenAILLMService
 
 
 @register_llm
@@ -19,8 +54,19 @@ def create_llm(cfg: OpenAICompatibleLLMConfig):
     if not cfg.model:
         raise ValueError("openai_compatible requires a model id")
 
-    return OpenAILLMService(
-        api_key=api_key(cfg.api_key),
-        base_url=cfg.base_url,
-        settings=OpenAILLMSettings(**llm_settings(cfg)),
+    common = {
+        "api_key": api_key(cfg.api_key),
+        "base_url": cfg.base_url,
+        "settings": OpenAILLMSettings(**llm_settings(cfg)),
+    }
+
+    shape_messages = message_shaper(
+        history_mode=cfg.effective_history_mode,
+        system_prompt_mode=cfg.effective_system_prompt_mode,
     )
+    if shape_messages is None:
+        # Nothing to trim — the stock service, exactly as before either setting
+        # existed.
+        return OpenAILLMService(**common)
+
+    return _shaping_service_class()(shape_messages=shape_messages, **common)

@@ -6,6 +6,8 @@ from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from apps.providers.base import HistoryMode, SystemPromptMode
+
 Role = Literal["super_admin", "admin", "member"]
 
 
@@ -167,6 +169,21 @@ class ProviderConnectionCreate(BaseModel):
         default=False,
         description="Whether the endpoint implements OpenAI tool calling.",
     )
+    history_mode: HistoryMode = Field(
+        default="full",
+        description=(
+            "History every agent on this endpoint gets unless it overrides: "
+            "'full' sends the whole conversation each turn, 'current_turn' sends "
+            "the current user turn only."
+        ),
+    )
+    system_prompt_mode: SystemPromptMode = Field(
+        default="send",
+        description=(
+            "Whether agents on this endpoint send their system prompt: 'send', "
+            "or 'omit' for an endpoint that composes its own instructions."
+        ),
+    )
     enabled: bool = True
 
 
@@ -179,6 +196,8 @@ class ProviderConnectionUpdate(BaseModel):
     models: Optional[list[str]] = None
     default_model: Optional[str] = None
     supports_tools: Optional[bool] = None
+    history_mode: Optional[HistoryMode] = None
+    system_prompt_mode: Optional[SystemPromptMode] = None
     enabled: Optional[bool] = None
 
 
@@ -196,6 +215,8 @@ class ProviderConnectionResponse(BaseModel):
     models: list[str] = Field(default_factory=list)
     default_model: Optional[str] = None
     supports_tools: bool = False
+    history_mode: HistoryMode = "full"
+    system_prompt_mode: SystemPromptMode = "send"
     enabled: bool = True
     verified_at: Optional[str] = None
     created_at: Optional[str] = None
