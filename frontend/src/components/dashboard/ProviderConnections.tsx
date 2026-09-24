@@ -366,8 +366,8 @@ function ConnectionDialog({
             Send the caller&apos;s phone number
           </span>
           <span className="text-xs font-light text-v-muted">
-            Sends the caller&apos;s number as metadata.caller_phone. Web calls
-            are not supported.
+            Sends the caller&apos;s number as metadata.caller_phone. Empty for
+            web calls.
           </span>
         </div>
 

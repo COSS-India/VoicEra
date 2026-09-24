@@ -62,7 +62,7 @@ Both are defaults for every agent on this endpoint; an agent overrides either wi
 { "messages": [{ "role": "user", "content": "yes, the first one" }] }
 ```
 
-`send_caller_phone` (default `false`) adds the caller's number to every request as `"metadata": { "caller_phone": "919900112233" }` — digits only, country code first, no `+`. The number is the call's `from_number` on an inbound call and its `to_number` on an outbound one. It has no agent override. A call with no known number — a web call, or an inbound call whose number was never learned — fails at setup instead of sending requests the endpoint would reject.
+`send_caller_phone` (default `false`) adds the caller's number to every request as `"metadata": { "caller_phone": "919900112233" }` — digits only, country code first, no `+`. The number is the call's `from_number` on an inbound call and its `to_number` on an outbound one. It has no agent override. A call with no known number — a web call, or an inbound call whose number was never learned — sends it as an empty string, so web test calls still run.
 
 ## `POST /provider-connections/probe`
 

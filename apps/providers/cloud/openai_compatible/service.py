@@ -56,15 +56,9 @@ def create_llm(cfg: OpenAICompatibleLLMConfig):
 
     settings = llm_settings(cfg)
     if cfg.endpoint_send_caller_phone:
-        # The endpoint keys its records on this number and rejects a request
-        # without it, so a call with no number cannot usefully start.
-        if not cfg.caller_phone:
-            raise ValueError(
-                "This provider connection sends the caller's phone number, "
-                "but none is known for this call"
-            )
-        # ``extra`` is merged into every request body the service builds.
-        settings["extra"] = {"metadata": {"caller_phone": cfg.caller_phone}}
+        # ``extra`` is merged into every request body the service builds. A
+        # call with no number (a web call) sends it empty rather than failing.
+        settings["extra"] = {"metadata": {"caller_phone": cfg.caller_phone or ""}}
 
     common = {
         "api_key": api_key(cfg.api_key),

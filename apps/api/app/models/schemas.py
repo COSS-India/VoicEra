@@ -189,7 +189,7 @@ class ProviderConnectionCreate(BaseModel):
         description=(
             "Send the caller's number, digits only with country code, as "
             "metadata.caller_phone on every request. A call with no known "
-            "number then fails at setup."
+            "number, such as a web call, sends it empty."
         ),
     )
     enabled: bool = True

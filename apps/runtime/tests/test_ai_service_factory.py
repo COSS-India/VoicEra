@@ -10,7 +10,6 @@ import pytest
 from apps.providers import AgentConfig, create_llm_service
 from apps.runtime.services import ai_service_factory
 from apps.runtime.services.ai_service_factory import (
-    ServiceBuildError,
     _requires_stored_auth,
     build_ai_services,
     merge_models_with_auth,
@@ -242,9 +241,10 @@ def test_a_connection_without_the_toggle_sends_no_metadata(monkeypatch):
     assert "metadata" not in llm.build_chat_completion_params({"messages": _HISTORY})
 
 
-def test_the_toggle_with_no_number_refuses_to_build(monkeypatch):
-    with pytest.raises(ServiceBuildError, match="phone number"):
-        _llm_for_a_call(monkeypatch, None, send_caller_phone=True)
+def test_a_web_call_still_builds_and_sends_it_empty(monkeypatch):
+    llm = _llm_for_a_call(monkeypatch, None, send_caller_phone=True)
+    params = llm.build_chat_completion_params({"messages": _HISTORY})
+    assert params["metadata"] == {"caller_phone": ""}
 
 
 @pytest.mark.parametrize(

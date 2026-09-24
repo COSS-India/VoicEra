@@ -235,9 +235,9 @@ def test_the_caller_phone_rides_every_request_as_metadata():
     assert _request_params(cfg)["metadata"] == {"caller_phone": "919900112233"}
 
 
-def test_a_call_with_no_number_fails_at_setup():
-    with pytest.raises(ValueError, match="phone number"):
-        create_llm(_config(endpoint_send_caller_phone=True))
+def test_a_call_with_no_number_sends_it_empty():
+    params = _request_params(_config(endpoint_send_caller_phone=True))
+    assert params["metadata"] == {"caller_phone": ""}
 
 
 def test_the_caller_phone_fields_are_not_agent_form_fields():
