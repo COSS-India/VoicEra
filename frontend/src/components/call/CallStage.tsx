@@ -20,15 +20,9 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Spinner } from "@/components/ui/Spinner";
-import { ApiError } from "@/lib/api/http";
-import { translateCallTranscriptViaLlm } from "@/lib/api/calls";
-import {
-  detectTextLanguage,
-  isChromeTranslationAvailable,
-  isTranslationPairAvailable,
-  translateLines,
-} from "@/lib/chrome-translation";
 import { connectBrowserCall, createBrowserPipecatClient } from "@/lib/pipecat/createBrowserClient";
+import { useTranscriptTranslation } from "@/hooks/useTranscriptTranslation";
+import { fetchCallTranscriptText } from "@/lib/api/calls";
 import { parseTranscript } from "@/lib/transcript";
 
 function formatDuration(totalSeconds: number): string {
@@ -100,27 +94,6 @@ interface TranslatedLine {
   content: string;
 }
 
-interface Translation {
-  lines: TranslatedLine[];
-  lang: string;
-}
-
-interface TranslateState {
-  callId: string | undefined;
-  result: Translation | null;
-  loading: boolean;
-  error: string;
-  showing: boolean;
-}
-
-const INITIAL_TRANSLATE_STATE: TranslateState = {
-  callId: undefined,
-  result: null,
-  loading: false,
-  error: "",
-  showing: false,
-};
-
 /** Shared transcript rendering — used by both the compact inline panel and
  * the zoomed dialog, so they can never drift into showing different content. */
 function TranscriptList({
@@ -129,7 +102,7 @@ function TranscriptList({
   textClassName,
 }: {
   messages: ConversationMessage[];
-  translation: Translation | null;
+  translation: { lines: TranslatedLine[]; lang: string } | null;
   textClassName: string;
 }) {
   if (translation) {
@@ -191,9 +164,6 @@ function CallStage({
   // that errors out before connecting doesn't get treated as "ended" (which
   // would hide the connect error behind the ended-call summary view).
   const connectedOnceRef = useRef(false);
-  // Monotonic guard: invalidates an in-flight translate request when the
-  // user starts a new call before it resolves.
-  const translateRequestId = useRef(0);
 
   const [seconds, setSeconds] = useState(0);
   const [connecting, setConnecting] = useState(false);
@@ -207,7 +177,8 @@ function CallStage({
   // a new call. Keeps the transcript/details panel visible post-disconnect
   // instead of reverting to the idle "Start test call" screen.
   const [hasEnded, setHasEnded] = useState(false);
-  const [translate, setTranslate] = useState<TranslateState>(INITIAL_TRANSLATE_STATE);
+  const [callId, setCallId] = useState<string | undefined>(undefined);
+  const translation = useTranscriptTranslation<TranslatedLine>();
   const [zoomed, setZoomed] = useState(false);
   const zoomedTranscriptRef = useRef<HTMLDivElement>(null);
 
@@ -303,18 +274,21 @@ function CallStage({
     setHasEnded(false);
     // Invalidate any in-flight translate from the previous call before it
     // can resolve into this one's state.
-    translateRequestId.current += 1;
-    setTranslate(INITIAL_TRANSLATE_STATE);
+    translation.reset();
+    setCallId(undefined);
     try {
-      const callId = await connectBrowserCall(client, orgId, agentId);
-      setTranslate((prev) => ({ ...prev, callId }));
+      const newCallId = await connectBrowserCall(client, orgId, agentId);
+      setCallId(newCallId);
     } catch (err) {
       setConnectError(err instanceof Error ? err.message : "Couldn't start the test call");
       setConnecting(false);
       return;
     }
     setConnecting(false);
-  }, [client, orgId, agentId]);
+    // translation.reset is stable (useCallback with no deps inside the hook);
+    // depending on the whole translation object would rerun this on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, orgId, agentId, translation.reset]);
 
   useEffect(() => {
     if (!autoStart) return;
@@ -371,85 +345,42 @@ function CallStage({
   const visibleMessages = messages.filter((m) => TRANSCRIPT_ROLES.has(m.role));
   const hasTranscript = visibleMessages.length > 0;
 
-  const hasCachedTranslation = translate.result !== null && translate.result.lang === targetLang;
+  const hasCachedTranslation = translation.hasCachedTranslation(targetLang);
 
-  /** Free, on-device path via Chrome's built-in Translator API. Returns null
-   * when the API or the requested language pair isn't supported, so the
-   * caller can fall back to the backend LLM. */
-  async function translateOnDevice(originalMessages: TranslatedLine[]): Promise<Translation | null> {
-    if (!isChromeTranslationAvailable()) return null;
-
-    const originals = originalMessages.map((m) => m.content);
-    const detected = await detectTextLanguage(originals.join("\n"));
-    const sourceLanguage = detected?.language;
-    if (!sourceLanguage || !(await isTranslationPairAvailable(sourceLanguage, targetLang))) return null;
-
-    const texts = await translateLines(originals, sourceLanguage, targetLang);
-    // Same length/order as originalMessages — safe to zip back by index.
-    const lines = originalMessages.map((m, i) => ({ role: m.role, content: texts[i] ?? m.content }));
-    return { lines, lang: targetLang };
-  }
-
-  /** Backend LLM fallback. Translates the server-persisted transcript, not
-   * the client's local message list — the two can have a different number/
-   * segmentation of turns, so the result is its own line list rather than
-   * zipped index-for-index onto the live messages. */
-  async function translateViaBackend(callId: string): Promise<Translation> {
-    const response = await translateCallTranscriptViaLlm(callId, targetLang);
-    const parsedLines = parseTranscript(response.translated_text);
-    if (parsedLines.length === 0) {
-      throw new Error("The translation model corrupted the transcript format. Please try again.");
-    }
-    return {
-      lines: parsedLines.map((l) => ({ role: roleLabel(l.role), content: l.content })),
-      lang: response.target_lang,
-    };
-  }
-
+  /** Translates the server-persisted transcript via the backend LLM
+   * fallback, not the client's local message list — the two can have a
+   * different number/segmentation of turns, so parsed backend lines are
+   * validated against the transcript's own persisted line count. That count
+   * is fetched lazily (only on the LLM-fallback path, inside the hook's own
+   * try/catch) so a not-yet-persisted transcript surfaces the hook's normal
+   * "still being saved" error instead of throwing ahead of it, and so the
+   * free on-device path never pays for this fetch at all. */
   async function handleTranslate() {
-    const originalMessages = visibleMessages.map((m) => ({
+    const originalMessages: TranslatedLine[] = visibleMessages.map((m) => ({
       role: roleLabel(m.role),
       content: messageToPlainText(m.parts),
     }));
     if (originalMessages.length === 0) return;
 
-    const myRequest = (translateRequestId.current += 1);
-    const isStale = () => translateRequestId.current !== myRequest;
-    setTranslate((prev) => ({ ...prev, loading: true, error: "" }));
-
-    try {
-      let result = await translateOnDevice(originalMessages);
-      if (!result) {
-        if (!translate.callId) {
-          throw new Error("On-device translation isn't available in this browser for this language.");
-        }
-        result = await translateViaBackend(translate.callId);
-      }
-      if (isStale()) return;
-      setTranslate((prev) => ({ ...prev, result, showing: true }));
-    } catch (err) {
-      if (isStale()) return;
-      const message =
-        err instanceof ApiError && err.status === 404
-          ? "Transcript is still being saved — try again in a few seconds."
-          : err instanceof Error
-            ? err.message
-            : "Failed to translate transcript. Please try again.";
-      setTranslate((prev) => ({ ...prev, error: message }));
-    } finally {
-      if (!isStale()) setTranslate((prev) => ({ ...prev, loading: false }));
-    }
+    await translation.translate(targetLang, {
+      originalLines: originalMessages,
+      zipOnDeviceLine: (original, translatedText) => ({ role: original.role, content: translatedText }),
+      callId,
+      resolveExpectedLineCount: async () =>
+        callId ? parseTranscript(await fetchCallTranscriptText(callId)).length : originalMessages.length,
+      fromParsedLine: (line) => ({ role: roleLabel(line.role), content: line.content }),
+    });
   }
 
   function translateButtonLabel(): string {
-    if (translate.showing) return "Show original";
+    if (translation.showing) return "Show original";
     if (hasCachedTranslation) return "Show translation";
     return "Translate";
   }
 
   function onTranslateButtonClick(): void {
-    if (translate.showing) setTranslate((prev) => ({ ...prev, showing: false }));
-    else if (hasCachedTranslation) setTranslate((prev) => ({ ...prev, showing: true }));
+    if (translation.showing) translation.setShowing(false);
+    else if (hasCachedTranslation) translation.setShowing(true);
     else void handleTranslate();
   }
 
@@ -614,11 +545,11 @@ function CallStage({
                   <button
                     type="button"
                     onClick={onTranslateButtonClick}
-                    disabled={translate.loading || !hasTranscript}
+                    disabled={translation.loading || !hasTranscript}
                     className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-white/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {translate.loading ? <Spinner /> : <Languages className="size-3.5" strokeWidth={1.75} />}
-                    {translate.loading ? "Translating…" : translateButtonLabel()}
+                    {translation.loading ? <Spinner /> : <Languages className="size-3.5" strokeWidth={1.75} />}
+                    {translation.loading ? "Translating…" : translateButtonLabel()}
                   </button>
                 ) : null}
                 {hasTranscript ? (
@@ -635,8 +566,8 @@ function CallStage({
               </div>
             ) : null}
 
-            {translate.error ? (
-              <span className="text-right text-[11px] text-red-300">{translate.error}</span>
+            {translation.error ? (
+              <span className="text-right text-[11px] text-red-300">{translation.error}</span>
             ) : null}
 
             <div
@@ -651,7 +582,7 @@ function CallStage({
 
               <TranscriptList
                 messages={visibleMessages}
-                translation={translate.showing ? translate.result : null}
+                translation={translation.showing ? translation.result : null}
                 textClassName="text-[14px] leading-relaxed"
               />
             </div>
@@ -676,11 +607,11 @@ function CallStage({
                 <button
                   type="button"
                   onClick={onTranslateButtonClick}
-                  disabled={translate.loading || !hasTranscript}
+                  disabled={translation.loading || !hasTranscript}
                   className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-white/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {translate.loading ? <Spinner /> : <Languages className="size-3.5" strokeWidth={1.75} />}
-                  {translate.loading ? "Translating…" : translateButtonLabel()}
+                  {translation.loading ? <Spinner /> : <Languages className="size-3.5" strokeWidth={1.75} />}
+                  {translation.loading ? "Translating…" : translateButtonLabel()}
                 </button>
               ) : null}
               <button
@@ -695,8 +626,8 @@ function CallStage({
           </div>
 
           <div className="flex flex-col gap-3 px-6 pb-6">
-            {translate.error ? (
-              <span className="text-[11px] text-red-300">{translate.error}</span>
+            {translation.error ? (
+              <span className="text-[11px] text-red-300">{translation.error}</span>
             ) : null}
 
             {!hasTranscript ? (
@@ -707,7 +638,7 @@ function CallStage({
 
             <TranscriptList
               messages={visibleMessages}
-              translation={translate.showing ? translate.result : null}
+              translation={translation.showing ? translation.result : null}
               textClassName="text-[16px] leading-loose"
             />
           </div>

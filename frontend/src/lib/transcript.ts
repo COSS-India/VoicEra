@@ -43,7 +43,7 @@ export function formatClockLabel(ts: string): string {
 export function parseTranscript(raw: string): TranscriptLine[] {
   const rows: { role: string; timestamp: string; content: string; ms: number | null }[] = [];
   for (const line of raw.split("\n")) {
-    const m = /^\[([^\]]+)]\s*(\w+):\s*(.*)$/.exec(line);
+    const m = /^\[([^\]]+)]\s*([^:\]]+):\s*(.*)$/.exec(line);
     if (!m) continue;
     const timestamp = m[1]!;
     rows.push({ role: m[2]!, timestamp, content: m[3]!, ms: parseTimestampMs(timestamp) });

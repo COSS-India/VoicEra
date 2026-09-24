@@ -174,7 +174,9 @@ function UploadCampaignDialog({
       const parsed = csvParse(text);
       const cols = parsed.columns ?? [];
       setHeaders(cols);
-      setPreviewRows(parsed.slice(0, 10).map((row) => cols.map((h) => String(row[h] ?? ""))));
+      setPreviewRows(
+        parsed.slice(0, 10).map((row: Record<string, string>) => cols.map((h: string) => String(row[h] ?? ""))),
+      );
       setTotalRows(parsed.length);
       setStep("preview");
     } catch {
