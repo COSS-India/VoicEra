@@ -82,6 +82,7 @@ def _minio_storage_mock(storage_cls: MagicMock, raw_transcript: bytes = b"[00:01
     storage = storage_cls.return_value
     response_obj = MagicMock()
     response_obj.read.return_value = raw_transcript
+    response_obj.headers = {"Content-Length": str(len(raw_transcript))}
     storage.client.get_object.return_value = response_obj
     return storage
 
@@ -170,7 +171,7 @@ def test_translate_oversized_transcript_returns_413(
     _CALL_STORE["call-abc-123"] = _sample_call_doc()
     _minio_storage_mock(storage_cls)
     mock_translate.side_effect = TranslationError(
-        "Transcript is too long to translate in one request (50001 chars, limit 50000).",
+        "Transcript is too long to translate in one request (22001 chars, limit 22000).",
         reason=TranslationErrorReason.OVERSIZED,
     )
 
@@ -223,6 +224,34 @@ def test_translate_generic_provider_failure_returns_502(
 
     assert response.status_code == 502
     assert "not configured" in response.json()["detail"]
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_rejects_oversized_object_without_reading_it(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    """An oversized stored transcript must be rejected off the GET response's
+    Content-Length header, before the full object is ever pulled into memory
+    with .read() — reading first and checking length only afterward means a
+    huge object gets loaded regardless of the cap."""
+    from app.services.translation_service import MAX_TRANSCRIPT_CHARS
+
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls)
+    storage.client.get_object.return_value.headers = {
+        "Content-Length": str((MAX_TRANSCRIPT_CHARS * 4) + 1)
+    }
+
+    client = _make_client()
+    response = client.post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 413
+    storage.client.get_object.return_value.read.assert_not_called()
+    mock_translate.assert_not_called()
 
 
 @_patch_db("app.services.call_log_service.get_database")
