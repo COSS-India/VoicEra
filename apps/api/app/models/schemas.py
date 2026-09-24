@@ -295,6 +295,14 @@ class AgentModels(BaseModel):
     llm_config: dict[str, Any]
 
 
+class TtsPreviewRequest(BaseModel):
+    """Preview request: the unsaved TTS config plus text to speak."""
+
+    tts_config: dict[str, Any]
+    language: str
+    text: str
+
+
 class AgentConfigPayload(BaseModel):
     """Typed agent behaviour + AI config blob."""
 

@@ -102,6 +102,23 @@ class Settings(BaseSettings):
         description="When true, API startup can spawn orchestrator (docker uses separate service)",
     )
 
+    TTS_PREVIEW_MAX_CHARS: int = Field(
+        default=300,
+        description="Maximum characters accepted in a voice preview request",
+    )
+    TTS_PREVIEW_RATE_LIMIT_PER_MINUTE: int = Field(
+        default=20,
+        description="Voice previews allowed per organisation per minute",
+    )
+    TTS_PREVIEW_TIMEOUT_S: float = Field(
+        default=15.0,
+        description="Timeout for a single voice preview provider call",
+    )
+    TTS_PREVIEW_BUCKET: str = Field(
+        default="voicera-tts-preview",
+        description="Dedicated MinIO bucket for cached voice preview audio",
+    )
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def coerce_debug(cls, value: Any) -> bool:
