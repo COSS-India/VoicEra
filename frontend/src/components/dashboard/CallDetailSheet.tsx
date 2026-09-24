@@ -411,7 +411,7 @@ export function CallDetailSheet({
       originalLines: transcript,
       zipOnDeviceLine: (original, translatedText) => ({ ...original, content: translatedText }),
       callId: call.call_id,
-      expectedLineCount: transcript.length,
+      resolveExpectedLineCount: async () => transcript.length,
       fromParsedLine: (line) => line,
     });
   }

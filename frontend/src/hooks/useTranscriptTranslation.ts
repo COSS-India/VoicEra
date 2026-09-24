@@ -25,9 +25,12 @@ interface TranslateOptions<TLine, TOriginal extends { content: string }> {
   /** The callId to translate via the backend LLM fallback, or undefined if
    * no call is associated yet (on-device-only translation still works). */
   callId: string | undefined;
-  /** Expected number of lines after a correct backend translation — a
-   * mismatch means the model corrupted the transcript's line structure. */
-  expectedLineCount: number;
+  /** Resolves the expected number of lines after a correct backend
+   * translation — a mismatch means the model corrupted the transcript's line
+   * structure. Lazy: only called on the LLM-fallback path, inside this
+   * function's own try/catch, so any fetch it does can't throw ahead of the
+   * on-device path or outside error handling. */
+  resolveExpectedLineCount: () => Promise<number>;
   /** Builds a translated line from one parsed backend TranscriptLine. */
   fromParsedLine: (line: TranscriptLine) => TLine;
 }
@@ -62,7 +65,7 @@ export function useTranscriptTranslation<TLine>() {
     targetLang: string,
     options: TranslateOptions<TLine, TOriginal>,
   ) {
-    const { originalLines, zipOnDeviceLine, callId, expectedLineCount, fromParsedLine } = options;
+    const { originalLines, zipOnDeviceLine, callId, resolveExpectedLineCount, fromParsedLine } = options;
     if (originalLines.length === 0) return;
 
     const myRequest = (requestIdRef.current += 1);
@@ -99,6 +102,8 @@ export function useTranscriptTranslation<TLine>() {
       const response = await translateCallTranscriptViaLlm(callId, targetLang);
       if (isStale()) return;
       const parsedLines = parseTranscript(response.translated_text);
+      const expectedLineCount = await resolveExpectedLineCount();
+      if (isStale()) return;
       if (parsedLines.length !== expectedLineCount) {
         setError("The translation model corrupted the transcript format. Please try again.");
         return;
