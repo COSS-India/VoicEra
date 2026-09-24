@@ -20,6 +20,7 @@ shared by apps/runtime too and must not depend on apps/api's `app` package.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Callable
 
@@ -36,13 +37,15 @@ from .adapters.kenpath.catalog import (
     resolve_completions_path as kenpath_resolve_completions_path,
 )
 from . import registry
-from .availability import is_authenticated
+from .availability import deployed_llm_model_ids, is_authenticated
 from .cloud.aws_bedrock.catalog import DEFAULT_LLM_MODEL as BEDROCK_DEFAULT_MODEL
 from .cloud.atlascloud.catalog import BASE_URL as ATLASCLOUD_BASE_URL, DEFAULT_LLM_MODEL as ATLASCLOUD_DEFAULT_MODEL
 from .cloud.google_vertex.catalog import DEFAULT_LLM_MODEL as VERTEX_DEFAULT_MODEL
 from .cloud.groq.catalog import BASE_URL as GROQ_BASE_URL, DEFAULT_LLM_MODEL as GROQ_DEFAULT_MODEL
 from .cloud.openai.catalog import DEFAULT_LLM_MODEL as OPENAI_DEFAULT_MODEL
 from .cloud.openrouter.catalog import BASE_URL as OPENROUTER_BASE_URL, DEFAULT_LLM_MODEL as OPENROUTER_DEFAULT_MODEL
+
+logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 60.0
 
@@ -66,24 +69,26 @@ class OneShotLLMError(RuntimeError):
     """Raised for expected one-shot LLM call failures (config, provider, or network)."""
 
 
-def first_available_provider(
+def available_providers(
     org_id: str, *, list_configured_providers: ListConfiguredProviders
-) -> str | None:
-    """The single point of truth: which LLM provider this org can actually
-    use right now, in priority order (OpenAI-compatible first, then the
-    other SDK-driven providers, then the self-hosted model-server).
+) -> list[str]:
+    """Every LLM provider this org can actually use right now, in priority
+    order (OpenAI-compatible first, then the other SDK-driven providers,
+    then the self-hosted model-server) — the full candidate list, not just
+    the first hit, so a caller can fall through to the next one if a
+    higher-priority provider fails at call time (e.g. Kenpath configured
+    with a Vistaar/Voice-Bhili model, which can't serve arbitrary one-shot
+    prompts — see call_kenpath).
 
     `list_configured_providers` is injected (e.g. app.services.auth_service
     .list_configured_providers) rather than imported directly — see module
     docstring for why.
     """
     configured = set(list_configured_providers(org_id))
-    for provider in (*OPENAI_COMPATIBLE_PROVIDERS, *NON_OPENAI_PROVIDERS):
-        if provider in configured:
-            return provider
+    providers = [p for p in (*OPENAI_COMPATIBLE_PROVIDERS, *NON_OPENAI_PROVIDERS) if p in configured]
     if is_authenticated(LOCAL_MODEL_SERVER_PROVIDER, configured):
-        return LOCAL_MODEL_SERVER_PROVIDER
-    return None
+        providers.append(LOCAL_MODEL_SERVER_PROVIDER)
+    return providers
 
 
 def call_openai_compatible(
@@ -161,13 +166,44 @@ def call_via_openai_compatible_provider(
 _LOCAL_MODEL_SERVER_CONTEXT_TOKENS = 8000
 
 def call_local_model_server(
-    system: str, user: str, *, model: str = "qwen3.5-4b", max_tokens: int | None = None
-) -> str:
+    system: str, user: str, *, model: str | None = None, max_tokens: int | None = None
+) -> tuple[str, str]:
     """Zero-credential path: VoicEra's own self-hosted LLM behind
-    model-server's OpenAI-compatible gateway, addressed via MODEL_SERVER_URL."""
+    model-server's OpenAI-compatible gateway, addressed via MODEL_SERVER_URL.
+
+    model-server's deployed LLM slot is configured on model-server's own
+    side (LLM_MODEL env var, a different process from this one) — not
+    something this API process can read directly. model-server already
+    reports the slot it deployed via GET /models (the same endpoint
+    apps.providers.availability uses for readiness checks), so that's the
+    source of truth here too. Raises rather than falling back to a
+    hardcoded default when nothing is reported deployed — a stale/guessed
+    model name would 404 against whatever's actually running, exactly the
+    failure this resolution logic exists to prevent.
+    """
     base_url = (os.getenv("MODEL_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise OneShotLLMError("MODEL_SERVER_URL is not set")
+    if model is not None:
+        resolved_model = model
+    else:
+        deployed = deployed_llm_model_ids()
+        if not deployed:
+            # model-server is configured (base_url is set) but reports no
+            # deployed LLM right now — falling back to a hardcoded literal
+            # here would silently 404 against whatever's actually deployed,
+            # reproducing the exact bug this model-resolution logic exists
+            # to fix. Fail loudly instead so the real cause (model-server
+            # still starting up, or its LLM slot not enabled) is visible.
+            raise OneShotLLMError(
+                f"model-server at {base_url!r} reports no deployed LLM model — it may still "
+                "be starting up, or LLM_MODEL/COMPOSE_PROFILES may not include an llm slot"
+            )
+        # model-server serves exactly one LLM slot; sorted() makes the pick
+        # deterministic (not frozenset's undefined iteration order) for the
+        # rare instant where more than one entry is momentarily reported,
+        # e.g. mid model swap.
+        resolved_model = sorted(deployed)[0]
     # Worst case across scripts this product serves: BPE tokenizers commonly
     # split Devanagari/Tamil/etc. near 1 token per char, far worse than
     # Latin's ~4 — so 1 char of input is assumed to cost up to 1 token,
@@ -188,7 +224,8 @@ def call_local_model_server(
     # short requests just because it alone would theoretically exceed the cap.
     effective_max_tokens = min(max_tokens, remaining_tokens) if max_tokens is not None else remaining_tokens
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return call_openai_compatible(None, base_url, model, messages, max_tokens=effective_max_tokens)
+    result = call_openai_compatible(None, base_url, resolved_model, messages, max_tokens=effective_max_tokens)
+    return result, resolved_model
 
 
 def call_kenpath(
@@ -249,10 +286,15 @@ def call_kenpath(
         try:
             response = httpx.post(url, json=request_body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
+            data = response.json()
         except httpx.HTTPError as exc:
             raise OneShotLLMError(f"kenpath (bharatvistaar) request failed: {exc}") from exc
-
-        data = response.json()
+        except ValueError as exc:
+            # response.json() raises the stdlib json module's JSONDecodeError
+            # (a ValueError subclass), not httpx.HTTPError — a malformed body
+            # must still surface as OneShotLLMError so call_first_available's
+            # fallback loop advances to the next provider instead of dying.
+            raise OneShotLLMError(f"kenpath (bharatvistaar) returned a non-JSON response: {exc}") from exc
         # Non-streaming response contract isn't documented in this repo —
         # tolerate the two shapes that make sense for an OpenAI-styled API:
         # a plain OpenAI chat/completions shape, or a bare {"response": ...}.
@@ -421,35 +463,32 @@ def call_vertex(
     return result, model
 
 
-def call_first_available(
+def _dispatch(
+    provider: str,
     org_id: str,
     system: str,
     user: str,
     *,
     resolve_auth: ResolveAuth,
-    list_configured_providers: ListConfiguredProviders,
-    jwt_subject: str = "one-shot-llm",
-    max_tokens: int | None = None,
-) -> tuple[str, str, str] | None:
-    """Dispatch to whichever provider first_available_provider() picks.
-    Returns (provider, model, result), or None if nothing is available."""
-    provider = first_available_provider(org_id, list_configured_providers=list_configured_providers)
-    if provider is None:
-        return None
-
+    jwt_subject: str,
+    max_tokens: int | None,
+) -> tuple[str, str]:
+    """Calls a single provider and returns (model, result). Raises
+    OneShotLLMError on failure — callers decide whether to try the next
+    candidate or give up."""
     if provider in OPENAI_COMPATIBLE_PROVIDERS:
         result, model = call_via_openai_compatible_provider(
             org_id, provider, system, user, resolve_auth=resolve_auth, max_tokens=max_tokens
         )
-        return provider, model, result
+        return model, result
 
     if provider == "aws_bedrock":
         result, model = call_bedrock(org_id, None, system, user, resolve_auth=resolve_auth, max_tokens=max_tokens)
-        return provider, model, result
+        return model, result
 
     if provider == "google_vertex":
         result, model = call_vertex(org_id, None, system, user, resolve_auth=resolve_auth, max_tokens=max_tokens)
-        return provider, model, result
+        return model, result
 
     if provider == "kenpath":
         result, model = call_kenpath(
@@ -461,10 +500,59 @@ def call_first_available(
             jwt_subject=jwt_subject,
             max_tokens=max_tokens,
         )
-        return provider, model, result
+        return model, result
 
     if provider == LOCAL_MODEL_SERVER_PROVIDER:
-        result = call_local_model_server(system, user, max_tokens=max_tokens)
-        return provider, "qwen3.5-4b", result
+        result, model = call_local_model_server(system, user, max_tokens=max_tokens)
+        return model, result
 
     raise OneShotLLMError(f"No dispatch implemented for provider {provider!r}")
+
+
+def call_first_available(
+    org_id: str,
+    system: str,
+    user: str,
+    *,
+    resolve_auth: ResolveAuth,
+    list_configured_providers: ListConfiguredProviders,
+    jwt_subject: str = "one-shot-llm",
+    max_tokens: int | None = None,
+) -> tuple[str, str, str] | None:
+    """Tries every provider available_providers() returns, in priority
+    order, falling through to the next candidate if one raises
+    OneShotLLMError — e.g. an org whose only configured provider is Kenpath
+    Vistaar/Voice-Bhili (which can't serve arbitrary one-shot prompts, see
+    call_kenpath) still reaches a self-hosted model-server fallback if one
+    is reachable, instead of failing outright on the first candidate.
+
+    Returns (provider, model, result), or None if no provider is
+    available at all. If every available provider fails, raises a single
+    OneShotLLMError whose message lists every provider tried and its own
+    failure reason — not just the last one — so a higher-priority
+    provider's real, fixable problem (e.g. a revoked key) isn't hidden
+    behind a lower-priority provider's unrelated failure."""
+    providers = available_providers(org_id, list_configured_providers=list_configured_providers)
+    if not providers:
+        return None
+
+    errors: list[tuple[str, OneShotLLMError]] = []
+    for provider in providers:
+        try:
+            model, result = _dispatch(
+                provider,
+                org_id,
+                system,
+                user,
+                resolve_auth=resolve_auth,
+                jwt_subject=jwt_subject,
+                max_tokens=max_tokens,
+            )
+        except OneShotLLMError as exc:
+            logger.warning("one-shot LLM provider %r failed, trying next: %s", provider, exc)
+            errors.append((provider, exc))
+            continue
+        return provider, model, result
+
+    summary = "; ".join(f"{provider}: {exc}" for provider, exc in errors)
+    raise OneShotLLMError(f"every available LLM provider failed — {summary}")
