@@ -8,6 +8,7 @@ from typing import Any
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.service_switcher import ServiceSwitcher
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -26,9 +27,25 @@ from starlette.websockets import WebSocket
 
 from apps.runtime.services.knowledge.setup import configure_knowledge_base
 from apps.runtime.services.pipecat.call_ending import configure_call_ending
+from apps.runtime.services.language_switch.tools import configure_language_switching
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
 from apps.runtime.services.storage.transcript import TranscriptWriter
+
+
+def _processors_after_output(llm: Any) -> list[Any]:
+    """Processors LLM services ask to sit after transport output.
+
+    A language switcher holds several LLMs; each contributes its own, and an
+    inactive member's processors stay idle because its LLM never signals them.
+    """
+    members = llm.services if isinstance(llm, ServiceSwitcher) else [llm]
+    processors: list[Any] = []
+    for member in members:
+        after_output = getattr(member, "pipeline_processors_after_output", None)
+        if after_output is not None:
+            processors.extend(after_output())
+    return processors
 
 
 @dataclass
@@ -58,7 +75,11 @@ def build_pipeline_components(
     agent: dict[str, Any],
     org_id: str,
     behaviour: dict[str, Any],
+    recording_sample_rate: int | None = None,
 ) -> PipelineComponents:
+    rec_rate = recording_sample_rate or sample_rate
+    capture_tts_before_transport = rec_rate != sample_rate
+
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
         params=VADParams(
@@ -73,6 +94,7 @@ def build_pipeline_components(
         num_channels=1,
         enable_turn_audio=False,
         auto_start_recording=True,
+        sample_rate=rec_rate,
     )
 
     transport = FastAPIWebsocketTransport(
@@ -121,6 +143,15 @@ def build_pipeline_components(
         context=context,
         agent_id=agent.get("agent_id"),
     )
+    configure_language_switching(
+        agent,
+        context=context,
+        stt_switcher=stt,
+        tts_switcher=tts,
+        llm_switcher=llm,
+        agent_id=agent.get("agent_id"),
+    )
+
     pipeline_processors = [
         transport.input(),
         stt,
@@ -128,11 +159,15 @@ def build_pipeline_components(
     ]
     if kb_context_processor is not None:
         pipeline_processors.append(kb_context_processor)
-    pipeline_processors.extend([llm, tts, transport.output()])
-    after_output = getattr(llm, "pipeline_processors_after_output", None)
-    if after_output is not None:
-        pipeline_processors.extend(after_output())
-    pipeline_processors.extend([audiobuffer, assistant_aggregator])
+    after_output = _processors_after_output(llm)
+    tail: list[Any] = [llm, tts]
+    if capture_tts_before_transport:
+        # Record at TTS native rate before transport resamples for the wire.
+        tail.extend([audiobuffer, transport.output(), *after_output])
+    else:
+        tail.extend([transport.output(), *after_output, audiobuffer])
+    tail.append(assistant_aggregator)
+    pipeline_processors.extend(tail)
 
     pipeline = Pipeline(pipeline_processors)
 

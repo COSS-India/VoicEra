@@ -1,9 +1,9 @@
 ---
 title: Adding a telephony provider
-description: Add a telephony vendor alongside Vobiz and Plivo.
+description: Add a telephony vendor alongside Vobiz, Plivo, and Vodafone Idea.
 ---
 
-How to add a phone-network vendor to `apps/telephony`. The package ships two — Vobiz and Plivo — and they are deliberately structured identically, so the fastest way to add a third is to open both folders side by side and follow the shape.
+How to add a phone-network vendor to `apps/telephony`. The package ships three — Vobiz, Plivo, and Vodafone Idea (VI). Vobiz and Plivo are deliberately structured identically. VI is the documented exception: org ProviderAuth with multi DNI/flow pairs, OBD campaign dialing, and direct `/vi/stream` media (no answer XML).
 
 ## Quick reference
 
@@ -335,3 +335,19 @@ There is no CI. Run these yourself before opening a pull request, and test a rea
 * [Adding an AI provider](adding-a-provider)
 * [Public voice URLs](../../guides/deployment/public-voice-urls)
 * [Testing](testing)
+
+## Vodafone Idea (VI) exception
+
+VI does **not** follow the Vobiz/Plivo answer-URL model for live media:
+
+* Credentials: **org ProviderAuth only** via Integrations — `auth_id` (OBD username), `auth_token` (OBD password), and `dni_flows` (one or more DNI + DIY flow_id pairs). There is no env-based dialing.
+* Availability: `is_authenticated("vi")` is true only when Integrations has `vi` configured for the org.
+* Numbers inventory: `list_numbers` returns every auth DNI so each configured number appears under Numbers for VI.
+* DNI in Integrations: E.164 ``+91XXXXXXXXXX``. OBD ingest prefers ``getActiveDNIList`` wire form for the flow; fallback is country-code digits without ``+`` (e.g. ``919876543210``). Callee MSISDN is always 10-digit national.
+* Dialing: even a single outbound is CPaaS OBD `createCampaign` + ingest; campaigns use `initiate_bulk_calls` on the client. From-number falls back via `ViClient.default_from_number()` (first auth DNI) when no number is linked — API uses the capability, not a vendor branch.
+* **Public dial/bulk/status contract:** `initiate_call` / `initiate_bulk_calls` return the shared telephony keys (`provider_call_sid`, `from_number`, `provider_handles`). Status polling uses `get_bulk_status(provider_call_sid=, provider_handles=)` and returns normalized `state`. VI wire names (`campainKey`, `campaign_Ref_ID`, `campaignStatus`) stay inside `providers/vi/` (and optional `raw`); `apps/api` must not read them.
+* Media: DIY flow opens `wss://…/vi/stream` (or legacy `/vi/agent/{agent_id}`); session logic lives in `providers/vi/stream_session.py` with a thin runtime route mount. Pipeline sample rates are registered via `providers/vi/rates.py` (`@register_pipeline_rates`).
+* Provisioning: stub application; client returns the WSS stream URL as `answer_url`.
+* Recordings: Pipecat AudioBuffer only — no VI recording webhook.
+
+Agent routing on `/vi/stream` uses DNI/CLI Numbers lookup, or path/`custom_parameters` `agent_id` with org from that lookup (or `org_id` in `custom_parameters`) — no VI process env. Bulk status poll: `TELEPHONY_BULK_STATUS_POLL_*`.

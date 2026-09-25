@@ -79,7 +79,12 @@ def _merge_config(
     merged = dict(existing)
     incoming_data = incoming.model_dump(mode="python")
     for key, value in incoming_data.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+        # ``models`` is always a complete language map; merging it into a stored
+        # flat stack would let the old stack win normalization, and merging two
+        # maps would keep stacks for languages the caller removed.
+        if key == "models":
+            merged[key] = value
+        elif isinstance(value, dict) and isinstance(merged.get(key), dict):
             nested = dict(merged[key])
             nested.update(value)
             merged[key] = nested

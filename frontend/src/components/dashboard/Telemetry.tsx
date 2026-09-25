@@ -17,6 +17,7 @@ import { displayFromNumber, displayToNumber, formatDateTime, formatDuration, nam
 import { buildCsvReport, downloadBlob, type ReportMeta } from "@/lib/report";
 import { formatMs, normalizeCallMetrics, type NormalizedCallMetrics } from "@/lib/call-metrics";
 import type { AgentApiResponse, CallLogItem, CallType } from "@/lib/api-types";
+import { primaryModelsFromAgent } from "@/lib/agent-mapper";
 
 const PAGE_SIZE = 10;
 
@@ -222,11 +223,12 @@ function modelLabel(config: Record<string, unknown> | undefined): string {
 function CallOverviewPanel({ call, agent }: { call: CallLogItem; agent: AgentApiResponse | null }) {
   const isWeb = call.call_type === "web";
   const createdBy = agent?.created_by ? nameFromEmail(agent.created_by) : "—";
+  const models = agent ? primaryModelsFromAgent(agent) : null;
 
   const modelItems: { label: string; value: string; icon?: typeof Mic }[] = [
-    { label: "STT model", value: modelLabel(agent?.config.models.stt_config), icon: Mic },
-    { label: "TTS model", value: modelLabel(agent?.config.models.tts_config), icon: Volume2 },
-    { label: "LLM model", value: modelLabel(agent?.config.models.llm_config), icon: Brain },
+    { label: "STT model", value: modelLabel(models?.stt_config), icon: Mic },
+    { label: "TTS model", value: modelLabel(models?.tts_config), icon: Volume2 },
+    { label: "LLM model", value: modelLabel(models?.llm_config), icon: Brain },
   ];
 
   // A web call is a browser test session with no real telephony numbers —
@@ -240,9 +242,9 @@ function CallOverviewPanel({ call, agent }: { call: CallLogItem; agent: AgentApi
     { label: "Duration", value: formatDuration(call.duration) },
 
     // Second column: STT, LLM, TTS
-    { label: "STT model", value: modelLabel(agent?.config.models.stt_config), icon: Mic },
-    { label: "LLM model", value: modelLabel(agent?.config.models.llm_config), icon: Brain },
-    { label: "TTS model", value: modelLabel(agent?.config.models.tts_config), icon: Volume2 },
+    { label: "STT model", value: modelLabel(models?.stt_config), icon: Mic },
+    { label: "LLM model", value: modelLabel(models?.llm_config), icon: Brain },
+    { label: "TTS model", value: modelLabel(models?.tts_config), icon: Volume2 },
 
     // Third column: Created by
     { label: "Created by", value: agent?.created_by ? nameFromEmail(agent.created_by) : "—" },

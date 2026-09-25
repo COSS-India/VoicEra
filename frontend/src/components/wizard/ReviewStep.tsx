@@ -1,17 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/components/AuthProvider";
 import { createAgent, updateAgent } from "@/lib/api-client";
 import { formToAgentCreatePayload } from "@/lib/agent-mapper";
+import { resolveSaveCatalogs } from "@/lib/language-stacks";
 import { BrowserCallSession } from "@/components/call/BrowserCallSession";
+import {
+  formatServiceLine,
+  LanguageStacksPanel,
+  type LanguageStackSummary,
+} from "@/components/dashboard/LanguageStacksPanel";
 import type { AgentForm } from "@/lib/wizard-data";
 import type { AgentApiResponse } from "@/lib/api-types";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
-import { languageLabel, telephonyOptions, voiceOptionsFromSettings } from "@/lib/use-wizard-catalogs";
+import { languageLabel, telephonyOptions } from "@/lib/use-wizard-catalogs";
 
 interface ReviewStepProps {
   form: AgentForm;
@@ -59,6 +65,26 @@ function SummaryRow({
   );
 }
 
+function languageStackSummaries(
+  form: AgentForm,
+  catalogs: WizardCatalogs,
+): LanguageStackSummary[] {
+  return form.langs.map((lang) => {
+    const stack = form.languageStacks[lang];
+    const sttName = catalogs.sttProviders[stack?.sttProvider ?? ""]?.name ?? stack?.sttProvider ?? "—";
+    const ttsName = catalogs.ttsProviders[stack?.ttsProvider ?? ""]?.name ?? stack?.ttsProvider ?? "—";
+    const llmName = catalogs.llmProviders[stack?.llmProvider ?? ""]?.name ?? stack?.llmProvider ?? "—";
+    return {
+      langId: lang,
+      label: languageLabel(catalogs.languages, lang),
+      isPrimary: lang === form.primaryLang,
+      stt: formatServiceLine(sttName, stack?.sttModel),
+      tts: formatServiceLine(ttsName, stack?.ttsModel, stack?.voice),
+      llm: formatServiceLine(llmName, stack?.llmModel),
+    };
+  });
+}
+
 /** Read-only recap of every choice made across the wizard — the "what has
  * been chosen" list next to the test-call box. Each row's pencil jumps back
  * to the step that owns it. */
@@ -71,61 +97,50 @@ function SelectionsSummary({
   catalogs: WizardCatalogs;
   onEditStep?: (stepId: string) => void;
 }) {
-  const voices = voiceOptionsFromSettings(catalogs.ttsSettings, form.ttsModel, form.langs[0]);
-  const voiceLabel = voices.find((v) => v.id === form.voice)?.name ?? form.voice ?? "—";
-  const llmName = catalogs.llmProviders[form.llmProvider]?.name ?? form.llmProvider ?? "—";
-  const sttName = catalogs.sttProviders[form.sttProvider]?.name ?? form.sttProvider ?? "—";
-  const ttsName = catalogs.ttsProviders[form.ttsProvider]?.name ?? form.ttsProvider ?? "—";
   const deliveryLabel =
     telephonyOptions(catalogs.telephonyProviders).find((d) => d.value === form.delivery)?.label ??
     "WebSocket — browser test";
-  const langLabel =
-    form.langs.map((id) => languageLabel(catalogs.languages, id)).join(", ") || "No languages";
 
   const editStep = (id: string) => (onEditStep ? () => onEditStep(id) : undefined);
+  const stacks = useMemo(() => languageStackSummaries(form, catalogs), [form, catalogs]);
 
   return (
-    <div className="flex h-max flex-col rounded-v-md border border-v-line bg-white p-4.5">
-      <span className="pb-2 font-mono text-[10px] uppercase tracking-[.16em] text-v-muted">What you&apos;ve chosen</span>
-      <SummaryRow label="Name" value={form.name || "(unnamed)"} onEdit={editStep("name")} />
-      <SummaryRow label="Greeting" value={form.welcome || "—"} onEdit={editStep("name")} />
-      <SummaryRow
-        label="Language"
-        value={`${langLabel}${form.langs.length > 1 ? " · first is primary" : ""}`}
-        onEdit={editStep("language")}
-      />
-      <SummaryRow
-        label="STT"
-        value={`${sttName}${form.sttModel ? ` · ${form.sttModel}` : ""}`}
-        onEdit={editStep("language")}
-      />
-      <SummaryRow
-        label="LLM"
-        value={`${llmName}${form.llmModel ? ` · ${form.llmModel}` : ""}`}
-        onEdit={editStep("language")}
-      />
-      <SummaryRow
-        label="TTS"
-        value={`${ttsName}${form.ttsModel ? ` · ${form.ttsModel}` : ""}${form.voice ? ` · ${voiceLabel}` : ""}`}
-        onEdit={editStep("language")}
-      />
-      <SummaryRow label="Delivery" value={deliveryLabel} onEdit={editStep("delivery")} />
-      <SummaryRow
-        label="Knowledge base"
-        value={
-          form.kbEnabled && form.kbDocs.length > 0
-            ? `On · ${form.kbDocs.length} doc(s)`
-            : form.kbEnabled
-              ? "Off · attach a document to activate"
-              : "Off"
-        }
-        onEdit={editStep("prompt")}
-      />
-      <SummaryRow
-        label="Prompt"
-        value={form.prompt.length > 90 ? `${form.prompt.slice(0, 90)}…` : form.prompt || "—"}
-        onEdit={editStep("prompt")}
-      />
+    <div className="flex h-max flex-col gap-3 rounded-v-md border border-v-line bg-white p-4.5">
+      <span className="font-mono text-[10px] uppercase tracking-[.16em] text-v-muted">
+        What you&apos;ve chosen
+      </span>
+
+      <div className="flex flex-col">
+        <SummaryRow label="Name" value={form.name || "(unnamed)"} onEdit={editStep("name")} />
+        <SummaryRow label="Greeting" value={form.welcome || "—"} onEdit={editStep("name")} />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="font-mono text-[9.5px] uppercase tracking-[.14em] text-v-muted">
+          Language stacks
+        </span>
+        <LanguageStacksPanel stacks={stacks} onEdit={editStep("language")} />
+      </div>
+
+      <div className="flex flex-col border-t border-v-hairline pt-1">
+        <SummaryRow label="Delivery" value={deliveryLabel} onEdit={editStep("delivery")} />
+        <SummaryRow
+          label="Knowledge base"
+          value={
+            form.kbEnabled && form.kbDocs.length > 0
+              ? `On · ${form.kbDocs.length} doc(s)`
+              : form.kbEnabled
+                ? "Off · attach a document to activate"
+                : "Off"
+          }
+          onEdit={editStep("prompt")}
+        />
+        <SummaryRow
+          label="Prompt"
+          value={form.prompt.length > 90 ? `${form.prompt.slice(0, 90)}…` : form.prompt || "—"}
+          onEdit={editStep("prompt")}
+        />
+      </div>
     </div>
   );
 }
@@ -159,7 +174,8 @@ export function ReviewStep({
     setSaving(true);
     setError("");
     try {
-      const payload = formToAgentCreatePayload(form, catalogs);
+      const saveCatalogs = await resolveSaveCatalogs(form);
+      const payload = formToAgentCreatePayload(form, saveCatalogs);
       const agent = agentId ? await updateAgent(agentId, payload) : await createAgent(payload);
       onAgentSaved(agent);
     } catch (err) {
@@ -209,7 +225,7 @@ export function ReviewStep({
 
       {error ? <span className="text-[12.5px] text-v-danger">{error}</span> : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_minmax(280px,360px)]">
         {agentId && session?.orgId ? (
           <BrowserCallSession orgId={session.orgId} agentId={agentId} agentName={form.name} />
         ) : (

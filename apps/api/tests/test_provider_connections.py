@@ -542,3 +542,19 @@ def test_probe_counts_a_rejected_body_as_reachable():
         result = svc.probe_endpoint("http://host:8080/v1", "sk")
     assert result["ok"] is True
     assert "rejected" in result["note"]
+
+
+def test_agents_using_matches_flat_and_language_keyed_models():
+    def llm(connection_id):
+        return {"llm_config": {"provider": "openai_compatible", "connection_id": connection_id}}
+
+    agents = [
+        {"name": "Flat", "config": {"models": llm("conn-1")}},
+        {"name": "Secondary", "config": {"models": {"en": llm("other"), "hi": llm("conn-1")}}},
+        {"name": "Elsewhere", "config": {"models": {"en": llm("other")}}},
+        {"name": "No models", "config": {}},
+    ]
+    db = MagicMock()
+    db.__getitem__.return_value.find.return_value = agents
+    with patch.object(svc, "get_database", return_value=db):
+        assert svc.agents_using("org-1", "conn-1") == ["Flat", "Secondary"]

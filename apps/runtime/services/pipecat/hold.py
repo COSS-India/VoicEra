@@ -100,7 +100,13 @@ def register_hold_handlers(
     ) -> None:
         await hold_handler.on_inference_started()
 
-    @llm.event_handler("on_after_push_frame")
-    async def on_llm_after_push_frame(processor: Any, frame: Any) -> None:
-        if isinstance(frame, TextFrame):
-            await hold_handler.cancel()
+    llm_processors = getattr(llm, "services", None) or [llm]
+
+    def _register_llm_cancel(processor: Any) -> None:
+        @processor.event_handler("on_after_push_frame")
+        async def on_llm_after_push_frame(_processor: Any, frame: Any) -> None:
+            if isinstance(frame, TextFrame):
+                await hold_handler.cancel()
+
+    for llm_processor in llm_processors:
+        _register_llm_cancel(llm_processor)

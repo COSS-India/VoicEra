@@ -20,8 +20,14 @@ from apps.telephony.registry import (
 )
 from apps.telephony.providers.plivo.config import PlivoConfig
 from apps.telephony.providers.vobiz.config import VobizConfig
+from apps.telephony.providers.vi.config import ViConfig
 from apps.telephony.providers.vobiz import VobizClient
 from apps.telephony.providers.plivo import PlivoClient
+from apps.telephony.providers.vi import ViClient
+
+_DNI = "+919876543210"
+_FLOW = "test-flow"
+_DNI_FLOWS = f'[{{"dni":"{_DNI}","flow_id":"{_FLOW}"}}]'
 
 
 @pytest.fixture(autouse=True)
@@ -29,18 +35,18 @@ def _ensure_providers_loaded() -> None:
     load_providers()
 
 
-def test_registered_providers_include_vobiz_and_plivo() -> None:
-    assert registered_providers() == frozenset({"vobiz", "plivo"})
+def test_registered_providers_include_vobiz_plivo_and_vi() -> None:
+    assert registered_providers() == frozenset({"vobiz", "plivo", "vi"})
 
 
-@pytest.mark.parametrize("provider", ["vobiz", "plivo"])
+@pytest.mark.parametrize("provider", ["vobiz", "plivo", "vi"])
 def test_each_provider_has_config_client_and_xml(provider: str) -> None:
     assert provider in TELEPHONY_CONFIGS
     assert provider in CLIENT_CREATORS
     assert provider in ANSWER_XML_BUILDERS
 
 
-@pytest.mark.parametrize("provider", ["vobiz", "plivo"])
+@pytest.mark.parametrize("provider", ["vobiz", "plivo", "vi"])
 def test_each_provider_has_frame_serializer_after_lazy_load(provider: str) -> None:
     load_frame_serializers()
     assert provider in FRAME_SERIALIZER_FACTORIES
@@ -73,6 +79,12 @@ def test_create_client_from_registered_creators() -> None:
         )
     )
     assert isinstance(plivo, PlivoClient)
+
+    vi = create_client(
+        ViConfig(auth_id="user", auth_token="pass", dni_flows=_DNI_FLOWS)
+    )
+    assert isinstance(vi, ViClient)
+    assert vi.dni_flows == [{"dni": _DNI, "flow_id": _FLOW}]
 
 
 def test_build_config_rejects_empty_provider() -> None:

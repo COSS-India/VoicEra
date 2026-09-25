@@ -67,14 +67,27 @@ def build_answer_urls(
     return answer_url, answer_url
 
 
-def get_provider_dial_credentials(org_id: str, provider: str) -> dict[str, str]:
-    """Return auth credentials and base URL for outbound dialing."""
+def get_provider_dial_credentials(org_id: str, provider: str) -> dict[str, Any]:
+    """Return auth secrets and base URL for outbound dialing.
+
+    Includes every secret field stored in ProviderAuth plus ``base_url``
+    from the registered provider config defaults.
+    """
     config = _build_config(org_id, provider)
-    return {
-        "auth_id": str(config.auth_id),
-        "auth_token": str(config.auth_token),
-        "base_url": str(config.base_url),
+    stored = auth_service.get_provider_auth(org_id, provider, mask_secrets=False) or {}
+    auth = dict(stored.get("auth") or {})
+    # Ensure core fields are present even if catalog only had defaults.
+    auth.setdefault("auth_id", getattr(config, "auth_id", None))
+    auth.setdefault("auth_token", getattr(config, "auth_token", None))
+    if not auth.get("base_url") and getattr(config, "base_url", None):
+        auth["base_url"] = getattr(config, "base_url")
+    result: dict[str, Any] = {
+        key: value
+        for key, value in auth.items()
+        if value is not None and str(value).strip() != ""
     }
+    result["base_url"] = str(config.base_url)
+    return result
 
 
 def _build_config(org_id: str, provider: str):
@@ -96,9 +109,19 @@ def _build_config(org_id: str, provider: str):
             f"(auth_id and auth_token required)."
         )
 
+    # Pass all stored secret fields so provider-specific secrets reach build_config
+    # without vendor branches here.
+    config_kwargs: dict[str, Any] = {
+        key: value
+        for key, value in auth.items()
+        if value is not None and str(value).strip() != ""
+    }
+    config_kwargs["auth_id"] = auth_id
+    config_kwargs["auth_token"] = auth_token
+
     try:
         # Config defaults (e.g. base_url) come from the registered provider model.
-        return build_config(provider, auth_id=auth_id, auth_token=auth_token)
+        return build_config(provider, **config_kwargs)
     except (ValueError, TypeError) as exc:
         raise AgentTelephonyError(str(exc)) from exc
 
@@ -140,9 +163,12 @@ async def provision_application(
 
     Using the stable UUID ``agent_id`` as ``app_name`` keeps names valid for
     typical Letters/Numbers/-/_ provider rules (spaces are often rejected).
+
+    When the client returns ``answer_url`` / ``hangup_url`` (e.g. DIY WSS media),
+    those override the default ``/answer`` webhook URLs.
     """
     provider = _require_provider(provider)
-    answer_url, _hangup_url = build_answer_urls(org_id, agent_id)
+    answer_url, hangup_url = build_answer_urls(org_id, agent_id)
     client = load_telephony_client(org_id, provider)
     result = await client.create_application(agent_id, answer_url)
     _raise_on_fail(result, "application creation")
@@ -152,7 +178,16 @@ async def provision_application(
             "Telephony provider did not return an application id",
             status_code=502,
         )
-    return _attachment_from_result(provider, org_id, agent_id, str(application_id))
+    attachment = _attachment_from_result(
+        provider, org_id, agent_id, str(application_id)
+    )
+    if result.get("answer_url"):
+        attachment["answer_url"] = str(result["answer_url"])
+    if "hangup_url" in result:
+        attachment["hangup_url"] = str(result.get("hangup_url") or "")
+    else:
+        attachment["hangup_url"] = hangup_url
+    return attachment
 
 
 async def delete_application(org_id: str, attachment: dict[str, Any]) -> None:

@@ -8,12 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from apps.providers import AgentConfig, create_llm_service
-from apps.runtime.services import ai_service_factory
 from apps.runtime.services.ai_service_factory import (
     _requires_stored_auth,
     build_ai_services,
     merge_models_with_auth,
 )
+from apps.runtime.services.language_switch import pool
+from apps.runtime.services.language_switch.pool import resolve_language_stacks
 from apps.runtime.services.pipecat.audio import caller_phone
 
 
@@ -212,10 +213,17 @@ def test_a_connection_that_predates_the_setting_keeps_the_full_conversation():
     assert _sent_messages(llm, _HISTORY) == _HISTORY
 
 
+def _stub_local_stt_tts(monkeypatch) -> None:
+    """The local STT / TTS want a model server; each call gets a fresh stub."""
+    from pipecat.processors.frame_processor import FrameProcessor
+
+    monkeypatch.setattr(pool, "create_stt_service", lambda _cfg: FrameProcessor())
+    monkeypatch.setattr(pool, "create_tts_service", lambda _cfg: FrameProcessor())
+
+
 def _llm_for_a_call(monkeypatch, caller: str | None, send_caller_phone: bool):
     """``build_ai_services`` with the local STT / TTS builds stubbed out."""
-    monkeypatch.setattr(ai_service_factory, "create_stt_service", MagicMock())
-    monkeypatch.setattr(ai_service_factory, "create_tts_service", MagicMock())
+    _stub_local_stt_tts(monkeypatch)
     client = MagicMock()
     client.get_provider_auth = AsyncMock(
         return_value={
@@ -224,10 +232,10 @@ def _llm_for_a_call(monkeypatch, caller: str | None, send_caller_phone: bool):
             "endpoint_send_caller_phone": send_caller_phone,
         },
     )
-    _, _, llm = asyncio.run(
+    _, _, llm_switcher = asyncio.run(
         build_ai_services(_agent_on_a_connection({}), client, caller_phone=caller)
     )
-    return llm
+    return llm_switcher.strategy.active_service
 
 
 def test_the_callers_number_reaches_the_request(monkeypatch):
@@ -259,3 +267,161 @@ def test_a_web_call_still_builds_and_sends_it_empty(monkeypatch):
 )
 def test_caller_phone_is_the_remote_party_as_digits(call_log, expected):
     assert caller_phone(call_log) == expected
+
+
+def test_merge_language_keyed_models_uses_primary_stack():
+    client = MagicMock()
+    client.get_provider_auth = AsyncMock(
+        side_effect=lambda provider, org_id, connection_id=None: {
+            "api_key": f"key-{provider}"
+        },
+    )
+    agent = {
+        "org_id": "org-1",
+        "config": {
+            "language": {"primary": "hi", "secondary": ["mr"]},
+            "models": {
+                "hi": {
+                    "stt_config": {
+                        "provider": "openai",
+                        "model": "gpt-4o-transcribe",
+                        "language": "hi",
+                    },
+                    "tts_config": {
+                        "provider": "openai",
+                        "model": "gpt-4o-mini-tts",
+                        "language": "hi",
+                        "voice": "alloy",
+                    },
+                    "llm_config": {"provider": "openai", "model": "gpt-4.1"},
+                },
+                "mr": {
+                    "stt_config": {
+                        "provider": "deepgram",
+                        "model": "nova-3",
+                        "language": "mr",
+                    },
+                    "tts_config": {
+                        "provider": "openai",
+                        "model": "gpt-4o-mini-tts",
+                        "language": "mr",
+                        "voice": "shimmer",
+                    },
+                    "llm_config": {"provider": "openai", "model": "gpt-4.1"},
+                },
+            },
+        },
+    }
+    stacks = resolve_language_stacks(agent)
+    assert set(stacks) == {"hi", "mr"}
+
+    out = asyncio.run(merge_models_with_auth(agent, client=client))
+    assert out["stt_config"]["provider"] == "openai"
+    assert out["stt_config"]["api_key"] == "key-openai"
+    client.get_provider_auth.assert_awaited_once_with(
+        "openai", "org-1", connection_id=None
+    )
+
+
+def _stack_on(connection_id: str, language: str) -> dict:
+    return {
+        "stt_config": {
+            "provider": "indic_nemotron",
+            "model": "indic-nemotron-600m",
+            "language": language,
+        },
+        "tts_config": {
+            "provider": "indic_orpheus",
+            "model": "orpheus-indic",
+            "language": language,
+            "voice": "Amit",
+            "style": "news",
+        },
+        "llm_config": {
+            "provider": "openai_compatible",
+            "connection_id": connection_id,
+            "model": "Qwen/Qwen3-8B-Instruct",
+        },
+    }
+
+
+def _two_language_switchers(monkeypatch, caller: str | None = None):
+    """``hi`` and ``mr`` serve the same model id from two different connections."""
+    _stub_local_stt_tts(monkeypatch)
+    endpoints = {
+        "conn-hi": "http://hi.internal:8000/v1",
+        "conn-mr": "http://mr.internal:8000/v1",
+    }
+    client = MagicMock()
+    client.get_provider_auth = AsyncMock(
+        side_effect=lambda provider, org_id, connection_id=None: {
+            "base_url": endpoints[connection_id],
+            "api_key": "sk-local",
+            "endpoint_send_caller_phone": True,
+        },
+    )
+    agent = {
+        "org_id": "org-1",
+        "config": {
+            "language": {"primary": "hi", "secondary": ["mr"]},
+            "models": {
+                "hi": _stack_on("conn-hi", "hi"),
+                "mr": _stack_on("conn-mr", "mr"),
+            },
+        },
+    }
+    _, _, llm_switcher = asyncio.run(
+        build_ai_services(agent, client, caller_phone=caller)
+    )
+    return llm_switcher, client
+
+
+def test_each_language_resolves_its_own_connection(monkeypatch):
+    llm_switcher, client = _two_language_switchers(monkeypatch)
+    assert client.get_provider_auth.await_count == 2
+    client.get_provider_auth.assert_any_await(
+        "openai_compatible", "org-1", connection_id="conn-hi"
+    )
+    client.get_provider_auth.assert_any_await(
+        "openai_compatible", "org-1", connection_id="conn-mr"
+    )
+    # Same provider and model id, different endpoints: never pooled together.
+    assert len(llm_switcher.services) == 2
+    assert {str(llm._client.base_url) for llm in llm_switcher.services} == {
+        "http://hi.internal:8000/v1/",
+        "http://mr.internal:8000/v1/",
+    }
+
+
+def test_the_callers_number_reaches_every_language(monkeypatch):
+    llm_switcher, _ = _two_language_switchers(monkeypatch, caller="919900112233")
+    for llm in llm_switcher.services:
+        params = llm.build_chat_completion_params({"messages": _HISTORY})
+        assert params["metadata"] == {"caller_phone": "919900112233"}
+
+
+def test_languages_on_one_connection_share_a_service_only_when_it_fits(monkeypatch):
+    """History mode is fixed at build time; a switch cannot re-apply it."""
+    _stub_local_stt_tts(monkeypatch)
+    client = MagicMock()
+    client.get_provider_auth = AsyncMock(
+        return_value={"base_url": "http://vllm.internal:8000/v1", "api_key": "sk-local"},
+    )
+
+    def build(hi_llm_extra: dict):
+        hi = _stack_on("conn-1", "hi")
+        hi["llm_config"].update(hi_llm_extra)
+        agent = {
+            "org_id": "org-1",
+            "config": {
+                "language": {"primary": "en", "secondary": ["hi"]},
+                "models": {"en": _stack_on("conn-1", "en"), "hi": hi},
+            },
+        }
+        _, _, llm_switcher = asyncio.run(build_ai_services(agent, client))
+        return llm_switcher
+
+    # Only a delta-applied setting differs: one pooled service.
+    assert len(build({"temperature": 0.2}).services) == 1
+    # A build-time setting differs: each language gets its own.
+    assert len(build({"history_mode": "current_turn"}).services) == 2

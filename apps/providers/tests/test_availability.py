@@ -84,3 +84,11 @@ def test_deployed_ids_are_cached(monkeypatch):
         assert availability.is_authenticated("indic_nemotron", set()) is True
         assert availability.is_authenticated("indic_nemotron", set()) is True
         assert urlopen.call_count == 1
+
+
+def test_vi_not_authenticated_without_configured():
+    assert availability.is_authenticated("vi", set()) is False
+
+
+def test_vi_authenticated_via_configured():
+    assert availability.is_authenticated("vi", {"vi"}) is True

@@ -171,8 +171,9 @@ def test_member_can_create_with_created_by(
     assert body["org_id"] == "org-1"
     assert body["telephony"] is None
     assert body["linked_phone_number"] is None
-    assert body["config"]["models"]["stt_config"]["provider"] == "openai"
-    assert "api_key" not in body["config"]["models"]["stt_config"]
+    assert body["config"]["models"]["en"]["stt_config"]["provider"] == "openai"
+    assert "api_key" not in body["config"]["models"]["en"]["stt_config"]
+    assert "language_models" not in body["config"]
 
 
 @patch("app.routers.agents.agent_service.create_agent", side_effect=_create)
@@ -296,3 +297,52 @@ def test_patch_updates_agent_name(_update_m, _create_m):
     )
     assert response.status_code == 200
     assert response.json()["name"] == "Renamed Agent"
+
+
+def _merge_stack(llm_model: str) -> dict[str, Any]:
+    return {
+        "stt_config": {"provider": "openai", "model": "gpt-4o-transcribe"},
+        "tts_config": {"provider": "openai", "model": "gpt-4o-mini-tts", "voice": "alloy"},
+        "llm_config": {"provider": "openai", "model": llm_model},
+    }
+
+
+def _merge_payload(language: dict[str, Any], models: dict[str, Any]):
+    from app.models.schemas import AgentConfigPayload
+
+    return AgentConfigPayload.model_validate(
+        {
+            "prompts": {"system_prompt": "You are helpful.", "greeting_message": "Hi!"},
+            "language": language,
+            "models": models,
+        }
+    )
+
+
+def test_patch_replaces_a_stored_flat_models_stack():
+    """Agents saved before language-keyed models store a flat stack."""
+    from app.services.agent_service import _merge_config
+
+    stored = {
+        "prompts": {"system_prompt": "Old.", "greeting_message": "Hello"},
+        "language": {"primary": "en", "secondary": []},
+        "models": _merge_stack("gpt-4.1"),
+    }
+    incoming = _merge_payload(
+        {"primary": "en", "secondary": []}, {"en": _merge_stack("gpt-4.1-mini")}
+    )
+    merged = _merge_config(stored, incoming, org_id="org-1")
+    assert merged.models["en"].llm_config["model"] == "gpt-4.1-mini"
+
+
+def test_patch_drops_the_stack_of_a_removed_language():
+    from app.services.agent_service import _merge_config
+
+    stored = {
+        "prompts": {"system_prompt": "Old.", "greeting_message": "Hello"},
+        "language": {"primary": "en", "secondary": ["hi"]},
+        "models": {"en": _merge_stack("gpt-4.1"), "hi": _merge_stack("gpt-4.1")},
+    }
+    incoming = _merge_payload({"primary": "en", "secondary": []}, {"en": _merge_stack("gpt-4.1")})
+    merged = _merge_config(stored, incoming, org_id="org-1")
+    assert set(merged.models) == {"en"}

@@ -29,11 +29,18 @@ async def run_pipeline(
     caller_phone: str | None = None,
     session_label: str = "session",
     finalize_call: bool = False,
+    stt: Any | None = None,
+    tts: Any | None = None,
+    llm: Any | None = None,
+    recording_sample_rate: int | None = None,
 ) -> None:
     """Shared Pipecat pipeline for telephony and browser WebSocket agents."""
-    stt, tts, llm = await build_ai_services(agent, caller_phone=caller_phone)
-    if call_id and hasattr(llm, "set_call_id"):
-        llm.set_call_id(call_id)
+    if stt is None or tts is None or llm is None:
+        stt, tts, llm = await build_ai_services(agent, caller_phone=caller_phone)
+    if call_id:
+        for member in llm.services:
+            if hasattr(member, "set_call_id"):
+                member.set_call_id(call_id)
     system_prompt, greeting = prompts(agent, custom_variables=custom_variables)
     behaviour = (agent.get("config") or {}).get("behaviour") or {}
     config = pipeline_config_from_behaviour(behaviour)
@@ -59,6 +66,7 @@ async def run_pipeline(
         agent=agent,
         org_id=org_id,
         behaviour=behaviour,
+        recording_sample_rate=recording_sample_rate,
     )
 
     if call_id:
@@ -67,9 +75,9 @@ async def run_pipeline(
             call_id=call_id,
             session_label=session_label,
             processor_stages={
-                stt.name: "stt",
-                tts.name: "tts",
-                llm.name: "llm",
+                **{member.name: "stt" for member in stt.services},
+                **{member.name: "tts" for member in tts.services},
+                **{member.name: "llm" for member in llm.services},
             },
         )
         register_call_metrics(components.worker, metrics_writer)

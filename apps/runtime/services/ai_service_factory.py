@@ -14,6 +14,15 @@ from apps.providers import (
 )
 from apps.providers.schema import provider_level_auth
 from apps.runtime.services.backend import BackendClient, backend_client
+from apps.runtime.services.language_switch.pool import (
+    build_language_switchers,
+    merge_stack_with_auth,
+    resolve_language_stacks,
+)
+from apps.runtime.services.language_switch.switcher import (
+    ModelLLMSwitcher,
+    ModelServiceSwitcher,
+)
 
 
 class ServiceBuildError(RuntimeError):
@@ -38,48 +47,32 @@ async def merge_models_with_auth(
     agent: dict[str, Any],
     client: BackendClient | None = None,
 ) -> dict[str, Any]:
-    """Return ``{stt_config, tts_config, llm_config}`` with secrets merged in."""
+    """Return primary-language ``{stt_config, tts_config, llm_config}`` with secrets merged."""
     client = client or backend_client
-    config = agent.get("config") or {}
-    models = config.get("models") or {}
-    if not isinstance(models, dict):
-        raise ServiceBuildError("agent.config.models is missing or invalid")
+    try:
+        stacks = resolve_language_stacks(agent)
+    except ValueError as exc:
+        raise ServiceBuildError(str(exc)) from exc
 
     org_id = str(agent.get("org_id") or "").strip()
     if not org_id:
         raise ServiceBuildError("agent.org_id is required")
 
-    out: dict[str, Any] = {}
-    for kind in ("stt_config", "tts_config", "llm_config"):
-        blob = models.get(kind)
-        if not isinstance(blob, dict):
-            raise ServiceBuildError(f"agent.config.models.{kind} is required")
-        provider = _provider_id(blob)
-        if not provider:
-            raise ServiceBuildError(f"{kind}.provider is required")
-        if _requires_stored_auth(provider):
-            # A connection-based provider keeps its endpoint and key per named
-            # connection; the agent stores only the reference.
-            connection_id = str(blob.get("connection_id") or "").strip() or None
-            auth = await client.get_provider_auth(
-                provider, org_id, connection_id=connection_id
-            )
-            merged = {**blob, **auth}
-            logger.info(
-                "Merged auth into {} provider={} keys={}",
-                kind,
-                provider,
-                sorted(auth.keys()),
-            )
-        else:
-            merged = dict(blob)
-            logger.info(
-                "No stored auth needed for {} provider={}",
-                kind,
-                provider,
-            )
-        out[kind] = merged
-    return out
+    language = (agent.get("config") or {}).get("language") or {}
+    primary = str(language.get("primary") or "").strip()
+    if not primary:
+        primary = next(iter(stacks.keys()), "")
+    if not primary or primary not in stacks:
+        raise ServiceBuildError("agent.config.language.primary is required")
+
+    try:
+        return await merge_stack_with_auth(
+            stacks[primary],
+            org_id=org_id,
+            client=client,
+        )
+    except ValueError as exc:
+        raise ServiceBuildError(str(exc)) from exc
 
 
 async def build_ai_services(
@@ -87,12 +80,27 @@ async def build_ai_services(
     client: BackendClient | None = None,
     *,
     caller_phone: str | None = None,
-) -> tuple[Any, Any, Any]:
-    """Return ``(stt, tts, llm)`` Pipecat services for the agent.
+) -> tuple[ModelServiceSwitcher, ModelServiceSwitcher, ModelLLMSwitcher]:
+    """Return ``(stt_switcher, tts_switcher, llm_switcher)`` for the agent.
 
     ``caller_phone`` is per-call context for an LLM whose endpoint wants it;
     configs that do not declare the field ignore it.
     """
+    try:
+        return await build_language_switchers(
+            agent, client=client, caller_phone=caller_phone
+        )
+    except ValueError as exc:
+        raise ServiceBuildError(str(exc)) from exc
+
+
+async def build_legacy_ai_services(
+    agent: dict[str, Any],
+    client: BackendClient | None = None,
+    *,
+    caller_phone: str | None = None,
+) -> tuple[Any, Any, Any]:
+    """Return bare ``(stt, tts, llm)`` for the agent primary language stack."""
     models = await merge_models_with_auth(agent, client=client)
     if caller_phone:
         models["llm_config"]["caller_phone"] = caller_phone

@@ -37,9 +37,9 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 
 def test_union_variant_counts_match_registry():
-    assert len(_union_variants(STTConfig)) == 13
-    assert len(_union_variants(TTSConfig)) == 15
-    assert len(_union_variants(LLMConfig)) == 11
+    assert len(_union_variants(STTConfig)) == 14
+    assert len(_union_variants(TTSConfig)) == 16
+    assert len(_union_variants(LLMConfig)) == 12
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
     assert set(LLM_CREATORS) == set(_expected_provider_ids(LLMConfig))
@@ -109,6 +109,8 @@ def test_provider_type_from_package_path():
     assert provider_schemas(Kind.LLM)["openai"]["provider_type"] == ProviderType.CLOUD
     assert provider_schemas(Kind.STT)["bhashini"]["provider_type"] == ProviderType.ADAPTER
     assert provider_schemas(Kind.TTS)["bhashini"]["provider_type"] == ProviderType.ADAPTER
+    assert provider_schemas(Kind.STT)["raya"]["provider_type"] == ProviderType.ADAPTER
+    assert provider_schemas(Kind.TTS)["raya"]["provider_type"] == ProviderType.ADAPTER
     assert provider_schemas(Kind.TTS)["indic_orpheus"]["provider_type"] == ProviderType.LOCAL
     assert provider_schemas(Kind.STT)["indic_nemotron"]["provider_type"] == ProviderType.LOCAL
 
@@ -119,8 +121,98 @@ def test_catalog_provider_and_display_name():
     assert cartesia["name"] == "Cartesia"
     assert provider_schemas(Kind.STT)["bhashini"]["name"] == "Bhashini"
     assert provider_schemas(Kind.TTS)["bhashini"]["name"] == "Bhashini"
+    assert provider_schemas(Kind.STT)["raya"]["name"] == "Raya"
+    assert provider_schemas(Kind.TTS)["raya"]["name"] == "Raya"
     assert provider_schemas(Kind.STT)["indic_nemotron"]["name"] == "Indic Nemotron"
     assert provider_schemas(Kind.LLM)["aws_bedrock"]["name"] == "AWS Bedrock"
+
+
+def test_raya_stt_registered():
+    from apps.providers.adapters.raya.catalog import (
+        DEFAULT_STT_WS_URL,
+        STT_CAPABILITIES,
+        STT_MODEL,
+        resolve_wire_language,
+    )
+    from apps.providers.adapters.raya.config import RayaSTTConfig
+    from apps.providers.adapters.raya.stt import RayaSTTService
+    from apps.providers.capabilities import model_ids
+
+    schema = provider_schemas(Kind.STT)["raya"]
+    assert schema["provider_type"] == ProviderType.ADAPTER
+    assert schema["name"] == "Raya"
+    assert "api_key" in schema["secrets"]
+    assert "ws_url" not in schema["fields"]
+    models = model_ids(STT_CAPABILITIES)
+    assert models[0] == STT_MODEL
+    assert STT_MODEL in schema["fields"]["model"]["examples"]
+    assert resolve_wire_language(STT_MODEL, "od", kind="stt") == "or"
+    assert resolve_wire_language(STT_MODEL, "hi", kind="stt") == "hi"
+    assert "hi" in schema["fields"]["language"]["examples"]
+
+    svc = STT_CREATORS["raya"](RayaSTTConfig(api_key="test", language="hi"))
+    assert isinstance(svc, RayaSTTService)
+    assert svc._language == "hi"
+    assert svc._ws_url == DEFAULT_STT_WS_URL
+
+
+def test_raya_tts_registered():
+    from apps.providers.adapters.raya.catalog import (
+        DEFAULT_TTS_VOICE,
+        TTS_CAPABILITIES,
+        TTS_VOICES,
+        resolve_wire_language,
+    )
+    from apps.providers.adapters.raya.config import RayaTTSConfig
+    from apps.providers.adapters.raya.tts import RayaTTSService
+    from apps.providers.capabilities import model_ids
+
+    schema = provider_schemas(Kind.TTS)["raya"]
+    assert schema["provider_type"] == ProviderType.ADAPTER
+    assert schema["name"] == "Raya"
+    assert "api_key" in schema["secrets"]
+    models = model_ids(TTS_CAPABILITIES)
+    assert "standard" in models
+    assert "m1" in models
+    assert models[0] in schema["fields"]["model"]["examples"]
+    assert resolve_wire_language("standard", "en", kind="tts") == "en-in"
+    assert resolve_wire_language("standard", "en-US", kind="tts") == "en-us"
+    assert resolve_wire_language("m1", "en", kind="tts") == "en-in"
+    assert resolve_wire_language("m1", "mr", kind="tts") == "mr"
+    assert "hi" in schema["fields"]["language"]["examples"]
+    assert "mr" in schema["fields"]["language"]["examples"]
+    assert set(TTS_CAPABILITIES["standard"]["languages"].values()) == set(
+        TTS_CAPABILITIES["m1"]["languages"].values()
+    )
+
+    from apps.providers.adapters.raya.catalog import resolve_voice_id
+
+    std_hi = TTS_CAPABILITIES["standard"]["settings"]["hi"]["voice"]
+    assert DEFAULT_TTS_VOICE in std_hi["options"]
+    assert std_hi["default"] == DEFAULT_TTS_VOICE
+    assert "07308011" not in std_hi["default"]  # UI shows names, not UUIDs
+    assert len(TTS_VOICES["standard"]["hi"]) == len(std_hi["options"])
+    assert resolve_voice_id("standard", "hi", "Neha") == (
+        "07308011-d790-4187-8ad9-afe7425627e9"
+    )
+    m1_hi = TTS_CAPABILITIES["m1"]["settings"]["hi"]["voice"]
+    assert "Anjura M1" in m1_hi["options"]
+    assert m1_hi["default"] == "Anjura M1"
+    assert resolve_voice_id("m1", "hi", "Anjura M1") == (
+        "3fe4afbc-3bde-4c97-ab8e-37e3fb8c7ba2"
+    )
+    # m1 exposes the full TTS language enum; mr falls back to all m1 voices.
+    assert "mr" in TTS_CAPABILITIES["m1"]["settings"]
+    assert m1_hi["default"] in TTS_CAPABILITIES["m1"]["settings"]["mr"]["voice"]["options"]
+
+    svc = TTS_CREATORS["raya"](
+        RayaTTSConfig(api_key="test", language="hi", model="m1", voice=m1_hi["default"])
+    )
+    assert isinstance(svc, RayaTTSService)
+    assert svc._model == "m1"
+    assert svc._language == "hi"
+    assert svc._voice == m1_hi["default"]
+    assert svc._payload("hi")["voice_id"] == "3fe4afbc-3bde-4c97-ab8e-37e3fb8c7ba2"
 
 
 def test_bhashini_stt_registered():

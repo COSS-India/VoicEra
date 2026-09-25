@@ -415,13 +415,37 @@ def delete_connection(org_id: str, connection_id: str) -> bool:
     return False
 
 
+def _llm_configs(models: Any) -> list[dict[str, Any]]:
+    """Every llm_config in stored agent models, flat or keyed by language."""
+    if not isinstance(models, dict):
+        return []
+    if "llm_config" in models:
+        stacks = [models]
+    else:
+        stacks = [stack for stack in models.values() if isinstance(stack, dict)]
+    return [
+        stack["llm_config"]
+        for stack in stacks
+        if isinstance(stack.get("llm_config"), dict)
+    ]
+
+
 def agents_using(org_id: str, connection_id: str) -> list[str]:
-    """Names of agents whose llm_config references ``connection_id``."""
+    """Names of agents with any language's llm_config on ``connection_id``."""
+    # Language-keyed models put the language id in the path, which a Mongo
+    # dotted query cannot wildcard — so match in Python.
     docs = get_database()["Agents"].find(
-        {"org_id": org_id, "config.models.llm_config.connection_id": connection_id},
-        {"name": 1},
+        {"org_id": org_id},
+        {"name": 1, "agent_id": 1, "config.models": 1},
     )
-    return sorted(str(doc.get("name") or doc.get("agent_id") or "?") for doc in docs)
+    return sorted(
+        str(doc.get("name") or doc.get("agent_id") or "?")
+        for doc in docs
+        if any(
+            cfg.get("connection_id") == connection_id
+            for cfg in _llm_configs((doc.get("config") or {}).get("models"))
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

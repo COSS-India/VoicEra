@@ -33,7 +33,7 @@ import {
   ProviderConnections,
   type ConnectionProviderOption,
 } from "@/components/dashboard/ProviderConnections";
-import type { AuthCatalog, AuthProviderCatalog } from "@/lib/catalog-types";
+import type { AuthCatalog, AuthProviderCatalog, CatalogPairField } from "@/lib/catalog-types";
 import { AUTH_KIND_ORDER, formatProviderTypeLabel, humanizeFieldKey, secretFieldNames } from "@/lib/catalog-utils";
 
 const KIND_META: Record<
@@ -88,6 +88,171 @@ function authValuesToForm(secrets: string[], auth: Record<string, unknown>): Rec
   );
 }
 
+function emptyPairRow(pairFields: CatalogPairField[]): Record<string, string> {
+  return Object.fromEntries(pairFields.map((f) => [f.key, ""]));
+}
+
+function normalizePairValue(field: CatalogPairField, raw: string): string {
+  const value = raw.trim();
+  if (field.normalize === "digits") {
+    return value.replace(/\D+/g, "");
+  }
+  if (field.normalize === "e164") {
+    const wantsPlus = value.startsWith("+") || raw.trimStart().startsWith("+");
+    const digits = value.replace(/\D+/g, "");
+    if (!digits) {
+      return wantsPlus ? "+" : "";
+    }
+    return `+${digits}`;
+  }
+  return value;
+}
+
+function parsePairRows(raw: string, pairFields: CatalogPairField[]): Record<string, string>[] {
+  const fallback = [emptyPairRow(pairFields)];
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.includes("*")) return fallback;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return fallback;
+    return parsed.map((item) => {
+      const row = emptyPairRow(pairFields);
+      if (item && typeof item === "object") {
+        for (const field of pairFields) {
+          const value = (item as Record<string, unknown>)[field.key];
+          row[field.key] = normalizePairValue(field, value != null ? String(value) : "");
+        }
+      }
+      return row;
+    });
+  } catch {
+    return fallback;
+  }
+}
+
+function serializePairRows(rows: Record<string, string>[], pairFields: CatalogPairField[]): string {
+  const cleaned = rows
+    .map((row) =>
+      Object.fromEntries(
+        pairFields.map((f) => [f.key, normalizePairValue(f, row[f.key] ?? "")]),
+      ),
+    )
+    .filter((row) => pairFields.every((f) => row[f.key]));
+  return JSON.stringify(cleaned);
+}
+
+function PairFieldsEditor({
+  fieldKey,
+  label,
+  description,
+  pairFields,
+  value,
+  onChange,
+  disabled,
+}: {
+  fieldKey: string;
+  label: string;
+  description?: string;
+  pairFields: CatalogPairField[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [rows, setRows] = useState(() => parsePairRows(value, pairFields));
+
+  useEffect(() => {
+    setRows(parsePairRows(value, pairFields));
+    // Re-hydrate when saved auth loads; pairFields identity is stable per provider.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  function commit(next: Record<string, string>[]) {
+    setRows(next);
+    onChange(serializePairRows(next, pairFields));
+  }
+
+  const inputClassName =
+    "w-full rounded-v-sm border border-v-line-strong bg-white py-2.5 px-3.5 text-[14px] transition-colors focus:border-v-accent focus:outline-none disabled:cursor-wait disabled:bg-v-soft/60";
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-[13px] font-medium text-v-fg">{label}</label>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => commit([...rows, emptyPairRow(pairFields)])}
+          aria-label={`Add ${label.toLowerCase()} pair`}
+          className="inline-flex size-8 cursor-pointer items-center justify-center rounded-v-sm border border-v-line text-v-muted transition-colors hover:border-v-accent hover:bg-v-soft hover:text-v-fg disabled:pointer-events-none disabled:opacity-40"
+        >
+          <Plus className="size-4" strokeWidth={1.75} />
+        </button>
+      </div>
+      {description ? <span className="text-xs font-light text-v-muted">{description}</span> : null}
+      <div className="flex flex-col gap-3">
+        {rows.map((row, index) => (
+          <div
+            key={`${fieldKey}-pair-${index}`}
+            className="rounded-v-sm border border-v-line bg-v-soft/30 p-3"
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[12px] font-medium text-v-muted">Pair {index + 1}</span>
+              {rows.length > 1 ? (
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => commit(rows.filter((_, i) => i !== index))}
+                  aria-label={`Remove pair ${index + 1}`}
+                  className="inline-flex size-7 cursor-pointer items-center justify-center rounded-v-sm text-v-muted transition-colors hover:bg-white hover:text-v-danger disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <Trash2 className="size-3.5" strokeWidth={1.75} />
+                </button>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {pairFields.map((field) => (
+                <div key={field.key} className="flex flex-col gap-1">
+                  <label
+                    htmlFor={`${fieldKey}-${index}-${field.key}`}
+                    className="text-[12.5px] font-medium text-v-fg"
+                  >
+                    {field.label ?? humanizeFieldKey(field.key)}
+                  </label>
+                  <input
+                    id={`${fieldKey}-${index}-${field.key}`}
+                    type="text"
+                    inputMode={
+                      field.normalize === "digits" || field.normalize === "e164"
+                        ? "tel"
+                        : undefined
+                    }
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={disabled}
+                    placeholder={disabled ? "Loading…" : field.placeholder ?? `Enter ${(field.label ?? field.key).toLowerCase()}`}
+                    value={row[field.key] ?? ""}
+                    onChange={(e) => {
+                      const nextValue = normalizePairValue(field, e.target.value);
+                      const next = rows.map((r, i) =>
+                        i === index ? { ...r, [field.key]: nextValue } : r,
+                      );
+                      commit(next);
+                    }}
+                    className={inputClassName}
+                  />
+                  {field.description ? (
+                    <span className="text-[11.5px] font-light text-v-muted">{field.description}</span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SecretField({
   fieldKey,
   label,
@@ -97,6 +262,7 @@ function SecretField({
   onToggleVisible,
   onChange,
   disabled,
+  multiline,
 }: {
   fieldKey: string;
   label: string;
@@ -106,33 +272,52 @@ function SecretField({
   onToggleVisible: () => void;
   onChange: (value: string) => void;
   disabled?: boolean;
+  multiline?: boolean;
 }) {
+  const inputClassName =
+    "w-full rounded-v-sm border border-v-line-strong bg-white py-2.5 pl-3.5 pr-10 text-[14px] transition-colors focus:border-v-accent focus:outline-none disabled:cursor-wait disabled:bg-v-soft/60";
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={fieldKey} className="text-[13px] font-medium text-v-fg">
         {label}
       </label>
       <div className="relative">
-        <input
-          id={fieldKey}
-          type={visible ? "text" : "password"}
-          autoComplete="off"
-          spellCheck={false}
-          disabled={disabled}
-          placeholder={disabled ? "Loading…" : `Enter ${label.toLowerCase()}`}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-v-sm border border-v-line-strong bg-white py-2.5 pl-3.5 pr-10 text-[14px] transition-colors focus:border-v-accent focus:outline-none disabled:cursor-wait disabled:bg-v-soft/60"
-        />
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={onToggleVisible}
-          aria-label={visible ? `Hide ${label}` : `Show ${label}`}
-          className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-v-sm text-v-muted transition-colors hover:bg-v-soft hover:text-v-fg disabled:pointer-events-none disabled:opacity-40"
-        >
-          {visible ? <EyeOff className="size-4" strokeWidth={1.75} /> : <Eye className="size-4" strokeWidth={1.75} />}
-        </button>
+        {multiline ? (
+          <textarea
+            id={fieldKey}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={disabled}
+            rows={5}
+            placeholder={disabled ? "Loading…" : `Enter ${label.toLowerCase()}`}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className={`${inputClassName} font-mono text-[12.5px] leading-relaxed`}
+          />
+        ) : (
+          <input
+            id={fieldKey}
+            type={visible ? "text" : "password"}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={disabled}
+            placeholder={disabled ? "Loading…" : `Enter ${label.toLowerCase()}`}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className={inputClassName}
+          />
+        )}
+        {!multiline ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onToggleVisible}
+            aria-label={visible ? `Hide ${label}` : `Show ${label}`}
+            className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-v-sm text-v-muted transition-colors hover:bg-v-soft hover:text-v-fg disabled:pointer-events-none disabled:opacity-40"
+          >
+            {visible ? <EyeOff className="size-4" strokeWidth={1.75} /> : <Eye className="size-4" strokeWidth={1.75} />}
+          </button>
+        ) : null}
       </div>
       {description ? <span className="text-xs font-light text-v-muted">{description}</span> : null}
     </div>
@@ -186,7 +371,21 @@ function ConnectModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configured, providerId]);
 
-  const hasRequiredValues = secrets.every((k) => (catalog.required?.includes(k) ? values[k]?.trim() : true));
+  const hasRequiredValues = secrets.every((k) => {
+    if (!catalog.required?.includes(k)) return true;
+    const field = catalog.fields?.[k];
+    const raw = values[k]?.trim() ?? "";
+    if (!raw) return false;
+    if (field?.pair_fields?.length) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        return Array.isArray(parsed) && parsed.length > 0;
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  });
 
   async function handleSave() {
     setError("");
@@ -238,6 +437,20 @@ function ConnectModal({
         <div className="flex flex-col gap-3.5">
           {secrets.map((key) => {
             const field = catalog.fields?.[key];
+            if (field?.pair_fields?.length) {
+              return (
+                <PairFieldsEditor
+                  key={key}
+                  fieldKey={`${providerId}-${key}`}
+                  label={field.ui_label ?? humanizeFieldKey(key)}
+                  description={field.description}
+                  pairFields={field.pair_fields}
+                  value={values[key] ?? ""}
+                  onChange={(v) => setValues((prev) => ({ ...prev, [key]: v }))}
+                  disabled={loadingAuth}
+                />
+              );
+            }
             return (
               <SecretField
                 key={key}
@@ -249,6 +462,7 @@ function ConnectModal({
                 onToggleVisible={() => setVisible((prev) => ({ ...prev, [key]: !prev[key] }))}
                 onChange={(v) => setValues((prev) => ({ ...prev, [key]: v }))}
                 disabled={loadingAuth}
+                multiline={Boolean(field?.multiline)}
               />
             );
           })}

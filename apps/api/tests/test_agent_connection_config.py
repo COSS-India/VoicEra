@@ -66,7 +66,7 @@ def test_known_connection_is_kept_without_endpoint_or_key():
         return_value=True,
     ):
         validated = validate_agent_config(_config(_LLM), org_id="org-1")
-    llm = validated.models.llm_config
+    llm = validated.models["en"].llm_config
     assert llm["connection_id"] == "conn-1"
     assert llm["temperature"] == 0.4
     # Endpoint and key stay on the connection, never on the agent.
@@ -89,7 +89,7 @@ def test_the_agents_own_history_mode_is_saved():
         validated = validate_agent_config(
             _config({**_LLM, "history_mode": "current_turn"}), org_id="org-1"
         )
-    assert validated.models.llm_config["history_mode"] == "current_turn"
+    assert validated.models["en"].llm_config["history_mode"] == "current_turn"
 
 
 def test_an_agent_that_says_nothing_inherits_the_endpoint():
@@ -98,7 +98,7 @@ def test_an_agent_that_says_nothing_inherits_the_endpoint():
         return_value=True,
     ):
         validated = validate_agent_config(_config(_LLM), org_id="org-1")
-    assert validated.models.llm_config["history_mode"] == "inherit"
+    assert validated.models["en"].llm_config["history_mode"] == "inherit"
 
 
 def test_the_agents_own_system_prompt_mode_is_saved():
@@ -109,7 +109,7 @@ def test_the_agents_own_system_prompt_mode_is_saved():
         validated = validate_agent_config(
             _config({**_LLM, "system_prompt_mode": "omit"}), org_id="org-1"
         )
-    assert validated.models.llm_config["system_prompt_mode"] == "omit"
+    assert validated.models["en"].llm_config["system_prompt_mode"] == "omit"
 
 
 @pytest.mark.parametrize(
@@ -174,3 +174,29 @@ def test_vendor_providers_keep_their_existing_tool_gate():
         with pytest.raises(AgentConfigValidationError) as exc:
             validate_agent_config(config, org_id="org-1")
     assert "function calling" in str(exc.value)
+
+
+def test_every_language_stack_must_name_a_known_connection():
+    """A secondary language on its own endpoint is checked like the primary."""
+    stt = {"provider": "openai", "model": "gpt-4o-transcribe"}
+    tts = {"provider": "openai", "model": "gpt-4o-mini-tts", "voice": "alloy"}
+    config = _config(
+        _LLM,
+        language={"primary": "en", "secondary": ["hi"]},
+        models={
+            "en": {"stt_config": stt, "tts_config": tts, "llm_config": _LLM},
+            "hi": {
+                "stt_config": stt,
+                "tts_config": tts,
+                "llm_config": {**_LLM, "connection_id": "conn-hi"},
+            },
+        },
+    )
+    with patch(
+        "app.services.provider_connection_service.connection_exists",
+        side_effect=lambda org_id, connection_id, provider: connection_id == "conn-1",
+    ):
+        with pytest.raises(AgentConfigValidationError) as exc:
+            validate_agent_config(config, org_id="org-1")
+    assert "models['hi']" in str(exc.value)
+    assert "conn-hi" in str(exc.value)

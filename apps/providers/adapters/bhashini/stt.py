@@ -7,7 +7,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import AsyncGenerator, Awaitable, Callable, Optional
+from typing import Any, AsyncGenerator, Awaitable, Callable, Optional
 
 from urllib.parse import quote
 
@@ -29,8 +29,11 @@ from pipecat.frames.frames import (
     UserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.services.settings import STTSettings
 from pipecat.services.stt_service import STTService
 from pipecat.utils.time import time_now_iso8601
+
+from apps.providers.runtime_language import update_stt_settings_with_language
 
 try:
     import websockets
@@ -638,6 +641,11 @@ class BhashiniSTTService(STTService):
     async def set_language(self, language: str):
         logger.info("Switching Bhashini language to: {}", language)
         self._language = language
+
+    async def _update_settings(self, delta: STTSettings) -> dict[str, Any]:
+        return await update_stt_settings_with_language(
+            self, delta, super_update=super()._update_settings
+        )
 
     async def set_model(self, service_id: str):
         logger.info("Switching Bhashini service to: {}", service_id)

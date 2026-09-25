@@ -36,7 +36,7 @@ def create_frame_serializer(
         stream_sid: Provider media stream identifier.
         call_sid: Provider call identifier.
         sample_rate: Audio sample rate for the serializer.
-        **kwargs: Reserved for provider-specific options (currently unused).
+        **kwargs: Provider-specific options (e.g. ``websocket`` for VI).
 
     Raises:
         ValueError: When ``provider`` is not supported.

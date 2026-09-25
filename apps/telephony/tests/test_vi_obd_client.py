@@ -1,0 +1,350 @@
+"""Tests for VI auth helpers and OBD dialing."""
+
+from __future__ import annotations
+
+import pytest
+
+from apps.telephony.providers.vi.auth_helpers import (
+    ViAuthError,
+    answer_url_to_vi_stream,
+    format_dni_e164,
+    list_dnis,
+    normalize_msisdn,
+    parse_dni_flows,
+    resolve_dni_and_flow,
+    resolve_vi_agent_id,
+    to_obd_dni_fallback,
+)
+from apps.telephony.providers.vi.obd_client import ViObdClient, ViObdError
+
+SAMPLE_FLOWS = (
+    '[{"dni":"+919876543210","flow_id":"flow-a"},'
+    '{"dni":"+918811122233","flow_id":"flow-b"}]'
+)
+
+
+def test_parse_dni_flows() -> None:
+    pairs = parse_dni_flows(SAMPLE_FLOWS)
+    assert len(pairs) == 2
+    assert pairs[0]["flow_id"] == "flow-a"
+    assert pairs[0]["dni"] == "+919876543210"
+
+
+def test_list_dnis() -> None:
+    assert list_dnis(SAMPLE_FLOWS) == ["+919876543210", "+918811122233"]
+
+
+def test_resolve_dni_and_flow_single_ok() -> None:
+    dni, flow = resolve_dni_and_flow(
+        '[{"dni":"+919876543210","flow_id":"flow-a"}]'
+    )
+    assert dni == "+919876543210"
+    assert flow == "flow-a"
+
+
+def test_resolve_dni_and_flow_match_from_number() -> None:
+    dni, flow = resolve_dni_and_flow(
+        SAMPLE_FLOWS, from_number="+918811122233"
+    )
+    assert flow == "flow-b"
+    assert normalize_msisdn(dni) == "8811122233"
+
+
+def test_resolve_dni_and_flow_mismatch() -> None:
+    with pytest.raises(ViAuthError, match="does not match"):
+        resolve_dni_and_flow(SAMPLE_FLOWS, from_number="+911112223334")
+
+
+def test_resolve_multi_requires_from_number() -> None:
+    with pytest.raises(ViAuthError, match="from_number is required"):
+        resolve_dni_and_flow(SAMPLE_FLOWS)
+
+
+def test_format_dni_e164() -> None:
+    assert format_dni_e164("919876543210") == "+919876543210"
+    assert format_dni_e164("+919876543210") == "+919876543210"
+    assert format_dni_e164("9876543210") == "+919876543210"
+
+
+def test_format_dni_e164_rejects_short() -> None:
+    with pytest.raises(ViAuthError, match="Indian mobile"):
+        format_dni_e164("91")
+
+
+def test_to_obd_dni_fallback() -> None:
+    assert to_obd_dni_fallback("+919876543210") == "919876543210"
+    assert to_obd_dni_fallback("9876543210") == "919876543210"
+
+
+def test_parse_accepts_legacy_digits_without_plus() -> None:
+    pairs = parse_dni_flows(
+        '[{"dni":"919876543210","flow_id":"flow-a"}]'
+    )
+    assert pairs[0]["dni"] == "+919876543210"
+
+
+def test_parse_normalizes_plus_dni() -> None:
+    pairs = parse_dni_flows(
+        '[{"dni":"+919876543210","flow_id":"flow-a"}]'
+    )
+    assert pairs[0]["dni"] == "+919876543210"
+
+
+def test_answer_url_to_vi_stream() -> None:
+    assert (
+        answer_url_to_vi_stream("https://voice.example.com/answer?org_id=1")
+        == "wss://voice.example.com/vi/stream"
+    )
+    assert (
+        answer_url_to_vi_stream("http://localhost:7860/answer")
+        == "ws://localhost:7860/vi/stream"
+    )
+
+
+def test_resolve_vi_agent_id() -> None:
+    assert resolve_vi_agent_id("path-id", {}) == "path-id"
+    assert (
+        resolve_vi_agent_id(None, {"custom_parameters": {"agentId": "from-custom"}})
+        == "from-custom"
+    )
+
+
+def test_normalize_msisdn() -> None:
+    assert normalize_msisdn("+919876543210") == "9876543210"
+    assert normalize_msisdn("9876543210") == "9876543210"
+    assert normalize_msisdn("919876543210") == "9876543210"
+
+
+def test_place_single_uses_live_dni(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = ViObdClient(
+        "user",
+        "pass",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "flow-a"}],
+    )
+    ingested: dict = {}
+
+    def fake_request(path: str, *, token=None, json_body=None):
+        if path == "AuthToken":
+            return {"idToken": "tok"}, 200
+        if path == "getActiveDNIList":
+            assert json_body["flowId"] == "flow-a"
+            return {"dniList": ["9876543210"]}, 200
+        if path == "createCampaign":
+            assert json_body["flowid"] == "flow-a"
+            return {"status": 1, "campainKey": "ckey", "campaign_Ref_ID": 42}, 200
+        if path == "staticCampaignDataIngestion":
+            ingested["payload"] = json_body
+            return {"data": {"status": "success", "rowsAffected": 1}}, 200
+        raise AssertionError(path)
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    result = client.place_single_outbound_call(
+        "+919911122233", from_number="+919876543210"
+    )
+    assert result["campaign_Ref_ID"] == 42
+    assert result["campainKey"] == "ckey"
+    assert result["msisdn"] == "9911122233"
+    assert result["dni"] == "9876543210"
+    assert result["dni_source"] == "getActiveDNIList"
+    assert result["configured_dni"] == "+919876543210"
+    assert ingested["payload"]["Records"][0]["dni"] == "9876543210"
+    assert ingested["payload"]["Records"][0]["msisdn"] == "9911122233"
+
+
+def test_place_single_fallback_when_live_dni_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = ViObdClient(
+        "user",
+        "pass",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "flow-a"}],
+    )
+
+    def fake_request(path: str, *, token=None, json_body=None):
+        if path == "AuthToken":
+            return {"idToken": "tok"}, 200
+        if path == "getActiveDNIList":
+            return {"dniList": []}, 200
+        if path == "createCampaign":
+            return {"status": 1, "campainKey": "ckey", "campaign_Ref_ID": 7}, 200
+        if path == "staticCampaignDataIngestion":
+            assert json_body["Records"][0]["dni"] == "919876543210"
+            return {"data": {"status": "success", "rowsAffected": 1}}, 200
+        raise AssertionError(path)
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    result = client.place_single_outbound_call("+919911122233")
+    assert result["dni"] == "919876543210"
+    assert result["dni_source"] == "dni_flows"
+
+
+def test_place_bulk_outbound_calls_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = ViObdClient(
+        "user",
+        "pass",
+        dni_flows='[{"dni":"+919876543210","flow_id":"flow-a"}]',
+    )
+
+    def fake_request(path: str, *, token=None, json_body=None):
+        if path == "AuthToken":
+            return {"idToken": "tok"}, 200
+        if path == "getActiveDNIList":
+            return {"dniList": ["919876543210"]}, 200
+        if path == "createCampaign":
+            return {"status": 1, "campainKey": "ckey", "campaign_Ref_ID": 99}, 200
+        if path == "staticCampaignDataIngestion":
+            assert len(json_body["Records"]) == 2
+            assert json_body["Records"][0]["dni"] == "919876543210"
+            return {"data": {"status": "success", "rowsAffected": 2}}, 200
+        raise AssertionError(path)
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    result = client.place_bulk_outbound_calls(
+        ["+919911122233", "+919922233344"],
+        from_number="+919876543210",
+    )
+    assert result["campaign_Ref_ID"] == 99
+    assert len(result["msisdns"]) == 2
+    assert result["dni_source"] == "getActiveDNIList"
+
+
+def test_auth_token_failure() -> None:
+    client = ViObdClient(
+        "user",
+        "pass",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "f"}],
+    )
+
+    def fake_request(path: str, *, token=None, json_body=None):
+        return {"error": "nope"}, 401
+
+    client._request = fake_request  # type: ignore[method-assign]
+    with pytest.raises(ViObdError, match="AuthToken"):
+        client.get_auth_token()
+
+
+def test_phone_lookup_candidates_adds_india_country_code() -> None:
+    from apps.telephony.providers.vi.auth_helpers import phone_lookup_candidates
+
+    candidates = phone_lookup_candidates("9769554706")
+    assert "9769554706" in candidates
+    assert "+919769554706" in candidates
+    assert "919769554706" in candidates
+
+
+@pytest.mark.anyio
+async def test_vi_client_initiate_call_returns_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.telephony.providers.vi import ViClient
+    from apps.telephony.providers.vi import application as vi_app
+
+    class FakeObd:
+        def place_single_outbound_call(self, *args, **kwargs):
+            return {
+                "campaign_Ref_ID": 42,
+                "campainKey": "ckey",
+                "dni": "+919876543210",
+                "msisdn": "9911122233",
+                "message": "queued",
+            }
+
+    monkeypatch.setattr(vi_app, "_obd_client", lambda _c: FakeObd())
+    client = ViClient(
+        "user",
+        "pass",
+        "https://example.com/obd",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "flow-a"}],
+    )
+    result = await client.initiate_call(
+        from_number="+919876543210",
+        to_number="+919911122233",
+        answer_url="https://voice.example.com/answer?agent_id=a1",
+    )
+    assert result["status"] == "success"
+    assert result["provider_call_sid"] == "42"
+    assert result["from_number"] == "+919876543210"
+    assert result["provider_handles"] == {
+        "campaign_ref_id": 42,
+        "campain_key": "ckey",
+    }
+    assert "campainKey" not in result
+    assert "campaign_Ref_ID" not in result
+    assert result["raw"]["campainKey"] == "ckey"
+
+
+@pytest.mark.anyio
+async def test_vi_client_initiate_bulk_returns_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.telephony.providers.vi import ViClient
+    from apps.telephony.providers.vi import application as vi_app
+
+    class FakeObd:
+        def place_bulk_outbound_calls(self, *args, **kwargs):
+            return {
+                "campaign_Ref_ID": 99,
+                "campainKey": "bulk-key",
+                "dni": "919876543210",
+                "msisdns": ["9911122233", "9922233344"],
+                "message": "bulk queued",
+            }
+
+    monkeypatch.setattr(vi_app, "_obd_client", lambda _c: FakeObd())
+    client = ViClient(
+        "user",
+        "pass",
+        "https://example.com/obd",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "flow-a"}],
+    )
+    result = await client.initiate_bulk_calls(
+        from_number="+919876543210",
+        to_numbers=["+919911122233", "+919922233344"],
+    )
+    assert result["status"] == "success"
+    assert result["provider_call_sid"] == "99"
+    assert result["from_number"] == "919876543210"
+    assert result["provider_handles"]["campain_key"] == "bulk-key"
+    assert "dni" not in result
+
+
+@pytest.mark.anyio
+async def test_vi_client_get_bulk_status_normalizes_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.telephony.providers.vi import ViClient
+    from apps.telephony.providers.vi import application as vi_app
+
+    class FakeObd:
+        def get_auth_token(self):
+            return "tok", {}
+
+        def get_campaign_status_with_fallback(self, token, ref, campain_key=None):
+            assert token == "tok"
+            assert ref == 42
+            assert campain_key == "ckey"
+            return {"campaignStatus": "Completed"}, "campaign_Ref_ID"
+
+    monkeypatch.setattr(vi_app, "_obd_client", lambda _c: FakeObd())
+    client = ViClient(
+        "user",
+        "pass",
+        "https://example.com/obd",
+        dni_flows=[{"dni": "+919876543210", "flow_id": "flow-a"}],
+    )
+    result = await client.get_bulk_status(
+        provider_call_sid="42",
+        provider_handles={"campaign_ref_id": 42, "campain_key": "ckey"},
+    )
+    assert result["status"] == "success"
+    assert result["state"] == "completed"
+    assert "campaignStatus" not in result
+    assert result["raw"]["status_body"]["campaignStatus"] == "Completed"
+
+
+def test_normalize_bulk_state_variants() -> None:
+    from apps.telephony.providers.vi.application import _normalize_bulk_state
+
+    assert _normalize_bulk_state({"campaignStatus": "Running"}) == "running"
+    assert _normalize_bulk_state({"status": "failed"}) == "failed"
+    assert _normalize_bulk_state({}) == "unknown"

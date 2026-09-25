@@ -17,6 +17,8 @@ from apps.providers.schema import (
 from app.models.schemas import AgentConfigPayload, AgentKnowledgeBase, AgentModels
 
 KB_TOOL_LLM_PROVIDERS = frozenset({"openai", "groq", "azure_openai", "anthropic"})
+# Discriminator / display fields from provider config classes — not agent settings.
+_PERSISTED_OMIT = frozenset({"kind", "name"})
 
 
 class AgentConfigValidationError(ValueError):
@@ -79,8 +81,10 @@ def validate_persisted_model_config(kind: Kind, data: dict[str, Any]) -> dict[st
             f"Invalid {kind.value}_config: {exc.errors()}"
         ) from exc
 
-    dumped = validated.model_dump(mode="python", exclude=forbidden)
-    # Drop None-only noise; keep kind/provider/model/settings.
+    dumped = validated.model_dump(
+        mode="python", exclude=forbidden | _PERSISTED_OMIT
+    )
+    # Drop None-only noise; keep provider/model/settings (not kind/name).
     return {key: value for key, value in dumped.items() if value is not None}
 
 
@@ -133,6 +137,17 @@ def _llm_supports_tools(
             org_id, str(llm_config.get("connection_id") or "")
         )
     return provider in KB_TOOL_LLM_PROVIDERS
+
+
+def _validate_agent_models(models: AgentModels, *, label: str) -> AgentModels:
+    try:
+        return AgentModels(
+            stt_config=validate_persisted_model_config(Kind.STT, models.stt_config),
+            tts_config=validate_persisted_model_config(Kind.TTS, models.tts_config),
+            llm_config=validate_persisted_model_config(Kind.LLM, models.llm_config),
+        )
+    except AgentConfigValidationError as exc:
+        raise AgentConfigValidationError(f"{label}: {exc}") from exc
 
 
 def _validate_knowledge_base(
@@ -190,26 +205,38 @@ def validate_agent_config(
                 "custom_variables keys must be non-empty strings"
             )
 
-    models = AgentModels(
-        stt_config=validate_persisted_model_config(
-            Kind.STT, config.models.stt_config
-        ),
-        tts_config=validate_persisted_model_config(
-            Kind.TTS, config.models.tts_config
-        ),
-        llm_config=validate_persisted_model_config(
-            Kind.LLM, config.models.llm_config
-        ),
-    )
+    # Schema already normalized legacy shapes into language-keyed models.
+    models = config.models or {}
+    if not models:
+        raise AgentConfigValidationError("models is required")
 
-    _validate_connection_reference(models.llm_config, org_id=org_id)
+    if primary not in models:
+        raise AgentConfigValidationError(
+            f"models must include an entry for primary language {primary!r}"
+        )
 
-    llm_provider = str(models.llm_config.get("provider") or "")
+    validated_models: dict[str, AgentModels] = {}
+    for lang_id, stack in models.items():
+        cleaned = (lang_id or "").strip()
+        if not cleaned:
+            raise AgentConfigValidationError(
+                "models keys must be non-empty language ids"
+            )
+        label = f"models[{cleaned!r}]"
+        validated = _validate_agent_models(stack, label=label)
+        try:
+            _validate_connection_reference(validated.llm_config, org_id=org_id)
+        except AgentConfigValidationError as exc:
+            raise AgentConfigValidationError(f"{label}: {exc}") from exc
+        validated_models[cleaned] = validated
+
+    primary_models = validated_models[primary]
+    llm_provider = str(primary_models.llm_config.get("provider") or "")
     knowledge_base = _validate_knowledge_base(
         config.knowledge_base,
         org_id=org_id,
         llm_provider=llm_provider,
-        supports_tools=_llm_supports_tools(models.llm_config, org_id=org_id),
+        supports_tools=_llm_supports_tools(primary_models.llm_config, org_id=org_id),
     )
 
     return config.model_copy(
@@ -218,7 +245,7 @@ def validate_agent_config(
                 update={"greeting_message": greeting}
             ),
             "language": config.language.model_copy(update={"primary": primary}),
-            "models": models,
+            "models": validated_models,
             "knowledge_base": knowledge_base,
         }
     )
