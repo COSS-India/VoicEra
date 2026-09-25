@@ -11,6 +11,7 @@ function here with :func:`register_preview`. Keep these modules free of
 
 from __future__ import annotations
 
+import os
 import wave
 from collections.abc import Awaitable, Callable
 from io import BytesIO
@@ -21,6 +22,13 @@ from pydantic import BaseModel
 PreviewFn = Callable[[BaseModel, str, httpx.AsyncClient], Awaitable[bytes]]
 
 PREVIEW_ADAPTERS: dict[str, PreviewFn] = {}
+
+# Web-call quality (matches apps/runtime.constants.websocket_sample_rate()),
+# requested from every adapter whose vendor supports it. OpenAI, indic_orpheus
+# and bhashini Parler stay at their native rate instead (no resampling).
+# Env-overridable rather than threaded through every adapter's call signature,
+# same pattern runtime uses for its own sample rate constants.
+PREVIEW_SAMPLE_RATE_HZ = int(os.getenv("TTS_PREVIEW_SAMPLE_RATE_HZ", "16000"))
 
 
 class PreviewProviderError(RuntimeError):

@@ -7,12 +7,11 @@ import base64
 import httpx
 
 from ...capabilities import api_capabilities
-from ...preview import PreviewProviderError, register_preview
+from ...preview import PREVIEW_SAMPLE_RATE_HZ, PreviewProviderError, register_preview
 from .catalog import TTS_CAPABILITIES
 from .config import SarvamTTSConfig
 
 _ENDPOINT = "https://api.sarvam.ai/text-to-speech"
-_PREVIEW_SAMPLE_RATE = 16000
 
 
 def _wire_language_code(model: str, canonical: str) -> str:
@@ -29,7 +28,7 @@ async def synthesize(cfg: SarvamTTSConfig, text: str, client: httpx.AsyncClient)
         "speaker": cfg.voice,
         "model": cfg.model,
         "pace": cfg.speed,
-        "speech_sample_rate": _PREVIEW_SAMPLE_RATE,
+        "speech_sample_rate": PREVIEW_SAMPLE_RATE_HZ,
         "output_audio_codec": "wav",
     }
     try:
