@@ -12,17 +12,24 @@ from pydantic import BaseModel
 
 from apps.providers.preview import (
     PREVIEW_ADAPTERS,
+    PREVIEW_SAMPLE_RATE_HZ,
     PreviewProviderError,
     has_preview_adapter,
     import_vendor_previews,
     pcm_to_wav,
     register_preview,
+    resolve_preview_sample_rate,
     synthesize_preview,
 )
 
 
 class _DummyConfig(BaseModel):
     provider: str = "dummy"
+
+
+class _DummyConfigWithSampleRate(BaseModel):
+    provider: str = "dummy"
+    sample_rate: int = 24000
 
 
 def test_register_preview_adds_to_registry():
@@ -81,6 +88,16 @@ def test_pcm_to_wav_wraps_pcm_with_correct_header():
         assert wf.getnchannels() == 1
         assert wf.getsampwidth() == 2
         assert wf.getnframes() == 8000
+
+
+def test_resolve_preview_sample_rate_falls_back_to_shared_default():
+    assert resolve_preview_sample_rate(_DummyConfig()) == PREVIEW_SAMPLE_RATE_HZ
+
+
+def test_resolve_preview_sample_rate_prefers_configs_own_field():
+    # Mirrors smallest/service.py using cfg.sample_rate for the live call
+    # instead of a fixed constant — preview must respect the same choice.
+    assert resolve_preview_sample_rate(_DummyConfigWithSampleRate()) == 24000
 
 
 def test_import_vendor_previews_registers_sarvam_without_raising():
