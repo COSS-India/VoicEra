@@ -25,6 +25,7 @@ from apps.providers.preview import (
     synthesize_preview,
 )
 from apps.providers.schema import _config_class
+from apps.providers.scoped_settings import resolve_settings
 
 from app.config import settings
 from app.services import auth_service
@@ -70,12 +71,37 @@ def strip_placeholders(text: str) -> str:
     return stripped.strip()
 
 
+def _voice_is_supported(blob: dict[str, Any], language: str) -> bool:
+    """Check the requested voice against the model's settings tree.
+
+    A provider that declares no settings tree, or no ``voice`` entry for
+    ``(model, language)``, or allows custom voice input, is treated as
+    supporting any voice.
+    """
+    provider = str(blob.get("provider") or "")
+    model = str(blob.get("model") or "")
+    voice = blob.get("voice")
+    cls = _config_class(Kind.TTS, provider)
+    tree = getattr(cls, "settings_by_model_language", None)
+    if not tree:
+        return True
+    resolved = resolve_settings(tree, model, language)
+    voice_meta = resolved.get("voice")
+    if not voice_meta:
+        return True
+    if voice_meta.get("allow_custom_input"):
+        return True
+    options = voice_meta.get("options")
+    if not options:
+        return True
+    return voice in options
+
+
 def validate_request(tts_config: dict[str, Any], language: str, text: str) -> dict[str, Any]:
-    """Validate text and config shape.
+    """Validate text, config shape and voice/language support.
 
     Returns the secret-free, validated ``tts_config`` blob. Raises
-    :class:`TtsPreviewError` on any failure. Voice/language capability
-    checking is added in a follow-up PR (PR2b).
+    :class:`TtsPreviewError` on any failure.
     """
     if not text.strip():
         raise TtsPreviewError(TtsPreviewErrorReason.EMPTY_TEXT, "Preview text is empty")
@@ -96,6 +122,11 @@ def validate_request(tts_config: dict[str, Any], language: str, text: str) -> di
             TtsPreviewErrorReason.UNSUPPORTED_VOICE,
             f"Preview is not available for provider {provider!r}",
         )
+    if not _voice_is_supported(validated, language):
+        raise TtsPreviewError(
+            TtsPreviewErrorReason.UNSUPPORTED_VOICE,
+            "Selected voice is not available for this language",
+        )
     return validated
 
 
@@ -115,9 +146,13 @@ async def resolve_config(org_id: str, blob: dict[str, Any]) -> Any:
     try:
         return cls.model_validate({**blob, **auth})
     except ValidationError as exc:
+        # Never echo exc.errors() to the client: pydantic includes the offending
+        # "input" for whole-model validators, which here can be {**blob, **auth}
+        # (i.e. the real API key).
+        logger.warning("tts_preview invalid_config org=%s provider=%s", org_id, provider)
         raise TtsPreviewError(
             TtsPreviewErrorReason.INVALID_CONFIG,
-            f"Invalid {provider} config: {exc.errors()}",
+            f"Invalid configuration for provider {provider!r}",
         ) from exc
 
 
@@ -132,7 +167,9 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     provider = str(validated_blob.get("provider") or "")
 
     try:
-        async with httpx.AsyncClient() as client:
+        # httpx's own default timeout is 5s; without overriding it here it can
+        # fire before our intended TTS_PREVIEW_TIMEOUT_S window elapses.
+        async with httpx.AsyncClient(timeout=settings.TTS_PREVIEW_TIMEOUT_S) as client:
             async with asyncio.timeout(settings.TTS_PREVIEW_TIMEOUT_S):
                 audio = await synthesize_preview(provider, cfg, stripped, client)
     except TimeoutError as exc:
