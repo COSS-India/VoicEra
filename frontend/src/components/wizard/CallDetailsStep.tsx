@@ -116,7 +116,7 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
             tipKey="interrupt"
             unit=" words"
             value={form.interruptThreshold}
-            min={1}
+            min={0}
             max={10}
             onChange={(v) => onChange("interruptThreshold", v)}
           />
