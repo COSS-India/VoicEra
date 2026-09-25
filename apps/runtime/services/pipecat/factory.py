@@ -19,7 +19,10 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
-from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
+from pipecat.turns.user_start import (
+    MinWordsUserTurnStartStrategy,
+    VADUserTurnStartStrategy,
+)
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from starlette.websockets import WebSocket
 
@@ -99,6 +102,10 @@ def build_pipeline_components(
             else []
         ),
     )
+    # interruption_min_words == 0 → Silero VAD only (no transcript/word gate).
+    # > 0 → replace default start strategies with MinWords (STT word count).
+    # Leaving strategies unset would keep Pipecat's default, which also includes
+    # TranscriptionUserTurnStartStrategy — still word/transcript based.
     if config.interruption_min_words > 0:
         user_params.user_turn_strategies = UserTurnStrategies(
             start=[
@@ -106,6 +113,10 @@ def build_pipeline_components(
                     min_words=config.interruption_min_words
                 )
             ],
+        )
+    else:
+        user_params.user_turn_strategies = UserTurnStrategies(
+            start=[VADUserTurnStartStrategy()],
         )
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context, user_params=user_params

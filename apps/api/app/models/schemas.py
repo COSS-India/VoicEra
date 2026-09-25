@@ -233,7 +233,10 @@ class AgentBehaviour(BaseModel):
     interruption_min_words: int = Field(
         default=0,
         ge=0,
-        description="Minimum words before the caller can interrupt the agent.",
+        description=(
+            "Minimum STT words before the caller can interrupt the agent. "
+            "0 = Silero VAD only (no word/transcript turn-start gate)."
+        ),
     )
     user_silence_hangup_seconds: float | None = Field(
         default=None,

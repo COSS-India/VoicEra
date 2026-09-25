@@ -196,7 +196,7 @@ export const TIPS: Record<string, string> = {
   sttProvider: "Indic-only providers won't appear as options once you pick English as a language.",
   ttsProvider: "This also determines which voices are available.",
   buffer: "Lower buffers feel snappier but risk clipping the caller's first word on a slow line.",
-  interrupt: "How many words the caller needs to say before the agent stops talking and listens.",
+  interrupt: "How many words the caller needs to say before the agent stops talking. Set to 0 to interrupt on Silero VAD alone (no word count).",
   online: "Every 90 seconds of silence, the agent gently checks the line is still connected.",
   silence: "If the caller goes quiet this long, the agent politely ends the call.",
   timeout: "A hard ceiling so no single call runs away with cost or a support agent's afternoon.",
