@@ -17,6 +17,7 @@ from collections.abc import Awaitable, Callable
 from io import BytesIO
 
 import httpx
+from loguru import logger
 from pydantic import BaseModel
 
 PreviewFn = Callable[[BaseModel, str, httpx.AsyncClient], Awaitable[bytes]]
@@ -28,6 +29,12 @@ PREVIEW_ADAPTERS: dict[str, PreviewFn] = {}
 # and bhashini Parler stay at their native rate instead (no resampling).
 # Env-overridable rather than threaded through every adapter's call signature,
 # same pattern runtime uses for its own sample rate constants.
+#
+# NOTE: read directly from the process environment, not from
+# apps/api/app/config.py's Settings — apps/providers is shared with
+# apps/runtime and cannot import anything under apps/api. Unlike the other
+# TTS_PREVIEW_* settings, this one is NOT picked up from apps/api's .env file;
+# it must be set as a real environment variable if overridden.
 PREVIEW_SAMPLE_RATE_HZ = int(os.getenv("TTS_PREVIEW_SAMPLE_RATE_HZ", "16000"))
 
 
@@ -106,8 +113,17 @@ def import_vendor_previews() -> None:
         for _finder, vendor_name, is_pkg in pkgutil.iter_modules(area_pkg.__path__):
             if not is_pkg:
                 continue
+            module_name = f"{package_root}.{area}.{vendor_name}.preview"
             try:
-                importlib.import_module(f"{package_root}.{area}.{vendor_name}.preview")
-            except ModuleNotFoundError:
-                # Not every vendor has a preview adapter yet.
-                continue
+                importlib.import_module(module_name)
+            except ModuleNotFoundError as exc:
+                if exc.name == module_name:
+                    # This vendor has no preview.py yet — expected until its PR lands.
+                    continue
+                # The vendor's preview.py exists but failed to import (e.g. a
+                # bad import inside it). Log loudly: otherwise the adapter
+                # silently never registers and callers just see a generic
+                # "not available" 422 with no clue why.
+                logger.warning(f"Failed to import preview adapter {module_name}: {exc}")
+            except Exception as exc:  # noqa: BLE001 - never let one broken vendor block the rest
+                logger.warning(f"Failed to import preview adapter {module_name}: {exc}")

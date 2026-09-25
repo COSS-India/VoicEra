@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import wave
 from io import BytesIO
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -13,6 +14,7 @@ from apps.providers.preview import (
     PREVIEW_ADAPTERS,
     PreviewProviderError,
     has_preview_adapter,
+    import_vendor_previews,
     pcm_to_wav,
     register_preview,
     synthesize_preview,
@@ -79,6 +81,39 @@ def test_pcm_to_wav_wraps_pcm_with_correct_header():
         assert wf.getnchannels() == 1
         assert wf.getsampwidth() == 2
         assert wf.getnframes() == 8000
+
+
+def test_import_vendor_previews_registers_sarvam_without_raising():
+    import_vendor_previews()
+    assert has_preview_adapter("sarvam")
+
+
+def test_import_vendor_previews_logs_and_continues_on_broken_vendor_module():
+    # Arrange: the vendor package resolves, but its preview.py itself is broken
+    # (e.g. a bad import inside it) — a ModuleNotFoundError whose .name is NOT
+    # the "<vendor>.preview" module we asked for, unlike a vendor that simply
+    # has no preview.py.
+    import importlib as real_importlib
+
+    real_import_module = real_importlib.import_module
+    broken_error = ModuleNotFoundError("no module named 'not_a_real_dependency'")
+    broken_error.name = "not_a_real_dependency"
+
+    def fake_import(name, *args, **kwargs):
+        if name == "apps.providers.cloud.sarvam.preview":
+            raise broken_error
+        return real_import_module(name, *args, **kwargs)
+
+    with (
+        patch("importlib.import_module", side_effect=fake_import),
+        patch("apps.providers.preview.logger") as mock_logger,
+    ):
+        # Act
+        import_vendor_previews()
+
+    # Assert: the broken import was logged, not silently swallowed.
+    assert mock_logger.warning.called
+    assert "sarvam" in mock_logger.warning.call_args[0][0]
 
 
 def _run(coro):
