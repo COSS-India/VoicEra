@@ -32,6 +32,11 @@ class _DummyConfigWithSampleRate(BaseModel):
     sample_rate: int = 24000
 
 
+class _DummyConfigWithZeroSampleRate(BaseModel):
+    provider: str = "dummy"
+    sample_rate: int = 0
+
+
 def test_register_preview_adds_to_registry():
     # Arrange
     PREVIEW_ADAPTERS.pop("dummy-test-provider", None)
@@ -98,6 +103,11 @@ def test_resolve_preview_sample_rate_prefers_configs_own_field():
     # Mirrors smallest/service.py using cfg.sample_rate for the live call
     # instead of a fixed constant — preview must respect the same choice.
     assert resolve_preview_sample_rate(_DummyConfigWithSampleRate()) == 24000
+
+
+def test_resolve_preview_sample_rate_respects_explicit_zero():
+    # A falsy-but-set 0 must not be mistaken for "field absent".
+    assert resolve_preview_sample_rate(_DummyConfigWithZeroSampleRate()) == 0
 
 
 def test_import_vendor_previews_registers_sarvam_without_raising():

@@ -60,7 +60,8 @@ def resolve_preview_sample_rate(cfg: BaseModel) -> int:
     resample in any case — always pass the vendor's own rate to
     :func:`pcm_to_wav`.
     """
-    return getattr(cfg, "sample_rate", None) or PREVIEW_SAMPLE_RATE_HZ
+    rate = getattr(cfg, "sample_rate", None)
+    return rate if rate is not None else PREVIEW_SAMPLE_RATE_HZ
 
 
 class PreviewProviderError(RuntimeError):
@@ -149,14 +150,12 @@ def import_vendor_previews() -> None:
             module_name = f"{package_root}.{area}.{vendor_name}.preview"
             try:
                 importlib.import_module(module_name)
-            except ModuleNotFoundError as exc:
-                if exc.name == module_name:
+            except Exception as exc:  # noqa: BLE001 - never let one broken vendor block the rest
+                if isinstance(exc, ModuleNotFoundError) and exc.name == module_name:
                     # This vendor has no preview.py yet — expected until its PR lands.
                     continue
                 # The vendor's preview.py exists but failed to import (e.g. a
                 # bad import inside it). Log loudly: otherwise the adapter
                 # silently never registers and callers just see a generic
                 # "not available" 422 with no clue why.
-                logger.warning(f"Failed to import preview adapter {module_name}: {exc}")
-            except Exception as exc:  # noqa: BLE001 - never let one broken vendor block the rest
                 logger.warning(f"Failed to import preview adapter {module_name}: {exc}")
