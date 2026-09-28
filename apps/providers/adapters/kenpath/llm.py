@@ -22,7 +22,12 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.utils.tracing.service_decorators import traced_llm
 
-from .call_ending import end_call, response_requests_end_call, strip_goodbye_for_tts
+from .call_ending import (
+    KenpathCallEndingMixin,
+    response_requests_end_call,
+    schedule_end_call,
+    strip_goodbye_for_tts,
+)
 
 
 def yield_word_chunks_from_text(text: str) -> Iterator[str]:
@@ -57,7 +62,7 @@ def extract_last_user_message(context: LLMContext) -> str:
     return ""
 
 
-class KenpathLLMService(LLMService):
+class KenpathLLMService(KenpathCallEndingMixin, LLMService):
     """Kenpath Vistaar LLM — ``/api/voice/`` for Marathi; ``/api/voice-bhili`` for Bhili."""
 
     def __init__(
@@ -88,6 +93,7 @@ class KenpathLLMService(LLMService):
         self._is_prod = "vistaar-prod" in model
         self._call_id: str | None = None
         self._client: httpx.AsyncClient | None = None
+        self._init_call_ending()
 
         if self._use_voice_bhili and not self._voice_bhili_url:
             raise ValueError("Kenpath Voice Bhili requires voice_bhili_url from catalog")
@@ -165,7 +171,11 @@ class KenpathLLMService(LLMService):
                 await self.stop_processing_metrics()
                 await self.push_frame(LLMFullResponseEndFrame())
                 if response_requests_end_call(spoken_text):
-                    await end_call(self)
+                    await schedule_end_call(
+                        self,
+                        self._call_ending_controller,
+                        had_spoken_output=self._response_had_spoken_output,
+                    )
 
     @traced_llm
     async def _process_context(self, context: LLMContext) -> str:
@@ -180,6 +190,7 @@ class KenpathLLMService(LLMService):
         first_chunk = True
         chunk_count = 0
         parts: list[str] = []
+        self._response_had_spoken_output = False
         async for chunk in self._iter_completions(user_message):
             if first_chunk:
                 first_chunk = False
@@ -187,6 +198,7 @@ class KenpathLLMService(LLMService):
             parts.append(chunk)
             tts_text = strip_goodbye_for_tts(chunk)
             if tts_text:
+                self._response_had_spoken_output = True
                 await self._push_llm_text(tts_text)
             chunk_count += 1
 
