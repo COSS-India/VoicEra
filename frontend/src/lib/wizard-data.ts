@@ -1,3 +1,7 @@
+import { EMPTY_LANGUAGE_STACK, type LanguageStack } from "@/lib/language-stacks";
+
+export type { LanguageStack };
+
 export const AGENT_NAME_MAX_LENGTH = 65;
 
 export const LANGS = [
@@ -192,7 +196,7 @@ export const TIPS: Record<string, string> = {
   sttProvider: "Indic-only providers won't appear as options once you pick English as a language.",
   ttsProvider: "This also determines which voices are available.",
   buffer: "Lower buffers feel snappier but risk clipping the caller's first word on a slow line.",
-  interrupt: "How many words the caller needs to say before the agent stops talking and listens.",
+  interrupt: "How many words the caller needs to say before the agent stops talking. Set to 0 to interrupt on Silero VAD alone (no word count).",
   online: "Every 90 seconds of silence, the agent gently checks the line is still connected.",
   silence: "If the caller goes quiet this long, the agent politely ends the call.",
   timeout: "A hard ceiling so no single call runs away with cost or a support agent's afternoon.",
@@ -204,6 +208,10 @@ export const TIPS: Record<string, string> = {
   onlineClosing: "Said right before hanging up, after the last unanswered check.",
   autoEnding: "Lets the agent end the call itself once it detects the conversation is done.",
   autoEndingGraceful: "Says a closing line and waits a beat before hanging up, instead of ending abruptly.",
+  vadConfidence: "How sure Silero must be that the caller is speaking before a turn starts. Lower is more sensitive.",
+  vadStartSecs: "How long continuous speech must last before the agent treats it as the start of a turn.",
+  vadStopSecs: "How long silence must last after speech before the agent ends the caller's turn.",
+  vadMinVolume: "Minimum audio level treated as speech. Raise this to ignore quiet noise on the line.",
 };
 
 export interface AgentForm {
@@ -215,23 +223,15 @@ export interface AgentForm {
   /** Default values for `{{var}}` tokens referenced in `prompt` — sent as the
    * agent's `custom_variables`, overridable per call. */
   customVariables: Record<string, string>;
-  llmProvider: string;
-  llmModel: string;
-  /** Values picked for the selected LLM model's own extra fields (temperature,
-   * max_tokens, base_url, …) — keyed by field name, shape varies per model. */
-  llmExtra: Record<string, unknown>;
   kbEnabled: boolean;
   kbDocs: string[];
   langs: string[];
-  ttsProvider: string;
-  ttsModel: string;
-  voice: string;
-  /** Values picked for the selected TTS model's own extra fields (speed, volume, …), excluding voice. */
-  ttsExtra: Record<string, unknown>;
-  sttProvider: string;
-  sttModel: string;
-  /** Values picked for the selected STT model's own extra fields (base_url, …). */
-  sttExtra: Record<string, unknown>;
+  /** Default language for prompts and multilingual settings — independent of `langs` order. */
+  primaryLang: string;
+  /** Full STT/TTS/LLM stack per configured language — mirrors `config.models[lang]`. */
+  languageStacks: Record<string, LanguageStack>;
+  /** Which language badge is selected in the stack editor. */
+  activeLang: string;
   bufferMs: number;
   delivery: string;
   interruptThreshold: number;
@@ -246,6 +246,10 @@ export interface AgentForm {
   onlineDetectionClosingMessage: string;
   autoCallEndingEnabled: boolean;
   autoCallEndingGraceful: boolean;
+  vadConfidence: number;
+  vadStartSecs: number;
+  vadStopSecs: number;
+  vadMinVolume: number;
 }
 
 export const DEFAULT_FORM: AgentForm = {
@@ -256,19 +260,12 @@ export const DEFAULT_FORM: AgentForm = {
   prompt:
     "You are a helpful agent. You help the caller with their questions. Never speak more than two sentences. Keep your answers concise.",
   customVariables: {},
-  llmProvider: "",
-  llmModel: "",
-  llmExtra: {},
   kbEnabled: false,
   kbDocs: [],
   langs: ["hi"],
-  ttsProvider: "",
-  ttsModel: "",
-  voice: "",
-  ttsExtra: {},
-  sttProvider: "",
-  sttModel: "",
-  sttExtra: {},
+  primaryLang: "hi",
+  languageStacks: { hi: { ...EMPTY_LANGUAGE_STACK } },
+  activeLang: "hi",
   bufferMs: 50,
   delivery: "",
   interruptThreshold: 3,
@@ -283,6 +280,10 @@ export const DEFAULT_FORM: AgentForm = {
   onlineDetectionClosingMessage: "I'll end the call now. Goodbye.",
   autoCallEndingEnabled: false,
   autoCallEndingGraceful: false,
+  vadConfidence: 0.3,
+  vadStartSecs: 0.1,
+  vadStopSecs: 0.4,
+  vadMinVolume: 0.5,
 };
 
 export const TPL_CATS = [

@@ -9,6 +9,7 @@ from typing import Any
 
 from app.services import agent_service, call_log_service
 from app.services.agent_service import AgentNotFoundError
+from apps.telephony.phone_format import format_e164_for_call_log
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,22 @@ def _require_provider_call_sid(provider_call_sid: str) -> str:
     if not normalized:
         raise InboundCallError("provider_call_sid is required", status_code=422)
     return normalized
+
+
+def _resolve_inbound_numbers(
+    from_number: str,
+    to_number: str,
+    *,
+    linked_phone_number: str = "",
+) -> tuple[str, str]:
+    """Canonicalize inbound CLI/DNI for CallLog storage (E.164)."""
+    resolved_from = format_e164_for_call_log(from_number or "unknown")
+    resolved_to = format_e164_for_call_log(to_number or "unknown")
+    if resolved_to == "unknown":
+        linked = str(linked_phone_number or "").strip()
+        if linked:
+            resolved_to = format_e164_for_call_log(linked)
+    return resolved_from, resolved_to
 
 
 def _telephony_provider(agent: dict[str, Any]) -> str:
@@ -60,12 +77,11 @@ def register_inbound_call(
         raise InboundCallError(str(exc), status_code=404) from exc
 
     sid = _require_provider_call_sid(provider_call_sid)
-    resolved_from = from_number or "unknown"
-    resolved_to = to_number or "unknown"
-    if resolved_to == "unknown":
-        linked = str(agent.get("linked_phone_number") or "").strip()
-        if linked:
-            resolved_to = linked
+    resolved_from, resolved_to = _resolve_inbound_numbers(
+        from_number,
+        to_number,
+        linked_phone_number=str(agent.get("linked_phone_number") or ""),
+    )
 
     existing = call_log_service.get_call_log_by_provider_sid(org_id, sid)
     if existing:

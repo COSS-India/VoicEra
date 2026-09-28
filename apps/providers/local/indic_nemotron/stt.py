@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional
 from urllib.parse import urlencode
 
 from loguru import logger
@@ -21,8 +21,11 @@ from pipecat.frames.frames import (
     VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.services.settings import STTSettings
 from pipecat.services.stt_service import STTService
 from pipecat.utils.time import time_now_iso8601
+
+from apps.providers.runtime_language import update_stt_settings_with_language
 
 try:
     import websockets
@@ -301,6 +304,12 @@ class IndicNemotronSTTService(STTService):
         self._language = wire
         if self._websocket:
             await self._send_json({"action": "set_language", "language": wire})
+
+    async def _update_settings(self, delta: STTSettings) -> dict[str, Any]:
+        """Apply runtime settings; forward language changes to the websocket."""
+        return await update_stt_settings_with_language(
+            self, delta, super_update=super()._update_settings
+        )
 
     def can_generate_metrics(self) -> bool:
         return True

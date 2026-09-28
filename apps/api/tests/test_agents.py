@@ -171,8 +171,9 @@ def test_member_can_create_with_created_by(
     assert body["org_id"] == "org-1"
     assert body["telephony"] is None
     assert body["linked_phone_number"] is None
-    assert body["config"]["models"]["stt_config"]["provider"] == "openai"
-    assert "api_key" not in body["config"]["models"]["stt_config"]
+    assert body["config"]["models"]["en"]["stt_config"]["provider"] == "openai"
+    assert "api_key" not in body["config"]["models"]["en"]["stt_config"]
+    assert "language_models" not in body["config"]
 
 
 @patch("app.routers.agents.agent_service.create_agent", side_effect=_create)

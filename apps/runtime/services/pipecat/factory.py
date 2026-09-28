@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -20,14 +19,19 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
-from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
+from pipecat.turns.user_start import (
+    MinWordsUserTurnStartStrategy,
+    VADUserTurnStartStrategy,
+)
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from starlette.websockets import WebSocket
 
 from apps.runtime.services.knowledge.setup import configure_knowledge_base
 from apps.runtime.services.pipecat.call_ending import configure_call_ending
+from apps.runtime.services.language_switch.tools import configure_language_switching
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
+from apps.runtime.services.pipecat.vad import vad_params_from_behaviour
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
 
@@ -58,21 +62,21 @@ def build_pipeline_components(
     agent: dict[str, Any],
     org_id: str,
     behaviour: dict[str, Any],
+    recording_sample_rate: int | None = None,
 ) -> PipelineComponents:
+    rec_rate = recording_sample_rate or sample_rate
+    capture_tts_before_transport = rec_rate != sample_rate
+
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
-        params=VADParams(
-            stop_secs=0.4,
-            min_volume=0.5,
-            confidence=0.3,
-            start_secs=0.1,
-        ),
+        params=vad_params_from_behaviour(behaviour),
     )
 
     audiobuffer = AudioBufferProcessor(
         num_channels=1,
         enable_turn_audio=False,
         auto_start_recording=True,
+        sample_rate=rec_rate,
     )
 
     transport = FastAPIWebsocketTransport(
@@ -98,6 +102,10 @@ def build_pipeline_components(
             else []
         ),
     )
+    # interruption_min_words == 0 → Silero VAD only (no transcript/word gate).
+    # > 0 → replace default start strategies with MinWords (STT word count).
+    # Leaving strategies unset would keep Pipecat's default, which also includes
+    # TranscriptionUserTurnStartStrategy — still word/transcript based.
     if config.interruption_min_words > 0:
         user_params.user_turn_strategies = UserTurnStrategies(
             start=[
@@ -105,6 +113,10 @@ def build_pipeline_components(
                     min_words=config.interruption_min_words
                 )
             ],
+        )
+    else:
+        user_params.user_turn_strategies = UserTurnStrategies(
+            start=[VADUserTurnStartStrategy()],
         )
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context, user_params=user_params
@@ -121,6 +133,15 @@ def build_pipeline_components(
         context=context,
         agent_id=agent.get("agent_id"),
     )
+    configure_language_switching(
+        agent,
+        context=context,
+        stt_switcher=stt,
+        tts_switcher=tts,
+        llm_switcher=llm,
+        agent_id=agent.get("agent_id"),
+    )
+
     pipeline_processors = [
         transport.input(),
         stt,
@@ -128,11 +149,16 @@ def build_pipeline_components(
     ]
     if kb_context_processor is not None:
         pipeline_processors.append(kb_context_processor)
-    pipeline_processors.extend([llm, tts, transport.output()])
     after_output = getattr(llm, "pipeline_processors_after_output", None)
-    if after_output is not None:
-        pipeline_processors.extend(after_output())
-    pipeline_processors.extend([audiobuffer, assistant_aggregator])
+    after_output_processors = after_output() if after_output is not None else []
+    tail: list[Any] = [llm, tts]
+    if capture_tts_before_transport:
+        # Record at TTS native rate before transport resamples for the wire.
+        tail.extend([audiobuffer, transport.output(), *after_output_processors])
+    else:
+        tail.extend([transport.output(), *after_output_processors, audiobuffer])
+    tail.append(assistant_aggregator)
+    pipeline_processors.extend(tail)
 
     pipeline = Pipeline(pipeline_processors)
 

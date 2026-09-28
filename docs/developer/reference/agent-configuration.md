@@ -56,6 +56,16 @@ Field names, defaults, and bounds come from `AgentConfigPayload` and its nested 
 | `user_online_detection_repeats` | int or null | `null` | `>= 1` | How many times to speak the online-detection prompt in one silence cycle. |
 | `user_online_detection_closing_message` | string | `""` | — | Spoken after the last online-detection prompt, before hangup. |
 | `automatic_call_ending` | `AutomaticCallEnding` | `{enabled: false, graceful_llm_call_ending: false}` | — | Graceful call ending via LLM tool. |
+| `vad` | `VadSettings` | `{confidence: 0.3, start_secs: 0.1, stop_secs: 0.4, min_volume: 0.5}` | see nested fields | Silero VAD thresholds for turn detection. |
+
+#### `vad` (`VadSettings`)
+
+| Field | Type | Default | Bounds | Description |
+| --- | --- | --- | --- | --- |
+| `confidence` | float | `0.3` | `0–1` | Minimum Silero speech probability to treat audio as speech. |
+| `start_secs` | float | `0.1` | `>= 0` | Seconds of continuous speech before a turn starts. |
+| `stop_secs` | float | `0.4` | `>= 0` | Seconds of silence after speech before a turn ends. |
+| `min_volume` | float | `0.5` | `0–1` | Minimum audio volume treated as speech. |
 
 ### How the runtime reads them
 
@@ -77,6 +87,8 @@ Hold messages need **both** halves: `hold_from_behaviour()` returns nothing unle
 Online detection speaks `user_online_detection_message` up to `user_online_detection_repeats` times; on the next idle it speaks `user_online_detection_closing_message` and ends the call. With detection disabled, a single idle timeout speaks the closing message and ends the call directly.
 
 `automatic_call_ending` registers an `end_conversation` function tool on the LLM context, but only when **both** `enabled` and `graceful_llm_call_ending` are true — `_call_ending_enabled()` in `apps/runtime/services/pipecat/call_ending.py` requires the pair. The tool ends the call when the model calls it.
+
+`vad` is read by `vad_params_from_behaviour()` in `apps/runtime/services/pipecat/vad.py` and passed into Pipecat's `SileroVADAnalyzer`. Missing or partial objects fall back to the VoicEra defaults above so existing agents without a `vad` block keep the previous hardcoded behaviour.
 
 <Note>
 `call_timeout_seconds` is accepted, validated, and stored, but nothing in `apps/runtime` reads it. There is no hard call-duration limit in the pipeline. Enforce a ceiling at your telephony provider if you need one.
@@ -102,6 +114,12 @@ Online detection speaks `user_online_detection_message` up to `user_online_detec
   "automatic_call_ending": {
     "enabled": true,
     "graceful_llm_call_ending": true
+  },
+  "vad": {
+    "confidence": 0.3,
+    "start_secs": 0.1,
+    "stop_secs": 0.4,
+    "min_volume": 0.5
   }
 }
 ```
@@ -217,6 +235,12 @@ The example below is `AgentCreateRequest.config` as declared in `apps/api/app/mo
     "automatic_call_ending": {
       "enabled": true,
       "graceful_llm_call_ending": true
+    },
+    "vad": {
+      "confidence": 0.3,
+      "start_secs": 0.1,
+      "stop_secs": 0.4,
+      "min_volume": 0.5
     }
   },
   "language": { "primary": "en", "secondary": [] },

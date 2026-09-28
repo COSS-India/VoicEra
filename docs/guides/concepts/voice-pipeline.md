@@ -32,7 +32,7 @@ flowchart TB
 
 Two details are worth calling out. The knowledge-base processor is inserted **only** when `configure_knowledge_base()` returns one — see [Knowledge base (RAG)](knowledge-base-rag). And `audiobuffer` sits *after* `transport.output()`, so the recording it produces contains both sides of the conversation as they were actually sent.
 
-The transport is a `FastAPIWebsocketTransport` with `audio_in_enabled=True`, `audio_out_enabled=True`, and `add_wav_header=False`. Voice activity detection is a `SileroVADAnalyzer` configured with `stop_secs=0.4`, `min_volume=0.5`, `confidence=0.3`, and `start_secs=0.1`.
+The transport is a `FastAPIWebsocketTransport` with `audio_in_enabled=True`, `audio_out_enabled=True`, and `add_wav_header=False`. Voice activity detection is a `SileroVADAnalyzer` whose params come from `agent.config.behaviour.vad` via `vad_params_from_behaviour()` (defaults: `confidence=0.3`, `start_secs=0.1`, `stop_secs=0.4`, `min_volume=0.5`).
 
 ## Building the AI services
 
@@ -81,6 +81,7 @@ The behaviour fields are defined on `AgentBehaviour` in `apps/api/app/models/sch
 | `user_online_detection_repeats` | `int \| null` | `null` | `>= 1` | How many times to speak the online-detection prompt in one silence cycle. |
 | `user_online_detection_closing_message` | `str` | `""` | — | Spoken after the last online-detection prompt, before hangup. |
 | `automatic_call_ending` | `AutomaticCallEnding` | `{enabled: false, graceful_llm_call_ending: false}` | — | Lets the LLM hang up itself. See [Automatic call ending](#automatic-call-ending). |
+| `vad` | `VadSettings` | `{confidence: 0.3, start_secs: 0.1, stop_secs: 0.4, min_volume: 0.5}` | see nested | Silero VAD params for turn detection via `vad_params_from_behaviour()`. |
 
 <Note>
 `call_timeout_seconds` is accepted and stored by the API but no code in `apps/runtime` reads it. There is currently no hard call-duration cap enforced by the pipeline. Cap call length at your telephony provider, or by [campaign](campaigns) controls, until this lands.

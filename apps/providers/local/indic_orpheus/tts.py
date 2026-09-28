@@ -7,12 +7,16 @@ service mirrors its streaming PCM client without the voice whitelist.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from loguru import logger
 from openai import AsyncOpenAI, BadRequestError
 from pipecat.frames.frames import ErrorFrame, Frame, TTSAudioRawFrame
+from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
 from pipecat.utils.tracing.service_decorators import traced_tts
+
+from apps.providers.runtime_language import update_tts_settings_with_voice_language
 
 from .catalog import DEFAULT_TTS_STYLE, DEFAULT_TTS_VOICE, SAMPLE_RATE
 
@@ -62,6 +66,11 @@ class IndicOrpheusTTSService(TTSService):
 
     def can_generate_metrics(self) -> bool:
         return True
+
+    async def _update_settings(self, delta: TTSSettings) -> dict[str, Any]:
+        return await update_tts_settings_with_voice_language(
+            self, delta, super_update=super()._update_settings
+        )
 
     async def start(self, frame):
         await super().start(frame)

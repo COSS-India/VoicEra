@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,10 +22,24 @@ from app.services.campaign.errors import (
 )
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
 from app.services import agent_service, phone_number_service
+from app.services.agent_telephony_service import (
+    AgentTelephonyError,
+    load_telephony_client,
+)
+from apps.telephony.phone_format import format_e164_for_call_log
 
 logger = logging.getLogger(__name__)
 
 CONCURRENT_SLOT_TIMEOUT = 120.0
+BULK_CLAIM_FLOOR = 500
+STATUS_POLL_SECS = int(os.environ.get("TELEPHONY_BULK_STATUS_POLL_SECS", "30"))
+STATUS_POLL_MAX_ROUNDS = int(
+    os.environ.get("TELEPHONY_BULK_STATUS_POLL_MAX_ROUNDS", "120")
+)
+
+
+def _client_supports_bulk(client: Any) -> bool:
+    return callable(getattr(client, "initiate_bulk_calls", None))
 
 
 class CampaignCallDispatcher:
@@ -46,6 +62,21 @@ class CampaignCallDispatcher:
                 num = doc.get("phone_number")
                 if num and num not in numbers:
                     numbers.append(str(num))
+        if numbers:
+            return numbers
+        # Optional client capability when no linked inventory (e.g. auth DNIs).
+        provider = self._telephony_provider(campaign)
+        if provider:
+            try:
+                client = load_telephony_client(org_id, provider)
+            except AgentTelephonyError:
+                pass
+            else:
+                fallback = getattr(client, "default_from_number", None)
+                if callable(fallback):
+                    dni = fallback()
+                    if dni:
+                        return [str(dni)]
         return numbers
 
     def _pool_scope(self, agent_id: str) -> str:
@@ -90,6 +121,16 @@ class CampaignCallDispatcher:
         acquired = await rate_limiter.acquire_from_number(org_id, pool_scope)
         return acquired, True
 
+    def _telephony_provider(self, campaign: dict[str, Any]) -> str:
+        org_id = str(campaign["org_id"])
+        agent_id = str(campaign["agent_id"])
+        try:
+            agent = agent_service.get_agent(org_id, agent_id)
+        except Exception:
+            return ""
+        telephony = agent.get("telephony") or {}
+        return str(telephony.get("provider") or "").strip().lower()
+
     async def process_batch(self, campaign_id: str, batch_size: int = 10) -> int:
         campaign = repo.get_campaign_by_id(campaign_id)
         if not campaign:
@@ -98,16 +139,33 @@ class CampaignCallDispatcher:
             logger.info("Campaign %s not running: %s", campaign_id, campaign.get("state"))
             return 0
 
+        org_id = str(campaign["org_id"])
+        agent_id = str(campaign["agent_id"])
+        provider = self._telephony_provider(campaign)
+
+        claim_limit = batch_size
+        bulk_client = None
+        if provider:
+            try:
+                bulk_client = load_telephony_client(org_id, provider)
+            except AgentTelephonyError:
+                bulk_client = None
+            if bulk_client is not None and _client_supports_bulk(bulk_client):
+                claim_limit = max(batch_size, BULK_CLAIM_FLOOR)
+
         queued_runs = repo.claim_queued_runs_for_processing(
             campaign_id,
             scheduled_before=datetime.now(timezone.utc),
-            limit=batch_size,
+            limit=claim_limit,
         )
         if not queued_runs:
             return 0
 
-        org_id = str(campaign["org_id"])
-        agent_id = str(campaign["agent_id"])
+        if bulk_client is not None and _client_supports_bulk(bulk_client):
+            return await self._process_bulk_batch(
+                campaign, queued_runs, bulk_client
+            )
+
         processed_count = 0
         processed_ids: set[str] = set()
 
@@ -148,6 +206,216 @@ class CampaignCallDispatcher:
                 )
 
         return processed_count
+
+    async def _process_bulk_batch(
+        self,
+        campaign: dict[str, Any],
+        queued_runs: list[dict[str, Any]],
+        client: Any,
+    ) -> int:
+        """One provider bulk dial for all claimed runs."""
+        org_id = str(campaign["org_id"])
+        agent_id = str(campaign["agent_id"])
+        campaign_id = str(campaign["campaign_id"])
+        provider = self._telephony_provider(campaign)
+
+        from_number, _pool_managed = await self.acquire_from_number(
+            org_id, agent_id, campaign
+        )
+        if from_number is None:
+            await self._return_unprocessed_claims(queued_runs, set())
+            raise PhoneNumberPoolExhaustedError(organization_id=org_id)
+
+        valid: list[tuple[dict[str, Any], str]] = []
+        for queued_run in queued_runs:
+            context = dict(queued_run.get("context_variables") or {})
+            phone = str(context.get("phone_number") or "").strip()
+            if not phone:
+                repo.update_queued_run(
+                    str(queued_run["queued_run_id"]),
+                    state="failed",
+                    processed_at=datetime.now(timezone.utc).isoformat(),
+                )
+                continue
+            valid.append((queued_run, phone))
+
+        if not valid:
+            return 0
+
+        to_numbers = [phone for _, phone in valid]
+        try:
+            result = await client.initiate_bulk_calls(
+                from_number=from_number,
+                to_numbers=to_numbers,
+                name=f"campaign-{campaign_id[:8]}-{agent_id[:8]}",
+                description=f"VoicERA campaign {campaign_id}",
+            )
+        except Exception as exc:
+            logger.error("Bulk campaign dial failed for %s: %s", campaign_id[:8], exc)
+            await self._return_unprocessed_claims(queued_runs, set())
+            raise OutboundCallError(str(exc), status_code=502) from exc
+
+        if result.get("status") != "success":
+            message = str(result.get("message") or "Bulk dial failed")
+            for queued_run, _ in valid:
+                repo.update_queued_run(
+                    str(queued_run["queued_run_id"]),
+                    state="failed",
+                    processed_at=datetime.now(timezone.utc).isoformat(),
+                )
+            raise OutboundCallError(message, status_code=502)
+
+        provider_call_sid = result.get("provider_call_sid")
+        if provider_call_sid is not None:
+            provider_call_sid = str(provider_call_sid).strip() or None
+        provider_handles = result.get("provider_handles") or {}
+        if not isinstance(provider_handles, dict):
+            provider_handles = {}
+        bulk_from = str(result.get("from_number") or from_number)
+        now = datetime.now(timezone.utc).isoformat()
+
+        metadata = dict(campaign.get("orchestrator_metadata") or {})
+        metadata["bulk_provider_call_sid"] = provider_call_sid
+        metadata["bulk_provider_handles"] = provider_handles
+        metadata["bulk_from_number"] = bulk_from
+        metadata["bulk_provider"] = provider
+        metadata["bulk_current_status"] = "running"
+        repo.update_campaign(campaign_id, orchestrator_metadata=metadata)
+
+        processed_count = 0
+        try:
+            agent = agent_service.get_agent(org_id, agent_id)
+        except Exception:
+            agent = {}
+
+        for queued_run, phone in valid:
+            qid = str(queued_run["queued_run_id"])
+            context = dict(queued_run.get("context_variables") or {})
+            call_id = str(uuid.uuid4())
+            to_number = format_e164_for_call_log(phone)
+            from_e164 = format_e164_for_call_log(bulk_from)
+
+            variables = {k: v for k, v in context.items() if k != "phone_number"}
+            variables.update(
+                {
+                    "campaign_id": campaign_id,
+                    "source_uuid": queued_run.get("source_uuid"),
+                    "caller_number": from_e164,
+                    "called_number": to_number,
+                    "direction": "outbound",
+                    "bulk_provider_call_sid": provider_call_sid,
+                }
+            )
+
+            call_doc: dict[str, Any] = {
+                "call_id": call_id,
+                "provider_call_sid": provider_call_sid,
+                "org_id": org_id,
+                "agent_id": agent_id,
+                "agent_name": agent.get("name"),
+                "call_type": "outbound",
+                "status": "ringing",
+                "call_response": "pending",
+                "from_number": from_e164,
+                "to_number": to_number,
+                "telephony_provider": provider,
+                "custom_variables": variables,
+                "campaign_id": campaign_id,
+                "queued_run_id": qid,
+                "created_at": now,
+                "updated_at": now,
+                "start_time_utc": now,
+                "end_time_utc": None,
+                "duration": None,
+                "recording_url": None,
+                "transcript_url": None,
+                "error_message": None,
+            }
+            call_log_service.create_call_log(call_doc)
+            repo.update_queued_run(
+                qid,
+                state="processed",
+                call_id=call_id,
+                processed_at=now,
+            )
+            processed_count += 1
+
+        current_processed = int(campaign.get("processed_rows") or 0) + processed_count
+        repo.update_campaign(campaign_id, processed_rows=current_processed)
+
+        if (
+            (provider_call_sid is not None or provider_handles)
+            and STATUS_POLL_MAX_ROUNDS > 0
+            and callable(getattr(client, "get_bulk_status", None))
+        ):
+            asyncio.create_task(
+                self._poll_bulk_campaign_status(
+                    campaign_id,
+                    client,
+                    provider_call_sid=provider_call_sid,
+                    provider_handles=provider_handles,
+                )
+            )
+
+        return processed_count
+
+    async def _poll_bulk_campaign_status(
+        self,
+        campaign_id: str,
+        client: Any,
+        *,
+        provider_call_sid: Any,
+        provider_handles: dict[str, Any],
+    ) -> None:
+        """Best-effort status polling; failures are logged only."""
+        terminal = frozenset(
+            {
+                "completed",
+                "complete",
+                "finished",
+                "expired",
+                "cancelled",
+                "failed",
+            }
+        )
+        for round_idx in range(STATUS_POLL_MAX_ROUNDS):
+            await asyncio.sleep(STATUS_POLL_SECS)
+            campaign = repo.get_campaign_by_id(campaign_id)
+            if not campaign or campaign.get("state") not in ("running", "completed"):
+                return
+            try:
+                status_result = await client.get_bulk_status(
+                    provider_call_sid=provider_call_sid,
+                    provider_handles=provider_handles,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Bulk campaign status poll failed for %s: %s",
+                    campaign_id[:8],
+                    exc,
+                )
+                continue
+            if status_result.get("status") != "success":
+                continue
+            state = str(status_result.get("state") or "").strip().lower()
+            metadata = dict(campaign.get("orchestrator_metadata") or {})
+            raw = status_result.get("raw")
+            if isinstance(raw, dict):
+                metadata["bulk_status_raw"] = {
+                    k: v for k, v in raw.items() if not str(k).startswith("_")
+                }
+            metadata["bulk_current_status"] = state or metadata.get(
+                "bulk_current_status"
+            )
+            repo.update_campaign(campaign_id, orchestrator_metadata=metadata)
+            if state in terminal:
+                logger.info(
+                    "Bulk campaign %s terminal status=%s after %d polls",
+                    campaign_id[:8],
+                    state,
+                    round_idx + 1,
+                )
+                return
 
     async def _return_unprocessed_claims(
         self,

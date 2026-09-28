@@ -72,7 +72,9 @@ export function SearchSelect({
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    function reposition() {
+    function reposition(e?: Event) {
+      // The option list scrolling doesn't move the trigger — skip the re-render.
+      if (e?.type === "scroll" && menuRef.current?.contains(e.target as Node)) return;
       if (!btnRef.current) return;
       setCoords(menuCoordsFor(btnRef.current.getBoundingClientRect()));
     }
