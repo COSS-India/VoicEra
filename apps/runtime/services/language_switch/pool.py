@@ -196,8 +196,14 @@ def _build_switcher_for_kind(
 async def build_language_switchers(
     agent: dict[str, Any],
     client: BackendClient | None = None,
+    *,
+    caller_phone: str | None = None,
 ) -> tuple[Any, Any, Any]:
-    """Return ``(stt_switcher, tts_switcher, llm_switcher)`` for the agent."""
+    """Return ``(stt_switcher, tts_switcher, llm_switcher)`` for the agent.
+
+    ``caller_phone`` is per-call context for an LLM whose endpoint wants it;
+    configs that do not declare the field ignore it.
+    """
     org_id = str(agent.get("org_id") or "").strip()
     if not org_id:
         raise ValueError("agent.org_id is required")
@@ -216,6 +222,8 @@ async def build_language_switchers(
             client=client,
             auth_cache=auth_cache,
         )
+        if caller_phone:
+            stacks[lang]["llm_config"]["caller_phone"] = caller_phone
 
     stt_switcher = _build_switcher_for_kind(
         kind="stt",

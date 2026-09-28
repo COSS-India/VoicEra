@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from apps.runtime.routes.telephony import _websocket_url_for_agent
 from apps.runtime.services.pipecat.audio import (
+    caller_phone,
     prompts,
     resolve_custom_variables,
     substitute_variables,
@@ -106,3 +109,17 @@ def test_websocket_url_omits_query_when_no_call_id(monkeypatch) -> None:
     monkeypatch.setenv("VOICE_SERVER_BASE_URL", "https://voice.example.com")
     url = _websocket_url_for_agent("org-1", "agent-1")
     assert url == "wss://voice.example.com/agent/org-1/agent-1"
+
+
+@pytest.mark.parametrize(
+    ("call_log", "expected"),
+    [
+        ({"call_type": "inbound", "from_number": "+91-9900-112233"}, "919900112233"),
+        ({"call_type": "outbound", "to_number": "+919900112233"}, "919900112233"),
+        ({"call_type": "inbound", "from_number": ""}, None),
+        ({"call_type": "web"}, None),
+        (None, None),
+    ],
+)
+def test_caller_phone_is_the_remote_party_as_digits(call_log, expected) -> None:
+    assert caller_phone(call_log) == expected

@@ -26,11 +26,12 @@ async def run_telephony_bot(
     call_id: str | None,
     agent: dict[str, Any],
     custom_variables: dict[str, Any] | None = None,
+    caller_phone: str | None = None,
     sample_rate: int | None = None,
 ) -> None:
     """Run the Pipecat pipeline for a telephony media stream."""
     if get_pipeline_rate_resolver(provider) is not None:
-        stt, tts, llm = await build_ai_services(agent)
+        stt, tts, llm = await build_ai_services(agent, caller_phone=caller_phone)
         rates = resolve_pipeline_rates(provider, tts)
         assert rates is not None
         logger.info(
@@ -56,6 +57,7 @@ async def run_telephony_bot(
             sample_rate=rates.pipeline_rate,
             call_id=call_id,
             custom_variables=custom_variables,
+            caller_phone=caller_phone,
             session_label=f"call_sid={call_sid}",
             finalize_call=True,
             stt=stt,
@@ -81,6 +83,7 @@ async def run_telephony_bot(
         sample_rate=rate,
         call_id=call_id,
         custom_variables=custom_variables,
+        caller_phone=caller_phone,
         session_label=f"call_sid={call_sid}",
         finalize_call=True,
     )

@@ -78,10 +78,18 @@ async def merge_models_with_auth(
 async def build_ai_services(
     agent: dict[str, Any],
     client: BackendClient | None = None,
+    *,
+    caller_phone: str | None = None,
 ) -> tuple[ModelServiceSwitcher, ModelServiceSwitcher, ModelLLMSwitcher]:
-    """Return ``(stt_switcher, tts_switcher, llm_switcher)`` for the agent."""
+    """Return ``(stt_switcher, tts_switcher, llm_switcher)`` for the agent.
+
+    ``caller_phone`` is per-call context for an LLM whose endpoint wants it;
+    configs that do not declare the field ignore it.
+    """
     try:
-        return await build_language_switchers(agent, client=client)
+        return await build_language_switchers(
+            agent, client=client, caller_phone=caller_phone
+        )
     except ValueError as exc:
         raise ServiceBuildError(str(exc)) from exc
 
@@ -89,9 +97,13 @@ async def build_ai_services(
 async def build_legacy_ai_services(
     agent: dict[str, Any],
     client: BackendClient | None = None,
+    *,
+    caller_phone: str | None = None,
 ) -> tuple[Any, Any, Any]:
     """Return bare ``(stt, tts, llm)`` for the agent primary language stack."""
     models = await merge_models_with_auth(agent, client=client)
+    if caller_phone:
+        models["llm_config"]["caller_phone"] = caller_phone
     try:
         agent_ai = AgentConfig.model_validate(models)
     except Exception as exc:

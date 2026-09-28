@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
 from loguru import logger
 from starlette.websockets import WebSocket, WebSocketDisconnect
+
+from apps.telephony.phone_format import format_e164_for_call_log
 
 from .auth_helpers import phone_lookup_candidates, resolve_vi_agent_id
 
@@ -151,6 +154,14 @@ async def resolve_agent_full(
     return None, ""
 
 
+def _caller_phone(cli: str) -> str | None:
+    """The caller's number as digits only, country code first; ``None`` if unknown."""
+    formatted = format_e164_for_call_log(cli)
+    if not formatted.startswith("+"):
+        return None
+    return re.sub(r"\D", "", formatted) or None
+
+
 async def ensure_call_log(
     deps: ViStreamDeps,
     agent: dict[str, Any],
@@ -274,6 +285,7 @@ async def run_vi_stream_session(
             call_sid=call_sid,
             call_id=call_id,
             agent=agent,
+            caller_phone=_caller_phone(cli),
         )
         logger.info(
             "VI pipeline finished: agent={} call_id={} room_id={}",

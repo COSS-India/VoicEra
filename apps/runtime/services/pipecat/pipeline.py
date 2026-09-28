@@ -26,6 +26,7 @@ async def run_pipeline(
     sample_rate: int,
     call_id: str | None = None,
     custom_variables: dict[str, Any] | None = None,
+    caller_phone: str | None = None,
     session_label: str = "session",
     finalize_call: bool = False,
     stt: Any | None = None,
@@ -35,7 +36,7 @@ async def run_pipeline(
 ) -> None:
     """Shared Pipecat pipeline for telephony and browser WebSocket agents."""
     if stt is None or tts is None or llm is None:
-        stt, tts, llm = await build_ai_services(agent)
+        stt, tts, llm = await build_ai_services(agent, caller_phone=caller_phone)
     if call_id:
         for member in llm.services:
             if hasattr(member, "set_call_id"):

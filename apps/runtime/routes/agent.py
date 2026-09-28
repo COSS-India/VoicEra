@@ -14,7 +14,7 @@ from apps.runtime.services.agent_routing import (
     telephony_provider,
 )
 from apps.runtime.services.backend import BackendError, backend_client
-from apps.runtime.services.pipecat.audio import resolve_custom_variables
+from apps.runtime.services.pipecat.audio import caller_phone, resolve_custom_variables
 from apps.runtime.services.pipecat.runners import run_telephony_bot, run_websocket_bot
 from apps.telephony import parse_stream_start
 
@@ -192,6 +192,7 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
             call_id=call_id,
             agent=agent,
             custom_variables=custom_variables,
+            caller_phone=caller_phone(call_log),
         )
     except AgentRoutingError as exc:
         logger.warning("Agent routing error agent_id={}: {}", agent_id, exc)
