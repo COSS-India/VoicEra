@@ -44,6 +44,7 @@ def test_preview_maps_each_error_reason_to_its_status(mock_generate):
         (TtsPreviewErrorReason.INVALID_CONFIG, 422),
         (TtsPreviewErrorReason.UNSUPPORTED_VOICE, 422),
         (TtsPreviewErrorReason.NOT_CONFIGURED, 409),
+        (TtsPreviewErrorReason.RATE_LIMITED, 429),
         (TtsPreviewErrorReason.TIMEOUT, 504),
         (TtsPreviewErrorReason.UPSTREAM, 502),
     ]
@@ -51,6 +52,16 @@ def test_preview_maps_each_error_reason_to_its_status(mock_generate):
         mock_generate.side_effect = TtsPreviewError(reason, "boom")
         response = client.post("/api/v1/tts/preview", json=_BODY)
         assert response.status_code == expected_status, reason
+
+
+@patch("app.routers.tts_preview.generate_preview", new_callable=AsyncMock)
+def test_preview_rate_limited_sets_retry_after_header(mock_generate):
+    mock_generate.side_effect = TtsPreviewError(
+        TtsPreviewErrorReason.RATE_LIMITED, "boom", retry_after=42
+    )
+    response = client.post("/api/v1/tts/preview", json=_BODY)
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "42"
 
 
 def test_preview_requires_active_org():

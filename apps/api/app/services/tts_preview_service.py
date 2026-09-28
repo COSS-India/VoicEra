@@ -10,10 +10,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from enum import Enum
 from typing import Any
 
 import httpx
+import redis.asyncio as aioredis
 from pydantic import ValidationError
 
 from apps.providers.base import Kind
@@ -39,6 +41,7 @@ logger = logging.getLogger(__name__)
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*\w+\s*\}\}")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.!?;:])")
 _WHITESPACE_RE = re.compile(r"\s+")
+_RATE_LIMIT_WINDOW_S = 60
 
 import_vendor_previews()
 
@@ -51,6 +54,7 @@ class TtsPreviewErrorReason(str, Enum):
     INVALID_CONFIG = "invalid_config"
     UNSUPPORTED_VOICE = "unsupported_voice"
     NOT_CONFIGURED = "not_configured"
+    RATE_LIMITED = "rate_limited"
     TIMEOUT = "timeout"
     UPSTREAM = "upstream"
 
@@ -58,9 +62,51 @@ class TtsPreviewErrorReason(str, Enum):
 class TtsPreviewError(Exception):
     """Carries a :class:`TtsPreviewErrorReason` for the router to map to a status."""
 
-    def __init__(self, reason: TtsPreviewErrorReason, message: str) -> None:
+    def __init__(
+        self, reason: TtsPreviewErrorReason, message: str, *, retry_after: int | None = None
+    ) -> None:
         self.reason = reason
+        self.retry_after = retry_after
         super().__init__(message)
+
+
+_redis_client: aioredis.Redis | None = None
+
+
+async def _get_redis() -> aioredis.Redis:
+    """Lazily create a dedicated Redis client for preview rate limiting.
+
+    A separate client from ``call_concurrency.rate_limiter``: that module's
+    ``RateLimiter`` is a per-second sliding window shared with campaigns,
+    not the per-minute fixed window previews need.
+    """
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = await aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    return _redis_client
+
+
+async def check_rate_limit(org_id: str) -> None:
+    """Enforce ``TTS_PREVIEW_RATE_LIMIT_PER_MINUTE`` previews per org per minute.
+
+    Fixed window keyed by the current epoch minute, so it resets on a clean
+    minute boundary rather than sliding. Raises :class:`TtsPreviewError` with
+    ``retry_after`` (seconds until the window resets) when over the limit.
+    """
+    redis_client = await _get_redis()
+    now = time.time()
+    window = int(now // _RATE_LIMIT_WINDOW_S)
+    key = f"tts_preview_rl:{org_id}:{window}"
+    count = await redis_client.incr(key)
+    if count == 1:
+        await redis_client.expire(key, _RATE_LIMIT_WINDOW_S)
+    if count > settings.TTS_PREVIEW_RATE_LIMIT_PER_MINUTE:
+        retry_after = _RATE_LIMIT_WINDOW_S - int(now % _RATE_LIMIT_WINDOW_S)
+        raise TtsPreviewError(
+            TtsPreviewErrorReason.RATE_LIMITED,
+            "Too many voice previews; please wait a moment",
+            retry_after=retry_after,
+        )
 
 
 def strip_placeholders(text: str) -> str:
@@ -176,6 +222,7 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     """
     stripped = strip_placeholders(text)
     validated_blob = validate_request(tts_config, language, stripped)
+    await check_rate_limit(org_id)
     cfg = await resolve_config(org_id, validated_blob)
     provider = str(validated_blob.get("provider") or "")
 
@@ -209,6 +256,7 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
 __all__ = [
     "TtsPreviewError",
     "TtsPreviewErrorReason",
+    "check_rate_limit",
     "generate_preview",
     "resolve_config",
     "strip_placeholders",

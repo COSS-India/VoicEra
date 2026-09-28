@@ -22,6 +22,7 @@ _ERROR_STATUS: dict[TtsPreviewErrorReason, int] = {
     TtsPreviewErrorReason.INVALID_CONFIG: status.HTTP_422_UNPROCESSABLE_CONTENT,
     TtsPreviewErrorReason.UNSUPPORTED_VOICE: status.HTTP_422_UNPROCESSABLE_CONTENT,
     TtsPreviewErrorReason.NOT_CONFIGURED: status.HTTP_409_CONFLICT,
+    TtsPreviewErrorReason.RATE_LIMITED: status.HTTP_429_TOO_MANY_REQUESTS,
     TtsPreviewErrorReason.TIMEOUT: status.HTTP_504_GATEWAY_TIMEOUT,
     TtsPreviewErrorReason.UPSTREAM: status.HTTP_502_BAD_GATEWAY,
 }
@@ -38,9 +39,11 @@ def _require_active_org(current_user: dict[str, Any]) -> str:
 
 
 def _raise_preview_error(exc: TtsPreviewError) -> None:
+    headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
     raise HTTPException(
         status_code=_ERROR_STATUS[exc.reason],
         detail=str(exc),
+        headers=headers,
     ) from exc
 
 
