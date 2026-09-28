@@ -102,6 +102,15 @@ def test_voice_is_supported_true_for_openai_voice_in_closed_list():
     )
 
 
+def test_voice_is_supported_false_for_unrecognized_language_code():
+    # "language" must be the canonical id ("en"), not a vendor-style code
+    # like "en-US" — resolve_settings would otherwise return {} the same
+    # way it does for a valid-but-voiceless language, silently passing.
+    assert not _voice_is_supported(
+        {"provider": "openai", "model": "gpt-4o-mini-tts", "voice": "alloy"}, "en-US"
+    )
+
+
 def test_resolve_config_raises_not_configured_when_provider_missing():
     with patch(
         "app.services.tts_preview_service.auth_service.list_configured_providers",
