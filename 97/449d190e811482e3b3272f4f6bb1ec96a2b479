@@ -1,0 +1,35 @@
+docs/developer/reference/agent-configuration.md
+  s_6d85751e8138d0::t_cce49813f0d7eb 59-68,89,91-93,121-126,242-247
+apps/runtime/services/pipecat/factory.py
+  s_6d85751e8138d0::t_7b5e27916eea55 23-26,35,88,121-124,133-135
+  s_6d85751e8138d0::t_c7dff32305aacf 136
+frontend/src/components/wizard/CallDetailsStep.tsx
+  s_6d85751e8138d0::t_14298b1826218a 125,291-337
+  s_6d85751e8138d0::t_6e75ca8f9b9fed 338
+apps/api/tests/test_agents.py
+  s_6d85751e8138d0::t_14298b1826218a 184,187-191,198
+frontend/src/lib/wizard-data.ts
+  s_6d85751e8138d0::t_7b5e27916eea55 199,211-214,251-252,285-286
+apps/api/app/models/schemas.py
+  s_6d85751e8138d0::t_14298b1826218a 302-310,333-338,347-350,398
+docs/developer/frontend/agent-wizard.md
+  s_6d85751e8138d0::t_cce49813f0d7eb 130-131
+frontend/src/lib/agent-mapper.ts
+  s_6d85751e8138d0::t_7b5e27916eea55 113-118,203-217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "97449d190e811482e3b3272f4f6bb1ec96a2b479",
+  "prompts": {},
+  "sessions": {
+    "s_6d85751e8138d0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "36778f25-64a6-4974-9429-82b71a22743a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
