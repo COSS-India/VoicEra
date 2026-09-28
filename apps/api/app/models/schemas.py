@@ -225,6 +225,12 @@ class AgentBehaviour(BaseModel):
                         "stop_secs": 0.4,
                         "min_volume": 0.5,
                     },
+                    "vad_idle": {
+                        "confidence": 0.3,
+                        "start_secs": 0.1,
+                        "stop_secs": 0.4,
+                        "min_volume": 0.5,
+                    },
                 }
             ]
         }
@@ -285,6 +291,7 @@ class AgentBehaviour(BaseModel):
     )
     automatic_call_ending: AutomaticCallEnding = AutomaticCallEnding()
     vad: VadSettings = VadSettings()
+    vad_idle: VadSettings = VadSettings()
 
 
 class AgentLanguage(BaseModel):
