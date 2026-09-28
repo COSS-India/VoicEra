@@ -118,6 +118,16 @@ class Settings(BaseSettings):
         default="voicera-tts-preview",
         description="Dedicated MinIO bucket for cached voice preview audio",
     )
+    TTS_PREVIEW_SAMPLE_RATE_HZ: int = Field(
+        default=16000,
+        description=(
+            "Web-call quality sample rate requested from preview adapters. "
+            "apps/providers/preview.py reads this same env var directly "
+            "(it cannot import Settings, being shared with apps/runtime) "
+            "— declared here only so it's discoverable and documented "
+            "alongside the other TTS_PREVIEW_* settings."
+        ),
+    )
 
     @field_validator("DEBUG", mode="before")
     @classmethod
