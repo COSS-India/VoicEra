@@ -76,7 +76,11 @@ def _voice_is_supported(blob: dict[str, Any], language: str) -> bool:
 
     A provider that declares no settings tree, or no ``voice`` entry for
     ``(model, language)``, or allows custom voice input, is treated as
-    supporting any voice.
+    supporting any voice. ``language`` must be one of the model's known
+    canonical language ids: ``resolve_settings`` returns ``{}`` both when
+    the language is unrecognized and when it's valid but has no voice
+    metadata, so that case is distinguished here rather than silently
+    treated as "voice supported".
     """
     provider = str(blob.get("provider") or "")
     model = str(blob.get("model") or "")
@@ -85,6 +89,9 @@ def _voice_is_supported(blob: dict[str, Any], language: str) -> bool:
     tree = getattr(cls, "settings_by_model_language", None)
     if not tree:
         return True
+    by_lang = tree.get(model)
+    if by_lang and language not in by_lang:
+        return False
     resolved = resolve_settings(tree, model, language)
     voice_meta = resolved.get("voice")
     if not voice_meta:
