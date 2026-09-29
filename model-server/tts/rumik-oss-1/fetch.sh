@@ -43,10 +43,20 @@ if ! command -v hf >/dev/null 2>&1 && ! command -v huggingface-cli >/dev/null 2>
   echo "installing huggingface_hub[cli]" >&2
   # --break-system-packages: Ubuntu 23.04+ marks the system Python externally
   # managed (PEP 668) and pip refuses without it.
-  pip3 install --quiet --break-system-packages "huggingface_hub[cli]"
+  pip3 install --quiet --break-system-packages huggingface_hub
 fi
+# pip --user puts the entry point in ~/.local/bin, which a fresh login shell
+# often does not have on PATH -- so the install above succeeds and the lookup
+# below still fails. huggingface_hub 2.x ships only `hf`; `huggingface-cli` is
+# the 0.x name, kept as a fallback for hosts that already have it.
+PATH="$HOME/.local/bin:$PATH"
 CLI=hf
 command -v hf >/dev/null 2>&1 || CLI=huggingface-cli
+if ! command -v "$CLI" >/dev/null 2>&1; then
+  echo "ERROR: neither 'hf' nor 'huggingface-cli' is on PATH after installing" >&2
+  echo "huggingface_hub. Install it (pip3 install --user huggingface_hub) and re-run." >&2
+  exit 1
+fi
 
 mkdir -p "$DEST"
 

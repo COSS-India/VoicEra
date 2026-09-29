@@ -197,6 +197,7 @@ class VllmTokenSource:
 
     def sampling_params(self, *, max_new_tokens: int, temperature: float, top_k: int):
         from vllm import SamplingParams
+        from vllm.sampling_params import RequestOutputKind
 
         return SamplingParams(
             temperature=temperature,
@@ -220,14 +221,31 @@ class VllmTokenSource:
             # this server would have to parse back into the integers it already
             # had.
             detokenize=False,
+            # DELTA, not the default CUMULATIVE -- see stream(). Each output
+            # then carries only the tokens that are new since the last one, in
+            # a list nobody else writes to.
+            output_kind=RequestOutputKind.DELTA,
         )
 
     async def stream(self, prompt_token_ids: list[int], *, max_new_tokens: int,
                      temperature: float, top_k: int) -> AsyncIterator[int]:
         """Yield generated token ids as vLLM produces them.
 
-        `RequestOutput.outputs[0].token_ids` is cumulative, so this diffs
-        against what it has already emitted rather than re-yielding the run.
+        Outputs are requested as DELTA, so each one is exactly the new tokens.
+        The first version asked for the default CUMULATIVE and diffed:
+
+            for token in tokens[seen:]: yield token
+            seen = len(tokens)
+
+        which silently lost about a quarter of every utterance on hardware (504
+        tokens yielded, 52 decodable frames; upstream's loop decodes every
+        token). With `detokenize=False` vLLM hands back its OWN token list, and
+        extends it in place from its output-handler task. Each `yield` here
+        suspends while the consumer decodes audio in a thread, the handler runs,
+        the list grows -- and `seen = len(tokens)` then jumps over everything
+        appended during the yields, which were never in the slice. The gaps
+        break the round robin, so the de-interleaver drops the frames around
+        them too. tests/test_rumik_vllm_backend.py reproduces it.
 
         Cancellation is the caller closing this generator -- barge-in, an
         error, anything. The `finally` aborts the vLLM request, which is what
@@ -244,16 +262,15 @@ class VllmTokenSource:
         params = self.sampling_params(
             max_new_tokens=max_new_tokens, temperature=temperature, top_k=top_k
         )
-        seen = 0
         try:
             generator = self._engine.generate(
                 TokensPrompt(prompt_token_ids=prompt_token_ids), params, request_id
             )
             async for output in generator:
-                tokens = output.outputs[0].token_ids
-                for token in tokens[seen:]:
+                # Copied before the first yield, so nothing appended while we
+                # are suspended can be skipped or seen twice.
+                for token in list(output.outputs[0].token_ids):
                     yield int(token)
-                seen = len(tokens)
         finally:
             engine = self._engine
             if engine is not None:
