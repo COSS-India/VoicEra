@@ -84,6 +84,15 @@ def test_valid_sarvam_config_passes_validation():
     assert validated["provider"] == "sarvam"
 
 
+def test_validate_request_overrides_config_default_language_with_requested_language():
+    # tts_config omits language; SarvamTTSConfig's own pydantic default ("hi")
+    # must not win over the request's actual, already-voice-checked language.
+    validated = validate_request(
+        {"provider": "sarvam", "model": "bulbul:v3", "voice": "shubh"}, "ta", "hello"
+    )
+    assert validated["language"] == "ta"
+
+
 def test_voice_is_supported_true_for_sarvam_custom_voice():
     assert _voice_is_supported(
         {"provider": "sarvam", "model": "bulbul:v3", "voice": "totally-custom-voice"}, "hi"
