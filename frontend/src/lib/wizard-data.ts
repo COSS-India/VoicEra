@@ -212,6 +212,14 @@ export const TIPS: Record<string, string> = {
   vadStartSecs: "How long continuous speech must last before the agent treats it as the start of a turn.",
   vadStopSecs: "How long silence must last after speech before the agent ends the caller's turn.",
   vadMinVolume: "Minimum audio level treated as speech. Raise this to ignore quiet noise on the line.",
+  vadIdleConfidence:
+    "Idle-profile confidence while the agent is silent. Lower picks up quiet caller replies faster.",
+  vadIdleStartSecs:
+    "Idle-profile speech-start duration. Shorter values start listening to brief replies sooner.",
+  vadIdleStopSecs:
+    "Idle-profile speech-stop duration. Shorter values end the caller's turn sooner after they pause.",
+  vadIdleMinVolume:
+    "Idle-profile minimum volume. Lower values treat quieter audio as speech while waiting for the caller.",
 };
 
 export interface AgentForm {
@@ -250,6 +258,10 @@ export interface AgentForm {
   vadStartSecs: number;
   vadStopSecs: number;
   vadMinVolume: number;
+  vadIdleConfidence: number;
+  vadIdleStartSecs: number;
+  vadIdleStopSecs: number;
+  vadIdleMinVolume: number;
 }
 
 export const DEFAULT_FORM: AgentForm = {
@@ -284,6 +296,10 @@ export const DEFAULT_FORM: AgentForm = {
   vadStartSecs: 0.1,
   vadStopSecs: 0.4,
   vadMinVolume: 0.5,
+  vadIdleConfidence: 0.3,
+  vadIdleStartSecs: 0.1,
+  vadIdleStopSecs: 0.4,
+  vadIdleMinVolume: 0.5,
 };
 
 export const TPL_CATS = [

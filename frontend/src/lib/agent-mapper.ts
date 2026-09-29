@@ -116,6 +116,12 @@ export function formToAgentCreatePayload(
           stop_secs: form.vadStopSecs,
           min_volume: form.vadMinVolume,
         },
+        vad_idle: {
+          confidence: form.vadIdleConfidence,
+          start_secs: form.vadIdleStartSecs,
+          stop_secs: form.vadIdleStopSecs,
+          min_volume: form.vadIdleMinVolume,
+        },
       },
       language: { primary, secondary },
       models,
@@ -214,6 +220,22 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
     vadMinVolume: Number(
       (behaviour.vad as { min_volume?: number } | undefined)?.min_volume ??
         DEFAULT_FORM.vadMinVolume,
+    ),
+    vadIdleConfidence: Number(
+      (behaviour.vad_idle as { confidence?: number } | undefined)?.confidence ??
+        DEFAULT_FORM.vadIdleConfidence,
+    ),
+    vadIdleStartSecs: Number(
+      (behaviour.vad_idle as { start_secs?: number } | undefined)?.start_secs ??
+        DEFAULT_FORM.vadIdleStartSecs,
+    ),
+    vadIdleStopSecs: Number(
+      (behaviour.vad_idle as { stop_secs?: number } | undefined)?.stop_secs ??
+        DEFAULT_FORM.vadIdleStopSecs,
+    ),
+    vadIdleMinVolume: Number(
+      (behaviour.vad_idle as { min_volume?: number } | undefined)?.min_volume ??
+        DEFAULT_FORM.vadIdleMinVolume,
     ),
   };
 }
