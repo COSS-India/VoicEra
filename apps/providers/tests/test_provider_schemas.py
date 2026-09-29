@@ -34,7 +34,7 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 def test_union_variant_counts_match_registry():
     assert len(_union_variants(STTConfig)) == 14
-    assert len(_union_variants(TTSConfig)) == 16
+    assert len(_union_variants(TTSConfig)) == 17
     assert len(_union_variants(LLMConfig)) == 11
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
