@@ -134,6 +134,12 @@ def validate_request(tts_config: dict[str, Any], language: str, text: str) -> di
             TtsPreviewErrorReason.UNSUPPORTED_VOICE,
             "Selected voice is not available for this language",
         )
+    # validate_persisted_model_config fills a missing tts_config.language with
+    # the provider's own pydantic default (e.g. Sarvam's "hi"), not the request's
+    # language. _voice_is_supported already checked the voice against `language`
+    # above, so it's the validated, authoritative value — make it win here too,
+    # or synthesis silently uses the wrong language.
+    validated["language"] = language
     return validated
 
 
