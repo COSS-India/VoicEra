@@ -1,0 +1,40 @@
+apps/api/app/services/campaign/campaign_repository.py
+  s_7d8075bab21c26::t_4ff361a7f37405 18,47-48
+apps/api/app/services/call_admission.py
+  s_7d8075bab21c26::t_27edee76809de8 156-157
+  s_7d8075bab21c26::t_4ff361a7f37405 43,154-155
+apps/runtime/services/pipecat/duration_guard.py
+  s_7d8075bab21c26::t_4ff361a7f37405 3-7,21,43-45,53-56,60-65
+apps/runtime/services/pipecat/pipeline.py
+  s_7d8075bab21c26::t_4ff361a7f37405 106
+apps/api/app/config.py
+  s_7d8075bab21c26::t_4ff361a7f37405 151-158
+apps/api/app/services/limits/policy.py
+  s_7d8075bab21c26::t_4ff361a7f37405 19,31-33,35-52,84-85
+  s_7d8075bab21c26::t_80035553b336a9 34
+apps/api/tests/test_call_admission.py
+  s_7d8075bab21c26::t_4ff361a7f37405 64-65,293-343
+  s_7d8075bab21c26::t_ac7f3060b90b50 344-345
+.env.example
+  s_7d8075bab21c26::t_4ff361a7f37405 73-76
+apps/runtime/tests/test_duration_guard.py
+  s_7d8075bab21c26::t_4ff361a7f37405 89-100
+apps/runtime/constants.py
+  s_7d8075bab21c26::t_4ff361a7f37405 53-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c8ccfd304b82419739dff8afd9e3b4e538469d9f",
+  "prompts": {},
+  "sessions": {
+    "s_7d8075bab21c26": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b417d4eb-ff07-4688-b177-9376a5df90b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
