@@ -49,7 +49,7 @@ class SmallestTTSSettings(BaseTTSSettings):
         le=2.0,
         description="Speech speed multiplier (0.5 to 2.0).",
     )
-    sample_rate: int = Field(
+    sample_rate: Literal[*TTS_SAMPLE_RATES] = Field(
         default=DEFAULT_TTS_SAMPLE_RATE,
         description="Audio sample rate in Hz.",
         json_schema_extra={"examples": list(TTS_SAMPLE_RATES)},
