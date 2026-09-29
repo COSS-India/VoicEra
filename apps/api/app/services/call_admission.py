@@ -40,7 +40,7 @@ from app.services.call_concurrency.service import (
     call_concurrency,
 )
 from app.services.limits.counters import counters, usage_key
-from app.services.limits.policy import get_org_daily_call_seconds
+from app.services.limits.policy import get_org_daily_call_seconds, is_rate_limit_exempt
 from app.utils.client_ip import (
     hash_subject,
     ip_in_allowlist,
@@ -149,6 +149,10 @@ async def admit_call(
     same reserve/bind/release shape the campaign dispatcher already uses.
     """
     if not settings.RATE_LIMIT_ENABLED:
+        return AdmittedCall(slot=None)
+
+    if is_rate_limit_exempt(org_id=org_id, email=current_user_email):
+        logger.info("rate_limit.bypass scope=all reason=exempt org_id=%s", org_id)
         return AdmittedCall(slot=None)
 
     await _check_org_daily_quota(org_id)

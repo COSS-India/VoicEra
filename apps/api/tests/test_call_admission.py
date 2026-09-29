@@ -61,6 +61,8 @@ def _admission_settings(monkeypatch):
     monkeypatch.setattr(settings, "RATE_LIMIT_FAIL_OPEN", True)
     monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", False)
     monkeypatch.setattr(settings, "RATE_LIMIT_IP_ALLOWLIST", "")
+    monkeypatch.setattr(settings, "RATE_LIMIT_EXEMPT_ORG_IDS", "")
+    monkeypatch.setattr(settings, "RATE_LIMIT_EXEMPT_EMAILS", "")
     monkeypatch.setattr(settings, "MAX_CONCURRENT_CALLS_PER_IP", 2)
     monkeypatch.setattr(settings, "DEFAULT_ORG_CONCURRENCY_LIMIT", 10)
     monkeypatch.setattr(settings, "ORG_DAILY_CALL_SECONDS", 14400)
@@ -286,6 +288,59 @@ async def test_internal_service_subject_skips_per_ip_but_not_org_concurrency(
             current_user_email="bot@voicera.internal",
         )
     assert exc_info.value.reason == "concurrency_org"
+
+
+# ---------------------------------------------------------------------------
+# Operator exemptions — RATE_LIMIT_EXEMPT_ORG_IDS / RATE_LIMIT_EXEMPT_EMAILS
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_exempt_org_skips_quota_and_every_concurrency_limit(monkeypatch):
+    from app.services.limits.counters import counters, utc_day_key
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_EXEMPT_ORG_IDS", "other, Org-Free ")
+    monkeypatch.setattr(settings, "DEFAULT_ORG_CONCURRENCY_LIMIT", 1)
+    monkeypatch.setattr(settings, "ORG_DAILY_CALL_SECONDS", 100)
+    await counters.add_usage(f"usage:dur:org-free:{utc_day_key()}", 100, ttl=60)
+    req = _make_request("203.0.113.10")
+
+    # Quota exhausted, org limit 1, per-IP limit 2 — none of them apply.
+    for _ in range(3):
+        admitted = await admit_call(org_id="org-free", call_kind="web", request=req)
+        assert admitted.slot is None
+
+
+@pytest.mark.asyncio
+async def test_exempt_email_skips_admission_for_that_user_only(monkeypatch):
+    monkeypatch.setattr(settings, "RATE_LIMIT_EXEMPT_EMAILS", "automation@voicera.world")
+    monkeypatch.setattr(settings, "DEFAULT_ORG_CONCURRENCY_LIMIT", 1)
+
+    for _ in range(2):
+        admitted = await admit_call(
+            org_id="org-shared",
+            call_kind="outbound",
+            current_user_email="Automation@Voicera.World",
+        )
+        assert admitted.slot is None
+    await admit_call(org_id="org-shared", call_kind="outbound", current_user_email="a@x.io")
+    with pytest.raises(CallAdmissionError):
+        await admit_call(
+            org_id="org-shared", call_kind="outbound", current_user_email="a@x.io"
+        )
+
+
+@pytest.mark.asyncio
+async def test_exempt_org_gets_unlimited_campaign_concurrency(monkeypatch):
+    from app.services.campaign import campaign_repository
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_EXEMPT_ORG_IDS", "org-free")
+    assert await policy.get_org_concurrency_limit("org-free") == policy.UNLIMITED_CONCURRENCY
+    # Sync resolver used by campaign validation — exempt path never touches the DB.
+    assert campaign_repository.get_org_concurrent_limit("org-free") == (
+        policy.UNLIMITED_CONCURRENCY
+    )
+    assert await policy.get_org_concurrency_limit("org-other") == 10
 
 
 # ---------------------------------------------------------------------------

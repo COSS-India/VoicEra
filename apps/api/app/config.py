@@ -148,6 +148,14 @@ class Settings(BaseSettings):
         default="",
         description="Comma-separated IPs/CIDRs (v4 and v6) exempt from per-IP limits. A malformed entry aborts startup.",
     )
+    RATE_LIMIT_EXEMPT_ORG_IDS: str = Field(
+        default="",
+        description="Comma-separated org ids exempt from every call limit: admission (quota, org and per-IP concurrency), campaign org concurrency, and the runtime duration cap. Pre-auth per-IP limits still apply.",
+    )
+    RATE_LIMIT_EXEMPT_EMAILS: str = Field(
+        default="",
+        description="Comma-separated user emails whose authenticated call requests skip call admission. Pre-auth per-IP limits still apply — an unverified email must never bypass login throttling.",
+    )
     RATE_LIMIT_SCOPE_STALE_SECONDS: int = Field(
         default=900,
         description="Reaper window for scope (e.g. per-IP) concurrency slots — independent of and shorter than the org reaper, see S3b.",

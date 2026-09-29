@@ -1,10 +1,10 @@
 """Hard call-duration cap — Layer 3 of docs/developer/rate-limiting-plan.md.
 
-An unconditional safety rail, not a rate limit: it has no IP or org context
-(a telephony call has no meaningful client IP at all), no Redis dependency,
-and applies regardless of any allowlist or exemption — see the plan's §8c.
-The ceiling is always applied server-side so an org editing its own agent
-config cannot escape it.
+A safety rail, not a rate limit: it has no IP context (a telephony call has
+no meaningful client IP at all), no Redis dependency, and ignores the IP
+allowlist — see the plan's §8c. The ceiling is applied server-side so an org
+editing its own agent config cannot escape it; only an operator listing the
+org in ``RATE_LIMIT_EXEMPT_ORG_IDS`` can.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from apps.runtime.constants import (
     max_call_duration_ceiling_seconds,
     max_call_duration_seconds,
     rate_limit_enabled,
+    rate_limit_exempt_org_ids,
 )
 
 # Set on the finalize-call patch's `end_reason` when this guard ends the
@@ -39,7 +40,9 @@ def effective_call_duration_seconds(behaviour: dict) -> int:
     return max(1, min(max_call_duration_seconds(), ceiling))
 
 
-def configured_call_duration_seconds(behaviour: dict) -> int | None:
+def configured_call_duration_seconds(
+    behaviour: dict, org_id: str | None = None
+) -> int | None:
     """The cap to actually arm for this call, or ``None`` to arm nothing.
 
     Gated on ``RATE_LIMIT_ENABLED`` like every other layer of the plan. Without
@@ -47,9 +50,19 @@ def configured_call_duration_seconds(behaviour: dict) -> int | None:
     per-agent ``call_timeout_seconds`` set, every call would be cut at
     ``MAX_CALL_DURATION_SECONDS`` (600s) as soon as the code ships, rather than
     when an operator turns limiting on.
+
+    Orgs in ``RATE_LIMIT_EXEMPT_ORG_IDS`` skip the platform default and
+    ceiling; their agent's own ``call_timeout_seconds`` is still honoured,
+    since that is the org's choice rather than a platform limit.
     """
     if not rate_limit_enabled():
         return None
+    if org_id and org_id.strip().lower() in rate_limit_exempt_org_ids():
+        try:
+            agent_timeout = int((behaviour or {}).get("call_timeout_seconds") or 0)
+        except (TypeError, ValueError):
+            agent_timeout = 0
+        return agent_timeout if agent_timeout > 0 else None
     return effective_call_duration_seconds(behaviour)
 
 

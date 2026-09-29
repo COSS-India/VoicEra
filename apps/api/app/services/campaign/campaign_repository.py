@@ -15,6 +15,7 @@ from app.constants.campaign import (
     DEFAULT_ORG_CONCURRENCY_LIMIT,
 )
 from app.database import get_database
+from app.services.limits.policy import UNLIMITED_CONCURRENCY, is_rate_limit_exempt
 from app.utils.mongo_utils import prepare_mongo_response, prepare_mongo_response_list
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ def _to_doc(doc: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def get_org_concurrent_limit(org_id: str) -> int:
+    if is_rate_limit_exempt(org_id=org_id):
+        return UNLIMITED_CONCURRENCY
     org = get_database()[ORGANIZATIONS].find_one({"org_id": org_id})
     if org and org.get("concurrent_call_limit") is not None:
         try:

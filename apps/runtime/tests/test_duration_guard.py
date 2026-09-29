@@ -86,6 +86,18 @@ def test_guard_is_armed_when_rate_limiting_is_enabled(monkeypatch):
     assert configured_call_duration_seconds({"call_timeout_seconds": 300}) == 300
 
 
+def test_exempt_org_skips_platform_cap_but_keeps_its_own_timeout(monkeypatch):
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("RATE_LIMIT_EXEMPT_ORG_IDS", "other, Org-Free")
+    monkeypatch.setattr(duration_guard_module, "max_call_duration_ceiling_seconds", lambda: 1800)
+    monkeypatch.setattr(duration_guard_module, "max_call_duration_seconds", lambda: 600)
+    assert configured_call_duration_seconds({}, "org-free") is None
+    # Agent's own timeout is honoured, and not clamped by the ceiling.
+    assert configured_call_duration_seconds({"call_timeout_seconds": 3600}, "org-free") == 3600
+    # Non-exempt org is unchanged.
+    assert configured_call_duration_seconds({"call_timeout_seconds": 3600}, "org-x") == 1800
+
+
 # ---------------------------------------------------------------------------
 # DurationGuard
 # ---------------------------------------------------------------------------

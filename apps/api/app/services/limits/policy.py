@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+from functools import lru_cache
 from typing import Any
 
 from fastapi.concurrency import run_in_threadpool
@@ -26,6 +27,28 @@ logger = logging.getLogger(__name__)
 
 _CACHE_TTL_SECONDS = 60
 _cache: dict[str, tuple[float, dict[str, Any] | None]] = {}
+
+# Concurrency cap for exempt orgs: never binds in practice, and stays an
+# exact integer inside the Redis Lua slot script (which works in doubles).
+UNLIMITED_CONCURRENCY = 1_000_000
+
+
+@lru_cache(maxsize=4)
+def _parse_csv(raw: str) -> frozenset[str]:
+    return frozenset(v.strip().lower() for v in raw.split(",") if v.strip())
+
+
+def is_rate_limit_exempt(*, org_id: str | None = None, email: str | None = None) -> bool:
+    """True when ``org_id`` or ``email`` is listed in the exemption settings.
+
+    Keyed on the raw setting string, so the parse happens once per distinct
+    value rather than per call.
+    """
+    if org_id and org_id.strip().lower() in _parse_csv(settings.RATE_LIMIT_EXEMPT_ORG_IDS):
+        return True
+    return bool(
+        email and email.strip().lower() in _parse_csv(settings.RATE_LIMIT_EXEMPT_EMAILS)
+    )
 
 
 def _cached_org_lookup(org_id: str) -> dict[str, Any] | None:
@@ -58,6 +81,8 @@ async def get_org_concurrency_limit(org_id: str) -> int:
     Delegates to the same field the existing campaign dispatcher reads
     (``concurrent_call_limit``) so both call paths agree on one number.
     """
+    if is_rate_limit_exempt(org_id=org_id):
+        return UNLIMITED_CONCURRENCY
     org = await _get_org(org_id)
     if org and org.get("concurrent_call_limit") is not None:
         try:

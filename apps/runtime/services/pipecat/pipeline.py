@@ -103,6 +103,6 @@ async def run_pipeline(
         sample_rate=sample_rate,
         transcript_writer=components.transcript_writer,
         metrics_writer=components.metrics_writer,
-        max_duration_seconds=configured_call_duration_seconds(behaviour),
+        max_duration_seconds=configured_call_duration_seconds(behaviour, org_id),
     )
     await run_with_lifecycle(components.worker, ctx)
