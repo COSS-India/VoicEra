@@ -35,20 +35,22 @@ UNLIMITED_CONCURRENCY = 1_000_000
 
 @lru_cache(maxsize=4)
 def _parse_csv(raw: str) -> frozenset[str]:
-    return frozenset(v.strip().lower() for v in raw.split(",") if v.strip())
+    return frozenset(v.strip() for v in raw.split(",") if v.strip())
 
 
 def is_rate_limit_exempt(*, org_id: str | None = None, email: str | None = None) -> bool:
     """True when ``org_id`` or ``email`` is listed in the exemption settings.
 
+    Matching is exact, never case-folded: Users are looked up by exact email,
+    so ``Automation@x`` is a different (and freely registrable) account from
+    ``automation@x`` and must not inherit its exemption.
+
     Keyed on the raw setting string, so the parse happens once per distinct
     value rather than per call.
     """
-    if org_id and org_id.strip().lower() in _parse_csv(settings.RATE_LIMIT_EXEMPT_ORG_IDS):
+    if org_id and org_id in _parse_csv(settings.RATE_LIMIT_EXEMPT_ORG_IDS):
         return True
-    return bool(
-        email and email.strip().lower() in _parse_csv(settings.RATE_LIMIT_EXEMPT_EMAILS)
-    )
+    return bool(email and email in _parse_csv(settings.RATE_LIMIT_EXEMPT_EMAILS))
 
 
 def _cached_org_lookup(org_id: str) -> dict[str, Any] | None:

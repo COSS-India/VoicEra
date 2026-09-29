@@ -57,7 +57,7 @@ def configured_call_duration_seconds(
     """
     if not rate_limit_enabled():
         return None
-    if org_id and org_id.strip().lower() in rate_limit_exempt_org_ids():
+    if org_id and org_id in rate_limit_exempt_org_ids():
         try:
             agent_timeout = int((behaviour or {}).get("call_timeout_seconds") or 0)
         except (TypeError, ValueError):

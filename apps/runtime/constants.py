@@ -58,4 +58,4 @@ def rate_limit_exempt_org_ids() -> frozenset[str]:
     Shares the env var with apps/api's Settings.RATE_LIMIT_EXEMPT_ORG_IDS.
     """
     raw = os.getenv("RATE_LIMIT_EXEMPT_ORG_IDS", "")
-    return frozenset(v.strip().lower() for v in raw.split(",") if v.strip())
+    return frozenset(v.strip() for v in raw.split(",") if v.strip())

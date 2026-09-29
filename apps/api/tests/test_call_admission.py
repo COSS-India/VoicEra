@@ -299,7 +299,7 @@ async def test_internal_service_subject_skips_per_ip_but_not_org_concurrency(
 async def test_exempt_org_skips_quota_and_every_concurrency_limit(monkeypatch):
     from app.services.limits.counters import counters, utc_day_key
 
-    monkeypatch.setattr(settings, "RATE_LIMIT_EXEMPT_ORG_IDS", "other, Org-Free ")
+    monkeypatch.setattr(settings, "RATE_LIMIT_EXEMPT_ORG_IDS", "other, org-free ")
     monkeypatch.setattr(settings, "DEFAULT_ORG_CONCURRENCY_LIMIT", 1)
     monkeypatch.setattr(settings, "ORG_DAILY_CALL_SECONDS", 100)
     await counters.add_usage(f"usage:dur:org-free:{utc_day_key()}", 100, ttl=60)
@@ -320,7 +320,7 @@ async def test_exempt_email_skips_admission_for_that_user_only(monkeypatch):
         admitted = await admit_call(
             org_id="org-shared",
             call_kind="outbound",
-            current_user_email="Automation@Voicera.World",
+            current_user_email="automation@voicera.world",
         )
         assert admitted.slot is None
     await admit_call(org_id="org-shared", call_kind="outbound", current_user_email="a@x.io")
@@ -328,6 +328,14 @@ async def test_exempt_email_skips_admission_for_that_user_only(monkeypatch):
         await admit_call(
             org_id="org-shared", call_kind="outbound", current_user_email="a@x.io"
         )
+
+
+def test_exempt_email_match_is_case_sensitive(monkeypatch):
+    """Users are looked up by exact email, so a case variant is a separate,
+    freely registrable account — it must not inherit the exemption."""
+    monkeypatch.setattr(settings, "RATE_LIMIT_EXEMPT_EMAILS", "automation@voicera.world")
+    assert policy.is_rate_limit_exempt(email="automation@voicera.world")
+    assert not policy.is_rate_limit_exempt(email="Automation@voicera.world")
 
 
 @pytest.mark.asyncio
