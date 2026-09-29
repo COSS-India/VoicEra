@@ -1,0 +1,29 @@
+apps/api/app/services/limits/policy.py
+  s_7d8075bab21c26::t_bc3cc5fe2cd52c 38,44-47,51,53
+apps/runtime/constants.py
+  s_7d8075bab21c26::t_de90966e39918c 61
+apps/runtime/services/pipecat/duration_guard.py
+  s_7d8075bab21c26::t_7ff12875dca31f 60
+apps/api/tests/test_call_admission.py
+  s_7d8075bab21c26::t_26478809498c8b 302
+  s_7d8075bab21c26::t_0ebeaa0422cebb 323,333-338
+  s_7d8075bab21c26::t_092ec7353c7d2a 339-340
+apps/runtime/tests/test_duration_guard.py
+  s_7d8075bab21c26::t_7bb76b3f24ddcb 91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8ab6f6901c2c364af677207a08ffb346e17de3df",
+  "prompts": {},
+  "sessions": {
+    "s_7d8075bab21c26": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b417d4eb-ff07-4688-b177-9376a5df90b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
