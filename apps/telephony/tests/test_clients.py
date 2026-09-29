@@ -322,6 +322,7 @@ async def test_vobiz_initiate_call(monkeypatch: pytest.MonkeyPatch):
     )
     assert result["status"] == "success"
     assert result["call_uuid"] == "vobiz-call-1"
+    assert result["provider_call_sid"] == "vobiz-call-1"
     assert result["raw"]["call_uuid"] == "vobiz-call-1"
 
 
@@ -353,6 +354,7 @@ async def test_plivo_initiate_call(monkeypatch: pytest.MonkeyPatch):
     assert result["status"] == "success"
     assert result["call_uuid"] == "plivo-req-1"
     assert result["request_uuid"] == "plivo-req-1"
+    assert result["provider_call_sid"] == "plivo-req-1"
 
 
 @pytest.mark.anyio
@@ -374,6 +376,7 @@ async def test_initiate_outbound_dispatcher(monkeypatch: pytest.MonkeyPatch):
     )
     assert result["status"] == "success"
     assert result["call_uuid"] == "via-dispatch"
+    assert result["provider_call_sid"] == "via-dispatch"
 
 
 @pytest.mark.anyio

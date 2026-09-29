@@ -6,7 +6,7 @@ import asyncio
 import os
 import time
 import uuid
-from typing import AsyncGenerator, Awaitable, Callable, Optional
+from typing import Any, AsyncGenerator, Awaitable, Callable, Optional
 
 import numpy as np
 from loguru import logger
@@ -22,9 +22,11 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+from pipecat.services.settings import STTSettings
 from pipecat.services.stt_service import STTService
 from pipecat.utils.time import time_now_iso8601
 
+from apps.providers.runtime_language import update_stt_settings_with_language
 from .catalog import DEFAULT_BHILI_MODEL, DEFAULT_GRPC_URL
 from .stt import VADProcessor
 
@@ -586,6 +588,11 @@ class BhashiniBhiliSTTService(STTService):
     async def set_language(self, language: str):
         logger.info("Switching Bhashini Bhili language to: {}", language)
         self._language = language
+
+    async def _update_settings(self, delta: STTSettings) -> dict[str, Any]:
+        return await update_stt_settings_with_language(
+            self, delta, super_update=super()._update_settings
+        )
 
     async def set_model(self, model: str):
         logger.info("Switching Bhashini Bhili model to: {}", model)

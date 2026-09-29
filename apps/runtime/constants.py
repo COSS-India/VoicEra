@@ -50,3 +50,12 @@ def max_call_duration_seconds() -> int:
 def max_call_duration_ceiling_seconds() -> int:
     """Unconditional ceiling on call duration — see duration_guard.py."""
     return int(os.getenv("MAX_CALL_DURATION_CEILING_SECONDS", "1800"))
+
+
+def rate_limit_exempt_org_ids() -> frozenset[str]:
+    """Org ids exempt from platform call limits.
+
+    Shares the env var with apps/api's Settings.RATE_LIMIT_EXEMPT_ORG_IDS.
+    """
+    raw = os.getenv("RATE_LIMIT_EXEMPT_ORG_IDS", "")
+    return frozenset(v.strip() for v in raw.split(",") if v.strip())

@@ -56,3 +56,11 @@ def test_local_availability_does_not_probe_the_model_server():
 
 def test_unregistered_provider_is_not_local():
     assert availability.auth_source("indic_orpheus", set(), set()) is None
+
+
+def test_vi_not_authenticated_without_configured():
+    assert availability.is_authenticated("vi", set()) is False
+
+
+def test_vi_authenticated_via_configured():
+    assert availability.is_authenticated("vi", {"vi"}) is True

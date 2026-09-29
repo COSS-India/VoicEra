@@ -23,6 +23,7 @@ TELEPHONY_CONFIGS: dict[str, type[BaseModel]] = {}
 CLIENT_CREATORS: dict[str, Callable[[Any], Any]] = {}
 ANSWER_XML_BUILDERS: dict[str, Callable[..., str]] = {}
 FRAME_SERIALIZER_FACTORIES: dict[str, Callable[..., Any]] = {}
+PIPELINE_RATE_RESOLVERS: dict[str, Callable[..., Any]] = {}
 
 _LOADED = False
 _LOADING = False
@@ -136,6 +137,20 @@ def register_frame_serializer(provider: str) -> Callable[[F], F]:
     return decorator
 
 
+def register_pipeline_rates(provider: str) -> Callable[[F], F]:
+    """Register optional pipeline sample-rate resolution for ``provider``."""
+
+    def decorator(fn: F) -> F:
+        return _register_named(
+            PIPELINE_RATE_RESOLVERS,
+            provider,
+            fn,
+            label="pipeline rates",
+        )
+
+    return decorator
+
+
 def load_providers() -> None:
     """Import every vendor ``config`` and ``service`` module under ``providers/``."""
     global _LOADED, _LOADING
@@ -156,7 +171,7 @@ def load_providers() -> None:
         for mod in pkgutil.iter_modules(root_paths):
             if not mod.ispkg:
                 continue
-            for submodule in ("config", "service"):
+            for submodule in ("config", "service", "rates"):
                 module_name = f"{root_name}.{mod.name}.{submodule}"
                 try:
                     importlib.import_module(module_name)
@@ -252,6 +267,13 @@ def get_frame_serializer_factory(provider: str) -> Callable[..., Any]:
             f"Unsupported telephony provider for serializer: {provider!r}"
         )
     return factory
+
+
+def get_pipeline_rate_resolver(provider: str) -> Callable[..., Any] | None:
+    """Return a registered pipeline-rate resolver, or ``None`` if absent."""
+    load_providers()
+    pid = _normalize_provider(provider)
+    return PIPELINE_RATE_RESOLVERS.get(pid)
 
 
 def build_config(provider: str, **data: Any) -> BaseModel:

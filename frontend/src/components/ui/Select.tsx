@@ -89,7 +89,9 @@ export function Select({
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    function close() {
+    function close(e: Event) {
+      // Scrolling the menu's own option list must not dismiss it.
+      if (e.type === "scroll" && menuRef.current?.contains(e.target as Node)) return;
       setOpen(false);
     }
     document.addEventListener("mousedown", onDocMouseDown);

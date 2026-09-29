@@ -1,10 +1,11 @@
-"""Shared telephony clients for Vobiz and Plivo.
+"""Shared telephony clients for Vobiz, Plivo, and Vodafone Idea.
 
 Public surface::
 
     from apps.telephony import (
         VobizClient,
         PlivoClient,
+        ViClient,
         Kind,
         provider_schemas,
         configuration_telephony,
@@ -20,6 +21,7 @@ Frame serializers require pipecat and are imported separately::
 
     from apps.telephony.providers.vobiz.serializers import VobizFrameSerializer
     from apps.telephony.providers.plivo.serializers import PlivoFrameSerializer
+    from apps.telephony.providers.vi.serializers import ViFrameSerializer
 """
 
 from apps.telephony.base import (
@@ -35,12 +37,14 @@ from apps.telephony.base import (
 from apps.telephony.calls import initiate_outbound
 from apps.telephony.providers.plivo import PlivoClient
 from apps.telephony.providers.vobiz import VobizClient
+from apps.telephony.providers.vi import ViClient
 from apps.telephony.registry import (
     build_config,
     create_client,
     load_providers,
     registered_providers,
 )
+from apps.telephony.results import provider_call_sid_from_result
 from apps.telephony.schema import (
     DEFAULT_SERVICE_PROVIDERS,
     UnknownProviderError,
@@ -81,6 +85,7 @@ __all__ = [
     "DEFAULT_SERVICE_PROVIDERS",
     "VobizClient",
     "PlivoClient",
+    "ViClient",
     "create_client",
     "build_config",
     "registered_providers",
@@ -97,6 +102,7 @@ __all__ = [
     "all_provider_level_auth",
     "build_answer_stream_xml",
     "initiate_outbound",
+    "provider_call_sid_from_result",
     "TelephonyWebhookEvent",
     "is_hangup_event",
     "map_hangup_call_response",

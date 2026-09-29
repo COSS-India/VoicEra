@@ -36,17 +36,22 @@ async def initiate_outbound(
     hangup_url: Optional[str] = None,
     answer_method: str = "POST",
     hangup_method: str = "POST",
+    **auth_extras: Any,
 ) -> Dict[str, Any]:
     """Place an outbound call on the given provider.
 
     Credentials and URLs are injected — no agent/Integrations lookup here.
+    Extra secret fields from ProviderAuth may be passed via ``auth_extras``.
     """
-    config = build_config(
-        provider,
-        auth_id=auth_id,
-        auth_token=auth_token,
-        base_url=base_url,
-    )
+    config_kwargs: Dict[str, Any] = {
+        "auth_id": auth_id,
+        "auth_token": auth_token,
+        "base_url": base_url,
+    }
+    for key, value in auth_extras.items():
+        if value is not None and str(value).strip() != "":
+            config_kwargs[key] = value
+    config = build_config(provider, **config_kwargs)
     client = create_client(config)
     return await client.initiate_call(
         from_number=from_number,
