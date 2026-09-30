@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from collections.abc import Callable
 
 import httpx
 import pytest
@@ -14,10 +15,25 @@ from apps.providers.cloud.sarvam.preview import synthesize
 from apps.providers.preview import PreviewProviderError
 
 
-def _config(**overrides) -> SarvamTTSConfig:
-    defaults = dict(api_key="test-key", voice="shubh", language="hi", model="bulbul:v3", speed=1.0)
+def _config(**overrides: object) -> SarvamTTSConfig:
+    defaults: dict[str, object] = dict(
+        api_key="test-key", voice="shubh", language="hi", model="bulbul:v3", speed=1.0
+    )
     defaults.update(overrides)
     return SarvamTTSConfig(**defaults)
+
+
+def _synthesize_with(
+    handler: Callable[[httpx.Request], httpx.Response],
+    cfg: SarvamTTSConfig | None = None,
+    text: str = "hi",
+) -> bytes:
+    """Run the adapter against a mock transport and always close the client."""
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        return asyncio.run(synthesize(cfg or _config(), text, client))
+    finally:
+        asyncio.run(client.aclose())
 
 
 def test_synthesize_sends_expected_payload_and_headers():
@@ -31,11 +47,8 @@ def test_synthesize_sends_expected_payload_and_headers():
         captured["body"] = json.loads(request.content)
         return httpx.Response(200, json={"audios": [base64.b64encode(fake_wav).decode()]})
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
     # Act
-    result = asyncio.run(synthesize(_config(speed=1.5), "Namaste", client))
-    asyncio.run(client.aclose())
+    result = _synthesize_with(handler, _config(speed=1.5), "Namaste")
 
     # Assert
     assert result == fake_wav
@@ -55,12 +68,9 @@ def test_synthesize_raises_preview_error_on_http_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": "bad key"})
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
     # Act / Assert
     with pytest.raises(PreviewProviderError, match="401"):
-        asyncio.run(synthesize(_config(), "hi", client))
-    asyncio.run(client.aclose())
+        _synthesize_with(handler)
 
 
 def test_synthesize_raises_preview_error_on_empty_audio():
@@ -68,9 +78,6 @@ def test_synthesize_raises_preview_error_on_empty_audio():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"audios": []})
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
     # Act / Assert
     with pytest.raises(PreviewProviderError, match="no audio"):
-        asyncio.run(synthesize(_config(), "hi", client))
-    asyncio.run(client.aclose())
+        _synthesize_with(handler)
