@@ -82,6 +82,7 @@ def test_synthesize_raises_preview_error_on_empty_audio():
         httpx.Response(200, text="<html>not json</html>"),
         httpx.Response(200, json=["not", "a", "dict"]),
         httpx.Response(200, json={"audios": ["!!not-base64"]}),
+        httpx.Response(200, json={"audios": {"a": "b"}}),
     ],
 )
 def test_synthesize_raises_preview_error_on_malformed_200(response):

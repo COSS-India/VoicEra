@@ -11,13 +11,16 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from enum import Enum
 from typing import Any
 
 import httpx
+import certifi
 import redis.asyncio as aioredis
+import urllib3
 from minio.error import S3Error
 from pydantic import ValidationError
 
@@ -52,6 +55,9 @@ _CACHE_VERSION = 1
 # Well under TTS_PREVIEW_TIMEOUT_S: the MinIO client's own default is 300 s,
 # and a cache that's slower than synthesis is worse than no cache.
 _CACHE_TIMEOUT_S = 2.0
+# Redis socket timeouts, so a partitioned (not refusing) Redis raises
+# redis.TimeoutError, which check_rate_limit fails open on, instead of hanging.
+_REDIS_TIMEOUT_S = 1.0
 
 import_vendor_previews()
 
@@ -85,10 +91,22 @@ _storage: MinIOStorage | None = None
 
 
 def _get_storage() -> MinIOStorage:
-    """Lazily create one shared MinIO client so connections are reused."""
+    """Lazily create one shared MinIO client so connections are reused.
+
+    Socket-level timeouts and no retries: ``asyncio.timeout`` in the cache
+    helpers only stops the wait, not the ``to_thread`` worker, so without
+    these a hung MinIO would pile up threads in the pool the whole API shares.
+    """
     global _storage
     if _storage is None:
-        _storage = MinIOStorage()
+        _storage = MinIOStorage(
+            http_client=urllib3.PoolManager(
+                timeout=urllib3.Timeout(connect=1.0, read=_CACHE_TIMEOUT_S),
+                retries=urllib3.Retry(total=0),
+                cert_reqs="CERT_REQUIRED",
+                ca_certs=os.environ.get("SSL_CERT_FILE") or certifi.where(),
+            )
+        )
     return _storage
 
 
@@ -101,7 +119,12 @@ async def _get_redis() -> aioredis.Redis:
     """
     global _redis_client
     if _redis_client is None:
-        _redis_client = await aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        _redis_client = await aioredis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_timeout=_REDIS_TIMEOUT_S,
+            socket_connect_timeout=_REDIS_TIMEOUT_S,
+        )
     return _redis_client
 
 
@@ -315,9 +338,10 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     cfg = await resolve_config(org_id, validated_blob)
 
     try:
-        # httpx's own default timeout is 5s; without overriding it here it can
-        # fire before our intended TTS_PREVIEW_TIMEOUT_S window elapses.
-        async with httpx.AsyncClient(timeout=settings.TTS_PREVIEW_TIMEOUT_S) as client:
+        # httpx's timeout is per phase (connect/read), asyncio's is total. Keep
+        # httpx's a second longer so asyncio always fires first and the client
+        # gets 504 TIMEOUT, never an adapter's httpx.TimeoutException as 502.
+        async with httpx.AsyncClient(timeout=settings.TTS_PREVIEW_TIMEOUT_S + 1) as client:
             async with asyncio.timeout(settings.TTS_PREVIEW_TIMEOUT_S):
                 audio = await synthesize_preview(provider, cfg, stripped, client)
     except TimeoutError as exc:

@@ -14,6 +14,8 @@ from apps.providers.preview import PreviewProviderError
 from app.services.tts_preview_service import (
     TtsPreviewError,
     TtsPreviewErrorReason,
+    _get_redis,
+    _get_storage,
     _voice_is_supported,
     build_cache_key,
     check_rate_limit,
@@ -386,3 +388,21 @@ def test_generate_preview_does_not_cache_empty_audio(storage):
     ):
         _run(generate_preview("org-1", _SARVAM, "hi", "hello"))
     storage.put_object_bytes.assert_not_awaited()
+
+
+def test_redis_client_has_socket_timeouts():
+    with patch("app.services.tts_preview_service._redis_client", None), patch(
+        "app.services.tts_preview_service.aioredis.from_url", AsyncMock()
+    ) as mock_from_url:
+        _run(_get_redis())
+    kwargs = mock_from_url.call_args.kwargs
+    assert kwargs["socket_timeout"] and kwargs["socket_connect_timeout"]
+
+
+def test_storage_client_has_short_timeouts_and_no_retries():
+    # _get_storage is imported before the autouse fixture patches the module attr.
+    with patch("app.services.tts_preview_service._storage", None):
+        pool = _get_storage().client._http
+    timeout = pool.connection_pool_kw["timeout"]
+    assert timeout.connect_timeout <= 2 and timeout.read_timeout <= 2
+    assert pool.connection_pool_kw["retries"].total == 0
