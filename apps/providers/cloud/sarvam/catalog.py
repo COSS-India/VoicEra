@@ -11,6 +11,8 @@ from ...capabilities import expand_settings
 LLM_MODELS: tuple[str, ...] = ("sarvam-105b",)
 DEFAULT_LLM_MODEL = "sarvam-105b"
 DEFAULT_LLM_BASE_URL = "https://api.sarvam.ai/v1"
+# Voice preview calls this fixed URL only, never one from request data (SSRF allowlist).
+TTS_ENDPOINT = "https://api.sarvam.ai/text-to-speech"
 
 # --- STT ---
 _SAARIKA_LANGUAGES = {

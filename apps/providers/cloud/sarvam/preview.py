@@ -8,13 +8,13 @@ import httpx
 
 from ...capabilities import api_capabilities
 from ...preview import PreviewProviderError, register_preview, resolve_preview_sample_rate
-from .catalog import TTS_CAPABILITIES
+from .catalog import TTS_CAPABILITIES, TTS_ENDPOINT
 from .config import SarvamTTSConfig
 
-_ENDPOINT = "https://api.sarvam.ai/text-to-speech"
+_OUTPUT_CODEC = "wav"
 
 
-def _wire_language_code(model: str, canonical: str) -> str:
+def _resolve_wire_language_code(model: str, canonical: str) -> str:
     """Map a canonical language id (e.g. ``hi``) to Sarvam's vendor code (``hi-IN``)."""
     languages = api_capabilities(TTS_CAPABILITIES).get(model, {}).get("languages", {})
     return languages.get(canonical, canonical)
@@ -22,18 +22,19 @@ def _wire_language_code(model: str, canonical: str) -> str:
 
 @register_preview("sarvam")
 async def synthesize(cfg: SarvamTTSConfig, text: str, client: httpx.AsyncClient) -> bytes:
+    """Return WAV bytes for ``text``; raise :class:`PreviewProviderError` on any vendor failure."""
     payload = {
         "text": text,
-        "target_language_code": _wire_language_code(cfg.model, cfg.language),
+        "target_language_code": _resolve_wire_language_code(cfg.model, cfg.language),
         "speaker": cfg.voice,
         "model": cfg.model,
         "pace": cfg.speed,
         "speech_sample_rate": resolve_preview_sample_rate(cfg),
-        "output_audio_codec": "wav",
+        "output_audio_codec": _OUTPUT_CODEC,
     }
     try:
         response = await client.post(
-            _ENDPOINT,
+            TTS_ENDPOINT,
             json=payload,
             headers={"api-subscription-key": cfg.api_key},
         )

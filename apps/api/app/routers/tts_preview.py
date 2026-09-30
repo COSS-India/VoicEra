@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from app.auth import get_current_user
 from app.models.schemas import TtsPreviewRequest
 from app.services.tts_preview_service import (
+    PREVIEW_MEDIA_TYPE,
     TtsPreviewError,
     TtsPreviewErrorReason,
     generate_preview,
@@ -38,13 +39,13 @@ def _require_active_org(current_user: dict[str, Any]) -> str:
     return str(org_id)
 
 
-def _raise_preview_error(exc: TtsPreviewError) -> None:
+def _to_http_error(exc: TtsPreviewError) -> HTTPException:
     headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
-    raise HTTPException(
+    return HTTPException(
         status_code=_ERROR_STATUS[exc.reason],
         detail=str(exc),
         headers=headers,
-    ) from exc
+    )
 
 
 @router.post("/preview")
@@ -57,7 +58,6 @@ async def preview_tts(
     try:
         audio = await generate_preview(org_id, body.tts_config, body.language, body.text)
     except TtsPreviewError as exc:
-        _raise_preview_error(exc)
-        raise  # unreachable; satisfies type checkers
+        raise _to_http_error(exc) from exc
 
-    return Response(content=audio, media_type="audio/wav")
+    return Response(content=audio, media_type=PREVIEW_MEDIA_TYPE)
