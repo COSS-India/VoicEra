@@ -202,26 +202,53 @@ Every response carries the evidence: `X-Tokens`, `X-Tokens-Per-Sec`, `X-RTF`,
 the same numbers in the SSE `speech.audio.done` event, and the demo page prints
 them. Warmup logs tokens/sec at startup.
 
-## Still unverified
+## One decoder for every stream
 
-**The streaming decode window.** Mimi in `transformers` carries no streaming
-state between `decode()` calls, so each chunk is decoded together with
-`RUMIK_DECODE_CONTEXT_FRAMES` preceding frames as context and only the new
-samples are kept. 32 frames (2.56 s) is generous for a convolutional decoder
-with local attention — but it is chosen, not measured. Too small does not error;
-it puts a click or a seam at every chunk boundary. The check:
+Measured on ace-h200 GPU 1 (0.12 of memory, shared through MPS) with
+`tests/bench/sweep.py`, before this: output stopped at **~16 audio-seconds per
+second** whatever the load — closed loop at 8, 16 and 32 streams, Poisson at 4
+req/s, bursts of 8–32 all flattened there — while vLLM itself was barely busy
+(RTF 0.40 → 0.44 from 1 to 8 streams). Orpheus on the same card and setting
+reaches 96 streams.
 
-```python
-# stream an utterance, keeping the token ids, then decode the same ids in one
-# pass and compare. They should be identical to within float noise.
-streamed = b"".join(chunks)                       # from POST with response_format=pcm
-codes = model.audio_tokens_to_codes(token_ids)
-whole = mimi.decode(codes.to(mimi.device)).audio_values[0, 0]
-# max abs difference over the overlapping region should be ~1e-3 or below
+The cause was the audio decode: every stream called Mimi on its own, per chunk,
+from a thread. A small Mimi decode costs about the same whatever its size, so
+the number of calls is what counts — halving it (chunks of 4 frames instead of 2)
+doubled the ceiling, while cutting each call's window from 34 frames to 12 barely
+moved it.
+
+`decoder.BatchedDecoder` is `tts/orpheus`'s batched decoder adapted to Mimi:
+every stream's window goes on one queue, one worker decodes whatever has queued
+in one call per window length, and each stream gets its own rows back. N streams
+cost one decode, not N. `RUMIK_DECODER_MAX_BATCH` (64) caps rows per call; keep
+it at or above `RUMIK_MAX_CONCURRENCY`.
+
+What to read under load:
+
+- `GET /metrics` → `decoder.rows_per_wakeup`: near 1 means streams are still
+  decoded one at a time, near `streams_active` means they are batched;
+  `stream_wait_ms` is what a stream waits for its audio.
+- Each buffered response carries `X-Token-Wait-Ms` and `X-Decode-Wait-Ms`, and
+  the SSE `done` event the same as `token_wait_ms` / `decode_wait_ms`: whether a
+  slow stream was waiting on generation or on audio.
+- `/health` carries `streams_active`, which the staging benches poll to drain
+  between cells.
+
+## Still unverified: the decode context
+
+`RUMIK_DECODE_CONTEXT_FRAMES` (32 frames, 2.56 s) was chosen, not measured. Too
+little does not error — it puts a seam at every chunk boundary. Measure it on
+real speech, the way `tts/orpheus` measured its Vocos decoder:
+
+```bash
+docker cp some_24khz_clip.wav rumik-test:/tmp/clip.wav
+docker exec rumik-test python measure_context.py /tmp/clip.wav
 ```
 
-If it is not, raise `RUMIK_DECODE_CONTEXT_FRAMES` until it is, and record the
-number that worked here.
+It encodes the clip with this checkpoint's Mimi, streams it back through the
+same windowing at contexts 0–32, and prints each one's error against one
+whole-utterance decode. Pick the smallest context where the peak error is
+inaudible, and record the number here.
 
 ## Gotchas
 

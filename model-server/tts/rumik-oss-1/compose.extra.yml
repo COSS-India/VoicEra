@@ -157,6 +157,13 @@ services:
       # decode is short, so this mostly trades GPU memory for a PCIe copy per
       # chunk.
       RUMIK_DECODER_DEVICE: ${RUMIK_DECODER_DEVICE:-cuda}
+      # Most windows one batched Mimi call decodes. Every stream's chunk goes
+      # to one shared decoder, which decodes whatever has queued together, so
+      # this is the ceiling on streams served per decode call, not a queue
+      # length. Keep it at or above RUMIK_MAX_CONCURRENCY: below it, a burst
+      # takes more than one call per round. Each width up to it is run once at
+      # startup, so the first real burst at a new size does not pay for it.
+      RUMIK_DECODER_MAX_BATCH: ${RUMIK_DECODER_MAX_BATCH:-64}
 
       # ---- warmup ------------------------------------------------------
       # One short synthesis at startup. It also proves the sampling tap that

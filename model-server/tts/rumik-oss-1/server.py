@@ -206,9 +206,24 @@ def create_app(config: Config | None = None) -> FastAPI:
                 "voices": list(engine.speakers) if ready else [],
                 "sample_rate": engine.sample_rate if ready else None,
                 "frame_ms": round(engine.frame_ms, 2) if ready else None,
+                # What the load benches poll to know the server has drained
+                # between cells (tests/bench/sweep.py, concurrency-bench).
+                "streams_active": engine.streams_active,
             },
             status_code=200 if ready else 503,
         )
+
+    @app.get("/metrics")
+    async def metrics():
+        """Process-wide counters: active streams and the shared decoder.
+
+        `decoder.rows_per_wakeup` is the number to read under load. Near 1 means
+        streams are still being decoded one at a time; near the number of active
+        streams means they are being batched. `stream_wait_ms` is what a stream
+        waits for its audio, queue included.
+        """
+        engine: RumikTTSEngine = app.state.engine
+        return {"ready": app.state.ready, "engine": cfg.engine, **engine.metrics()}
 
     @app.get("/v1/models")
     async def list_models():
@@ -343,6 +358,10 @@ def _timing_headers(stats: StreamStats) -> dict[str, str]:
         # audio. Diagnosing that once needed a hand-written script against the
         # raw model, which is a thing a response should never require.
         "X-Tokens": str(stats.tokens),
+        # Where the time went: generation vs audio decoding. See
+        # engine.synthesize_stream.
+        "X-Token-Wait-Ms": f"{stats.token_wait_ms:.1f}",
+        "X-Decode-Wait-Ms": f"{stats.decode_wait_ms:.1f}",
     }
     if stats.truncated:
         # The body is complete as a file but the utterance is not: generation

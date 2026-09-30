@@ -204,6 +204,95 @@ def frames_from_tokens(token_ids, layout: CodecLayout) -> list[list[int]]:
     return frames
 
 
+class FrameAssembler:
+    """``frames_from_tokens``, one token at a time.
+
+    The streaming path used to call ``frames_from_tokens`` on the whole token
+    list every time it wanted to decode a chunk, which re-walks every token of
+    the utterance per chunk -- quadratic in its length, under the GIL, for every
+    concurrent stream. This keeps the same state the loop above keeps (the
+    partial frame, whether ``</audio>`` has been seen) and applies the same three
+    rules, so feeding it a sequence token by token yields exactly the frames
+    ``frames_from_tokens`` returns for that sequence. tests/test_rumik_codec.py
+    checks that on random sequences, strays and misorderings included.
+    """
+
+    __slots__ = ("_first", "_last", "_q", "_end", "_partial", "ended", "frames")
+
+    def __init__(self, layout: CodecLayout) -> None:
+        self._first, self._last = layout.first_unit_id, layout.last_unit_id
+        self._q, self._end = layout.num_quantizers, layout.audio_end_token_id
+        self._partial: list[int] = []
+        self.ended = False
+        self.frames: list[list[int]] = []
+
+    def push(self, token_id: int) -> bool:
+        """Feed one generated id. True when it completed a frame."""
+        if self.ended:
+            return False
+        tid = int(token_id)
+        if tid == self._end:
+            self.ended = True
+            return False
+        if not self._first <= tid <= self._last:
+            self._partial = []
+            return False
+        code, quantizer = divmod(tid - self._first, self._q)
+        if quantizer == len(self._partial):
+            self._partial.append(code)
+            if len(self._partial) == self._q:
+                self.frames.append(self._partial)
+                self._partial = []
+                return True
+        else:
+            self._partial = [code] if quantizer == 0 else []
+        return False
+
+
+class StreamWindows:
+    """Which frames to decode next, and how many samples of the result to keep.
+
+    The window rule is the one this folder has always used: once ``chunk`` new
+    frames exist, decode them together with up to ``context`` frames before
+    them and keep only the new frames' samples. Mimi is causal, so there is
+    nothing to wait for on the right. Consecutive windows tile the stream
+    exactly once -- no gap, no repeat -- which tests/test_rumik_codec.py checks.
+
+    Decoding does not happen here. The engine hands each window to the batched
+    decoder, which is the point: every stream's windows are decoded together.
+    Steady-state windows are all ``context + chunk`` frames long, so they stack
+    on one batch dimension; only a stream's first few windows are shorter.
+    """
+
+    def __init__(self, assembler: FrameAssembler, *, chunk: int, context: int) -> None:
+        if chunk < 1 or context < 0:
+            raise ValueError("chunk must be >= 1 and context >= 0")
+        self.assembler = assembler
+        self.chunk = chunk
+        self.context = context
+        self.emitted = 0
+
+    def _window(self, new: int) -> tuple[list[list[int]], int]:
+        frames = self.assembler.frames
+        total = self.emitted + new
+        start = max(0, total - new - self.context)
+        self.emitted = total
+        return frames[start:total], new
+
+    def push(self, token_id: int) -> tuple[list[list[int]], int] | None:
+        """Feed one token; ``(window, new_frames)`` when a chunk is ready."""
+        if not self.assembler.push(token_id):
+            return None
+        if len(self.assembler.frames) - self.emitted < self.chunk:
+            return None
+        return self._window(len(self.assembler.frames) - self.emitted)
+
+    def flush(self) -> tuple[list[list[int]], int] | None:
+        """The frames still short of a full chunk when generation ends."""
+        pending = len(self.assembler.frames) - self.emitted
+        return self._window(pending) if pending > 0 else None
+
+
 def unit_token(code: int, quantizer: int, layout: CodecLayout) -> int:
     """The id carrying ``code`` at ``quantizer``. The inverse of the divmod above.
 

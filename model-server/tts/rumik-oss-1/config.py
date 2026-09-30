@@ -93,6 +93,7 @@ class Config:
 
     # ---- decode ---------------------------------------------------------
     decoder_device: str
+    decoder_max_batch: int
     decode_chunk_frames: int
     decode_context_frames: int
 
@@ -134,6 +135,7 @@ class Config:
             ),
             max_new_tokens_limit=int(_number(os.getenv("RUMIK_MAX_NEW_TOKENS_LIMIT"), 3072, int)),
             decoder_device=_text(os.getenv("RUMIK_DECODER_DEVICE"), "cuda"),
+            decoder_max_batch=int(_number(os.getenv("RUMIK_DECODER_MAX_BATCH"), 64, int)),
             decode_chunk_frames=int(_number(os.getenv("RUMIK_DECODE_CHUNK_FRAMES"), 2, int)),
             decode_context_frames=int(
                 _number(os.getenv("RUMIK_DECODE_CONTEXT_FRAMES"), 32, int)
@@ -156,6 +158,8 @@ class Config:
             raise ValueError(
                 "RUMIK_MAX_NEW_TOKENS_DEFAULT must be <= RUMIK_MAX_NEW_TOKENS_LIMIT"
             )
+        if self.decoder_max_batch < 1:
+            raise ValueError("RUMIK_DECODER_MAX_BATCH must be at least 1")
         if self.max_concurrency < 1:
             raise ValueError("RUMIK_MAX_CONCURRENCY must be at least 1")
         if self.engine not in ("vllm", "transformers"):

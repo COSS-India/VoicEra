@@ -126,7 +126,7 @@ def summarise(rows: list[Sched]) -> dict:
 
 async def metrics(client, base) -> dict:
     try:
-        r = await client.get(f"{base}/tts/metrics", timeout=10)
+        r = await client.get(f"{base}{PATHS['metrics']}", timeout=10)
         return r.json() if r.status_code == 200 else {}
     except Exception:                                            # noqa: BLE001
         return {}
@@ -136,7 +136,7 @@ async def wait_idle(client, base, timeout: float = 180.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            h = (await client.get(f"{base}/tts/health", timeout=10)).json()
+            h = (await client.get(f"{base}{PATHS['health']}", timeout=10)).json()
             if h.get("ready") and not h.get("streams_active"):
                 return True
         except Exception:                                        # noqa: BLE001
@@ -252,7 +252,17 @@ async def run_cell(client, args, *, n, text, voice, language,
     return cell
 
 
+#: Where the server keeps its health and counters. Defaults are the gateway's
+#: routes; --health-path / --metrics-path point the bench at a model container
+#: directly (rumik-oss-1 serves /health and /metrics at its root).
+PATHS = {"health": "/tts/health", "metrics": "/tts/metrics"}
+
+
 def resolve_voice(base, language, wanted):
+    if wanted:
+        # Named explicitly: trust it. The roster is a gateway route in Orpheus's
+        # per-language shape; a wrong name still fails, as the server's own 400.
+        return wanted
     r = httpx.get(f"{base}/tts/v1/voices", params={"language": language}, timeout=15)
     r.raise_for_status()
     voices = r.json().get(language, {}).get("voices") or []
@@ -268,7 +278,7 @@ def environment(base) -> dict:
            "when_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "gateway": base, "endpoint": "POST /v1/audio/speech (response_format=pcm)"}
     try:
-        env["health"] = httpx.get(f"{base}/tts/health", timeout=10).json()
+        env["health"] = httpx.get(f"{base}{PATHS['health']}", timeout=10).json()
     except Exception:                                            # noqa: BLE001
         env["health"] = "unreachable"
     for key, cmd in (("gpu", "nvidia-smi --query-gpu=name,memory.total,driver_version,"
@@ -415,12 +425,16 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=1234)
     p.add_argument("--language", default="hi")
     p.add_argument("--voice", default="")
+    p.add_argument("--health-path", default=PATHS["health"],
+                   help="/health when --url is a model container rather than the gateway")
+    p.add_argument("--metrics-path", default=PATHS["metrics"])
     p.add_argument("--style", default="none")
     p.add_argument("--length", default="medium", choices=list(PROMPTS))
     p.add_argument("--max-tokens", type=int, default=0)
     p.add_argument("--seconds", type=float, default=600.0)
     p.add_argument("--out", default="")
     args = p.parse_args()
+    PATHS.update(health=args.health_path, metrics=args.metrics_path)
     if not args.out:
         args.out = f"results/{args.suite}_{time.strftime('%Y%m%d-%H%M%S')}.json"
     sys.exit(asyncio.run(main_async(args)))

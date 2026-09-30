@@ -37,21 +37,22 @@ method call.
 --------------------------------------------------------------------------
 Decoding while generating
 
-Mimi's decoder in `transformers` has no streaming state to carry across calls
-(the transformer KV could be cached; the convolution stack cannot), so frames
-are decoded in a window and only the newest samples are kept:
+Mimi's decoder in `transformers` has no streaming state to carry across calls,
+so frames are decoded in a window and only the newest samples are kept:
 
     decode frames [total - new - RUMIK_DECODE_CONTEXT_FRAMES : total]
     emit the last  new * samples_per_frame  samples
 
-`tests/` proves that tiles the clip exactly once, with no gap or repeat. The
-leading frames are context whose only job is to make the emitted samples
-identical to a single whole-clip decode.
+`tests/` proves that tiles the clip exactly once, with no gap or repeat.
+`codec.StreamWindows` keeps that bookkeeping per stream, and
+`codec.FrameAssembler` de-interleaves tokens as they arrive instead of
+re-walking the whole utterance per chunk.
 
-**This is the next bottleneck, and it is known.** At the shipped defaults each
-chunk decodes 34 frames to emit 2 -- 17x redundant. That is invisible while the
-LM is the slow part and stops being invisible the moment vLLM is doing the
-generating. Retune it against a measured single-stream RTF, not before.
+The decode itself is shared. Every stream's windows go to one
+`decoder.BatchedDecoder`, which decodes whatever has queued in one Mimi call per
+window length. Before it, each stream decoded on its own from a thread, and the
+server stopped at ~16 audio-seconds per second however many streams it had --
+decoder.py has the measurement.
 """
 from __future__ import annotations
 
@@ -65,8 +66,9 @@ from dataclasses import dataclass
 
 import torch
 from audio import SAMPLE_RATE
-from codec import CodecLayout, check_prompt_ids, codes_tensor, frames_from_tokens
+from codec import CodecLayout, FrameAssembler, StreamWindows, check_prompt_ids
 from config import Config
+from decoder import BatchedDecoder, MimiRows
 from prompt import PromptError, build_prompt, check_text
 from transformers import AutoFeatureExtractor, AutoTokenizer, MimiModel
 
@@ -168,6 +170,11 @@ class StreamStats:
     frames: int = 0
     pcm_bytes: int = 0
     gen_ms: float = 0.0
+    #: Where this stream's wall time went: waiting for tokens (generation) or
+    #: waiting for audio (decoder queue + decode). See synthesize_stream.
+    token_wait_ms: float = 0.0
+    decode_wait_ms: float = 0.0
+    decode_calls: int = 0
     #: Generation hit the token cap rather than ending on its own. The audio
     #: stops mid-utterance, and on the streamed path this is the only record.
     truncated: bool = False
@@ -194,6 +201,9 @@ class StreamStats:
             "tokens": self.tokens,
             "tokens_per_s": self.tokens_per_s,
             "truncated": self.truncated,
+            "token_wait_ms": round(self.token_wait_ms, 1),
+            "decode_wait_ms": round(self.decode_wait_ms, 1),
+            "decode_calls": self.decode_calls,
         }
 
 
@@ -299,7 +309,9 @@ class RumikTTSEngine:
         self.quantizers = 8
         self.max_position_embeddings = cfg.max_model_len
         self._tokens = None
+        self._decoder: BatchedDecoder | None = None
         self._slots = asyncio.Semaphore(cfg.max_concurrency)
+        self.streams_active = 0
 
     # ---------------------------------------------------------------- loading
     async def start(self) -> None:
@@ -310,6 +322,19 @@ class RumikTTSEngine:
         """
         cfg = self.cfg
         await asyncio.to_thread(self._load_shared)
+
+        self._decoder = BatchedDecoder(
+            MimiRows(self.mimi, self.samples_per_frame), max_batch=cfg.decoder_max_batch
+        )
+        # Every width up to the ceiling, before traffic: the first burst at a
+        # batch size the decoder has never run otherwise pays for it in TTFA.
+        widths = [1 << i for i in range(cfg.decoder_max_batch.bit_length())]
+        await asyncio.to_thread(
+            self._decoder.warm,
+            cfg.decode_context_frames + cfg.decode_chunk_frames, self.quantizers,
+            [*widths, cfg.decoder_max_batch],
+        )
+        self._decoder.start()
 
         if cfg.engine == "vllm":
             from vllm_backend import VllmTokenSource
@@ -387,6 +412,8 @@ class RumikTTSEngine:
     async def stop(self) -> None:
         if self._tokens is not None:
             await self._tokens.stop()
+        if self._decoder is not None:
+            self._decoder.stop()
 
     async def _warmup(self) -> None:
         """One short synthesis, to pay the load costs before traffic.
@@ -414,25 +441,6 @@ class RumikTTSEngine:
                  count, elapsed, count / (elapsed / 1000.0))
 
     # ------------------------------------------------------------- the stream
-    def _decode_new_frames(self, tokens: list[int], emitted: int,
-                           *, flush: bool) -> tuple[bytes, int] | None:
-        """PCM for whatever complete frames have appeared since `emitted`."""
-        frames = frames_from_tokens(tokens, self.layout)
-        total = len(frames)
-        new = total - emitted
-        if new <= 0 or (not flush and new < self.cfg.decode_chunk_frames):
-            return None
-
-        start = max(0, total - new - self.cfg.decode_context_frames)
-        window = codes_tensor(frames[start:total]).to(self.mimi.device)
-        with torch.inference_mode():
-            wav = self.mimi.decode(window).audio_values[0, 0]
-        keep = new * self.samples_per_frame
-        fresh = wav[-keep:] if int(wav.shape[-1]) > keep else wav
-
-        arr = fresh.float().cpu().clamp(-1.0, 1.0).numpy()
-        return (arr * 32767.0).astype("<i2").tobytes(), total
-
     def plan(self, *, text: str, voice: str | None,
              instructions: str | None, max_new_tokens: int | None) -> tuple[list[int], int]:
         """Validate the request and return (prompt token ids, token budget).
@@ -474,36 +482,43 @@ class RumikTTSEngine:
         """Yield 24 kHz mono s16le PCM as it is generated.
 
         Backend-agnostic: it consumes token ids and knows nothing about which
-        engine produced them.
+        engine produced them. Per token it does O(1) work -- the assembler
+        de-interleaves incrementally -- and each finished chunk goes to the
+        shared batched decoder, which decodes it together with every other
+        stream's pending chunk.
+
+        Two stage timings are kept per stream, because the question a slow
+        stream raises is which stage made it slow: `token_wait_ms` is time spent
+        waiting for the next token (generation), `decode_wait_ms` is time spent
+        waiting for audio (the decoder queue plus the decode itself).
         """
         cfg = self.cfg
         stats.frame_ms = self.frame_ms
         async with self._slots:
-            tokens: list[int] = []
-            emitted = 0
+            windows = StreamWindows(FrameAssembler(self.layout),
+                                    chunk=cfg.decode_chunk_frames,
+                                    context=cfg.decode_context_frames)
+            count, last = 0, None
             started = time.perf_counter()
+            self.streams_active += 1
             try:
+                waiting = time.perf_counter()
                 async for token in self._tokens.stream(
                     prompt_token_ids, max_new_tokens=max_new_tokens,
                     temperature=temperature if temperature is not None else cfg.temperature,
                     top_k=top_k if top_k is not None else cfg.top_k,
                 ):
-                    tokens.append(token)
-                    stats.tokens = len(tokens)
-                    # Cheap gate: de-interleaving can drop tokens, so this only
-                    # decides when it is worth asking.
-                    if len(tokens) < (emitted + cfg.decode_chunk_frames) * self.quantizers:
-                        continue
-                    chunk = await asyncio.to_thread(
-                        self._decode_new_frames, list(tokens), emitted, flush=False
-                    )
-                    if chunk is None:
-                        continue
-                    pcm, emitted = chunk
-                    self._record(stats, started, emitted, pcm)
-                    yield pcm
+                    stats.token_wait_ms += (time.perf_counter() - waiting) * 1000.0
+                    count, last = count + 1, token
+                    stats.tokens = count
+                    pending = windows.push(token)
+                    if pending is not None:
+                        pcm = await self._decode(pending, stats)
+                        self._record(stats, started, windows.emitted, pcm)
+                        yield pcm
+                    waiting = time.perf_counter()
 
-                if self._hit_cap(tokens, max_new_tokens):
+                if self._hit_cap(count, last, max_new_tokens):
                     stats.truncated = True
                     log.warning(
                         "generation hit the %d-token cap (~%.1f s of audio) before the "
@@ -513,17 +528,24 @@ class RumikTTSEngine:
                         max_new_tokens, max_new_tokens / self.layout.tokens_per_second,
                     )
 
-                tail = await asyncio.to_thread(
-                    self._decode_new_frames, list(tokens), emitted, flush=True
-                )
+                tail = windows.flush()
                 if tail is not None:
-                    pcm, emitted = tail
-                    self._record(stats, started, emitted, pcm)
+                    pcm = await self._decode(tail, stats)
+                    self._record(stats, started, windows.emitted, pcm)
                     yield pcm
             finally:
+                self.streams_active -= 1
                 stats.gen_ms = (time.perf_counter() - started) * 1000.0
 
-    def _hit_cap(self, tokens: list[int], max_new_tokens: int) -> bool:
+    async def _decode(self, pending, stats: StreamStats) -> bytes:
+        window, new = pending
+        submitted = time.perf_counter()
+        pcm = await self._decoder.decode(window, new)
+        stats.decode_wait_ms += (time.perf_counter() - submitted) * 1000.0
+        stats.decode_calls += 1
+        return pcm
+
+    def _hit_cap(self, count: int, last: int | None, max_new_tokens: int) -> bool:
         """True when the budget ran out rather than the model stopping.
 
         Backend-agnostic on purpose. vLLM ends on `</audio>` and includes it in
@@ -532,8 +554,18 @@ class RumikTTSEngine:
         cap. Either way a finished utterance is shorter than the cap or ends in
         `</audio>`, and a truncated one is neither.
         """
-        return (len(tokens) >= max_new_tokens
-                and (not tokens or tokens[-1] != self.layout.audio_end_token_id))
+        return count >= max_new_tokens and last != self.layout.audio_end_token_id
+
+    def metrics(self) -> dict:
+        """Process-wide counters for GET /metrics. Per-request numbers live on
+        each response's headers and SSE `done` event, never here."""
+        return {
+            "streams_active": self.streams_active,
+            "max_concurrency": self.cfg.max_concurrency,
+            "decode_chunk_frames": self.cfg.decode_chunk_frames,
+            "decode_context_frames": self.cfg.decode_context_frames,
+            "decoder": self._decoder.snapshot() if self._decoder is not None else None,
+        }
 
     @staticmethod
     def _record(stats: StreamStats, started: float, frames: int, pcm: bytes) -> None:
