@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import wave
 from io import BytesIO
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -24,26 +25,25 @@ class _DummyConfig(BaseModel):
 
 
 def test_register_preview_adds_to_registry():
-    # Arrange
-    PREVIEW_ADAPTERS.pop("dummy-test-provider", None)
+    # Arrange: patch.dict restores the shared registry even if the assert fails.
+    with patch.dict(PREVIEW_ADAPTERS):
+        # Act
+        @register_preview("dummy-test-provider")
+        async def synth(cfg, text, client):
+            return b"audio"
 
-    # Act
-    @register_preview("dummy-test-provider")
-    async def synth(cfg, text, client):
-        return b"audio"
-
-    # Assert
-    assert has_preview_adapter("dummy-test-provider")
-    PREVIEW_ADAPTERS.pop("dummy-test-provider", None)
+        # Assert
+        assert has_preview_adapter("dummy-test-provider")
+    assert not has_preview_adapter("dummy-test-provider")
 
 
-def test_synthesize_preview_dispatches_to_registered_adapter():
+def test_synthesize_preview_dispatches_to_registered_adapter(monkeypatch):
     # Arrange
     async def fake_adapter(cfg, text, client):
         assert text == "hello"
         return b"wav-bytes"
 
-    PREVIEW_ADAPTERS["dummy-test-provider"] = fake_adapter
+    monkeypatch.setitem(PREVIEW_ADAPTERS, "dummy-test-provider", fake_adapter)
 
     async def run():
         async with httpx.AsyncClient() as client:
@@ -54,14 +54,15 @@ def test_synthesize_preview_dispatches_to_registered_adapter():
 
     # Assert
     assert result == b"wav-bytes"
-    PREVIEW_ADAPTERS.pop("dummy-test-provider", None)
 
 
 def test_synthesize_preview_raises_for_unknown_provider():
+    # Arrange
     async def run():
         async with httpx.AsyncClient() as client:
             await synthesize_preview("no-such-provider", _DummyConfig(), "hello", client)
 
+    # Act / Assert
     with pytest.raises(PreviewProviderError, match="No preview adapter"):
         _run(run())
 
