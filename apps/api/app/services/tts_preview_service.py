@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import time
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -57,6 +58,11 @@ _CACHE_VERSION = 1
 # Well under TTS_PREVIEW_TIMEOUT_S: the MinIO client's own default is 300 s,
 # and a cache that's slower than synthesis is worse than no cache.
 _CACHE_TIMEOUT_S = 2.0
+_CACHE_CONNECT_TIMEOUT_S = 1.0
+# httpx's timeout is per phase (connect/read), asyncio's is total. Keeping
+# httpx's this much longer means asyncio always fires first, so the client
+# gets 504 TIMEOUT, never an adapter's httpx.TimeoutException as a 502.
+_HTTPX_TIMEOUT_MARGIN_S = 1.0
 # Redis socket timeouts, so a partitioned (not refusing) Redis raises
 # redis.TimeoutError, which check_rate_limit fails open on, instead of hanging.
 _REDIS_TIMEOUT_S = 1.0
@@ -103,7 +109,7 @@ def _get_storage() -> MinIOStorage:
     if _storage is None:
         _storage = MinIOStorage(
             http_client=urllib3.PoolManager(
-                timeout=urllib3.Timeout(connect=1.0, read=_CACHE_TIMEOUT_S),
+                timeout=urllib3.Timeout(connect=_CACHE_CONNECT_TIMEOUT_S, read=_CACHE_TIMEOUT_S),
                 retries=urllib3.Retry(total=0),
                 cert_reqs="CERT_REQUIRED",
                 ca_certs=os.environ.get("SSL_CERT_FILE") or certifi.where(),
@@ -159,8 +165,26 @@ async def check_rate_limit(org_id: str) -> None:
         )
 
 
-def _elapsed_ms(started: float) -> int:
-    return int((time.monotonic() - started) * 1000)
+@dataclass(frozen=True)
+class _PreviewLog:
+    """Fields shared by a preview's single outcome log line.
+
+    Never holds the preview text or credentials: only its length.
+    """
+
+    org_id: str
+    provider: str
+    model: str
+    chars: int
+    started: float
+
+    def emit(self, event: str, **fields: object) -> None:
+        extra = "".join(f" {name}=%s" for name in fields)
+        logger.info(
+            "tts_preview %s org=%s provider=%s model=%s chars=%d ms=%d" + extra,
+            event, self.org_id, self.provider, self.model, self.chars,
+            int((time.monotonic() - self.started) * 1000), *fields.values(),
+        )
 
 
 def build_cache_key(org_id: str, blob: dict[str, Any], text: str) -> str:
@@ -310,6 +334,27 @@ async def resolve_config(org_id: str, blob: dict[str, Any]) -> BaseModel:
         ) from exc
 
 
+async def _synthesize_with_timeout(
+    provider: str, cfg: BaseModel, text: str, log: _PreviewLog
+) -> bytes:
+    """Call the adapter within ``TTS_PREVIEW_TIMEOUT_S``; map failures to ``TtsPreviewError``."""
+    httpx_timeout = settings.TTS_PREVIEW_TIMEOUT_S + _HTTPX_TIMEOUT_MARGIN_S
+    try:
+        async with httpx.AsyncClient(timeout=httpx_timeout) as client:
+            async with asyncio.timeout(settings.TTS_PREVIEW_TIMEOUT_S):
+                return await synthesize_preview(provider, cfg, text, client)
+    except TimeoutError as exc:
+        log.emit("timeout")
+        raise TtsPreviewError(TtsPreviewErrorReason.TIMEOUT, "Voice preview timed out") from exc
+    except PreviewProviderError as exc:
+        # Generic to the client: the adapter's message can carry httpx
+        # connection/DNS details. The detail goes to the log line only.
+        log.emit("upstream_error", error=exc)
+        raise TtsPreviewError(
+            TtsPreviewErrorReason.UPSTREAM, "Voice provider request failed"
+        ) from exc
+
+
 async def generate_preview(org_id: str, tts_config: dict[str, Any], language: str, text: str) -> bytes:
     """Validate, serve from cache or synthesize (and cache) one preview clip.
 
@@ -319,6 +364,7 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     stripped = strip_placeholders(text)
     validated_blob = validate_request(tts_config, language, stripped)
     provider = _get_provider(validated_blob)
+    log = _PreviewLog(org_id, provider, str(validated_blob.get("model")), len(stripped), started)
 
     # Cache before the rate limit and the NOT_CONFIGURED check: a hit costs
     # the vendor nothing, and both exist to guard vendor calls. So an org that
@@ -327,49 +373,17 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     cache_key = build_cache_key(org_id, validated_blob, stripped)
     cached = await get_cached(cache_key)
     if cached is not None:
-        logger.info(
-            "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d cache=hit ms=%d",
-            org_id, provider, validated_blob.get("model"), len(stripped), len(cached),
-            _elapsed_ms(started),
-        )
+        log.emit("ok", bytes=len(cached), cache="hit")
         return cached
 
     # Counted before the NOT_CONFIGURED check on purpose: like API gateways,
     # every request that reaches the limiter counts, 409s included.
     await check_rate_limit(org_id)
     cfg = await resolve_config(org_id, validated_blob)
-
-    try:
-        # httpx's timeout is per phase (connect/read), asyncio's is total. Keep
-        # httpx's a second longer so asyncio always fires first and the client
-        # gets 504 TIMEOUT, never an adapter's httpx.TimeoutException as 502.
-        async with httpx.AsyncClient(timeout=settings.TTS_PREVIEW_TIMEOUT_S + 1) as client:
-            async with asyncio.timeout(settings.TTS_PREVIEW_TIMEOUT_S):
-                audio = await synthesize_preview(provider, cfg, stripped, client)
-    except TimeoutError as exc:
-        logger.info(
-            "tts_preview timeout org=%s provider=%s model=%s chars=%d ms=%d",
-            org_id, provider, validated_blob.get("model"), len(stripped), _elapsed_ms(started),
-        )
-        raise TtsPreviewError(TtsPreviewErrorReason.TIMEOUT, "Voice preview timed out") from exc
-    except PreviewProviderError as exc:
-        logger.info(
-            "tts_preview upstream_error org=%s provider=%s model=%s chars=%d ms=%d error=%s",
-            org_id, provider, validated_blob.get("model"), len(stripped), _elapsed_ms(started), exc,
-        )
-        # Generic to the client: the adapter's message can carry httpx
-        # connection/DNS details. The detail is in the log line above.
-        raise TtsPreviewError(
-            TtsPreviewErrorReason.UPSTREAM, "Voice provider request failed"
-        ) from exc
-
+    audio = await _synthesize_with_timeout(provider, cfg, stripped, log)
     if audio:
         await put_cached(cache_key, audio)
-    logger.info(
-        "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d cache=miss ms=%d",
-        org_id, provider, validated_blob.get("model"), len(stripped), len(audio),
-        _elapsed_ms(started),
-    )
+    log.emit("ok", bytes=len(audio), cache="miss")
     return audio
 
 

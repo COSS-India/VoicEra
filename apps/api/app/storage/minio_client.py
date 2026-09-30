@@ -34,6 +34,7 @@ class MinIOStorage:
         )
 
     async def get_object_bytes(self, object_key: str, bucket_name: str | None = None) -> bytes:
+        """Return the whole object's bytes, reading it off the event loop."""
         bucket = bucket_name or self.default_bucket
         # Read and close in the thread too: the response streams, so read()
         # is blocking network I/O that would otherwise stall the event loop.
