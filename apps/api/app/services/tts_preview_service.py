@@ -8,6 +8,8 @@ can never compete with a live call for the runtime's event loop or GPU.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import re
 import time
@@ -16,6 +18,7 @@ from typing import Any
 
 import httpx
 import redis.asyncio as aioredis
+from minio.error import S3Error
 from pydantic import ValidationError
 
 from apps.providers.base import Kind
@@ -35,6 +38,7 @@ from app.services.agent_config_validation import (
     AgentConfigValidationError,
     validate_persisted_model_config,
 )
+from app.storage.minio_client import MinIOStorage
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +46,10 @@ _PLACEHOLDER_RE = re.compile(r"\{\{\s*\w+\s*\}\}")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.!?;:])")
 _WHITESPACE_RE = re.compile(r"\s+")
 _RATE_LIMIT_WINDOW_S = 60
+# Bump when an adapter's output changes for the same inputs (WAV header, sample
+# rate, param mapping) so stale clips stop hitting; the bucket's 7-day
+# lifecycle rule cleans up the orphans.
+_CACHE_VERSION = 1
 
 import_vendor_previews()
 
@@ -107,6 +115,43 @@ async def check_rate_limit(org_id: str) -> None:
             "Too many voice previews; please wait a moment",
             retry_after=retry_after,
         )
+
+
+def build_cache_key(org_id: str, blob: dict[str, Any], text: str) -> str:
+    """Return the MinIO object key for a preview clip.
+
+    ``blob`` must be the secret-free validated config. The org id prefixes
+    the key so one org can never be served another org's cached clip.
+    """
+    payload = json.dumps(
+        {"v": _CACHE_VERSION, "cfg": blob, "text": text},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return f"{org_id}/{hashlib.sha256(payload.encode()).hexdigest()}.wav"
+
+
+async def get_cached(key: str) -> bytes | None:
+    """Return cached audio, or ``None`` on a miss or any MinIO failure."""
+    try:
+        return await MinIOStorage().get_object_bytes(key, bucket_name=settings.TTS_PREVIEW_BUCKET)
+    except S3Error as exc:
+        if exc.code != "NoSuchKey":
+            logger.warning("tts_preview cache_get_failed code=%s", exc.code)
+    except Exception:
+        logger.warning("tts_preview cache_get_failed", exc_info=True)
+    return None
+
+
+async def put_cached(key: str, audio: bytes) -> None:
+    """Store audio in the preview cache; best effort, never raises."""
+    try:
+        await MinIOStorage().put_object_bytes(
+            key, audio, bucket_name=settings.TTS_PREVIEW_BUCKET, content_type="audio/wav"
+        )
+    except Exception:
+        logger.warning("tts_preview cache_put_failed", exc_info=True)
 
 
 def strip_placeholders(text: str) -> str:
@@ -216,15 +261,27 @@ async def resolve_config(org_id: str, blob: dict[str, Any]) -> Any:
 
 
 async def generate_preview(org_id: str, tts_config: dict[str, Any], language: str, text: str) -> bytes:
-    """Validate, resolve config and synthesize one preview clip.
+    """Validate, serve from cache or synthesize (and cache) one preview clip.
 
     Ends with exactly one log line; never logs preview text or credentials.
     """
     stripped = strip_placeholders(text)
     validated_blob = validate_request(tts_config, language, stripped)
+    provider = str(validated_blob.get("provider") or "")
+
+    # Cache before the rate limit: a hit costs the vendor nothing, and the
+    # limit exists to protect vendor spend.
+    cache_key = build_cache_key(org_id, validated_blob, stripped)
+    cached = await get_cached(cache_key)
+    if cached is not None:
+        logger.info(
+            "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d cache=hit",
+            org_id, provider, validated_blob.get("model"), len(stripped), len(cached),
+        )
+        return cached
+
     await check_rate_limit(org_id)
     cfg = await resolve_config(org_id, validated_blob)
-    provider = str(validated_blob.get("provider") or "")
 
     try:
         # httpx's own default timeout is 5s; without overriding it here it can
@@ -245,8 +302,9 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
         )
         raise TtsPreviewError(TtsPreviewErrorReason.UPSTREAM, str(exc)) from exc
 
+    await put_cached(cache_key, audio)
     logger.info(
-        "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d",
+        "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d cache=miss",
         org_id, provider, validated_blob.get("model"), len(stripped), len(audio),
     )
     return audio
@@ -256,6 +314,7 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
 __all__ = [
     "TtsPreviewError",
     "TtsPreviewErrorReason",
+    "build_cache_key",
     "check_rate_limit",
     "generate_preview",
     "resolve_config",
