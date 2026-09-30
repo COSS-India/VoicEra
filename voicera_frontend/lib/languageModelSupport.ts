@@ -214,3 +214,34 @@ export function getIntersectedTTSModels(
 
   return intersectSets(perLang)
 }
+
+type LanguageModels = Record<string, { models: Record<string, unknown> }>
+
+const RETIRED_AI4BHARAT_MODELS: Record<string, string> = {
+  "indic-conformer-stt": "indic-nemotron-stt",
+  "indic-parler-tts": "indic-orpheus-tts",
+}
+
+/**
+ * Conformer/Parler are retired: map a saved model id to its replacement when
+ * `language` offers it (Bhili STT still only has Conformer), else return it
+ * unchanged. The voice server runs saved agents with the same mapping.
+ */
+export function upgradeRetiredModel(kind: "stt" | "tts", model: string, language: string): string {
+  const replacement = RETIRED_AI4BHARAT_MODELS[model]
+  if (!replacement) return model
+  const languages = (kind === "stt" ? sttData.stt.languages : ttsData.tts.languages) as LanguageModels
+  const offered = languages[language]?.models?.ai4bharat
+  const available = Array.isArray(offered)
+    ? offered.includes(replacement)
+    : (offered as { model?: string } | undefined)?.model === replacement
+  return available ? replacement : model
+}
+
+/** AI4Bharat TTS voices offered for a language (empty if none). */
+export function getAi4bharatVoices(language: string): string[] {
+  const entry = (ttsData.tts.languages as LanguageModels)[language]?.models?.ai4bharat as
+    | { voices?: unknown }
+    | undefined
+  return Array.isArray(entry?.voices) ? (entry.voices as string[]) : []
+}

@@ -57,7 +57,9 @@ import {
   getIntersectedSTTProviders,
   getIntersectedTTSModels,
   getIntersectedTTSProviders,
+  getAi4bharatVoices,
   loadSelectedLanguagesFromConfig,
+  upgradeRetiredModel,
   usesVoiceDescription,
 } from "@/lib/languageModelSupport"
 import { LanguageSelectionSection } from "@/components/assistants/language-selection-section"
@@ -826,8 +828,17 @@ export default function AgentDetailPage() {
 
           // Load STT settings - convert official name to internal ID
           const sttProviderName = agentData.agent_config?.stt_model?.name || ""
-          setSttProvider(getProviderIdFromName(sttProviderName))
-          setSttModel(agentData.agent_config?.stt_model?.model || "")
+          const sttProviderId = getProviderIdFromName(sttProviderName)
+          setSttProvider(sttProviderId)
+          const savedSttModel = agentData.agent_config?.stt_model?.model || ""
+          // Retired AI4Bharat models (Conformer/Parler) load as their replacements
+          // so the dropdowns aren't blank; saving persists the new ids.
+          const primaryLoadedLanguage = loadedLanguages[0] || ""
+          setSttModel(
+            sttProviderId === "ai4bharat"
+              ? upgradeRetiredModel("stt", savedSttModel, primaryLoadedLanguage)
+              : savedSttModel
+          )
 
           // Load TTS settings - convert official name to internal ID
           const ttsProviderName = agentData.agent_config?.tts_model?.name || ""
@@ -840,15 +851,33 @@ export default function AgentDetailPage() {
           const modelValue = usesArgsForModel
             ? (ttsArgs.model || ttsModelConfig?.model || "")
             : (ttsModelConfig?.model || "")
-          setTtsModel(modelValue)
+          const ttsModelValue =
+            ttsProviderId === "ai4bharat"
+              ? upgradeRetiredModel("tts", modelValue, primaryLoadedLanguage)
+              : modelValue
+          const ttsUpgraded = ttsModelValue !== modelValue
+          setTtsModel(ttsModelValue)
           // For Cartesia, Google, and ElevenLabs, load voice_id from args; for others, load from speaker
           const usesArgsForVoice = ttsProviderId === "cartesia" || ttsProviderId === "gcp" || ttsProviderId === "elevenlabs"
           const voiceValue = usesArgsForVoice
             ? (ttsArgs.voice_id || ttsModelConfig?.voice_id || ttsArgs.voice || "")
             : (ttsModelConfig?.speaker || "")
-          setTtsVoice(voiceValue)
+          if (ttsUpgraded) {
+            // Parler speaker names aren't Orpheus voices: keep only ones that exist.
+            const voices = getAi4bharatVoices(primaryLoadedLanguage)
+            setTtsVoice(voices.includes(voiceValue) ? voiceValue : voices[0] || "")
+            setTargetVoices((prev) =>
+              Object.fromEntries(
+                Object.entries(prev).filter(([lang, voice]) => getAi4bharatVoices(lang).includes(voice))
+              )
+            )
+          } else {
+            setTtsVoice(voiceValue)
+          }
           // Load TTS description for AI4Bharat and Bhashini
-          if (ttsProviderId === "ai4bharat" || ttsProviderId === "bhashini") {
+          if (ttsUpgraded) {
+            setTtsDescription("")
+          } else if (ttsProviderId === "ai4bharat" || ttsProviderId === "bhashini") {
             setTtsDescription(ttsModelConfig?.description || "")
           } else {
             setTtsDescription("")

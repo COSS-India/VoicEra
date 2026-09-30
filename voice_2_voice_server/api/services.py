@@ -31,7 +31,6 @@ from services.kenpath_llm.llm import (
     is_bharat_vistaar_language_supported,
     normalize_kenpath_backend,
 )
-from services.ai4bharat.tts import IndicParlerRESTTTSService
 from services.ai4bharat.stt import IndicConformerRESTSTTService
 from services.ai4bharat.nemotron_stt import IndicNemotronSTTService
 from services.ai4bharat.orpheus_tts import IndicOrpheusTTSService
@@ -489,14 +488,16 @@ def create_stt_service(
     
     elif provider == "AI4Bharat":
         model = args.get("model") or stt_config.get("model")
+        lang_code = STT_LANGUAGE_MAP[provider].get(language, language or "hi")
+        # Conformer is retired except for Bhili, which the Nemotron deployment
+        # doesn't serve; agents saved with it run on Nemotron instead.
+        if model == "indic-conformer-stt" and lang_code != "bhb":
+            model = "indic-nemotron-stt"
         if model == "indic-nemotron-stt":
-            return IndicNemotronSTTService(
-                language=STT_LANGUAGE_MAP[provider].get(language, language or "hi"),
-                sample_rate=sample_rate,
-            )
+            return IndicNemotronSTTService(language=lang_code, sample_rate=sample_rate)
         elif model == "indic-conformer-stt":
             return IndicConformerRESTSTTService(
-                language_id=STT_LANGUAGE_MAP[provider][language],
+                language_id=lang_code,
                 sample_rate=16000,
                 input_sample_rate=sample_rate,
                 suppress_vad_frames=(vad_analyzer is not None),
@@ -704,7 +705,9 @@ def create_tts_service(
     
     elif provider == "AI4Bharat":
         model = args.get("model") or tts_config.get("model")
-        if model == "indic-orpheus-tts":
+        # Parler is retired: agents saved with it run on Orpheus, and a Parler
+        # speaker name falls back to the language's default Orpheus voice.
+        if model in ("indic-orpheus-tts", "indic-parler-tts"):
             return IndicOrpheusTTSService(
                 voice=tts_config.get("speaker") or args.get("speaker"),
                 language_id=TTS_LANGUAGE_MAP[provider].get(language, language) if language else "hi",
@@ -712,22 +715,8 @@ def create_tts_service(
                 aiohttp_session=aiohttp_session,
                 sample_rate=sample_rate,
             )
-        elif model == "indic-parler-tts":
-            speaker = tts_config.get("speaker") or args.get("speaker")
-            description = tts_config.get("description") or args.get("description")
-            language_id = (
-                TTS_LANGUAGE_MAP[provider].get(language, language) if language else "hi"
-            )
-            return IndicParlerRESTTTSService(
-                speaker=speaker,
-                description=description,
-                language_id=language_id,
-                sample_rate=sample_rate
-            )
         else:
-            raise ServiceCreationError(
-                f"Unknown ai4bharat TTS model: {model}. Expected 'indic-orpheus-tts' or 'indic-parler-tts'"
-            )
+            raise ServiceCreationError(f"Unknown ai4bharat TTS model: {model}. Expected 'indic-orpheus-tts'")
     
     elif provider == "Bhashini":
         speaker = tts_config.get("speaker") or args.get("speaker")
