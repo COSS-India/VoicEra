@@ -186,6 +186,8 @@ def test_the_fetched_checkpoint_matches_the_layout_this_folder_assumes():
 
 def test_codes_tensor_has_the_shape_mimi_decode_wants():
     torch = pytest.importorskip("torch")
+    if not hasattr(torch, "tensor"):
+        pytest.skip("tests/stubs/torch.py stands in for torch here; needs the real one")
     tensor = codec.codes_tensor([list(EIGHT), list(NINE)])
     assert tensor.shape == (1, LAYOUT.num_quantizers, 2)
     assert tensor.dtype == torch.long
