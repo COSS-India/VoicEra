@@ -26,6 +26,6 @@ def create_frame_serializer(
         params=PlivoFrameSerializer.InputParams(
             plivo_sample_rate=sample_rate,
             sample_rate=sample_rate,
-            **kwargs,
+            auto_hang_up=False,
         ),
     )

@@ -206,6 +206,7 @@ def test_get_call_metrics_avg_tts_with_orpheus(
     assert summary["avg_stt_secs"] == 0.5
     assert summary["avg_llm_secs"] == 0.9
     assert summary["avg_tts_secs"] == 0.4
+    assert summary["avg_latency_secs"] == 1.3  # LLM + TTS only (STT excluded)
 
 
 @_patch_metrics_db("app.services.call_metrics_service.get_database")

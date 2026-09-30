@@ -4,6 +4,7 @@ import type {
   CallLogItem,
   CallLogListResponse,
   CallMetricsResponse,
+  CallTranslateResponse,
   OutboundCallRequest,
   OutboundCallResponse,
   WebCallRegisterRequest,
@@ -80,4 +81,18 @@ export async function getCallMetrics(callId: string): Promise<CallMetricsRespons
 /** All-time org call analytics — total calls, average duration, most-used agent. */
 export async function getOrgCallAnalytics(orgId: string): Promise<CallAnalyticsResponse> {
   return apiFetch<CallAnalyticsResponse>(`/calls/org/${encodeURIComponent(orgId)}/analytics`);
+}
+
+/** LLM-backed fallback translation, used only when the caller's on-device Chrome
+ * Translator API is unavailable or doesn't support the requested language pair
+ * (see lib/chrome-translation.ts). Stateless — recomputed on every call, never
+ * cached server-side. */
+export async function translateCallTranscriptViaLlm(
+  callId: string,
+  targetLang: string,
+): Promise<CallTranslateResponse> {
+  return apiFetch<CallTranslateResponse>(
+    `/calls/${encodeURIComponent(callId)}/translate?target_lang=${encodeURIComponent(targetLang)}`,
+    { method: "POST" },
+  );
 }

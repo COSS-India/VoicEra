@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity, ArrowLeft, Download, Pause, Play } from "lucide-react";
+import { Activity, ArrowLeft, Download, Languages, Pause, Play } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { CallTypeBadge } from "@/components/ui/CallTypeBadge";
 import { Spinner } from "@/components/ui/Spinner";
@@ -12,6 +12,7 @@ import { fetchCallRecordingBlob, fetchCallTranscriptText, getCallMetrics } from 
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
 import type { CallLogItem } from "@/lib/api-types";
+import { useTranscriptTranslation } from "@/hooks/useTranscriptTranslation";
 
 function formatDateTime(iso?: string | null): string {
   if (!iso) return "–";
@@ -261,6 +262,25 @@ export function CallDetailSheet({
   const audioElRef = useRef<HTMLAudioElement>(null);
   const [hasLatencyData, setHasLatencyData] = useState(false);
 
+  // Translation is computed client-side per session — never persisted, never
+  // cached across calls. This is a deliberate privacy/cost trade-off, not an
+  // oversight: call transcripts are sensitive data, so no cross-session or
+  // cross-reload cache is kept, even though it means re-paying the LLM cost
+  // on every view/reopen of the same call. `translation.result.lines` holds
+  // already-structured TranscriptLine[], not free text: the Chrome path
+  // builds this 1:1 from the original transcript, and the LLM fallback path
+  // parses + validates its response before ever setting the result, so
+  // rendering never needs to re-parse or guess at a possibly-corrupted shape.
+  const translation = useTranscriptTranslation<TranscriptLine>();
+  // Always the viewer's own browser language — no manual picker. General LLMs
+  // (and Chrome's on-device Translator) don't reliably support low-resource
+  // languages like Bhili or Dogri; letting users pick from the full catalog
+  // silently produced wrong-language output (e.g. Marathi/Bhojpuri substituted
+  // for Bhili) instead of a clear error. Restricting to the browser's own
+  // language avoids that gap entirely. Guarded for a future server-rendered
+  // variant of this component, though today it only ever mounts client-side.
+  const targetLang = ((typeof navigator !== "undefined" && navigator.language) || "en").split("-")[0]!;
+
   useEffect(() => {
     let cancelled = false;
     setHasLatencyData(false);
@@ -306,6 +326,11 @@ export function CallDetailSheet({
     let cancelled = false;
     setTranscript(null);
     setTranscriptError("");
+    // Reset translation state on call change too — a stale translation from
+    // the previous call must never leak into the newly-opened one. `targetLang`
+    // is deliberately NOT reset here: it's derived once from the browser's
+    // locale, not a user choice, so there's nothing to re-derive per call.
+    translation.reset();
     fetchCallTranscriptText(call.call_id)
       .then((text) => {
         if (cancelled) return;
@@ -318,7 +343,10 @@ export function CallDetailSheet({
     return () => {
       cancelled = true;
     };
-  }, [call.call_id]);
+    // translation.reset is stable (useCallback with no deps inside the hook);
+    // depending on the whole translation object would rerun this on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.call_id, translation.reset]);
 
   function togglePlay() {
     const el = audioElRef.current;
@@ -371,6 +399,43 @@ export function CallDetailSheet({
     a.download = `${call.call_id}-transcript.txt`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  /** Hybrid translate: tries the free, on-device Chrome Translator API first,
+   * falling back to the backend LLM endpoint only when that API is
+   * unavailable or doesn't support the requested language pair. The LLM
+   * fallback returning text that doesn't parse back into the same number of
+   * transcript lines surfaces an explicit error rather than silently
+   * reverting to the original transcript, since a spinner that stops with
+   * nothing visibly different looks exactly like the app doing nothing. */
+  async function handleTranslate() {
+    if (!transcript || transcript.length === 0) return;
+
+    await translation.translate(targetLang, {
+      originalLines: transcript,
+      zipOnDeviceLine: (original, translatedText) => ({ ...original, content: translatedText }),
+      callId: call.call_id,
+      resolveExpectedLineCount: async () => transcript.length,
+      fromParsedLine: (line) => line,
+    });
+  }
+
+  // A cached translation is only valid for the language it was produced in —
+  // if targetLang ever changed mid-session (it currently doesn't; there's no
+  // picker, it's fixed from navigator.language), this check keys off the
+  // language so a stale-language result is never shown as current.
+  const hasCachedTranslation = translation.hasCachedTranslation(targetLang);
+
+  function translateButtonLabel(): string {
+    if (translation.showing) return "Show original";
+    if (hasCachedTranslation) return "Show translation";
+    return "Translate";
+  }
+
+  function onTranslateButtonClick(): void {
+    if (translation.showing) translation.setShowing(false);
+    else if (hasCachedTranslation) translation.setShowing(true);
+    else handleTranslate();
   }
 
   return (
@@ -460,14 +525,25 @@ export function CallDetailSheet({
             ))}
           </div>
           {tab === "transcript" && transcript && transcript.length > 0 ? (
-            <button
-              type="button"
-              onClick={downloadTranscript}
-              className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent"
-            >
-              <Download className="size-3.5" strokeWidth={1.75} />
-              Export
-            </button>
+            <div className="mb-2 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onTranslateButtonClick}
+                disabled={translation.loading}
+                className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {translation.loading ? <Spinner light={false} /> : <Languages className="size-3.5" strokeWidth={1.75} />}
+                {translateButtonLabel()}
+              </button>
+              <button
+                type="button"
+                onClick={downloadTranscript}
+                className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent"
+              >
+                <Download className="size-3.5" strokeWidth={1.75} />
+                Export
+              </button>
+            </div>
           ) : null}
         </div>
 
@@ -481,11 +557,16 @@ export function CallDetailSheet({
           ) : transcript.length === 0 ? (
             <p className="py-8 text-center text-sm text-v-muted">No transcript for this call.</p>
           ) : (
-            <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
-              {transcript.map((line, i) => (
-                <TranscriptBubble key={i} line={line} active={i === activeIndex} onSeek={seekTo} />
-              ))}
-            </div>
+            <>
+              {translation.error ? (
+                <p className="py-2 text-center text-xs text-v-danger">{translation.error}</p>
+              ) : null}
+              <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
+                {(translation.showing && translation.result ? translation.result.lines : transcript).map((line, i) => (
+                  <TranscriptBubble key={i} line={line} active={i === activeIndex} onSeek={seekTo} />
+                ))}
+              </div>
+            </>
           )
         ) : (
           <dl className="flex flex-col gap-3">

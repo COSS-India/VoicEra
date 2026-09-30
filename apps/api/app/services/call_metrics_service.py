@@ -106,8 +106,8 @@ def _with_avg_latency(doc: dict[str, Any]) -> dict[str, Any]:
     ``summary``, computed from the per-turn ttfb breakdowns (mirrors the
     frontend's normalizeCallMetrics so both surfaces agree) — bot-initiated
     turns with no real user turn are excluded, same as there. avg_latency_secs
-    is the sum of whichever per-stage averages are actually available, since a
-    call missing one stage's data shouldn't make the whole figure disappear."""
+    is the sum of avg_llm_secs and avg_tts_secs (STT excluded), using
+    whichever of those two are actually available."""
     breakdowns = (doc.get("latencies") or {}).get("breakdowns") or []
     stt_values: list[float] = []
     tts_values: list[float] = []
@@ -128,7 +128,7 @@ def _with_avg_latency(doc: dict[str, Any]) -> dict[str, Any]:
     avg_stt = _average(stt_values)
     avg_tts = _average(tts_values)
     avg_llm = _average(llm_values)
-    available = [v for v in (avg_stt, avg_tts, avg_llm) if v is not None]
+    available = [v for v in (avg_llm, avg_tts) if v is not None]
 
     summary = dict(doc.get("summary") or {})
     summary["avg_stt_secs"] = avg_stt

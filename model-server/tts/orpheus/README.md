@@ -81,19 +81,41 @@ First start still takes several minutes with nothing on `/health` — watch
 **503 while loading** and 200 once warmup and CUDA graph capture have finished,
 which is exactly what the gateway's probe wants.
 
-### The decoder is not yet the one this checkpoint wants
+### The decoder is the checkpoint's own Vocos
 
-`indic-speak` uses SNAC only as a **quantizer** — its card gives the pipeline as
-`LM -> SNAC codes -> quantizer.from_codes -> z_q [B,768,L] -> Vocos -> 24 kHz`,
-with a fine-tuned Vocos decoder (`vocos/best.pt`) replacing SNAC's decoder
-entirely. `codec.py` here calls `SNAC.decode`, which runs quantizer *and* SNAC
-decoder.
+`indic-speak` uses SNAC only as a **quantizer**. Its card gives the pipeline as
+`LM -> SNAC codes -> quantizer.from_codes -> z_q [B,768,L] -> Vocos -> 24 kHz`
+and states that "Vocos replaces SNAC's decoder entirely" — 0.56 MB of SNAC's
+79 MB is used. `codec.py` does exactly that: `quantizer.from_codes()`, then the
+fine-tuned Vocos decoder from `vocos/best.pt`.
 
-The token contract is unchanged, so this works: same codebook, same code space,
-intelligible speech out. It is simply not the decoder the checkpoint was tuned
-for, so fidelity is the open question — compare against the previous checkpoint
-by ear before assuming the swap is neutral. `fetch.sh` pulls `vocos/` down with
-everything else so wiring it up needs no second download.
+SNAC's own decoder is never called, and there is no fallback to it. A missing
+`vocos/best.pt` raises at startup rather than quietly decoding with the wrong
+model, which is the failure this arrangement is most likely to hit — the
+checkpoint's `inference.py` offers SNAC's decoder only as `stock=True`, "for
+A/B", and this server ran that A/B path as its only path until the port.
+
+**Streaming a non-causal decoder.** Vocos needs real audio either side of the
+frames it emits, so `StreamingAudioBuffer` decodes a wide window and emits a
+narrow one: `left_context_frames` + `emit_frames` + `right_context_frames`.
+The defaults are measured, not derived — one frame decoded with N frames of
+context each side, compared against a whole-utterance decode of the same codes:
+
+| context | peak error vs whole-utterance decode |
+|---|---|
+| 3 + 3 | 3.024% — audible |
+| **4 + 4** | **0.007% — inaudible** |
+| 6 + 6 | 0.001% — no further gain |
+
+So 4 is the knee. End to end, streaming output matches a one-shot decode to
+within 9/32767 (−71 dB) on utterances up to 40 frames, and matches exactly at
+4 frames and under.
+
+`right_context_frames` is the latency knob: each frame is one more frame of
+generation to wait for before the first audio goes out, about 30 ms at the
+measured RTF of 0.35. `emit_frames: 1` keeps 85 ms chunks, the finest barge-in
+granularity; decode costs roughly 0.4% of real time at 32 concurrent streams,
+so there is nothing to buy by raising it.
 
 ## Beyond the OpenAI endpoint
 

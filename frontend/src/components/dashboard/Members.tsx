@@ -11,6 +11,7 @@ import { InviteLinkCopy } from "@/components/auth/OrgInviteShare";
 import { useAuth } from "@/components/AuthProvider";
 import { useMembers } from "@/hooks/useMembers";
 import type { MemberListItem } from "@/lib/api-types";
+import { formatUserRole } from "@/lib/format";
 
 type RoleFilter = "all" | "super_admin" | "admin" | "member";
 
@@ -26,13 +27,6 @@ const cardVariants: Variants = {
     transition: { delay: i * 0.05, duration: 0.3, ease: [0.4, 0, 0.2, 1] as const },
   }),
 };
-
-function roleLabel(role: string): string {
-  return role
-    .split("_")
-    .map((w) => w[0]!.toUpperCase() + w.slice(1))
-    .join(" ");
-}
 
 function roleTone(role: string) {
   if (role === "super_admin") return "accent" as const;
@@ -162,7 +156,7 @@ function MemberCard({ member, index, isSelf, canManage, busy, onPromote, onRemov
 
       {member.role !== "member" || isSelf ? (
         <div className="flex flex-wrap items-center justify-center gap-1.5">
-          {member.role !== "member" ? <Badge tone={roleTone(member.role)}>{roleLabel(member.role)}</Badge> : null}
+          {member.role !== "member" ? <Badge tone={roleTone(member.role)}>{formatUserRole(member.role)}</Badge> : null}
           {isSelf ? (
             <span className="rounded-full bg-v-soft px-2.5 py-0.5 text-[11px] text-v-muted">You</span>
           ) : null}

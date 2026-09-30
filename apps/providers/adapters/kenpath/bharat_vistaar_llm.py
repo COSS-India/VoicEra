@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 import httpx
-import jwt
 from loguru import logger
 from pipecat.frames.frames import (
     Frame,
@@ -22,8 +20,13 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.utils.tracing.service_decorators import traced_llm
 
-from .call_ending import end_call, response_requests_end_call, strip_goodbye_for_tts
-from .catalog import BHARAT_VISTAAR_CHAT_MODEL, BHARAT_VISTAAR_JWT_ISS
+from .call_ending import (
+    KenpathCallEndingMixin,
+    response_requests_end_call,
+    schedule_end_call,
+    strip_goodbye_for_tts,
+)
+from .catalog import BHARAT_VISTAAR_CHAT_MODEL, generate_jwt
 from .llm import extract_last_user_message
 
 
@@ -78,7 +81,7 @@ def bharat_vistaar_audio_suffix(audio_text: str, last_audio: str) -> tuple[str, 
     return audio_text, audio_text
 
 
-class BharatVistaarLLMService(LLMService):
+class BharatVistaarLLMService(KenpathCallEndingMixin, LLMService):
     """Kenpath Bharat Vistaar — OpenAI-style SSE chat completions."""
 
     def __init__(
@@ -106,6 +109,7 @@ class BharatVistaarLLMService(LLMService):
         self._call_id: str | None = None
         self._client: httpx.AsyncClient | None = None
         self._stream_end_interaction = False
+        self._init_call_ending()
 
         logger.info(
             "BharatVistaarLLMService initialized | model={} | url={}{} | lang={}",
@@ -124,16 +128,7 @@ class BharatVistaarLLMService(LLMService):
         return self._call_id or str(uuid.uuid4())
 
     def _generate_jwt(self) -> str:
-        now = int(time.time())
-        call_id = self._session_id()
-        payload = {
-            "user_id": call_id,
-            "tenant_id": call_id,
-            "iss": BHARAT_VISTAAR_JWT_ISS,
-            "iat": now,
-            "exp": now + 3600,
-        }
-        return jwt.encode(payload, self._private_key, algorithm="RS256")
+        return generate_jwt(self._private_key, backend="bharatvistaar", subject=self._session_id())
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -174,7 +169,11 @@ class BharatVistaarLLMService(LLMService):
                 await self.stop_processing_metrics()
                 await self.push_frame(LLMFullResponseEndFrame())
                 if end_interaction or response_requests_end_call(spoken_text):
-                    await end_call(self)
+                    await schedule_end_call(
+                        self,
+                        self._call_ending_controller,
+                        had_spoken_output=self._response_had_spoken_output,
+                    )
 
     @traced_llm
     async def _process_context(self, context: LLMContext) -> tuple[str, bool]:
@@ -190,6 +189,7 @@ class BharatVistaarLLMService(LLMService):
         first_chunk = True
         chunk_count = 0
         parts: list[str] = []
+        self._response_had_spoken_output = False
         async for chunk in self._stream_chat(messages):
             if first_chunk:
                 first_chunk = False
@@ -197,6 +197,7 @@ class BharatVistaarLLMService(LLMService):
             parts.append(chunk)
             tts_text = strip_goodbye_for_tts(chunk)
             if tts_text:
+                self._response_had_spoken_output = True
                 await self._push_llm_text(tts_text)
             chunk_count += 1
 

@@ -856,3 +856,10 @@ class KnowledgeRetrieveResponse(BaseModel):
     """RAG retrieval response."""
 
     chunks: list[KnowledgeChunkResponse] = Field(default_factory=list)
+
+
+class CallTranslateResponse(BaseModel):
+    """Translated transcript text for one call. Computed on demand, not persisted."""
+
+    translated_text: str
+    target_lang: str

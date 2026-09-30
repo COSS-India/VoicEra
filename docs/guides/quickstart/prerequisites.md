@@ -14,12 +14,13 @@ Work through this page before [Install and run](install-and-run). Most of it is 
 | Git | any recent | To clone the repository |
 | Python 3 | 3.11+ | Only for running from source. `start-application-services.sh` also uses it to generate the encryption key. |
 | `make` | any recent (GNU Make) | Runs every `make application-*` and `make model-server-*` command. Not preinstalled on Windows outside WSL2. |
+| `jq` | any recent | Extracts the `access_token` from signup/login responses without copy-pasting. |
 
 <Tabs>
 <Tab title="Ubuntu">
 ```bash
 sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-v2 git python3 python3-pip make
+sudo apt-get install -y docker.io docker-compose-v2 git python3 python3-pip make jq
 
 # Run docker without sudo
 sudo usermod -aG docker $USER
@@ -32,7 +33,7 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop), then:
 
 ```bash
 xcode-select --install   # provides make
-brew install git python@3.11
+brew install git python@3.11 jq
 ```
 </Tab>
 
@@ -43,7 +44,7 @@ brew install git python@3.11
 2. Enable WSL2 in Windows Features and restart.
 3. Open a WSL2 (Ubuntu) shell and install `make` there:
    ```bash
-   sudo apt-get update && sudo apt-get install -y make
+   sudo apt-get update && sudo apt-get install -y make jq
    ```
 4. Run every command in this guide from inside that WSL2 shell — not PowerShell, not Git Bash.
 </Tab>
@@ -67,6 +68,15 @@ make --version
 
 ```bash
 pip install cryptography
+```
+
+On Ubuntu, and inside WSL2's Ubuntu shell, system Python usually refuses this with `externally-managed-environment` (PEP 668). If you hit that error, create and activate a virtual environment first, then continue from inside it:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install cryptography
+make application-up
 ```
 </Note>
 

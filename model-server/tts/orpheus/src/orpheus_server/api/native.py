@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from .. import audio as audio_fmt
 from ..codec import SAMPLE_RATE
 from ..engine import StreamStats, TTSEngine
-from ..voices import Roster
+from ..voices import NO_STYLE, Roster
 from .deps import get_engine, get_roster
 
 log = logging.getLogger("orpheus.native")
@@ -36,7 +36,9 @@ class TTSRequest(BaseModel):
     voice: str = Field(..., description="Speaker name from GET /v1/voices.", examples=["Amit"])
     language: Optional[str] = Field(None, description="Optional: inferred from the speaker name.",
                                     examples=["hi"])
-    style: Optional[str] = Field(None, description="Speaking style from GET /v1/styles.", examples=["CONV"])
+    style: Optional[str] = Field(
+        None, description="Speaking style from GET /v1/styles, or 'none' for no style block.",
+        examples=["news"])
     max_tokens: Optional[int] = Field(
         None, description="Cap on generated audio tokens (~12.2 ms of audio each).")
 
@@ -65,7 +67,9 @@ async def voices(
 
 @router.get("/styles", tags=["catalog"], summary="List speaking styles")
 async def styles(roster: Roster = Depends(get_roster)):
-    return {"styles": roster.styles, "default": roster.default_style}
+    # ``none`` is advertised alongside the trained styles so a client can offer
+    # "no style" without hardcoding the sentinel.
+    return {"styles": roster.styles, "default": roster.default_style, "none": NO_STYLE}
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +100,7 @@ async def tts(
     try:
         async for chunk in engine.stream_pcm(
             text=req.text, voice=voice, language=language, style=style,
-            max_tokens=engine.clamp_max_tokens(req.max_tokens), stats=stats,
+            max_tokens=engine.clamp_max_tokens(req.max_tokens, req.text), stats=stats,
             token_ids=token_ids,
         ):
             pcm += chunk
@@ -151,7 +155,7 @@ async def tts_stream(
 
     stats = StreamStats()
     engine.metrics.requests_total += 1
-    clamped = engine.clamp_max_tokens(max_tokens)
+    clamped = engine.clamp_max_tokens(max_tokens, text)
 
     async def body():
         encoder = audio_fmt.make_encoder("wav", streaming=True)
@@ -225,7 +229,7 @@ async def tts_websocket(websocket: WebSocket):
         }))
         async for pcm in engine.stream_pcm(
             text=request["text"], voice=voice, language=language, style=style,
-            max_tokens=engine.clamp_max_tokens(request.get("max_tokens")), stats=stats,
+            max_tokens=engine.clamp_max_tokens(request.get("max_tokens"), request["text"]), stats=stats,
             token_ids=token_ids,
         ):
             await websocket.send_bytes(pcm)

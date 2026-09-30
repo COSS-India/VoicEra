@@ -50,9 +50,9 @@ Rows with a blank `phone_number` are skipped at sync time rather than rejected a
 
 ```csv
 phone_number,customer_name,account_id
-+919876543210,Asha,ACC-1001
-+919876543211,Ravi,ACC-1002
-+919876543212,Meera,ACC-1003
++91987654XXX,Asha,ACC-1001
++91987654XXX,Ravi,ACC-1002
++91987654XXX,Meera,ACC-1003
 ```
 
 `customer_name` and `account_id` reach the agent as call-time variables. Declare matching keys in the agent's `config.custom_variables` so the prompt can reference them — see [Agent configuration](../../developer/reference/agent-configuration).

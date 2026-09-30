@@ -150,7 +150,7 @@ curl -X POST "$API/api/v1/calls/outbound" \
   -H 'Content-Type: application/json' \
   -d '{
     "agent_id": "YOUR_AGENT_ID",
-    "to_number": "+919876543210",
+    "to_number": "+91987654XXXX",
     "custom_variables": {"customer_name": "Asha"}
   }'
 ```

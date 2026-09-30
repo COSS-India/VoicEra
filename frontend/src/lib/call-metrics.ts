@@ -19,8 +19,8 @@ export interface NormalizedCallMetrics {
   avgSttMs?: number;
   avgLlmTtfbMs?: number;
   avgTtsMs?: number;
-  /** Server-computed (avg_stt_secs + avg_tts_secs + avg_llm_secs), whichever
-   * of those are available — the overall per-turn pipeline latency, distinct
+  /** Server-computed (avg_llm_secs + avg_tts_secs), whichever of those are
+   * available — LLM + TTS pipeline latency per turn (STT excluded), distinct
    * from roundTripAvgMs (the runtime's own end-to-end measurement). */
   avgLatencyMs?: number;
   maxSttMs?: number;

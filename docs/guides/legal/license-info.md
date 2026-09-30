@@ -7,7 +7,7 @@ VoicEra is open source under the **Apache License 2.0**, Copyright (c) 2026 COSS
 
 ## What the Apache License 2.0 permits
 
-You may use, copy, modify, merge, publish, distribute, sublicense, and sell copies of the software — including commercially and in closed-source products.
+You may use, reproduce, modify, merge, publicly display, publicly perform, sublicense, and distribute the software — including commercially and in closed-source products.
 
 There is no copyleft obligation. You do not have to open source work that builds on VoicEra.
 

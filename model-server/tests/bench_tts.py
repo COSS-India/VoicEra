@@ -14,14 +14,6 @@ Run it against the gateway (default) or straight at the TTS container:
     python tests/bench_tts.py -n 16 --concurrency 16      # concurrency target
     python tests/bench_tts.py --url http://localhost:8002 # skip the gateway
     python tests/bench_tts.py -n 8 --out-dir /tmp/wavs    # keep the audio
-    python tests/bench_tts.py --sweep 1,2,4,8 -n 16       # one run per level
-
-Rumik OSS-1 answers in 16-bit PCM and has its own voices and description
-vocabulary, so point it at those:
-
-    python tests/bench_tts.py --url http://127.0.0.1:8110 --format pcm \
-        --voice Ira --description "professional, Hindi accent, steady pace" \
-        --sweep 1,2,4,8,12,16 -n 24
 
 What the numbers mean:
     ttft   time to first audio byte. This is what a caller hears as the pause
@@ -32,6 +24,12 @@ What the numbers mean:
            when the overall rtf looks fine.
 
 Needs nothing but httpx: no numpy, no scipy, so it runs in any container here.
+
+Ported from indic-parler to Orpheus: the defaults here used to be that model's
+(voice Divya, 44.1 kHz, a free-text description, pcm_f32le from indic-mio) and
+every request 400'd once Orpheus took the slot. The voice is now resolved from
+the live roster rather than hardcoded, so the next checkpoint change surfaces as
+a clear error instead of a wall of 400s.
 """
 
 from __future__ import annotations
@@ -50,7 +48,8 @@ from pathlib import Path
 import httpx
 
 DEFAULT_URL = "http://127.0.0.1:8100"
-DEFAULT_DESCRIPTION = "A calm, clear voice speaking at a normal pace."
+SAMPLE_RATE = 24000        # Orpheus is 24 kHz mono s16le; the header still wins
+BYTES_PER_SAMPLE = 2
 
 # Rotated through so a run is not one sentence measured N times.
 SENTENCES: list[str] = [
@@ -68,12 +67,12 @@ def _slug(text: str, max_len: int = 60) -> str:
 
 
 def _write_wav(path: Path, samples: array.array, rate: int) -> None:
+    """The samples are already int16 - the server's pcm format is s16le."""
     with wave.open(str(path), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(rate)
-        wf.writeframes(b"".join(
-            struct.pack("<h", max(-32768, min(32767, int(s * 32767)))) for s in samples))
+        wf.writeframes(samples.tobytes())
 
 
 async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
@@ -82,12 +81,17 @@ async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
     payload = {
         "input": prompt,
         "voice": args.voice or None,
-        "instructions": args.description,
         "language": args.language,
-        "response_format": args.format,
+        "response_format": "pcm",
     }
-    pcm = array.array("f")
-    rate = 44100
+    if args.style:
+        payload["style"] = args.style
+    if args.instructions:
+        payload["instructions"] = args.instructions
+    if args.max_tokens:
+        payload["max_tokens"] = args.max_tokens
+    pcm = array.array("h")
+    rate = SAMPLE_RATE
     ttft = None
     gaps: list[float] = []
     t0 = time.monotonic()
@@ -98,18 +102,7 @@ async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
                 body = (await r.aread())[:200].decode(errors="replace")
                 return {"index": index, "ok": False, "error": f"HTTP {r.status_code}: {body}"}
             rate = int(r.headers.get("X-Sample-Rate", rate))
-            # Decode by what the server says it sent, never by what was asked
-            # for: two TTS models here disagree on sample width, and guessing
-            # wrong turns speech into noise with a plausible duration.
-            fmt = (r.headers.get("X-Audio-Format") or args.format).lower()
-            if fmt in ("pcm", "pcm_s16le"):
-                width, code, scale = 2, "h", 1.0 / 32768.0
-            elif fmt == "pcm_f32le":
-                width, code, scale = 4, "f", 1.0
-            else:
-                return {"index": index, "ok": False,
-                        "error": f"server sent {fmt!r}; this bench decodes raw PCM only"}
-            # A chunk can end mid-sample; carry the tail or every later sample is noise.
+            # A chunk can end mid-float; carry the tail or every later sample is noise.
             remainder = b""
             async for chunk in r.aiter_raw():
                 if not chunk:
@@ -121,12 +114,10 @@ async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
                     gaps.append(now - last)
                 last = now
                 buf = remainder + chunk
-                usable = len(buf) - (len(buf) % width)
+                usable = len(buf) - (len(buf) % BYTES_PER_SAMPLE)
                 remainder = buf[usable:]
                 if usable:
-                    samples = array.array(code)
-                    samples.frombytes(buf[:usable])
-                    pcm.extend(samples if scale == 1.0 else (s * scale for s in samples))
+                    pcm.frombytes(buf[:usable])
     except Exception as exc:                                    # noqa: BLE001
         return {"index": index, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -151,14 +142,19 @@ async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
     }
 
 
+def _pct(xs: list[float], q: float) -> float:
+    """Nearest-rank, matching stt/indic-transcribe/bench/metrics_lib.py so the two
+    reports' percentiles mean the same thing."""
+    return xs[min(len(xs) - 1, int(q * len(xs)))]
+
+
 def _line(name: str, xs: list[float], unit: str) -> None:
     if not xs:
-        print(f"  {name:<34} n/a")
+        print(f"  {name:<30} n/a")
         return
     xs = sorted(xs)
-    p95 = xs[min(len(xs) - 1, int(len(xs) * 0.95))]
-    print(f"  {name:<34} avg={statistics.fmean(xs):7.2f}{unit}  "
-          f"min={xs[0]:7.2f}{unit}  p95={p95:7.2f}{unit}  max={xs[-1]:7.2f}{unit}")
+    print(f"  {name:<30} p50={_pct(xs, .50):7.2f}{unit}  p95={_pct(xs, .95):7.2f}{unit}  "
+          f"p99={_pct(xs, .99):7.2f}{unit}  max={xs[-1]:7.2f}{unit}")
 
 
 def report(results: list[dict], args: argparse.Namespace, wall: float) -> int:
@@ -196,40 +192,40 @@ def report(results: list[dict], args: argparse.Namespace, wall: float) -> int:
     return 0 if faster_than_realtime == len(rtfs) and len(oks) == len(results) else 1
 
 
+def resolve_voice(base: str, language: str, wanted: str) -> str:
+    """Pick a speaker from the live roster instead of trusting a constant.
+
+    The roster has changed with the checkpoint twice already; a hardcoded name
+    fails as an opaque 400 on every request, which is how this script came to be
+    silently broken. Ask the server instead, and say so plainly when the name is
+    not there.
+    """
+    if wanted:
+        # Named explicitly: trust it. The roster lookup is a gateway route
+        # (/tts/v1/voices) in Orpheus's per-language shape, so asking for it
+        # would stop this script working against a model container directly,
+        # or against a model whose voices are not per-language (rumik-oss-1).
+        # A wrong name still fails loudly, as the server's own 400.
+        return wanted
+    r = httpx.get(f"{base}/tts/v1/voices", params={"language": language}, timeout=10.0)
+    r.raise_for_status()
+    voices = r.json().get(language, {}).get("voices") or []
+    if not voices:
+        raise SystemExit(f"no voices for language {language!r}; see GET /tts/v1/voices")
+    if wanted and wanted not in voices:
+        raise SystemExit(f"voice {wanted!r} is not in the {language!r} roster: {voices}")
+    return wanted or voices[0]
+
+
 async def async_main(args: argparse.Namespace) -> int:
-    url = args.url.rstrip("/")
+    base = args.url.rstrip("/")
+    args.voice = resolve_voice(base, args.language, args.voice)
+    url = base
     if not url.endswith("/v1/audio/speech"):
         url += "/v1/audio/speech"
-    if not args.sweep:
-        return (await run_level(url, args, args.concurrency))[0]
-
-    rows, worst = [], 0
-    for level in args.sweep:
-        code, summary = await run_level(url, args, level)
-        worst = max(worst, code)
-        rows.append(summary)
-    print("\n=== sweep ===")
-    print(f"  {'conc':>4}  {'ok':>7}  {'ttfa p50':>9}  {'ttfa p95':>9}  {'rtf p50':>7}  "
-          f"{'rtf p95':>7}  {'rtf max':>7}  {'gap p95':>8}  {'<1.0':>6}")
-    for s in rows:
-        print(f"  {s['conc']:>4}  {s['ok']:>7}  {s['ttfa_p50']:>7.0f}ms  {s['ttfa_p95']:>7.0f}ms  "
-              f"{s['rtf_p50']:>7.2f}  {s['rtf_p95']:>7.2f}  {s['rtf_max']:>7.2f}  "
-              f"{s['gap_p95']:>6.0f}ms  {s['realtime']:>6}")
-    return worst
-
-
-def _pct(xs: list[float], q: float) -> float:
-    if not xs:
-        return float("nan")
-    xs = sorted(xs)
-    return xs[min(len(xs) - 1, int(len(xs) * q))]
-
-
-async def run_level(url: str, args: argparse.Namespace, concurrency: int) -> tuple[int, dict]:
-    """One run at one concurrency level: the original single-run behaviour."""
-    args.concurrency = concurrency
     prompts = [SENTENCES[i % len(SENTENCES)] for i in range(args.requests)]
-    print(f"\nPOST {url}   {args.requests} requests, concurrency {args.concurrency}\n")
+    print(f"POST {url}   {args.requests} requests, concurrency {args.concurrency}, "
+          f"voice {args.voice}, style {args.style or '(server default)'}\n")
 
     sem = asyncio.Semaphore(args.concurrency)
     t0 = time.monotonic()
@@ -247,19 +243,7 @@ async def run_level(url: str, args: argparse.Namespace, concurrency: int) -> tup
                 return r
 
         results = await asyncio.gather(*(guarded(i, p) for i, p in enumerate(prompts)))
-    results = list(results)
-    code = report(results, args, time.monotonic() - t0)
-    oks = [r for r in results if r["ok"]]
-    ttfa = [r["ttft_s"] * 1000 for r in oks if r["ttft_s"] is not None]
-    rtfs = [r["rtf"] for r in oks if r["rtf"] is not None]
-    gaps = [g * 1000 for r in oks for g in r["gaps_s"]]
-    return code, {
-        "conc": concurrency, "ok": f"{len(oks)}/{len(results)}",
-        "ttfa_p50": _pct(ttfa, 0.5), "ttfa_p95": _pct(ttfa, 0.95),
-        "rtf_p50": _pct(rtfs, 0.5), "rtf_p95": _pct(rtfs, 0.95),
-        "rtf_max": max(rtfs) if rtfs else float("nan"), "gap_p95": _pct(gaps, 0.95),
-        "realtime": f"{sum(1 for x in rtfs if x < 1.0)}/{len(rtfs)}",
-    }
+    return report(list(results), args, time.monotonic() - t0)
 
 
 def main() -> None:
@@ -272,15 +256,14 @@ def main() -> None:
                    help="requests in flight at once; 1 is sequential (default 1)")
     p.add_argument("--gap-s", type=float, default=0.0,
                    help="pause between sequential requests (ignored when concurrent)")
-    p.add_argument("--voice", default="Divya", help="speaker preset (default Divya)")
-    p.add_argument("--description", default=DEFAULT_DESCRIPTION, help="style instructions")
+    p.add_argument("--voice", default="", help="speaker name; default: first for --language")
+    p.add_argument("--style", default="", help="speaking style, or 'none' for no style block")
+    p.add_argument("--instructions", default="",
+                   help="OpenAI `instructions`: rumik-oss-1's delivery description, "
+                        "e.g. 'professional, Hindi accent, steady pace'")
     p.add_argument("--language", default="hi", help="language tag (default hi)")
-    p.add_argument("--format", default="pcm_f32le",
-                   help="response_format to request: pcm_f32le (indic-parler, default) or "
-                        "pcm (16-bit; orpheus, rumik-oss-1). Decoding follows X-Audio-Format.")
-    p.add_argument("--sweep", default="",
-                   help="comma-separated concurrency levels, e.g. 1,2,4,8: one run of -n "
-                        "requests per level, then a summary table. Overrides -c.")
+    p.add_argument("--max-tokens", type=int, default=0,
+                   help="cap generated audio tokens, so every request does equal work")
     p.add_argument("--out-dir", default="", help="write wavs here so you can listen to them")
     args = p.parse_args()
 
@@ -288,12 +271,6 @@ def main() -> None:
         p.error("--requests must be >= 1")
     if args.concurrency < 1:
         p.error("--concurrency must be >= 1")
-    try:
-        args.sweep = [int(x) for x in args.sweep.split(",") if x.strip()]
-    except ValueError:
-        p.error("--sweep must be comma-separated integers, e.g. 1,2,4,8")
-    if any(level < 1 for level in args.sweep):
-        p.error("--sweep levels must be >= 1")
     sys.exit(asyncio.run(async_main(args)))
 
 

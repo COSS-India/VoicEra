@@ -43,3 +43,8 @@ Two scripts are not part of the suite because they need real models on a GPU:
 |---|---|
 | `smoke_gpu.py` | end-to-end round trip on the box: TTS speaks, STT transcribes it back |
 | `bench_tts.py` | latency and real-time factor, sequential or at a chosen concurrency |
+
+Concurrency testing of the live STT and TTS endpoints (a single batch of N
+requests, and N random arrivals within 1 s, up to N = 256, judged on real-time
+factor) lives in [`concurrency-bench/`](concurrency-bench/README.md). It needs
+real models too, and runs from any machine that can reach the server.

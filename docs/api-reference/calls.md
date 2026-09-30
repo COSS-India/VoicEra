@@ -100,7 +100,7 @@ Bearer (bot JWT supported). Pipeline metrics live in the separate `CallMetrics` 
 
 The runtime writes metrics at call end via `PUT`. Writes are **once per call** — a second `PUT` for the same `call_id` is ignored and returns the existing document. `GET` returns `404` when no metrics exist yet.
 
-`GET` adds four fields to `summary` that are not in the stored document: `avg_stt_secs`, `avg_tts_secs`, `avg_llm_secs`, and `avg_latency_secs`, computed on the fly from `latencies.breakdowns`. Each stage average is `null` if that stage never appears in a breakdown; `avg_latency_secs` sums whichever stage averages are actually available rather than turning `null` the moment one stage is missing. Turns with no `user_turn_start_time` (bot-initiated, no real user turn) are excluded from all four.
+`GET` adds four fields to `summary` that are not in the stored document: `avg_stt_secs`, `avg_tts_secs`, `avg_llm_secs`, and `avg_latency_secs`, computed on the fly from `latencies.breakdowns`. Each stage average is `null` if that stage never appears in a breakdown; `avg_latency_secs` sums `avg_llm_secs` and `avg_tts_secs` (STT excluded), using whichever of those two are actually available. Turns with no `user_turn_start_time` (bot-initiated, no real user turn) are excluded from all four.
 
 ## `GET /calls/org/{org_id}`
 

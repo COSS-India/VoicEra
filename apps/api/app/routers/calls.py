@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+import threading
+from typing import Any, Iterator, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from minio.error import S3Error
 
 from app.auth import get_current_user
 from app.config import settings
@@ -16,6 +18,7 @@ from app.models.schemas import (
     CallLogUpdateRequest,
     CallMetricsBody,
     CallMetricsResponse,
+    CallTranslateResponse,
     InboundCallRegisterRequest,
     InboundCallRegisterResponse,
     OutboundCallRequest,
@@ -41,6 +44,13 @@ from app.services.call_metrics_service import (
 )
 from app.services.inbound_call_service import InboundCallError, register_inbound_call
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
+from app.services.translation_service import (
+    LANGUAGE_TAG_PATTERN,
+    MAX_TRANSCRIPT_CHARS,
+    TranslationError,
+    TranslationErrorReason,
+    translate_transcript,
+)
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
 
@@ -102,11 +112,36 @@ def _artifact_content_type(object_name: str, default: str) -> str:
     return default
 
 
+def _raise_404_on_missing_key(exc: S3Error, object_name: str) -> NoReturn:
+    if exc.code == "NoSuchKey":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File not found: {object_name}",
+        ) from exc
+    # Any other S3 error code (AccessDenied, InvalidAccessKeyId, SlowDown,
+    # ...) is a storage-backend failure, not a client mistake — surface it
+    # as a clean 503 instead of letting a bare S3Error escape as an
+    # unhandled 500.
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"Storage error while accessing {object_name}: {exc.code}",
+    ) from exc
+
+
+def _get_object_or_404(storage: MinIOStorage, bucket_name: str, object_name: str):
+    """Fetch an object, turning a delete-after-exists-check race into the
+    same 404 the existence check itself would have raised."""
+    try:
+        return storage.client.get_object(bucket_name, object_name)
+    except S3Error as exc:
+        _raise_404_on_missing_key(exc, object_name)
+
+
 def _stream_minio_object(bucket_name: str, object_name: str, content_type: str):
     storage = MinIOStorage()
 
     def iterator() -> Iterator[bytes]:
-        response = storage.client.get_object(bucket_name, object_name)
+        response = _get_object_or_404(storage, bucket_name, object_name)
         try:
             for chunk in response.stream(32 * 1024):
                 yield chunk
@@ -115,6 +150,33 @@ def _stream_minio_object(bucket_name: str, object_name: str, content_type: str):
             response.release_conn()
 
     return StreamingResponse(iterator(), media_type=content_type)
+
+
+def _resolve_transcript_object(org_id: str, call_id: str) -> tuple[str, str]:
+    """Fetches the call log and validates/parses its transcript_url into a
+    (bucket, object_name) pair, raising the same HTTP errors regardless of
+    which route (stream vs. translate) is calling this."""
+    try:
+        call = get_call_log(org_id, call_id)
+    except CallLogNotFoundError as exc:
+        _raise_call_not_found(exc)
+
+    transcript_url = call.get("transcript_url")
+    if not transcript_url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transcript not found for this call",
+        )
+
+    parsed = MinIOStorage.parse_minio_url(str(transcript_url))
+    if not parsed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid transcript URL on call log",
+        )
+
+    bucket_name, object_name = parsed
+    return bucket_name, object_name
 
 
 @router.post(
@@ -271,35 +333,123 @@ async def get_call_transcript(
 ) -> StreamingResponse:
     """Stream the call transcript from MinIO."""
     org_id = _require_active_org(current_user)
-    try:
-        call = get_call_log(org_id, call_id)
-    except CallLogNotFoundError as exc:
-        _raise_call_not_found(exc)
-
-    transcript_url = call.get("transcript_url")
-    if not transcript_url:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Transcript not found for this call",
-        )
-
-    parsed = MinIOStorage.parse_minio_url(str(transcript_url))
-    if not parsed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid transcript URL on call log",
-        )
-
-    bucket_name, object_name = parsed
-    storage = MinIOStorage()
-    if not storage.object_exists(bucket_name, object_name):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Transcript file not found: {object_name}",
-        )
-
+    bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
     content_type = _artifact_content_type(object_name, "text/plain; charset=utf-8")
     return _stream_minio_object(bucket_name, object_name, content_type)
+
+
+_TRANSLATION_ERROR_STATUS: dict[TranslationErrorReason, int] = {
+    TranslationErrorReason.INVALID_INPUT: status.HTTP_400_BAD_REQUEST,
+    TranslationErrorReason.OVERSIZED: status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+    TranslationErrorReason.NOT_CONFIGURED: status.HTTP_409_CONFLICT,
+    TranslationErrorReason.UPSTREAM: status.HTTP_502_BAD_GATEWAY,
+}
+
+
+def _raise_translation_error(exc: TranslationError) -> NoReturn:
+    # .get(..., 502) rather than a bare lookup: a future TranslationErrorReason
+    # added without a matching row here must still degrade to the old
+    # catch-all upstream/502 behavior, not leak an unhandled KeyError as a 500.
+    raise HTTPException(
+        status_code=_TRANSLATION_ERROR_STATUS.get(exc.reason, status.HTTP_502_BAD_GATEWAY),
+        detail=exc.message,
+    ) from exc
+
+
+# Bounds how many translations run at once PER PROCESS. This route is sync
+# (see docstring below) and blocks a threadpool thread for up to
+# REQUEST_TIMEOUT_SECONDS (one_shot_llm.py) per call — FastAPI's default
+# threadpool (40 threads) is shared by every sync route in the app, so
+# without a cap here a burst of translate requests can starve unrelated sync
+# endpoints for up to a minute each. threading.Semaphore, not asyncio's: this
+# code runs in a plain worker thread, not the event loop.
+# NOT a cluster-wide limit: today's deploy runs a single uvicorn process
+# (no --workers, no replicas — see Dockerfile/docker-compose.yaml), so this
+# cap is the real cap. If this API is ever scaled to N processes/replicas,
+# each gets its own independent semaphore and the true concurrency becomes
+# 5*N with no cross-process coordination — replace this with a shared
+# limiter (e.g. the Redis-backed one in app.services.call_concurrency) if
+# that happens.
+_TRANSLATE_CONCURRENCY_LIMIT = 5
+# How long a 6th+ concurrent request waits for one of the 5 slots to free
+# before giving up with a 503. Each held slot can run up to
+# REQUEST_TIMEOUT_SECONDS (60s, one_shot_llm.py) — 30s gives a queued
+# request a real chance to get a slot as others finish, rather than mostly
+# failing fast the moment >5 people translate at once.
+_TRANSLATE_ACQUIRE_TIMEOUT_SECONDS = 30.0
+_translate_semaphore = threading.Semaphore(_TRANSLATE_CONCURRENCY_LIMIT)
+
+
+@router.post("/{call_id}/translate", response_model=CallTranslateResponse)
+def translate_call_transcript(
+    call_id: str,
+    target_lang: str = Query(..., pattern=LANGUAGE_TAG_PATTERN),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> CallTranslateResponse:
+    """LLM-backed fallback translation, used only when the client's on-device
+    Chrome Translator API is unavailable. Stateless — not persisted.
+
+    Deliberately a SYNC route (not `async def`): it calls the sync OpenAI
+    client and sync MinIO client. FastAPI runs sync route handlers in a
+    worker threadpool, so a slow translation blocks one worker thread, not
+    the server's single event loop. Declaring this `async def` while calling
+    blocking I/O inside it would freeze the entire process for the duration
+    of the LLM call, blocking every other request on the server.
+    """
+    org_id = _require_active_org(current_user)
+    bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
+
+    storage = MinIOStorage()
+
+    # The semaphore wraps the MinIO fetch too, not just the LLM call: the
+    # limit exists to stop a burst of requests from starving unrelated sync
+    # endpoints on FastAPI's shared threadpool (see comment above
+    # _TRANSLATE_CONCURRENCY_LIMIT), and that starvation risk starts at the
+    # first blocking I/O call, not just the LLM one.
+    if not _translate_semaphore.acquire(timeout=_TRANSLATE_ACQUIRE_TIMEOUT_SECONDS):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Too many translations in progress. Please try again shortly.",
+        )
+    try:
+        response = _get_object_or_404(storage, bucket_name, object_name)
+        try:
+            # Reject on the object's declared byte size before reading it into
+            # worker memory — translate_transcript's MAX_TRANSCRIPT_CHARS check
+            # only runs after a full read, so without this an oversized (or
+            # malicious) object would still be read whole first. UTF-8
+            # bytes-per-char is 1-4 depending on script, so this is a generous
+            # over-estimate (assume worst case); translate_transcript's own
+            # char-count check remains the precise limit. Reading content-length
+            # off the GET response (rather than a separate stat_object call)
+            # avoids a second MinIO round trip for the common case.
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None and int(content_length) > MAX_TRANSCRIPT_CHARS * 4:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Transcript is too long to translate in one request ({content_length} bytes).",
+                )
+            try:
+                raw_text = response.read().decode("utf-8")
+            except UnicodeDecodeError as exc:
+                # Corrupt stored data, not a transient dependency failure —
+                # retrying never fixes this. 500 error
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Stored transcript {object_name} is not valid UTF-8 text.",
+                ) from exc
+        finally:
+            response.close()
+            response.release_conn()
+
+        try:
+            translated_text = translate_transcript(raw_text, target_lang, org_id)
+        except TranslationError as exc:
+            _raise_translation_error(exc)
+    finally:
+        _translate_semaphore.release()
+
+    return CallTranslateResponse(translated_text=translated_text, target_lang=target_lang)
 
 
 @router.get("/{call_id}/metrics", response_model=CallMetricsResponse)
