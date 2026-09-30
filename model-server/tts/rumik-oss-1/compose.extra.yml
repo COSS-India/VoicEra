@@ -178,6 +178,11 @@ services:
       # instead.
       RUMIK_WARMUP_ENABLED: ${RUMIK_WARMUP_ENABLED:-true}
       RUMIK_WARMUP_TOKENS: ${RUMIK_WARMUP_TOKENS:-256}
+      # Concurrency widths vLLM is run at once each before traffic (vllm
+      # engine only; widths above RUMIK_MAX_CONCURRENCY / RUMIK_MAX_NUM_SEQS are
+      # skipped). Without it the first wave to reach a new width waited ~2.2 s
+      # for first audio on ace-h200. Same idea as ORPHEUS_WARMUP_WIDTHS.
+      RUMIK_WARMUP_WIDTHS: ${RUMIK_WARMUP_WIDTHS:-1,2,4,8,16,24,32,48,64,96,128}
     volumes:
       # Read-only: nothing in this stack should ever write a checkpoint. The
       # path resolves against --project-directory (model-server/), NOT against

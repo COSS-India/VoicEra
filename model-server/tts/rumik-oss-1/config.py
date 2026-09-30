@@ -52,6 +52,18 @@ def _csv(raw: str | None) -> tuple[str, ...]:
     return tuple(part.strip() for part in (raw or "").split(",") if part.strip())
 
 
+def _widths(raw: str | None, default: str) -> tuple[int, ...]:
+    """Comma-separated positive ints, sorted and de-duplicated. Empty means none."""
+    text = default if raw is None else raw
+    try:
+        values = sorted({int(part) for part in _csv(text)})
+    except ValueError as exc:
+        raise ValueError(f"expected comma-separated integers, got {text!r}") from exc
+    if any(v < 1 for v in values):
+        raise ValueError(f"widths must be >= 1, got {text!r}")
+    return tuple(values)
+
+
 def _flag(raw: str | None, default: bool) -> bool:
     return default if raw is None or not raw.strip() else raw.strip().lower() in _TRUE
 
@@ -100,6 +112,7 @@ class Config:
     # ---- warmup ---------------------------------------------------------
     warmup_enabled: bool
     warmup_tokens: int
+    warmup_widths: tuple[int, ...]
 
     @classmethod
     def from_env(cls) -> Config:
@@ -142,6 +155,8 @@ class Config:
             ),
             warmup_enabled=_flag(os.getenv("RUMIK_WARMUP_ENABLED"), True),
             warmup_tokens=int(_number(os.getenv("RUMIK_WARMUP_TOKENS"), 256, int)),
+            warmup_widths=_widths(os.getenv("RUMIK_WARMUP_WIDTHS"),
+                                  "1,2,4,8,16,24,32,48,64,96,128"),
         )
 
     def __post_init__(self) -> None:

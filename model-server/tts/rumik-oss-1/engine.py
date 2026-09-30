@@ -439,6 +439,41 @@ class RumikTTSEngine:
             )
         log.info("warmup: %d tokens in %.0f ms (%.1f tok/s)",
                  count, elapsed, count / (elapsed / 1000.0))
+        if self.cfg.engine == "vllm":
+            await self._warmup_widths(ids)
+
+    async def _warmup_widths(self, ids: list[int]) -> None:
+        """Run vLLM once at each concurrency width callers will reach.
+
+        Measured on ace-h200 without it: the FIRST time the server ran 8 and
+        then 16 streams together, that whole wave waited ~2.2 s for first audio
+        (c=8 TTFA p95 2234 ms, c=16 p50 2258 ms), while later bursts at the same
+        widths started in 172-183 ms. A one-off cost per new batch size, paid by
+        the first callers to reach it. tts/orpheus pays it here instead
+        (ORPHEUS_WARMUP_WIDTHS); so does this. Widths above what the server
+        admits are skipped -- no caller can reach them.
+        """
+        cap = min(self.cfg.max_concurrency, self.cfg.max_num_seqs)
+        widths = [w for w in self.cfg.warmup_widths if w <= cap]
+        tokens = max(self.quantizers, min(64, self.cfg.warmup_tokens))
+
+        async def one() -> int:
+            n = 0
+            async for _ in self._tokens.stream(ids, max_new_tokens=tokens,
+                                               temperature=self.cfg.temperature,
+                                               top_k=self.cfg.top_k):
+                n += 1
+            return n
+
+        for width in widths:
+            started = time.perf_counter()
+            try:
+                await asyncio.gather(*(one() for _ in range(width)))
+            except Exception:  # noqa: BLE001 -- a width that fails here fails for callers too
+                log.exception("warmup failed at concurrency %d; continuing", width)
+                continue
+            log.info("warmup: concurrency %d in %.0f ms",
+                     width, (time.perf_counter() - started) * 1000.0)
 
     # ------------------------------------------------------------- the stream
     def plan(self, *, text: str, voice: str | None,
