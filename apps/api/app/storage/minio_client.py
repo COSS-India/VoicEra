@@ -32,7 +32,12 @@ class MinIOStorage:
 
     async def get_object_bytes(self, object_key: str, bucket_name: str | None = None) -> bytes:
         bucket = bucket_name or self.default_bucket
-        response = await self.get_object(bucket, object_key)
+        # Read and close in the thread too: the response streams, so read()
+        # is blocking network I/O that would otherwise stall the event loop.
+        return await asyncio.to_thread(self._read_object, bucket, object_key)
+
+    def _read_object(self, bucket_name: str, object_name: str) -> bytes:
+        response = self.client.get_object(bucket_name, object_name)
         try:
             return response.read()
         finally:

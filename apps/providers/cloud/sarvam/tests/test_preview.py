@@ -74,3 +74,18 @@ def test_synthesize_raises_preview_error_on_empty_audio():
     with pytest.raises(PreviewProviderError, match="no audio"):
         asyncio.run(synthesize(_config(), "hi", client))
     asyncio.run(client.aclose())
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, text="<html>not json</html>"),
+        httpx.Response(200, json=["not", "a", "dict"]),
+        httpx.Response(200, json={"audios": ["!!not-base64"]}),
+    ],
+)
+def test_synthesize_raises_preview_error_on_malformed_200(response):
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: response))
+    with pytest.raises(PreviewProviderError):
+        asyncio.run(synthesize(_config(), "Namaste", client))
+    asyncio.run(client.aclose())

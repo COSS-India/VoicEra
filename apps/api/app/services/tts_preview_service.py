@@ -22,7 +22,6 @@ from minio.error import S3Error
 from pydantic import ValidationError
 
 from apps.providers.base import Kind
-from apps.providers.capabilities import api_capabilities
 from apps.providers.preview import (
     PreviewProviderError,
     has_preview_adapter,
@@ -50,6 +49,9 @@ _RATE_LIMIT_WINDOW_S = 60
 # rate, param mapping) so stale clips stop hitting; the bucket's 7-day
 # lifecycle rule cleans up the orphans.
 _CACHE_VERSION = 1
+# Well under TTS_PREVIEW_TIMEOUT_S: the MinIO client's own default is 300 s,
+# and a cache that's slower than synthesis is worse than no cache.
+_CACHE_TIMEOUT_S = 2.0
 
 import_vendor_previews()
 
@@ -79,6 +81,15 @@ class TtsPreviewError(Exception):
 
 
 _redis_client: aioredis.Redis | None = None
+_storage: MinIOStorage | None = None
+
+
+def _get_storage() -> MinIOStorage:
+    """Lazily create one shared MinIO client so connections are reused."""
+    global _storage
+    if _storage is None:
+        _storage = MinIOStorage()
+    return _storage
 
 
 async def _get_redis() -> aioredis.Redis:
@@ -101,13 +112,19 @@ async def check_rate_limit(org_id: str) -> None:
     minute boundary rather than sliding. Raises :class:`TtsPreviewError` with
     ``retry_after`` (seconds until the window resets) when over the limit.
     """
-    redis_client = await _get_redis()
     now = time.time()
     window = int(now // _RATE_LIMIT_WINDOW_S)
     key = f"tts_preview_rl:{org_id}:{window}"
-    count = await redis_client.incr(key)
-    if count == 1:
-        await redis_client.expire(key, _RATE_LIMIT_WINDOW_S)
+    try:
+        redis_client = await _get_redis()
+        count = await redis_client.incr(key)
+        if count == 1:
+            await redis_client.expire(key, _RATE_LIMIT_WINDOW_S)
+    except aioredis.RedisError:
+        # Fail open: the limiter protects vendor spend, it must not take the
+        # feature down with Redis (same default as Envoy ratelimit).
+        logger.warning("tts_preview rate_limit_unavailable org=%s", org_id, exc_info=True)
+        return
     if count > settings.TTS_PREVIEW_RATE_LIMIT_PER_MINUTE:
         retry_after = _RATE_LIMIT_WINDOW_S - int(now % _RATE_LIMIT_WINDOW_S)
         raise TtsPreviewError(
@@ -115,6 +132,10 @@ async def check_rate_limit(org_id: str) -> None:
             "Too many voice previews; please wait a moment",
             retry_after=retry_after,
         )
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.monotonic() - started) * 1000)
 
 
 def build_cache_key(org_id: str, blob: dict[str, Any], text: str) -> str:
@@ -135,7 +156,10 @@ def build_cache_key(org_id: str, blob: dict[str, Any], text: str) -> str:
 async def get_cached(key: str) -> bytes | None:
     """Return cached audio, or ``None`` on a miss or any MinIO failure."""
     try:
-        return await MinIOStorage().get_object_bytes(key, bucket_name=settings.TTS_PREVIEW_BUCKET)
+        async with asyncio.timeout(_CACHE_TIMEOUT_S):
+            return await _get_storage().get_object_bytes(
+                key, bucket_name=settings.TTS_PREVIEW_BUCKET
+            )
     except S3Error as exc:
         if exc.code != "NoSuchKey":
             logger.warning("tts_preview cache_get_failed code=%s", exc.code)
@@ -147,9 +171,10 @@ async def get_cached(key: str) -> bytes | None:
 async def put_cached(key: str, audio: bytes) -> None:
     """Store audio in the preview cache; best effort, never raises."""
     try:
-        await MinIOStorage().put_object_bytes(
-            key, audio, bucket_name=settings.TTS_PREVIEW_BUCKET, content_type="audio/wav"
-        )
+        async with asyncio.timeout(_CACHE_TIMEOUT_S):
+            await _get_storage().put_object_bytes(
+                key, audio, bucket_name=settings.TTS_PREVIEW_BUCKET, content_type="audio/wav"
+            )
     except Exception:
         logger.warning("tts_preview cache_put_failed", exc_info=True)
 
@@ -265,21 +290,27 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
 
     Ends with exactly one log line; never logs preview text or credentials.
     """
+    started = time.monotonic()
     stripped = strip_placeholders(text)
     validated_blob = validate_request(tts_config, language, stripped)
     provider = str(validated_blob.get("provider") or "")
 
-    # Cache before the rate limit: a hit costs the vendor nothing, and the
-    # limit exists to protect vendor spend.
+    # Cache before the rate limit and the NOT_CONFIGURED check: a hit costs
+    # the vendor nothing, and both exist to guard vendor calls. So an org that
+    # removed its credentials can still replay clips it already heard, until
+    # the bucket's 7-day expiry.
     cache_key = build_cache_key(org_id, validated_blob, stripped)
     cached = await get_cached(cache_key)
     if cached is not None:
         logger.info(
-            "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d cache=hit",
+            "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d cache=hit ms=%d",
             org_id, provider, validated_blob.get("model"), len(stripped), len(cached),
+            _elapsed_ms(started),
         )
         return cached
 
+    # Counted before the NOT_CONFIGURED check on purpose: like API gateways,
+    # every request that reaches the limiter counts, 409s included.
     await check_rate_limit(org_id)
     cfg = await resolve_config(org_id, validated_blob)
 
@@ -291,26 +322,31 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
                 audio = await synthesize_preview(provider, cfg, stripped, client)
     except TimeoutError as exc:
         logger.info(
-            "tts_preview timeout org=%s provider=%s model=%s chars=%d",
-            org_id, provider, validated_blob.get("model"), len(stripped),
+            "tts_preview timeout org=%s provider=%s model=%s chars=%d ms=%d",
+            org_id, provider, validated_blob.get("model"), len(stripped), _elapsed_ms(started),
         )
         raise TtsPreviewError(TtsPreviewErrorReason.TIMEOUT, "Voice preview timed out") from exc
     except PreviewProviderError as exc:
         logger.info(
-            "tts_preview upstream_error org=%s provider=%s model=%s chars=%d",
-            org_id, provider, validated_blob.get("model"), len(stripped),
+            "tts_preview upstream_error org=%s provider=%s model=%s chars=%d ms=%d error=%s",
+            org_id, provider, validated_blob.get("model"), len(stripped), _elapsed_ms(started), exc,
         )
-        raise TtsPreviewError(TtsPreviewErrorReason.UPSTREAM, str(exc)) from exc
+        # Generic to the client: the adapter's message can carry httpx
+        # connection/DNS details. The detail is in the log line above.
+        raise TtsPreviewError(
+            TtsPreviewErrorReason.UPSTREAM, "Voice provider request failed"
+        ) from exc
 
-    await put_cached(cache_key, audio)
+    if audio:
+        await put_cached(cache_key, audio)
     logger.info(
-        "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d cache=miss",
+        "tts_preview ok org=%s provider=%s model=%s chars=%d bytes=%d cache=miss ms=%d",
         org_id, provider, validated_blob.get("model"), len(stripped), len(audio),
+        _elapsed_ms(started),
     )
     return audio
 
 
-# Exposed for capability lookups used by adapters and future settings checks.
 __all__ = [
     "TtsPreviewError",
     "TtsPreviewErrorReason",
@@ -320,5 +356,4 @@ __all__ = [
     "resolve_config",
     "strip_placeholders",
     "validate_request",
-    "api_capabilities",
 ]

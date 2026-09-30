@@ -6,6 +6,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import redis.asyncio as aioredis
 from minio.error import S3Error
 
 from apps.providers.preview import PreviewProviderError
@@ -50,7 +51,7 @@ def storage():
     mock = MagicMock()
     mock.get_object_bytes = AsyncMock(side_effect=_no_such_key())
     mock.put_object_bytes = AsyncMock()
-    with patch("app.services.tts_preview_service.MinIOStorage", return_value=mock):
+    with patch("app.services.tts_preview_service._get_storage", return_value=mock):
         yield mock
 
 
@@ -252,6 +253,7 @@ def test_generate_preview_maps_provider_error_to_upstream_reason():
                 )
             )
     assert exc_info.value.reason == TtsPreviewErrorReason.UPSTREAM
+    assert "vendor exploded" not in str(exc_info.value)  # detail stays in the log
 
 
 def test_check_rate_limit_allows_first_request_and_sets_expiry():
@@ -343,3 +345,44 @@ def test_build_cache_key_is_scoped_by_org_and_stable():
     assert key != build_cache_key("org-2", {"voice": "a", "model": "m"}, "hello")
     assert key != build_cache_key("org-1", {"voice": "b", "model": "m"}, "hello")
     assert key != build_cache_key("org-1", {"voice": "a", "model": "m"}, "hi")
+
+
+def test_check_rate_limit_fails_open_when_redis_is_down():
+    mock_redis = AsyncMock()
+    mock_redis.incr.side_effect = aioredis.ConnectionError("redis down")
+    with patch(
+        "app.services.tts_preview_service._get_redis", AsyncMock(return_value=mock_redis)
+    ):
+        _run(check_rate_limit("org-1"))  # must not raise
+
+
+def test_generate_preview_slow_cache_get_falls_through_to_synthesis(storage):
+    async def _hang(*_args, **_kwargs):
+        await asyncio.sleep(10)
+
+    storage.get_object_bytes.side_effect = _hang
+    patches = _patch_configured_sarvam()
+    with patches[0], patches[1], patch(
+        "app.services.tts_preview_service._CACHE_TIMEOUT_S", 0.01
+    ), patch(
+        "app.services.tts_preview_service.check_rate_limit", new_callable=AsyncMock
+    ), patch(
+        "app.services.tts_preview_service.synthesize_preview",
+        new_callable=AsyncMock,
+        return_value=b"fresh",
+    ):
+        audio = _run(generate_preview("org-1", _SARVAM, "hi", "hello"))
+    assert audio == b"fresh"
+
+
+def test_generate_preview_does_not_cache_empty_audio(storage):
+    patches = _patch_configured_sarvam()
+    with patches[0], patches[1], patch(
+        "app.services.tts_preview_service.check_rate_limit", new_callable=AsyncMock
+    ), patch(
+        "app.services.tts_preview_service.synthesize_preview",
+        new_callable=AsyncMock,
+        return_value=b"",
+    ):
+        _run(generate_preview("org-1", _SARVAM, "hi", "hello"))
+    storage.put_object_bytes.assert_not_awaited()
