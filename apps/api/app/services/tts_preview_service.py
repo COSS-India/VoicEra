@@ -82,7 +82,7 @@ def _voice_is_supported(blob: dict[str, Any], language: str) -> bool:
     metadata, so that case is distinguished here rather than silently
     treated as "voice supported".
     """
-    provider = str(blob.get("provider") or "")
+    provider = _get_provider(blob)
     model = str(blob.get("model") or "")
     voice = blob.get("voice")
     cls = _config_class(Kind.TTS, provider)
@@ -92,14 +92,10 @@ def _voice_is_supported(blob: dict[str, Any], language: str) -> bool:
     by_lang = tree.get(model)
     if by_lang and language not in by_lang:
         return False
-    resolved = resolve_settings(tree, model, language)
-    voice_meta = resolved.get("voice")
-    if not voice_meta:
-        return True
-    if voice_meta.get("allow_custom_input"):
-        return True
+    voice_meta = resolve_settings(tree, model, language).get("voice") or {}
     options = voice_meta.get("options")
-    if not options:
+    # No voice metadata, free-text voices, or no closed list: nothing to check.
+    if voice_meta.get("allow_custom_input") or not options:
         return True
     return voice in options
 
