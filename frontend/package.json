@@ -14,6 +14,12 @@
     "@pipecat-ai/client-js": "^1.13.1",
     "@pipecat-ai/client-react": "^1.8.2",
     "@pipecat-ai/websocket-transport": "^1.7.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/d3": "^7.4.3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/topojson-client": "^3.1.5",
     "d3": "^7.9.0",
     "framer-motion": "^13.1.1",
     "jspdf": "^4.2.1",
@@ -22,24 +28,18 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "^3.10.1",
-    "topojson-client": "^3.1.0"
+    "tailwindcss": "^4",
+    "topojson-client": "^3.1.0",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
-    "@types/d3": "^7.4.3",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@types/topojson-client": "^3.1.5",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "happy-dom": "^20.14.5",
     "playwright": "^1.63.0",
-    "tailwindcss": "^4",
-    "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   }
 }

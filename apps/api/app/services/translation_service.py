@@ -16,11 +16,38 @@ error rather than silently using a shared credential.
 from __future__ import annotations
 
 import re
+from enum import Enum
 
 from app.services import auth_service
 from apps.providers.one_shot_llm import OneShotLLMError, call_first_available
 
-MAX_TRANSCRIPT_CHARS = 50_000
+MAX_TRANSCRIPT_CHARS = 22_000  # ~20 min call
+
+# Output cap sized for the worst-case *target script*, not an average one.
+# "Output is roughly input-sized" only holds in characters — the cap here is
+# in tokens, and BPE tokenizers split Devanagari/Tamil/etc. far more finely
+# than Latin (commonly ~1 char/token vs Latin's ~4). Sizing this from an
+# average or from Latin-only throughput silently truncates most Indic-target
+# translations of a full-length transcript — exactly the unfixable-retry
+# failure this cap exists to prevent, and the common case for this product's
+# audience, not an edge case. So: assume 1 char of input can produce up to 1
+# output token (the worst case across scripts we serve), plus fixed headroom
+# for the occasional bracketed [note: ...] the model appends to garbled
+# lines. Must stay ahead of MAX_TRANSCRIPT_CHARS's worst-case token-
+# equivalent, or completions get silently truncated mid-transcript and
+# _count_transcript_lines() rejects the result with an error that a retry
+# can never fix.
+MAX_OUTPUT_TOKENS = MAX_TRANSCRIPT_CHARS + 2_000
+
+# BCP-47-ish language tag shape. target_lang is spliced unescaped into
+# _user_prompt's instruction text — a tag can't smuggle instructions if it's
+# never more than a couple of letters and a region code.
+# Enforced here (not just at the HTTP route) so any future caller of
+# translate_transcript stays safe too. Uses fullmatch(), not match(): Python's
+# `$` matches just before a trailing "\n" even under match(), which would let
+# "hi\n" slip through.
+LANGUAGE_TAG_PATTERN = r"^[a-zA-Z]{2,3}(-[a-zA-Z]{2})?$"
+_LANGUAGE_TAG_RE = re.compile(LANGUAGE_TAG_PATTERN)
 
 # Each string below is one independent policy the model must follow; kept
 # separate (rather than one long paragraph) so a future change to, say, the
@@ -83,20 +110,35 @@ _SYSTEM_PROMPT = " ".join(
 # Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format —
 # used to detect when the model has merged/split/dropped lines despite being
 # told to keep the same line structure, since nothing else validates that.
-_TRANSCRIPT_LINE_RE = re.compile(r"^\[[^\]]+]\s*\w+:\s*.*$")
+_TRANSCRIPT_LINE_RE = re.compile(r"^\[[^\]]+]\s*[^:\]]+:\s*.*$")
 
 
 def _count_transcript_lines(text: str) -> int:
     return sum(1 for line in text.split("\n") if _TRANSCRIPT_LINE_RE.match(line))
 
 
+class TranslationErrorReason(str, Enum):
+    """Maps to the HTTP status the router should raise — see
+    apps.api.app.routers.calls._raise_translation_error. Kept as an explicit
+    enum rather than a growing set of is_xxx bools so each new failure mode
+    picks a real status instead of defaulting into upstream/502, which would
+    misclassify a client-side or org-config problem as our gateway failing."""
+
+    INVALID_INPUT = "invalid_input"  # empty transcript — 400, caller's fault
+    OVERSIZED = "oversized"  # 413
+    NOT_CONFIGURED = "not_configured"  # org hasn't connected a provider — 409
+    UPSTREAM = "upstream"  # provider/network/model failure — 502
+
+
 class TranslationError(Exception):
     """Raised when a transcript can't be translated (config, size, or provider failure)."""
 
-    def __init__(self, message: str, *, is_oversized: bool = False) -> None:
+    def __init__(
+        self, message: str, *, reason: TranslationErrorReason = TranslationErrorReason.UPSTREAM
+    ) -> None:
         super().__init__(message)
         self.message = message
-        self.is_oversized = is_oversized
+        self.reason = reason
 
 
 def _resolve_auth(org_id: str, provider: str) -> dict:
@@ -120,54 +162,67 @@ def _strip_markdown_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _user_prompt(text: str, target_lang: str, source_lang: str | None) -> str:
-    source_note = f"from {source_lang} " if source_lang else "(auto-detect the source language) "
+def _user_prompt(text: str, target_lang: str) -> str:
     # Untrusted transcript content wrapped in explicit delimiters — a caller's
     # spoken words become untrusted input to this completion call, guarding
     # against prompt injection (e.g. "ignore previous instructions...").
     return (
-        f"Translate the following call transcript {source_note}into {target_lang}:\n\n"
+        f"Translate the following call transcript (auto-detect the source language) "
+        f"into {target_lang}:\n\n"
         f"<transcript>\n{text}\n</transcript>"
     )
 
 
-def translate_transcript(
-    raw_transcript: str, target_lang: str, org_id: str, source_lang: str | None = None
-) -> str:
+def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> str:
     text = (raw_transcript or "").strip()
     if not text:
-        raise TranslationError("Transcript is empty.")
+        raise TranslationError("Transcript is empty.", reason=TranslationErrorReason.INVALID_INPUT)
+    if not _LANGUAGE_TAG_RE.fullmatch(target_lang):
+        raise TranslationError(
+            f"target_lang {target_lang!r} is not a valid language tag.",
+            reason=TranslationErrorReason.INVALID_INPUT,
+        )
     if len(text) > MAX_TRANSCRIPT_CHARS:
         raise TranslationError(
             f"Transcript is too long to translate in one request "
             f"({len(text)} chars, limit {MAX_TRANSCRIPT_CHARS}).",
-            is_oversized=True,
+            reason=TranslationErrorReason.OVERSIZED,
         )
 
     try:
         dispatched = call_first_available(
             org_id,
             _SYSTEM_PROMPT,
-            _user_prompt(text, target_lang, source_lang),
+            _user_prompt(text, target_lang),
             resolve_auth=_resolve_auth,
             list_configured_providers=auth_service.list_configured_providers,
             jwt_subject=f"translate-{org_id}",
+            max_tokens=MAX_OUTPUT_TOKENS,
         )
     except OneShotLLMError as exc:
-        raise TranslationError(f"Translation failed: {exc}") from exc
+        raise TranslationError(
+            f"Translation failed: {exc}", reason=TranslationErrorReason.UPSTREAM
+        ) from exc
 
     if dispatched is None:
         raise TranslationError(
             "No LLM provider is configured for this organisation. "
-            "Connect one under Integrations before translating transcripts."
+            "Connect one under Integrations before translating transcripts.",
+            reason=TranslationErrorReason.NOT_CONFIGURED,
         )
 
     _provider, _model, result = dispatched
     result = _strip_markdown_fence(result)
     if not result:
-        raise TranslationError("Translation returned an empty result.")
-    if _count_transcript_lines(result) != _count_transcript_lines(text):
         raise TranslationError(
-            "The translation model changed the transcript's line structure. Please try again."
+            "Translation returned an empty result.", reason=TranslationErrorReason.UPSTREAM
+        )
+    # If the original transcript has zero matching lines, the count comparison
+    # can't detect corruption (0 != 0 trivially passes) — nothing to compare against.
+    original_line_count = _count_transcript_lines(text)
+    if original_line_count > 0 and _count_transcript_lines(result) != original_line_count:
+        raise TranslationError(
+            "The translation model changed the transcript's line structure. Please try again.",
+            reason=TranslationErrorReason.UPSTREAM,
         )
     return result
