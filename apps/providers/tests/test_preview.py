@@ -32,32 +32,26 @@ class _DummyConfigWithSampleRate(BaseModel):
     sample_rate: int = 24000
 
 
-class _DummyConfigWithZeroSampleRate(BaseModel):
-    provider: str = "dummy"
-    sample_rate: int = 0
-
-
 def test_register_preview_adds_to_registry():
-    # Arrange
-    PREVIEW_ADAPTERS.pop("dummy-test-provider", None)
+    # Arrange: patch.dict restores the shared registry even if the assert fails.
+    with patch.dict(PREVIEW_ADAPTERS):
+        # Act
+        @register_preview("dummy-test-provider")
+        async def synth(cfg, text, client):
+            return b"audio"
 
-    # Act
-    @register_preview("dummy-test-provider")
-    async def synth(cfg, text, client):
-        return b"audio"
-
-    # Assert
-    assert has_preview_adapter("dummy-test-provider")
-    PREVIEW_ADAPTERS.pop("dummy-test-provider", None)
+        # Assert
+        assert has_preview_adapter("dummy-test-provider")
+    assert not has_preview_adapter("dummy-test-provider")
 
 
-def test_synthesize_preview_dispatches_to_registered_adapter():
+def test_synthesize_preview_dispatches_to_registered_adapter(monkeypatch):
     # Arrange
     async def fake_adapter(cfg, text, client):
         assert text == "hello"
         return b"wav-bytes"
 
-    PREVIEW_ADAPTERS["dummy-test-provider"] = fake_adapter
+    monkeypatch.setitem(PREVIEW_ADAPTERS, "dummy-test-provider", fake_adapter)
 
     async def run():
         async with httpx.AsyncClient() as client:
@@ -68,14 +62,15 @@ def test_synthesize_preview_dispatches_to_registered_adapter():
 
     # Assert
     assert result == b"wav-bytes"
-    PREVIEW_ADAPTERS.pop("dummy-test-provider", None)
 
 
 def test_synthesize_preview_raises_for_unknown_provider():
+    # Arrange
     async def run():
         async with httpx.AsyncClient() as client:
             await synthesize_preview("no-such-provider", _DummyConfig(), "hello", client)
 
+    # Act / Assert
     with pytest.raises(PreviewProviderError, match="No preview adapter"):
         _run(run())
 
@@ -107,11 +102,14 @@ def test_resolve_preview_sample_rate_prefers_configs_own_field():
 
 def test_resolve_preview_sample_rate_respects_explicit_zero():
     # A falsy-but-set 0 must not be mistaken for "field absent".
-    assert resolve_preview_sample_rate(_DummyConfigWithZeroSampleRate()) == 0
+    assert resolve_preview_sample_rate(_DummyConfigWithSampleRate(sample_rate=0)) == 0
 
 
 def test_import_vendor_previews_registers_sarvam_without_raising():
+    # Act
     import_vendor_previews()
+
+    # Assert
     assert has_preview_adapter("sarvam")
 
 
@@ -140,7 +138,7 @@ def test_import_vendor_previews_logs_and_continues_on_broken_vendor_module():
 
     # Assert: the broken import was logged, not silently swallowed.
     assert mock_logger.warning.called
-    assert "sarvam" in mock_logger.warning.call_args[0][0]
+    assert "sarvam" in mock_logger.warning.call_args.args[1]
 
 
 def _run(coro):

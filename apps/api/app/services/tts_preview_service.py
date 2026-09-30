@@ -19,10 +19,9 @@ from typing import Any
 import httpx
 import redis.asyncio as aioredis
 from minio.error import S3Error
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from apps.providers.base import Kind
-from apps.providers.capabilities import api_capabilities
 from apps.providers.preview import (
     PreviewProviderError,
     has_preview_adapter,
@@ -46,6 +45,8 @@ _PLACEHOLDER_RE = re.compile(r"\{\{\s*\w+\s*\}\}")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.!?;:])")
 _WHITESPACE_RE = re.compile(r"\s+")
 _RATE_LIMIT_WINDOW_S = 60
+_RATE_LIMIT_KEY_PREFIX = "tts_preview_rl"
+PREVIEW_MEDIA_TYPE = "audio/wav"
 # Bump when an adapter's output changes for the same inputs (WAV header, sample
 # rate, param mapping) so stale clips stop hitting; the bucket's 7-day
 # lifecycle rule cleans up the orphans.
@@ -104,7 +105,7 @@ async def check_rate_limit(org_id: str) -> None:
     redis_client = await _get_redis()
     now = time.time()
     window = int(now // _RATE_LIMIT_WINDOW_S)
-    key = f"tts_preview_rl:{org_id}:{window}"
+    key = f"{_RATE_LIMIT_KEY_PREFIX}:{org_id}:{window}"
     count = await redis_client.incr(key)
     if count == 1:
         await redis_client.expire(key, _RATE_LIMIT_WINDOW_S)
@@ -173,7 +174,7 @@ def _voice_is_supported(blob: dict[str, Any], language: str) -> bool:
     metadata, so that case is distinguished here rather than silently
     treated as "voice supported".
     """
-    provider = str(blob.get("provider") or "")
+    provider = _get_provider(blob)
     model = str(blob.get("model") or "")
     voice = blob.get("voice")
     cls = _config_class(Kind.TTS, provider)
@@ -183,14 +184,10 @@ def _voice_is_supported(blob: dict[str, Any], language: str) -> bool:
     by_lang = tree.get(model)
     if by_lang and language not in by_lang:
         return False
-    resolved = resolve_settings(tree, model, language)
-    voice_meta = resolved.get("voice")
-    if not voice_meta:
-        return True
-    if voice_meta.get("allow_custom_input"):
-        return True
+    voice_meta = resolve_settings(tree, model, language).get("voice") or {}
     options = voice_meta.get("options")
-    if not options:
+    # No voice metadata, free-text voices, or no closed list: nothing to check.
+    if voice_meta.get("allow_custom_input") or not options:
         return True
     return voice in options
 
@@ -214,7 +211,7 @@ def validate_request(tts_config: dict[str, Any], language: str, text: str) -> di
     except AgentConfigValidationError as exc:
         raise TtsPreviewError(TtsPreviewErrorReason.INVALID_CONFIG, str(exc)) from exc
 
-    provider = str(validated.get("provider") or "")
+    provider = _get_provider(validated)
     if not has_preview_adapter(provider):
         raise TtsPreviewError(
             TtsPreviewErrorReason.UNSUPPORTED_VOICE,
@@ -234,9 +231,13 @@ def validate_request(tts_config: dict[str, Any], language: str, text: str) -> di
     return validated
 
 
-async def resolve_config(org_id: str, blob: dict[str, Any]) -> Any:
+def _get_provider(blob: dict[str, Any]) -> str:
+    return str(blob.get("provider") or "")
+
+
+async def resolve_config(org_id: str, blob: dict[str, Any]) -> BaseModel:
     """Merge stored auth into the validated blob and build the typed config."""
-    provider = str(blob.get("provider") or "")
+    provider = _get_provider(blob)
     configured = await asyncio.to_thread(auth_service.list_configured_providers, org_id)
     if provider not in configured:
         raise TtsPreviewError(
@@ -267,7 +268,7 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     """
     stripped = strip_placeholders(text)
     validated_blob = validate_request(tts_config, language, stripped)
-    provider = str(validated_blob.get("provider") or "")
+    provider = _get_provider(validated_blob)
 
     # Cache before the rate limit: a hit costs the vendor nothing, and the
     # limit exists to protect vendor spend.
@@ -310,8 +311,8 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     return audio
 
 
-# Exposed for capability lookups used by adapters and future settings checks.
 __all__ = [
+    "PREVIEW_MEDIA_TYPE",
     "TtsPreviewError",
     "TtsPreviewErrorReason",
     "build_cache_key",
@@ -320,5 +321,4 @@ __all__ = [
     "resolve_config",
     "strip_placeholders",
     "validate_request",
-    "api_capabilities",
 ]

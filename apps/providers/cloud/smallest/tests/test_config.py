@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from .config import SmallestTTSConfig
+from apps.providers.cloud.smallest.config import SmallestTTSConfig
 
 
-def _make(sample_rate):
+def _make(sample_rate: int | str) -> SmallestTTSConfig:
     return SmallestTTSConfig(
         provider="smallest", model="lightning", voice="x", sample_rate=sample_rate, api_key="k"
     )
@@ -20,8 +20,11 @@ def test_sample_rate_accepts_every_vendor_supported_rate(rate):
 
 
 def test_sample_rate_coerces_dropdown_string_to_int():
-    # The wizard dropdown sends option values as strings.
+    # Arrange: the wizard dropdown sends option values as strings.
+    # Act
     cfg = _make("24000")
+
+    # Assert
     assert cfg.sample_rate == 24000
     assert isinstance(cfg.sample_rate, int)
 
