@@ -11,7 +11,6 @@ function here with :func:`register_preview`. Keep these modules free of
 
 from __future__ import annotations
 
-import os
 import wave
 from collections.abc import Awaitable, Callable
 from io import BytesIO
@@ -27,15 +26,10 @@ PREVIEW_ADAPTERS: dict[str, PreviewFn] = {}
 # Web-call quality (matches apps/runtime.constants.websocket_sample_rate()),
 # requested from every adapter whose vendor supports it. OpenAI, indic_orpheus
 # and bhashini Parler stay at their native rate instead (no resampling).
-# Env-overridable rather than threaded through every adapter's call signature,
-# same pattern runtime uses for its own sample rate constants.
-#
-# NOTE: read directly from the process environment, not from
-# apps/api/app/config.py's Settings — apps/providers is shared with
-# apps/runtime and cannot import anything under apps/api. Unlike the other
-# TTS_PREVIEW_* settings, this one is NOT picked up from apps/api's .env file;
-# it must be set as a real environment variable if overridden.
-PREVIEW_SAMPLE_RATE_HZ = int(os.getenv("TTS_PREVIEW_SAMPLE_RATE_HZ", "16000"))
+# A constant, not an env var: it never varies per deployment, and parsing an
+# env var at import time here could crash apps/runtime (which shares this
+# package) on a bad value.
+PREVIEW_SAMPLE_RATE_HZ = 16000
 
 
 def resolve_preview_sample_rate(cfg: BaseModel) -> int:

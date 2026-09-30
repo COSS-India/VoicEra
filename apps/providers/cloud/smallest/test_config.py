@@ -8,22 +8,30 @@ from pydantic import ValidationError
 from .config import SmallestTTSConfig
 
 
-def test_sample_rate_accepts_catalog_value():
-    cfg = SmallestTTSConfig(
-        provider="smallest", model="lightning", voice="x", sample_rate=24000, api_key="k"
+def _make(sample_rate):
+    return SmallestTTSConfig(
+        provider="smallest", model="lightning", voice="x", sample_rate=sample_rate, api_key="k"
     )
+
+
+@pytest.mark.parametrize("rate", [8000, 16000, 24000, 44100])
+def test_sample_rate_accepts_every_vendor_supported_rate(rate):
+    assert _make(rate).sample_rate == rate
+
+
+def test_sample_rate_coerces_dropdown_string_to_int():
+    # The wizard dropdown sends option values as strings.
+    cfg = _make("24000")
     assert cfg.sample_rate == 24000
+    assert isinstance(cfg.sample_rate, int)
 
 
-def test_sample_rate_rejects_zero():
+@pytest.mark.parametrize("rate", [0, -1, 22050, 48000, "abc"])
+def test_sample_rate_rejects_unsupported_value(rate):
     with pytest.raises(ValidationError):
-        SmallestTTSConfig(
-            provider="smallest", model="lightning", voice="x", sample_rate=0, api_key="k"
-        )
+        _make(rate)
 
 
-def test_sample_rate_rejects_value_outside_catalog():
-    with pytest.raises(ValidationError):
-        SmallestTTSConfig(
-            provider="smallest", model="lightning", voice="x", sample_rate=44100, api_key="k"
-        )
+def test_sample_rate_error_names_allowed_values():
+    with pytest.raises(ValidationError, match="8000, 16000, 24000, 44100"):
+        _make(22050)
