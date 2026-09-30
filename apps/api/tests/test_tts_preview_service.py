@@ -9,6 +9,7 @@ import pytest
 
 from apps.providers.preview import PreviewProviderError
 
+from app.config import settings
 from app.services.tts_preview_service import (
     TtsPreviewError,
     TtsPreviewErrorReason,
@@ -193,18 +194,16 @@ def test_generate_preview_strips_placeholders_before_synthesis():
 
 def test_generate_preview_maps_timeout_to_timeout_reason():
     async def _hang(*_args, **_kwargs):
-        await asyncio.sleep(10)
+        await asyncio.Event().wait()  # never set: only the timeout can end it
 
     patches = _patch_configured_sarvam()
     with (
         patches[0],
         patches[1],
         patch("app.services.tts_preview_service.check_rate_limit", new_callable=AsyncMock),
-        patch("app.services.tts_preview_service.settings") as mock_settings,
+        patch.object(settings, "TTS_PREVIEW_TIMEOUT_S", 0.01),
         patch("app.services.tts_preview_service.synthesize_preview", side_effect=_hang),
     ):
-        mock_settings.TTS_PREVIEW_MAX_CHARS = 300
-        mock_settings.TTS_PREVIEW_TIMEOUT_S = 0.01
         with pytest.raises(TtsPreviewError) as exc_info:
             _run(
                 generate_preview(
