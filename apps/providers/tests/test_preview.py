@@ -32,11 +32,6 @@ class _DummyConfigWithSampleRate(BaseModel):
     sample_rate: int = 24000
 
 
-class _DummyConfigWithZeroSampleRate(BaseModel):
-    provider: str = "dummy"
-    sample_rate: int = 0
-
-
 def test_register_preview_adds_to_registry():
     # Arrange: patch.dict restores the shared registry even if the assert fails.
     with patch.dict(PREVIEW_ADAPTERS):
@@ -107,11 +102,14 @@ def test_resolve_preview_sample_rate_prefers_configs_own_field():
 
 def test_resolve_preview_sample_rate_respects_explicit_zero():
     # A falsy-but-set 0 must not be mistaken for "field absent".
-    assert resolve_preview_sample_rate(_DummyConfigWithZeroSampleRate()) == 0
+    assert resolve_preview_sample_rate(_DummyConfigWithSampleRate(sample_rate=0)) == 0
 
 
 def test_import_vendor_previews_registers_sarvam_without_raising():
+    # Act
     import_vendor_previews()
+
+    # Assert
     assert has_preview_adapter("sarvam")
 
 
@@ -140,7 +138,7 @@ def test_import_vendor_previews_logs_and_continues_on_broken_vendor_module():
 
     # Assert: the broken import was logged, not silently swallowed.
     assert mock_logger.warning.called
-    assert "sarvam" in mock_logger.warning.call_args[0][0]
+    assert "sarvam" in mock_logger.warning.call_args.args[1]
 
 
 def _run(coro):

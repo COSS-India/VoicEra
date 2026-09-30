@@ -11,6 +11,8 @@ function here with :func:`register_preview`. Keep these modules free of
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 import wave
 from collections.abc import Awaitable, Callable
 from io import BytesIO
@@ -35,24 +37,12 @@ PREVIEW_SAMPLE_RATE_HZ = 16000
 def resolve_preview_sample_rate(cfg: BaseModel) -> int:
     """Return the sample rate an adapter should request for ``cfg``.
 
-    Verified against every TTS provider's ``service.py``/``catalog.py``:
-    ``smallest`` is the only one with a per-config, user-selectable
-    ``sample_rate`` field (its live-call service uses ``cfg.sample_rate``
-    rather than a fixed constant) — preview must match that choice instead
-    of silently overriding it with the shared default. Every other provider
-    that accepts a rate in its request (sarvam, elevenlabs, cartesia,
-    deepgram, google, azure_speech, rime, inworld, camb, xai) has no such
-    field, so this falls back to the shared 16kHz default for all of them.
-
-    Do NOT call this for OpenAI, indic_orpheus or bhashini: none of them take
-    a request-time sample-rate parameter to negotiate. indic_orpheus and
-    OpenAI are fixed at their catalog-declared native rate (24kHz). Bhashini
-    Parler's gRPC response can report its own rate per chunk
-    (``response.meta.sample_rate`` — see ``adapters/bhashini/tts.py``) and
-    falls back to 44.1kHz only when the response doesn't say; its preview
-    adapter must read the response the same way, not assume 44100. Never
-    resample in any case — always pass the vendor's own rate to
-    :func:`pcm_to_wav`.
+    The config's own ``sample_rate`` when the provider has that field (so a
+    user's choice, e.g. Smallest's, is honoured), else
+    ``PREVIEW_SAMPLE_RATE_HZ``. Only for vendors that take a rate in the
+    request: a vendor with a fixed native rate, or one that reports its rate
+    in the response, passes that rate to :func:`pcm_to_wav` instead. Never
+    resample.
     """
     rate = getattr(cfg, "sample_rate", None)
     return rate if rate is not None else PREVIEW_SAMPLE_RATE_HZ
@@ -134,9 +124,6 @@ def import_vendor_previews() -> None:
     Mirrors ``registry.load_providers()``'s discovery, but only pulls in
     ``preview`` submodules (never ``service``, which imports pipecat).
     """
-    import importlib
-    import pkgutil
-
     package_root = __package__
     for area in ("cloud", "adapters", "local"):
         try:
@@ -144,17 +131,19 @@ def import_vendor_previews() -> None:
         except ModuleNotFoundError:
             continue
         for _finder, vendor_name, is_pkg in pkgutil.iter_modules(area_pkg.__path__):
-            if not is_pkg:
-                continue
-            module_name = f"{package_root}.{area}.{vendor_name}.preview"
-            try:
-                importlib.import_module(module_name)
-            except Exception as exc:  # noqa: BLE001 - never let one broken vendor block the rest
-                if isinstance(exc, ModuleNotFoundError) and exc.name == module_name:
-                    # This vendor has no preview.py yet — expected until its PR lands.
-                    continue
-                # The vendor's preview.py exists but failed to import (e.g. a
-                # bad import inside it). Log loudly: otherwise the adapter
-                # silently never registers and callers just see a generic
-                # "not available" 422 with no clue why.
-                logger.warning(f"Failed to import preview adapter {module_name}: {exc}")
+            if is_pkg:
+                _import_vendor_preview(f"{package_root}.{area}.{vendor_name}.preview")
+
+
+def _import_vendor_preview(module_name: str) -> None:
+    """Import one vendor's ``preview`` module, logging (never raising) on failure."""
+    try:
+        importlib.import_module(module_name)
+    except Exception as exc:  # noqa: BLE001 - never let one broken vendor block the rest
+        if isinstance(exc, ModuleNotFoundError) and exc.name == module_name:
+            # This vendor has no preview.py yet — expected until its PR lands.
+            return
+        # The vendor's preview.py exists but failed to import (e.g. a bad
+        # import inside it). Log loudly: otherwise the adapter silently never
+        # registers and callers just see a generic "not available" 422.
+        logger.warning("Failed to import preview adapter {}: {}", module_name, exc)
