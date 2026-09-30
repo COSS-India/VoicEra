@@ -14,10 +14,9 @@ from enum import Enum
 from typing import Any
 
 import httpx
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from apps.providers.base import Kind
-from apps.providers.capabilities import api_capabilities
 from apps.providers.preview import (
     PreviewProviderError,
     has_preview_adapter,
@@ -38,6 +37,7 @@ logger = logging.getLogger(__name__)
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*\w+\s*\}\}")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.!?;:])")
 _WHITESPACE_RE = re.compile(r"\s+")
+PREVIEW_MEDIA_TYPE = "audio/wav"
 
 import_vendor_previews()
 
@@ -90,7 +90,7 @@ def validate_request(tts_config: dict[str, Any], language: str, text: str) -> di
     except AgentConfigValidationError as exc:
         raise TtsPreviewError(TtsPreviewErrorReason.INVALID_CONFIG, str(exc)) from exc
 
-    provider = str(validated.get("provider") or "")
+    provider = _get_provider(validated)
     if not has_preview_adapter(provider):
         raise TtsPreviewError(
             TtsPreviewErrorReason.UNSUPPORTED_VOICE,
@@ -99,9 +99,13 @@ def validate_request(tts_config: dict[str, Any], language: str, text: str) -> di
     return validated
 
 
-async def resolve_config(org_id: str, blob: dict[str, Any]) -> Any:
+def _get_provider(blob: dict[str, Any]) -> str:
+    return str(blob.get("provider") or "")
+
+
+async def resolve_config(org_id: str, blob: dict[str, Any]) -> BaseModel:
     """Merge stored auth into the validated blob and build the typed config."""
-    provider = str(blob.get("provider") or "")
+    provider = _get_provider(blob)
     configured = await asyncio.to_thread(auth_service.list_configured_providers, org_id)
     if provider not in configured:
         raise TtsPreviewError(
@@ -129,7 +133,7 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     stripped = strip_placeholders(text)
     validated_blob = validate_request(tts_config, language, stripped)
     cfg = await resolve_config(org_id, validated_blob)
-    provider = str(validated_blob.get("provider") or "")
+    provider = _get_provider(validated_blob)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -155,13 +159,12 @@ async def generate_preview(org_id: str, tts_config: dict[str, Any], language: st
     return audio
 
 
-# Exposed for capability lookups used by adapters and future settings checks.
 __all__ = [
+    "PREVIEW_MEDIA_TYPE",
     "TtsPreviewError",
     "TtsPreviewErrorReason",
     "generate_preview",
     "resolve_config",
     "strip_placeholders",
     "validate_request",
-    "api_capabilities",
 ]
