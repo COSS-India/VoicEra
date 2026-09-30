@@ -7,6 +7,7 @@
           "gcp": ["chirp_3", "chirp_2", "long", "short", "telephony"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["ai4bharat/whisper-medium-en--gpu--t4"]
         }
       },
@@ -16,6 +17,7 @@
           "gcp": ["chirp_3", "chirp_2", "long", "short"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["ai4bharat/whisper-medium-en--gpu--t4"]
         }
       },
@@ -25,7 +27,7 @@
           "gcp": ["chirp_3", "chirp_2", "long", "short", "telephony"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -35,7 +37,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -45,7 +47,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -55,7 +57,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -65,7 +67,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -81,7 +83,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -91,7 +93,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -101,7 +103,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -111,7 +113,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -121,7 +123,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3", "saarika:v2", "saarika:v2.5"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -131,7 +133,7 @@
           "gcp": ["chirp_3", "chirp_2"],
           "sarvam": ["saaras:v3"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -141,7 +143,7 @@
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -151,7 +153,7 @@
           "gcp": ["chirp_3", "chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -160,7 +162,7 @@
           "deepgram": [],
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -169,7 +171,7 @@
           "deepgram": [],
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -178,7 +180,7 @@
           "deepgram": [],
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -187,7 +189,7 @@
           "deepgram": [],
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -196,7 +198,7 @@
           "deepgram": [],
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -205,7 +207,7 @@
           "deepgram": [],
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -214,7 +216,7 @@
           "deepgram": [],
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -223,7 +225,7 @@
           "deepgram": [],
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       },
@@ -233,7 +235,7 @@
           "gcp": ["chirp_2", "long", "short"],
           "sarvam": ["saaras:v3"],
           "elevenlabs": ["scribe-v2", "scribe-v2-realtime"],
-          "ai4bharat": ["indic-conformer-stt"],
+          "ai4bharat": ["indic-nemotron-stt"],
           "bhashini": ["bhashini/ai4bharat/conformer-multilingual-asr"]
         }
       }
@@ -302,10 +304,15 @@
         }
       },
       "ai4bharat": {
+        "indic-nemotron-stt": {
+          "description": "AI4Bharat IndicNemotron streaming ASR for 22 Indian languages + English",
+          "streaming": true,
+          "recommended": true
+        },
         "indic-conformer-stt": {
           "description": "AI4Bharat Indic Conformer ASR model for Indian languages",
           "streaming": true,
-          "recommended": true
+          "recommended": false
         }
       },
       "bhashini": {

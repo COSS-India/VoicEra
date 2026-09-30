@@ -119,10 +119,15 @@ export function languageSwitchingStackEligible(
   return (
     llmProvider === "openai" &&
     sttProvider === "ai4bharat" &&
-    sttModel === "indic-conformer-stt" &&
+    ["indic-nemotron-stt", "indic-conformer-stt"].includes(sttModel) &&
     ttsProvider === "ai4bharat" &&
-    ttsModel === "indic-parler-tts"
+    ["indic-orpheus-tts", "indic-parler-tts"].includes(ttsModel)
   )
+}
+
+/** Parler-style TTS takes a free-text voice description; Orpheus picks the voice by speaker only. */
+export function usesVoiceDescription(ttsProvider: string, ttsModel: string): boolean {
+  return ttsProvider === "bhashini" || (ttsProvider === "ai4bharat" && ttsModel === "indic-parler-tts")
 }
 
 export function getIntersectedSTTProviders(languages: string[]): Set<string> {

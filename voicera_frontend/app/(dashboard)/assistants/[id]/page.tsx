@@ -58,6 +58,7 @@ import {
   getIntersectedTTSModels,
   getIntersectedTTSProviders,
   loadSelectedLanguagesFromConfig,
+  usesVoiceDescription,
 } from "@/lib/languageModelSupport"
 import { LanguageSelectionSection } from "@/components/assistants/language-selection-section"
 import { TranslationLanguagesSection } from "@/components/assistants/translation-languages-section"
@@ -1991,7 +1992,7 @@ export default function AgentDetailPage() {
                   )}
                 </div>
 
-                {(ttsProvider === "ai4bharat" || ttsProvider === "bhashini") && (
+                {usesVoiceDescription(ttsProvider, ttsModel) && (
                   <div className="mt-4">
                     <label className="text-sm font-semibold text-slate-700 mb-2 block">Voice Description</label>
                     <Select value={ttsDescription} onValueChange={setTtsDescription} disabled={availableTTSDescriptions.length === 0}>

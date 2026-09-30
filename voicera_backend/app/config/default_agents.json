@@ -12,13 +12,12 @@
     },
     "stt_model": {
       "name": "AI4Bharat",
-      "model": "indic-conformer-stt"
+      "model": "indic-nemotron-stt"
     },
     "tts_model": {
       "name": "AI4Bharat",
-      "model": "indic-parler-tts",
-      "speaker": "Divya",
-      "description": "Rohan speaks in an encouraging, unhurried and non-evaluative voice, friendly and easy-going, at a moderate pace, recorded clearly in a close-sounding environment with excellent recording quality."
+      "model": "indic-orpheus-tts",
+      "speaker": "Kavya"
     }
   },
   {
@@ -34,13 +33,12 @@
     },
     "stt_model": {
       "name": "AI4Bharat",
-      "model": "indic-conformer-stt"
+      "model": "indic-nemotron-stt"
     },
     "tts_model": {
       "name": "AI4Bharat",
-      "model": "indic-parler-tts",
-      "speaker": "Divya",
-      "description": "Deepa speaks in a gentle, unhurried and dignity-forward voice, soft and patient, at a slow, deliberate pace, recorded clearly in a close-sounding environment with excellent recording quality."
+      "model": "indic-orpheus-tts",
+      "speaker": "Kavya"
     }
   },
   {
@@ -56,13 +54,12 @@
     },
     "stt_model": {
       "name": "AI4Bharat",
-      "model": "indic-conformer-stt"
+      "model": "indic-nemotron-stt"
     },
     "tts_model": {
       "name": "AI4Bharat",
-      "model": "indic-parler-tts",
-      "speaker": "Divya",
-      "description": "Kavya speaks in a warm, unhurried and reassuring voice with a natural, non-clinical tone, at a moderate pace, recorded clearly in a close-sounding environment with excellent recording quality."
+      "model": "indic-orpheus-tts",
+      "speaker": "Kavya"
     }
   },
   {
@@ -78,13 +75,12 @@
     },
     "stt_model": {
       "name": "AI4Bharat",
-      "model": "indic-conformer-stt"
+      "model": "indic-nemotron-stt"
     },
     "tts_model": {
       "name": "AI4Bharat",
-      "model": "indic-parler-tts",
-      "speaker": "Divya",
-      "description": "Vikram speaks in a neutral, respectful and procedurally clear voice, calm and measured, at a moderate pace, recorded clearly in a close-sounding environment with excellent recording quality."
+      "model": "indic-orpheus-tts",
+      "speaker": "Kavya"
     }
   },
   {
@@ -100,13 +96,12 @@
     },
     "stt_model": {
       "name": "AI4Bharat",
-      "model": "indic-conformer-stt"
+      "model": "indic-nemotron-stt"
     },
     "tts_model": {
       "name": "AI4Bharat",
-      "model": "indic-parler-tts",
-      "speaker": "Divya",
-      "description": "Anjali speaks in a warm, clear and patient voice, gentle and easy to follow, at a slightly slow pace, recorded clearly in a close-sounding environment with excellent recording quality."
+      "model": "indic-orpheus-tts",
+      "speaker": "Kavya"
     }
   },
   {
@@ -122,13 +117,12 @@
     },
     "stt_model": {
       "name": "AI4Bharat",
-      "model": "indic-conformer-stt"
+      "model": "indic-nemotron-stt"
     },
     "tts_model": {
       "name": "AI4Bharat",
-      "model": "indic-parler-tts",
-      "speaker": "Divya",
-      "description": "Mitra speaks in a friendly, practical and unhurried voice, plain and confident, at a steady moderate pace, recorded clearly in a close-sounding environment with excellent recording quality."
+      "model": "indic-orpheus-tts",
+      "speaker": "Anagha"
     }
   }
 ]

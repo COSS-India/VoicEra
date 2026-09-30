@@ -201,8 +201,8 @@ async def run_bot(
             llm_provider_name == "openai"
             and tts_provider == "ai4bharat"
             and stt_provider_name == "ai4bharat"
-            and tts_model == "indic-parler-tts"
-            and stt_model == "indic-conformer-stt"
+            and tts_model in ("indic-orpheus-tts", "indic-parler-tts")
+            and stt_model in ("indic-nemotron-stt", "indic-conformer-stt")
             and is_bilingual_agent(agent_config)
         )
 

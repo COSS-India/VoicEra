@@ -139,6 +139,9 @@ TTS_LANGUAGE_MAP = {
     },
     "AI4Bharat": {
         "Hindi": "hi",
+        "English": "en",
+        "English (India)": "en",
+        "English (United States)": "en",
         "Bengali": "bn",
         "bhb": "bhb",
         "Tamil": "ta",
@@ -191,3 +194,48 @@ TTS_LANGUAGE_MAP = {
         "Sindhi": "sd",
     },
 }
+
+
+# Orpheus (AI4Bharat indic-orpheus-tts) speakers per language code, from the
+# model-server voices-v2.json roster. The speaker name alone selects the
+# language on the wire; English is spoken by the Hindi pair. First = default.
+ORPHEUS_VOICES = {
+    "as": ("Prastuti", "Ankur"),
+    "bn": ("Ishita", "Sourav"),
+    "bhb": ("Bhima", "Dhulji", "Govind", "Jhamku", "Kanku", "Sarju", "Tantya"),
+    "brx": ("Gwrbw", "Sansuma"),
+    "doi": ("Preeti", "Sham"),
+    "en": ("Kavya", "Amit"),
+    "gu": ("Dhara", "Parth"),
+    "hi": ("Kavya", "Amit"),
+    "kn": ("Deepika", "Adarsh"),
+    "kok": ("Anjali", "Sandeep"),
+    "ks": ("Zoon", "Ishfaq"),
+    "mai": ("Vaidehi", "Madhukar"),
+    "ml": ("Lakshmi", "Kiran"),
+    "mni": ("Thoibi", "Chaoba"),
+    "mr": ("Anagha", "Chinmay"),
+    "ne": ("Srijana", "Sagar"),
+    "or": ("Itishree", "Akash"),
+    "pa": ("Kaur", "Manpreet"),
+    "sa": ("Bharati", "Aryaman"),
+    "sat": ("Phulmani", "Sibu"),
+    "sd": ("Moomal", "Rano"),
+    "ta": ("Anitha", "Arun"),
+    "te": ("Sravani", "Vamsi"),
+    "ur": ("Saba", "Zaid"),
+}
+
+
+def orpheus_voice(language_code: str, requested: str | None = None) -> str:
+    """Return ``requested`` if it is a speaker of ``language_code``, else that language's default.
+
+    Speaker names from other providers (e.g. Parler's "Divya") or another
+    language would otherwise make Orpheus speak the wrong language or fail.
+    """
+    voices = ORPHEUS_VOICES.get(language_code) or ORPHEUS_VOICES["hi"]
+    if requested:
+        match = next((v for v in voices if v.lower() == requested.strip().lower()), None)
+        if match:
+            return match
+    return voices[0]

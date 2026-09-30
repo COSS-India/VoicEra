@@ -85,12 +85,16 @@ services:
       - NMT_MODEL_NAME=${NMT_MODEL_NAME:-nmt}
       - NMT_BATCH_WINDOW_MS=${NMT_BATCH_WINDOW_MS:-8}
       - NMT_MAX_INFLIGHT=${NMT_MAX_INFLIGHT:-4}
+      # AI4Bharat indic-nemotron-stt / indic-orpheus-tts: the prod-v2 model-server
+      # gateway, reached over `modelnet` by its unique container name.
+      - INDIC_MODEL_SERVER_URL=${INDIC_MODEL_SERVER_URL:-http://voicera-prod-v2-model-gateway:8000}
     depends_on: [backend, minio]
-    # Dual-homed: `internal` for its own backend/minio, `prodnet` to reach the
-    # existing prod stt/tts. On `prodnet` the names backend/minio/nginx are
-    # AMBIGUOUS (they exist in both projects), so .env.translate references every
-    # service by its UNIQUE container name (voicera-translate-* / voicera-prod-*).
-    networks: [internal, prodnet]
+    # `internal` for its own backend/minio, `prodnet` for the legacy prod
+    # conformer/parler stt/tts, `modelnet` for the Nemotron/Orpheus gateway. On
+    # `prodnet` the names backend/minio/nginx are AMBIGUOUS (they exist in both
+    # projects), so .env.translate references every service by its UNIQUE
+    # container name (voicera-translate-* / voicera-prod-*).
+    networks: [internal, prodnet, modelnet]
 
   frontend:
     build:
@@ -147,6 +151,10 @@ networks:
   prodnet:
     external: true
     name: ${PROD_NETWORK_NAME}
+  # The prod-v2 model-server network (model-gateway, stt, tts).
+  modelnet:
+    external: true
+    name: ${MODEL_NETWORK_NAME:-voicera-prod-v2-model_model_net}
 
 secrets:
   frontend_env:

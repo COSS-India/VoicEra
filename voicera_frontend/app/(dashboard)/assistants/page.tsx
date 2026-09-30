@@ -63,6 +63,7 @@ import {
   getIntersectedTTSModels,
   getIntersectedTTSProviders,
   hasMultipleLanguages,
+  usesVoiceDescription,
 } from "@/lib/languageModelSupport"
 import {
   type KenpathVariant,
@@ -325,12 +326,12 @@ const defaultConfig: AgentConfig = {
   maxTokens: 450,
   selectedLanguages: ["Hindi"],
   sttProvider: "ai4bharat",
-  sttModel: "indic-conformer-stt",
+  sttModel: "indic-nemotron-stt",
   keywords: "",
   ttsProvider: "ai4bharat",
-  ttsModel: "indic-parler-tts",
-  ttsVoice: "Rohit",
-  ttsDescription: "Speaks at a fast pace with a slightly low-pitched voice, captured clearly in a close-sounding environment with excellent recording quality.",
+  ttsModel: "indic-orpheus-tts",
+  ttsVoice: "Kavya",
+  ttsDescription: "",
   bufferSize: 50,
   speedRate: 1,
   similarityBoost: 75,
@@ -2400,7 +2401,7 @@ export default function AssistantsPage() {
 
 
                       {/* TTS Description for AI4Bharat and Bhashini */}
-                      {(config.ttsProvider === "ai4bharat" || config.ttsProvider === "bhashini") && (
+                      {usesVoiceDescription(config.ttsProvider, config.ttsModel) && (
                         <div className="space-y-2 pt-3">
                           <label className="text-sm font-semibold text-slate-700">Voice Description</label>
                           <Select value={config.ttsDescription} onValueChange={(v) => updateConfig("ttsDescription", v)}>
@@ -2512,7 +2513,7 @@ export default function AssistantsPage() {
                         </div>
                       )}
 
-                      {(config.ttsProvider === "ai4bharat" || config.ttsProvider === "bhashini") && (
+                      {usesVoiceDescription(config.ttsProvider, config.ttsModel) && (
                         <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
                           <p className="text-sm text-slate-600">
                             <span className="font-medium">{config.ttsProvider === "ai4bharat" ? "AI4Bharat" : "Bhashini"}</span> uses description-based voice control. Select a voice description above to customize pitch, pace, and expression characteristics.

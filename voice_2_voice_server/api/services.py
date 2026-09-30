@@ -33,6 +33,8 @@ from services.kenpath_llm.llm import (
 )
 from services.ai4bharat.tts import IndicParlerRESTTTSService
 from services.ai4bharat.stt import IndicConformerRESTSTTService
+from services.ai4bharat.nemotron_stt import IndicNemotronSTTService
+from services.ai4bharat.orpheus_tts import IndicOrpheusTTSService
 from services.bhashini.stt import BhashiniSTTService
 from services.bhashini.socketio_stt import BhashiniSocketIOSTTService
 from services.bhashini.bhili_stt import BhashiniBhiliSTTService
@@ -487,7 +489,12 @@ def create_stt_service(
     
     elif provider == "AI4Bharat":
         model = args.get("model") or stt_config.get("model")
-        if model == "indic-conformer-stt":
+        if model == "indic-nemotron-stt":
+            return IndicNemotronSTTService(
+                language=STT_LANGUAGE_MAP[provider].get(language, language or "hi"),
+                sample_rate=sample_rate,
+            )
+        elif model == "indic-conformer-stt":
             return IndicConformerRESTSTTService(
                 language_id=STT_LANGUAGE_MAP[provider][language],
                 sample_rate=16000,
@@ -495,7 +502,9 @@ def create_stt_service(
                 suppress_vad_frames=(vad_analyzer is not None),
             )
         else:
-            raise ServiceCreationError(f"Unknown ai4bharat STT model: {model}. Expected 'indic-conformer-stt'")
+            raise ServiceCreationError(
+                f"Unknown ai4bharat STT model: {model}. Expected 'indic-nemotron-stt' or 'indic-conformer-stt'"
+            )
     
     elif provider == "Bhashini":
         lang_code = STT_LANGUAGE_MAP[provider].get(language, language)
@@ -695,7 +704,15 @@ def create_tts_service(
     
     elif provider == "AI4Bharat":
         model = args.get("model") or tts_config.get("model")
-        if model == "indic-parler-tts":
+        if model == "indic-orpheus-tts":
+            return IndicOrpheusTTSService(
+                voice=tts_config.get("speaker") or args.get("speaker"),
+                language_id=TTS_LANGUAGE_MAP[provider].get(language, language) if language else "hi",
+                style=args.get("style"),
+                aiohttp_session=aiohttp_session,
+                sample_rate=sample_rate,
+            )
+        elif model == "indic-parler-tts":
             speaker = tts_config.get("speaker") or args.get("speaker")
             description = tts_config.get("description") or args.get("description")
             language_id = (
@@ -708,7 +725,9 @@ def create_tts_service(
                 sample_rate=sample_rate
             )
         else:
-            raise ServiceCreationError(f"Unknown ai4bharat TTS model: {model}. Expected 'indic-parler-tts'")
+            raise ServiceCreationError(
+                f"Unknown ai4bharat TTS model: {model}. Expected 'indic-orpheus-tts' or 'indic-parler-tts'"
+            )
     
     elif provider == "Bhashini":
         speaker = tts_config.get("speaker") or args.get("speaker")

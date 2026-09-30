@@ -101,6 +101,9 @@ STT_LANGUAGE_MAP = {
     },
     "AI4Bharat": {
         "Hindi": "hi",
+        "English": "en",
+        "English (India)": "en",
+        "English (United States)": "en",
         "Bengali": "bn",
         "Bodo": "brx",
         "Dogri": "doi",

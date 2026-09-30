@@ -40,6 +40,7 @@ class _ModelConfig(BaseModel):
     speaker: Optional[str] = None
     # Natural-language voice-style prompt for indic-parler-tts (drives pace/tone
     # on the voice server; surfaced as the "voice description" in the frontend).
+    # Unused by indic-orpheus-tts, which picks the voice by speaker alone.
     description: Optional[str] = None
 
 
