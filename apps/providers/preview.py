@@ -59,7 +59,11 @@ def resolve_preview_sample_rate(cfg: BaseModel) -> int:
 
 
 class PreviewProviderError(RuntimeError):
-    """Raised by an adapter when the vendor call fails or is misconfigured."""
+    """Raised by an adapter when the vendor call fails or is misconfigured.
+
+    The message is written to server logs, so it must never contain the
+    preview text or credentials: status codes and error classes only.
+    """
 
 
 def register_preview(provider: str) -> Callable[[PreviewFn], PreviewFn]:
@@ -78,6 +82,7 @@ def register_preview(provider: str) -> Callable[[PreviewFn], PreviewFn]:
 
 
 def has_preview_adapter(provider: str) -> bool:
+    """Return whether ``provider`` has a registered preview adapter."""
     return provider in PREVIEW_ADAPTERS
 
 
