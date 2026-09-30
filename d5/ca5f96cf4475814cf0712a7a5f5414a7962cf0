@@ -1,0 +1,57 @@
+voice_2_voice_server/config/stt_mappings.py
+  s_4146e81aa6c0ef::t_4ce524c86a6567 104-106
+voice_2_voice_server/.env.example
+  s_4146e81aa6c0ef::t_1c2ec5a6c0c856 65,68-72
+  s_4146e81aa6c0ef::t_f6e822e12bed70 73
+voice_2_voice_server/api/bot.py
+  s_4146e81aa6c0ef::t_fbe63b0b17a0b3 204-205
+voice_2_voice_server/api/services.py
+  s_4146e81aa6c0ef::t_77ca460e298bf4 36-37,492-497,505-507,707-715,728-730
+voice_2_voice_server/services/ai4bharat/__init__.py
+  s_4146e81aa6c0ef::t_60899fb26500cf 3-4,10-11
+voicera_backend/app/services/agent_service.py
+  s_4146e81aa6c0ef::t_d5cb8ba08e059c 43
+voice_2_voice_server/services/ai4bharat/orpheus_tts.py
+  s_4146e81aa6c0ef::t_513d271941a2e2 1-96,98-100,113,115
+  s_4146e81aa6c0ef::t_2bdf4cf7b841b0 97,101-112,114,116-121
+voice_2_voice_server/services/ai4bharat/nemotron_stt.py
+  s_4146e81aa6c0ef::t_7cce9efd169258 109
+  s_4146e81aa6c0ef::t_6e098ff7242f6e 1-37,40-42,44-69,71-86,90-91,93-108,110-184,186,191-205,208-210,212-229,234-242,248-267
+  s_4146e81aa6c0ef::t_8fb6869f54d2c1 185,187-190
+  s_4146e81aa6c0ef::t_2bdf4cf7b841b0 38-39,43,70,87-89,92,206-207,211,230-233,243-247
+voicera_frontend/lib/languageModelSupport.ts
+  s_4146e81aa6c0ef::t_dfd631c97c17e9 122,124,128-130
+  s_4146e81aa6c0ef::t_85e4677492dcfd 131-132
+deploy/compose/docker-compose.translate.yml
+  s_4146e81aa6c0ef::t_37dedbd6d33e66 88-90,92-97,154-157
+voicera_frontend/app/(dashboard)/assistants/[id]/page.tsx
+  s_4146e81aa6c0ef::t_dfd631c97c17e9 61,1995
+voicera_frontend/stt.json
+  s_4146e81aa6c0ef::t_d51ecf66e83904 10,20,30,40,50,60,70,86,96,106,116,126,136,146,156,165,174,183,192,201,210,219,228,238,307-311,315
+voicera_backend/app/config/default_agents.json
+  s_4146e81aa6c0ef::t_9fa8937c765a4c 15,19-20,36,40-41,57,61-62,78,82-83,99,103-104,120,124-125
+voice_2_voice_server/config/tts_mappings.py
+  s_4146e81aa6c0ef::t_4ce524c86a6567 142-144,197-241
+voice_2_voice_server/services/ai4bharat/model_server.py
+  s_4146e81aa6c0ef::t_bd8c46f1225a6d 1-22
+voicera_frontend/tts.json
+  s_4146e81aa6c0ef::t_d51ecf66e83904 34-39,84-89,129-131,172-174,215-217,259-261,302-304,345-347,388-390,431-433,474-476,517-519,559-561,597-599,635-637,667-669,700-702,732-734,764-766,796-798,828-830,860-862,892-894,924-926,1174-1178,1209-1230
+voicera_frontend/app/(dashboard)/assistants/page.tsx
+  s_4146e81aa6c0ef::t_dfd631c97c17e9 66,329,332-334,2404,2516
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d5ca5f96cf4475814cf0712a7a5f5414a7962cf0",
+  "prompts": {},
+  "sessions": {
+    "s_4146e81aa6c0ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb9cf2d5-4642-42d1-bf24-1276a277904c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
