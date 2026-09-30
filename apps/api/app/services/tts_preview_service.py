@@ -41,6 +41,7 @@ _PLACEHOLDER_RE = re.compile(r"\{\{\s*\w+\s*\}\}")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.!?;:])")
 _WHITESPACE_RE = re.compile(r"\s+")
 _RATE_LIMIT_WINDOW_S = 60
+_RATE_LIMIT_KEY_PREFIX = "tts_preview_rl"
 PREVIEW_MEDIA_TYPE = "audio/wav"
 
 import_vendor_previews()
@@ -96,7 +97,7 @@ async def check_rate_limit(org_id: str) -> None:
     redis_client = await _get_redis()
     now = time.time()
     window = int(now // _RATE_LIMIT_WINDOW_S)
-    key = f"tts_preview_rl:{org_id}:{window}"
+    key = f"{_RATE_LIMIT_KEY_PREFIX}:{org_id}:{window}"
     count = await redis_client.incr(key)
     if count == 1:
         await redis_client.expire(key, _RATE_LIMIT_WINDOW_S)

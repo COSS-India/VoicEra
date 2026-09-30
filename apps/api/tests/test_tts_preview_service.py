@@ -11,6 +11,7 @@ from apps.providers.preview import PreviewProviderError
 
 from app.config import settings
 from app.services.tts_preview_service import (
+    _RATE_LIMIT_WINDOW_S,
     TtsPreviewError,
     TtsPreviewErrorReason,
     _voice_is_supported,
@@ -237,34 +238,39 @@ def test_generate_preview_maps_provider_error_to_upstream_reason():
     assert exc_info.value.reason == TtsPreviewErrorReason.UPSTREAM
 
 
-def test_check_rate_limit_allows_first_request_and_sets_expiry():
+def _check_rate_limit_at(count: int) -> AsyncMock:
+    """Run check_rate_limit with Redis INCR returning ``count``; return the Redis mock."""
     mock_redis = AsyncMock()
-    mock_redis.incr.return_value = 1
+    mock_redis.incr.return_value = count
     with patch(
         "app.services.tts_preview_service._get_redis", AsyncMock(return_value=mock_redis)
     ):
         _run(check_rate_limit("org-1"))
+    return mock_redis
+
+
+def test_check_rate_limit_allows_first_request_and_sets_expiry():
+    # Act
+    mock_redis = _check_rate_limit_at(1)
+
+    # Assert
     mock_redis.expire.assert_awaited_once()
 
 
 def test_check_rate_limit_raises_rate_limited_once_over_limit():
-    mock_redis = AsyncMock()
-    mock_redis.incr.return_value = 21  # default TTS_PREVIEW_RATE_LIMIT_PER_MINUTE is 20
-    with patch(
-        "app.services.tts_preview_service._get_redis", AsyncMock(return_value=mock_redis)
-    ):
-        with pytest.raises(TtsPreviewError) as exc_info:
-            _run(check_rate_limit("org-1"))
+    # Act
+    with pytest.raises(TtsPreviewError) as exc_info:
+        _check_rate_limit_at(settings.TTS_PREVIEW_RATE_LIMIT_PER_MINUTE + 1)
+
+    # Assert
     assert exc_info.value.reason == TtsPreviewErrorReason.RATE_LIMITED
     assert exc_info.value.retry_after is not None
-    assert 0 < exc_info.value.retry_after <= 60
+    assert 0 < exc_info.value.retry_after <= _RATE_LIMIT_WINDOW_S
 
 
 def test_check_rate_limit_does_not_reset_expiry_after_first_request():
-    mock_redis = AsyncMock()
-    mock_redis.incr.return_value = 5
-    with patch(
-        "app.services.tts_preview_service._get_redis", AsyncMock(return_value=mock_redis)
-    ):
-        _run(check_rate_limit("org-1"))
+    # Act
+    mock_redis = _check_rate_limit_at(5)
+
+    # Assert
     mock_redis.expire.assert_not_awaited()
