@@ -40,7 +40,9 @@ TTS_PRO_VOICES: tuple[str, ...] = (
     "cressida", "willow", "maverick",
 )
 
-TTS_SAMPLE_RATES: tuple[int, ...] = (8000, 16000, 24000)
+# Vendor-documented set for both lightning_v3.1 and lightning_v3.1_pro
+# (docs.smallest.ai model cards; 44.1 kHz is their native rate).
+TTS_SAMPLE_RATES: tuple[int, ...] = (8000, 16000, 24000, 44100)
 DEFAULT_TTS_SAMPLE_RATE = 16000
 
 _LIGHTNING_LANGUAGES = {
