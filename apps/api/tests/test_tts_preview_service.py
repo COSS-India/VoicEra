@@ -296,14 +296,19 @@ _SARVAM = {"provider": "sarvam", "model": "bulbul:v3", "voice": "shubh"}
 
 
 def test_generate_preview_cache_hit_skips_rate_limit_and_adapter(storage):
+    # Arrange
     storage.get_object_bytes.side_effect = None
     storage.get_object_bytes.return_value = b"cached"
+
+    # Act
     with patch(
         "app.services.tts_preview_service.check_rate_limit", new_callable=AsyncMock
     ) as mock_limit, patch(
         "app.services.tts_preview_service.synthesize_preview", new_callable=AsyncMock
     ) as mock_synthesize:
         audio = _run(generate_preview("org-1", _SARVAM, "hi", "hello"))
+
+    # Assert
     assert audio == b"cached"
     mock_limit.assert_not_awaited()
     mock_synthesize.assert_not_awaited()

@@ -140,7 +140,7 @@ async def get_cached(key: str) -> bytes | None:
     except S3Error as exc:
         if exc.code != "NoSuchKey":
             logger.warning("tts_preview cache_get_failed code=%s", exc.code)
-    except Exception:
+    except Exception:  # noqa: BLE001 - best effort: any storage failure is a miss
         logger.warning("tts_preview cache_get_failed", exc_info=True)
     return None
 
@@ -149,9 +149,9 @@ async def put_cached(key: str, audio: bytes) -> None:
     """Store audio in the preview cache; best effort, never raises."""
     try:
         await MinIOStorage().put_object_bytes(
-            key, audio, bucket_name=settings.TTS_PREVIEW_BUCKET, content_type="audio/wav"
+            key, audio, bucket_name=settings.TTS_PREVIEW_BUCKET, content_type=PREVIEW_MEDIA_TYPE
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - best effort: a failed put must never fail the preview
         logger.warning("tts_preview cache_put_failed", exc_info=True)
 
 
