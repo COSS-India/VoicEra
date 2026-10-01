@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth import get_current_user
 from app.models.schemas import (
+    PhoneNumberActivityResponse,
     PhoneNumberAttachRequest,
     PhoneNumberDetachRequest,
     PhoneNumberInventoryResponse,
@@ -63,6 +64,17 @@ async def list_phone_numbers(
     """List phone numbers in the caller's active organisation inventory."""
     org_id = _require_active_org(current_user)
     return phone_number_service.list_by_org(org_id)
+
+
+@router.get("/activity", response_model=PhoneNumberActivityResponse)
+async def list_phone_number_activity(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Append-only activity log for phone-number import/attach/detach/remove."""
+    org_id = _require_active_org(current_user)
+    return phone_number_service.list_activity(org_id, limit=limit, offset=offset)
 
 
 @router.get("/agent/{agent_id}", response_model=PhoneNumberResponse)

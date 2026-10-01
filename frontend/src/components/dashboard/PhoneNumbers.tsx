@@ -1,14 +1,14 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Check, Copy, HelpCircle, Link2, Phone, Search, Trash2, Unlink } from "lucide-react";
+import { Check, Copy, HelpCircle, History, Link2, Phone, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { Dialog, DialogHeader } from "@/components/ui/Dialog";
 import { usePhoneNumbers } from "@/hooks/usePhoneNumbers";
 import { listProviderInventory } from "@/lib/api/phone-numbers";
-import type { AgentApiResponse, PhoneNumberItem } from "@/lib/api-types";
+import type { AgentApiResponse, PhoneNumberActivityItem, PhoneNumberItem } from "@/lib/api-types";
 import type { ProviderList } from "@/lib/catalog-types";
 
 function formatDateTime(iso?: string | null): string {
@@ -354,9 +354,121 @@ function AttachDialog({
   );
 }
 
+function activityActionLabel(action: string): string {
+  switch (action) {
+    case "imported":
+      return "Added";
+    case "attached":
+      return "Attached";
+    case "detached":
+      return "Detached";
+    case "removed":
+      return "Removed";
+    default:
+      return action;
+  }
+}
+
+function activityActionClass(action: string): string {
+  switch (action) {
+    case "imported":
+      return "bg-v-accent text-white border-v-accent";
+    case "attached":
+      return "bg-v-ok text-white border-v-ok";
+    case "detached":
+      return "bg-v-warn-ink text-white border-v-warn-ink";
+    case "removed":
+      return "bg-v-danger text-white border-v-danger";
+    default:
+      return "bg-v-fg text-white border-v-fg";
+  }
+}
+
+function ActivityDialog({
+  events,
+  refreshing,
+  onRefresh,
+  onClose,
+}: {
+  events: PhoneNumberActivityItem[];
+  refreshing: boolean;
+  onRefresh: () => Promise<void> | void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onClose={onClose} widthClassName="max-w-4xl">
+      <DialogHeader
+        title="Phone number activities"
+        subtitle="Who added, attached, detached, or removed numbers in this organisation."
+        onClose={onClose}
+        titleEnd={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refreshing}
+            aria-label="Refresh activity"
+            onClick={() => void onRefresh()}
+          >
+            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={2} />
+            Refresh
+          </Button>
+        }
+      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {refreshing && events.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm font-medium text-v-muted">
+            <Spinner light={false} /> Loading activity…
+          </div>
+        ) : events.length === 0 ? (
+          <div className="px-5 py-12 text-center text-sm font-medium text-v-muted">
+            No activity yet. Actions on numbers will show up here.
+          </div>
+        ) : (
+          <div className="max-h-[min(60vh,520px)] overflow-auto overscroll-contain">
+            <table className="w-full min-w-[640px] border-collapse text-sm">
+              <thead className="sticky top-0 z-[1] bg-v-fg text-white">
+                <tr className="text-left font-mono text-[10px] uppercase tracking-[.12em]">
+                  <th className="px-4 py-3 font-semibold">Time</th>
+                  <th className="px-4 py-3 font-semibold">Action</th>
+                  <th className="px-4 py-3 font-semibold">Number</th>
+                  <th className="px-4 py-3 font-semibold">Agent</th>
+                  <th className="px-4 py-3 font-semibold">By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((e, i) => (
+                  <tr
+                    key={`${e.at}-${e.phone_number}-${e.action}-${e.by_email ?? ""}-${i}`}
+                    className="border-b border-v-line bg-white odd:bg-v-soft/60 last:border-b-0"
+                  >
+                    <td className="px-4 py-3 font-medium text-v-body">{formatDateTime(e.at)}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex items-center rounded-v-sm border px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[.12em] ${activityActionClass(e.action)}`}
+                      >
+                        {activityActionLabel(e.action)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-v-fg">{e.phone_number}</td>
+                    <td className="px-4 py-3 font-medium text-v-fg">
+                      {e.agent_name ?? (e.agent_id ? e.agent_id : <span className="text-v-muted">–</span>)}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-v-fg">{e.by_email ?? "–"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
 export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: string) => void }) {
   const {
     numbers,
+    activity: activityEvents,
     agents,
     providers,
     configuredProviders,
@@ -367,12 +479,24 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
     attachToAgent,
     detach,
     remove,
+    reload,
   } = usePhoneNumbers(onNotify);
   const [query, setQuery] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityRefreshing, setActivityRefreshing] = useState(false);
   const [attachTarget, setAttachTarget] = useState<PhoneNumberItem | null>(null);
   const [detachTarget, setDetachTarget] = useState<PhoneNumberItem | null>(null);
   const [removeTarget, setRemoveTarget] = useState<PhoneNumberItem | null>(null);
+
+  async function refreshActivity() {
+    setActivityRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setActivityRefreshing(false);
+    }
+  }
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.agent_id, a])), [agents]);
   const existingNumbers = useMemo(() => new Set(numbers.map((n) => n.phone_number)), [numbers]);
@@ -404,10 +528,16 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
             Import numbers from your telephony provider and attach them to agents.
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <Phone className="size-4" strokeWidth={1.75} />
-          Add New Number
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setActivityOpen(true)}>
+            <History className="size-4" strokeWidth={2} />
+            Phone Number Activities
+          </Button>
+          <Button onClick={() => setAddOpen(true)}>
+            <Phone className="size-4" strokeWidth={1.75} />
+            Add New Number
+          </Button>
+        </div>
       </div>
 
       {loadError ? (
@@ -512,6 +642,15 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
           </table>
         </div>
       )}
+
+      {activityOpen ? (
+        <ActivityDialog
+          events={activityEvents}
+          refreshing={activityRefreshing}
+          onRefresh={refreshActivity}
+          onClose={() => setActivityOpen(false)}
+        />
+      ) : null}
 
       {addOpen ? (
         <AddNumberDialog

@@ -68,6 +68,7 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | PATCH | `/api/v1/agents/{agent_id}` | Bearer | Partial update of an agent. |
 | DELETE | `/api/v1/agents/{agent_id}` | Bearer (admin) | Delete an agent. |
 | GET | `/api/v1/phone-numbers` | Bearer | List numbers in the organisation inventory. |
+| GET | `/api/v1/phone-numbers/activity` | Bearer | Append-only import/attach/detach/remove activity log. |
 | GET | `/api/v1/phone-numbers/agent/{agent_id}` | Bearer | The number attached to one agent. |
 | POST | `/api/v1/phone-numbers/attach` | Bearer | Add a number to the inventory and optionally bind it to an agent. |
 | DELETE | `/api/v1/phone-numbers/detach` | Bearer | Unbind a number from its agent; the inventory row stays. |

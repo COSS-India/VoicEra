@@ -1,9 +1,22 @@
 import { apiFetch } from "@/lib/api/http";
-import type { PhoneNumberInventoryResponse, PhoneNumberItem } from "@/lib/api-types";
+import type {
+  PhoneNumberActivityResponse,
+  PhoneNumberInventoryResponse,
+  PhoneNumberItem,
+} from "@/lib/api-types";
 
 /** All phone numbers in the caller's active organisation's inventory. */
 export async function listPhoneNumbers(): Promise<PhoneNumberItem[]> {
   return apiFetch<PhoneNumberItem[]>("/phone-numbers");
+}
+
+/** Append-only import/attach/detach/remove activity for the active organisation. */
+export async function listPhoneNumberActivity(
+  { limit = 50, offset = 0 }: { limit?: number; offset?: number } = {},
+): Promise<PhoneNumberActivityResponse> {
+  return apiFetch<PhoneNumberActivityResponse>(
+    `/phone-numbers/activity?limit=${limit}&offset=${offset}`,
+  );
 }
 
 /** Numbers on the org's telephony provider account (not necessarily imported yet). */

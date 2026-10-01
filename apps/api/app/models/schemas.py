@@ -608,6 +608,27 @@ class PhoneNumberInventoryResponse(BaseModel):
     numbers: list[str] = []
 
 
+class PhoneNumberActivityItem(BaseModel):
+    """One append-only phone-number activity event."""
+
+    phone_number: str
+    provider: str = ""
+    action: str
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    by_email: Optional[str] = None
+    at: str
+
+
+class PhoneNumberActivityResponse(BaseModel):
+    """Paginated org phone-number activity log."""
+
+    events: list[PhoneNumberActivityItem] = []
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Call logs / outbound calls
 # ---------------------------------------------------------------------------

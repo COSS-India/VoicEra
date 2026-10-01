@@ -17,6 +17,8 @@ from app.services.phone_number_service import PhoneNumberError, PhoneNumberNotFo
 
 _PHONE_STORE: dict[str, dict[str, Any]] = {}
 _AGENT_STORE: dict[tuple[str, str], dict[str, Any]] = {}
+_EVENT_STORE: dict[Any, dict[str, Any]] = {}
+_EVENT_SEQ = 0
 
 
 def _admin_user() -> dict[str, Any]:
@@ -72,7 +74,11 @@ class _FakeCollection:
         self._store = store
         self._key_fn = key_fn
 
-    def find_one(self, query: dict[str, Any]) -> dict[str, Any] | None:
+    def find_one(
+        self,
+        query: dict[str, Any],
+        projection: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         for doc in self._store.values():
             if all(doc.get(k) == v for k, v in query.items() if k != "$ne" and not isinstance(v, dict)):
                 ok = True
@@ -89,7 +95,14 @@ class _FakeCollection:
                         ok = False
                         break
                 if ok:
-                    return dict(doc)
+                    out = dict(doc)
+                    if projection:
+                        include = {k for k, v in projection.items() if v}
+                        if include:
+                            out = {k: out[k] for k in include if k in out}
+                            if "_id" not in include:
+                                out.pop("_id", None)
+                    return out
         return None
 
     def find(self, query: dict[str, Any]):
@@ -100,13 +113,33 @@ class _FakeCollection:
         ]
 
         class _Cursor:
-            def sort(self, *_args, **_kwargs):
+            def __init__(self, rows: list[dict[str, Any]]) -> None:
+                self._rows = rows
+
+            def sort(self, key: str, direction: int = 1):
+                reverse = direction < 0
+                self._rows.sort(key=lambda d: d.get(key) or "", reverse=reverse)
+                return self
+
+            def skip(self, n: int):
+                self._rows = self._rows[n:]
+                return self
+
+            def limit(self, n: int):
+                self._rows = self._rows[:n]
                 return self
 
             def __iter__(self):
-                return iter(results)
+                return iter(self._rows)
 
-        return _Cursor()
+        return _Cursor(results)
+
+    def count_documents(self, query: dict[str, Any]) -> int:
+        return sum(
+            1
+            for doc in self._store.values()
+            if all(doc.get(k) == v for k, v in query.items())
+        )
 
     def insert_one(self, doc: dict[str, Any]) -> None:
         key = self._key_fn(doc)
@@ -145,6 +178,12 @@ class _FakeCollection:
         return result
 
 
+def _event_key(_doc: dict[str, Any]) -> Any:
+    global _EVENT_SEQ
+    _EVENT_SEQ += 1
+    return _EVENT_SEQ
+
+
 def _fake_db() -> dict[str, Any]:
     return {
         "PhoneNumbers": _FakeCollection(
@@ -155,6 +194,7 @@ def _fake_db() -> dict[str, Any]:
             _AGENT_STORE,
             lambda d: (d["org_id"], d["agent_id"]),
         ),
+        "PhoneNumberEvents": _FakeCollection(_EVENT_STORE, _event_key),
     }
 
 
@@ -169,8 +209,11 @@ def _make_phone_client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def clear_stores() -> None:
+    global _EVENT_SEQ
     _PHONE_STORE.clear()
     _AGENT_STORE.clear()
+    _EVENT_STORE.clear()
+    _EVENT_SEQ = 0
 
 
 @pytest.mark.asyncio
@@ -463,3 +506,85 @@ async def test_link_number_wrapper_raises(load_client_mock: MagicMock) -> None:
 async def test_get_by_agent_not_found(_db: MagicMock) -> None:
     with pytest.raises(PhoneNumberNotFoundError):
         phone_number_service.get_by_agent("org-1", "agent-missing")
+
+
+@pytest.mark.asyncio
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_attach_records_imported_event(_db: MagicMock) -> None:
+    await phone_number_service.attach(
+        "org-1",
+        "+15551234567",
+        "vobiz",
+        member_email="admin@example.com",
+    )
+    assert len(_EVENT_STORE) == 1
+    event = next(iter(_EVENT_STORE.values()))
+    assert event["action"] == "imported"
+    assert event["phone_number"] == "+15551234567"
+    assert event["by_email"] == "admin@example.com"
+    assert event["org_id"] == "org-1"
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.services.phone_number_service.agent_telephony_service.link_number",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.phone_number_service.agent_telephony_service.unlink_number",
+    new_callable=AsyncMock,
+)
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_attach_detach_remove_activity_order(
+    _db: MagicMock,
+    _unlink: AsyncMock,
+    _link: AsyncMock,
+) -> None:
+    _AGENT_STORE[("org-1", "agent-1")] = _telephony_agent()
+    await phone_number_service.attach(
+        "org-1",
+        "+15551234567",
+        "vobiz",
+        agent_id="agent-1",
+        member_email="admin@example.com",
+    )
+    await phone_number_service.detach(
+        "org-1",
+        "+15551234567",
+        member_email="admin@example.com",
+    )
+    await phone_number_service.remove(
+        "org-1",
+        "+15551234567",
+        member_email="admin@example.com",
+    )
+    actions = [e["action"] for e in sorted(_EVENT_STORE.values(), key=lambda d: d["at"])]
+    assert actions == ["attached", "detached", "removed"]
+    assert "+15551234567" not in _PHONE_STORE
+
+    listed = phone_number_service.list_activity("org-1", limit=10, offset=0)
+    assert listed["total"] == 3
+    assert [e["action"] for e in listed["events"]] == ["removed", "detached", "attached"]
+    assert listed["events"][2]["agent_name"] == "Tel Agent"
+
+
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+def test_activity_route_and_seed(_db: MagicMock) -> None:
+    _PHONE_STORE["+15550001111"] = {
+        "phone_number": "+15550001111",
+        "provider": "vobiz",
+        "org_id": "org-1",
+        "last_link_action": "imported",
+        "last_link_by_email": "admin@example.com",
+        "last_link_at": "2026-01-02T00:00:00+00:00",
+    }
+    client = _make_phone_client()
+    response = client.get("/api/v1/phone-numbers/activity?limit=20&offset=0")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["events"][0]["action"] == "imported"
+    assert body["events"][0]["phone_number"] == "+15550001111"
+    # Second call must not duplicate the seed.
+    again = client.get("/api/v1/phone-numbers/activity")
+    assert again.json()["total"] == 1

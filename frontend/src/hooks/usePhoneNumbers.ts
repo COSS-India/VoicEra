@@ -2,12 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { listAgents, listConfiguredProviders, listTelephonyProviders } from "@/lib/api-client";
-import { attachPhoneNumber, detachPhoneNumber, listPhoneNumbers, removePhoneNumber } from "@/lib/api/phone-numbers";
-import type { AgentApiResponse, PhoneNumberItem } from "@/lib/api-types";
+import {
+  attachPhoneNumber,
+  detachPhoneNumber,
+  listPhoneNumberActivity,
+  listPhoneNumbers,
+  removePhoneNumber,
+} from "@/lib/api/phone-numbers";
+import type { AgentApiResponse, PhoneNumberActivityItem, PhoneNumberItem } from "@/lib/api-types";
 import type { ProviderList } from "@/lib/catalog-types";
 
 export function usePhoneNumbers(onNotify: (title: string, note: string) => void) {
   const [numbers, setNumbers] = useState<PhoneNumberItem[]>([]);
+  const [activity, setActivity] = useState<PhoneNumberActivityItem[]>([]);
   const [agents, setAgents] = useState<AgentApiResponse[]>([]);
   const [providers, setProviders] = useState<ProviderList>({});
   const [configuredProviders, setConfiguredProviders] = useState<Set<string>>(new Set());
@@ -18,13 +25,15 @@ export function usePhoneNumbers(onNotify: (title: string, note: string) => void)
   const load = useCallback(async () => {
     setLoadError("");
     try {
-      const [numberList, agentList, providerList, configuredList] = await Promise.all([
+      const [numberList, activityRes, agentList, providerList, configuredList] = await Promise.all([
         listPhoneNumbers(),
+        listPhoneNumberActivity({ limit: 100 }),
         listAgents(),
         listTelephonyProviders(),
         listConfiguredProviders(),
       ]);
       setNumbers(numberList);
+      setActivity(activityRes.events);
       setAgents(agentList);
       setProviders(providerList);
       setConfiguredProviders(new Set(configuredList));
@@ -97,6 +106,7 @@ export function usePhoneNumbers(onNotify: (title: string, note: string) => void)
 
   return {
     numbers,
+    activity,
     agents,
     providers,
     configuredProviders,

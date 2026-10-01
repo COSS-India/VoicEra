@@ -128,6 +128,25 @@ export interface PhoneNumberInventoryResponse {
   numbers: string[];
 }
 
+export type PhoneNumberActivityAction = "imported" | "attached" | "detached" | "removed" | string;
+
+export interface PhoneNumberActivityItem {
+  phone_number: string;
+  provider: string;
+  action: PhoneNumberActivityAction;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  by_email?: string | null;
+  at: string;
+}
+
+export interface PhoneNumberActivityResponse {
+  events: PhoneNumberActivityItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export type CallLogStatus = "initiated" | "ringing" | "failed" | "in_progress" | "completed";
 
 export type CallType = "inbound" | "outbound" | "web";
