@@ -11,6 +11,7 @@ from app.models.schemas import (
     PhoneNumberAttachRequest,
     PhoneNumberDetachRequest,
     PhoneNumberInventoryResponse,
+    PhoneNumberRemoveRequest,
     PhoneNumberResponse,
     SuccessResponse,
 )
@@ -111,6 +112,25 @@ async def detach_phone_number(
     org_id = _require_active_org(current_user)
     try:
         return await phone_number_service.detach(
+            org_id,
+            body.phone_number,
+            member_email=current_user.get("email"),
+        )
+    except PhoneNumberError as exc:
+        _raise_phone_error(exc)
+    except AgentTelephonyError as exc:
+        _raise_telephony(exc)
+
+
+@router.delete("/remove", response_model=SuccessResponse)
+async def remove_phone_number(
+    body: PhoneNumberRemoveRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Remove from org inventory; detaches and unlinks at the provider first if needed."""
+    org_id = _require_active_org(current_user)
+    try:
+        return await phone_number_service.remove(
             org_id,
             body.phone_number,
             member_email=current_user.get("email"),

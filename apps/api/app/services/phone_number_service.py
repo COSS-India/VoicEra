@@ -350,6 +350,45 @@ async def detach(
     return {"status": "success", "message": "Phone number detached successfully"}
 
 
+async def remove(
+    org_id: str,
+    phone_number: str,
+    *,
+    member_email: str | None = None,
+) -> dict[str, Any]:
+    """Detach if attached, then delete the inventory row for this org."""
+    phone_number = phone_number.strip()
+    phones = get_database()[COLLECTION]
+    existing = phones.find_one({"phone_number": phone_number})
+    if not existing:
+        raise PhoneNumberNotFoundError()
+    if existing.get("org_id") != org_id:
+        raise PhoneNumberError(
+            "Not authorized to remove this phone number",
+            status_code=403,
+        )
+
+    if existing.get("agent_id"):
+        await detach(
+            org_id,
+            phone_number,
+            member_email=member_email,
+            unlink_provider=True,
+        )
+
+    result = phones.delete_one({"phone_number": phone_number, "org_id": org_id})
+    if result.deleted_count == 0:
+        raise PhoneNumberNotFoundError()
+
+    logger.info(
+        "Phone number removed org=%s phone=%s by=%s",
+        org_id,
+        phone_number,
+        member_email,
+    )
+    return {"status": "success", "message": "Phone number removed successfully"}
+
+
 async def detach_from_agent(
     org_id: str,
     agent_id: str,

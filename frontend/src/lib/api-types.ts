@@ -13,12 +13,14 @@ export interface LoginResponse {
   token_type: string;
   org_id: string;
   role: string;
+  name?: string | null;
   organisations: OrganisationSummary[];
   is_first_login?: boolean;
 }
 
 export interface UserProfile {
   email: string;
+  name?: string | null;
   org_id: string;
   role: UserRole;
   organisation_name?: string;

@@ -35,6 +35,10 @@ The uniqueness index on `phone_number` has no `org_id` component, so a number al
 
 Bearer. Body `{ "phone_number": "+15551234567" }`. Unlinks at the provider and clears the agent association. The inventory row survives. Returns `SuccessResponse`.
 
+## `DELETE /phone-numbers/remove`
+
+Bearer. Body `{ "phone_number": "+15551234567" }`. Detaches first if the number is attached to an agent, then deletes the inventory row. Does not release the number at the telephony provider — you can import it again later. Returns `SuccessResponse`.
+
 ## `GET /phone-numbers/providers/{provider}/inventory`
 
 Bearer. Numbers held in the organisation's account **at the provider**, which is not the same set as your VoicEra inventory. Returns `PhoneNumberInventoryResponse`: `{status, numbers: []}`. An unregistered provider returns `422`.

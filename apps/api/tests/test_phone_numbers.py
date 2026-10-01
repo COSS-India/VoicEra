@@ -365,6 +365,49 @@ def test_by_phone_not_found(_db: MagicMock) -> None:
     new_callable=AsyncMock,
 )
 @patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_remove_detaches_then_deletes(
+    _db: MagicMock,
+    unlink_mock: AsyncMock,
+) -> None:
+    _AGENT_STORE[("org-1", "agent-1")] = _telephony_agent(
+        linked_phone_number="+15551234567"
+    )
+    _PHONE_STORE["+15551234567"] = {
+        "phone_number": "+15551234567",
+        "provider": "vobiz",
+        "org_id": "org-1",
+        "agent_id": "agent-1",
+    }
+    result = await phone_number_service.remove(
+        "org-1",
+        "+15551234567",
+        member_email="admin@example.com",
+    )
+    assert result["status"] == "success"
+    unlink_mock.assert_awaited_once()
+    assert "+15551234567" not in _PHONE_STORE
+    assert _AGENT_STORE[("org-1", "agent-1")]["linked_phone_number"] is None
+
+
+@pytest.mark.asyncio
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_remove_inventory_only(_db: MagicMock) -> None:
+    _PHONE_STORE["+15551234567"] = {
+        "phone_number": "+15551234567",
+        "provider": "vobiz",
+        "org_id": "org-1",
+    }
+    result = await phone_number_service.remove("org-1", "+15551234567")
+    assert result["status"] == "success"
+    assert "+15551234567" not in _PHONE_STORE
+
+
+@pytest.mark.asyncio
+@patch(
+    "app.services.phone_number_service.agent_telephony_service.unlink_number",
+    new_callable=AsyncMock,
+)
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
 async def test_detach_from_agent_clears_link(
     _db: MagicMock,
     unlink_mock: AsyncMock,

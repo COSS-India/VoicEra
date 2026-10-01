@@ -15,6 +15,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     organisation_name: str
+    name: Optional[str] = None
 
 
 class OrganisationSummary(BaseModel):
@@ -31,6 +32,7 @@ class UserResponse(BaseModel):
     email: str
     org_id: str
     role: Role
+    name: Optional[str] = None
     organisation_name: Optional[str] = None
     organisations: list[OrganisationSummary] = []
     created_at: Optional[str] = None
@@ -52,6 +54,7 @@ class UserLoginResponse(BaseModel):
     token_type: Optional[str] = None
     org_id: Optional[str] = None
     role: Optional[Role] = None
+    name: Optional[str] = None
     organisations: list[OrganisationSummary] = []
     is_first_login: bool = False
 
@@ -102,6 +105,7 @@ class MemberJoin(BaseModel):
     email: EmailStr
     password: str
     org_id: str
+    name: Optional[str] = None
 
 
 class MemberListItem(BaseModel):
@@ -572,6 +576,12 @@ class PhoneNumberAttachRequest(BaseModel):
 
 class PhoneNumberDetachRequest(BaseModel):
     """Detach a phone number from its agent (keeps org inventory row)."""
+
+    phone_number: str
+
+
+class PhoneNumberRemoveRequest(BaseModel):
+    """Remove a phone number from the org inventory (detaches first if needed)."""
 
     phone_number: str
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Check, Copy, HelpCircle, Link2, Phone, Search, Unlink } from "lucide-react";
+import { Check, Copy, HelpCircle, Link2, Phone, Search, Trash2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
@@ -366,11 +366,13 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
     importNumber,
     attachToAgent,
     detach,
+    remove,
   } = usePhoneNumbers(onNotify);
   const [query, setQuery] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [attachTarget, setAttachTarget] = useState<PhoneNumberItem | null>(null);
   const [detachTarget, setDetachTarget] = useState<PhoneNumberItem | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<PhoneNumberItem | null>(null);
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.agent_id, a])), [agents]);
   const existingNumbers = useMemo(() => new Set(numbers.map((n) => n.phone_number)), [numbers]);
@@ -468,17 +470,29 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
                       </td>
                       <td className="px-4 py-3">{agentName ?? <span className="text-v-muted">–</span>}</td>
                       <td className="px-4 py-3 text-right">
-                        {n.agent_id ? (
-                          <Button variant="danger-outline" size="sm" disabled={busy} onClick={() => setDetachTarget(n)}>
-                            {busy ? <Spinner light={false} /> : <Unlink className="size-3.5" strokeWidth={1.75} />}
-                            Detach
+                        <div className="inline-flex items-center justify-end gap-2">
+                          {n.agent_id ? (
+                            <Button variant="danger-outline" size="sm" disabled={busy} onClick={() => setDetachTarget(n)}>
+                              {busy ? <Spinner light={false} /> : <Unlink className="size-3.5" strokeWidth={1.75} />}
+                              Detach
+                            </Button>
+                          ) : (
+                            <Button variant="primary" size="sm" disabled={busy} onClick={() => setAttachTarget(n)}>
+                              {busy ? <Spinner /> : <Link2 className="size-3.5" strokeWidth={1.75} />}
+                              Attach
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            aria-label={`Remove ${n.phone_number}`}
+                            onClick={() => setRemoveTarget(n)}
+                          >
+                            <Trash2 className="size-3.5" strokeWidth={1.75} />
+                            Remove
                           </Button>
-                        ) : (
-                          <Button variant="primary" size="sm" disabled={busy} onClick={() => setAttachTarget(n)}>
-                            {busy ? <Spinner /> : <Link2 className="size-3.5" strokeWidth={1.75} />}
-                            Attach
-                          </Button>
-                        )}
+                        </div>
                       </td>
                     </tr>
                     {activity ? (
@@ -541,6 +555,37 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
               >
                 {busyNumber === detachTarget.phone_number ? <Spinner light={false} /> : null}
                 Detach
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      ) : null}
+
+      {removeTarget ? (
+        <Dialog open onClose={() => setRemoveTarget(null)} widthClassName="max-w-md">
+          <DialogHeader title="Remove this number?" onClose={() => setRemoveTarget(null)} />
+          <div className="flex flex-col gap-4 p-5">
+            <p className="text-sm font-light text-v-body">
+              {removeTarget.agent_id
+                ? `${removeTarget.phone_number} will be detached from its agent and removed from your inventory.`
+                : `${removeTarget.phone_number} will be removed from your inventory.`}{" "}
+              It stays on your telephony provider account and can be added again later.
+            </p>
+            <div className="flex justify-end gap-2 border-t border-v-line pt-4">
+              <Button variant="ghost" size="sm" onClick={() => setRemoveTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger-outline"
+                size="sm"
+                disabled={busyNumber === removeTarget.phone_number}
+                onClick={async () => {
+                  await remove(removeTarget);
+                  setRemoveTarget(null);
+                }}
+              >
+                {busyNumber === removeTarget.phone_number ? <Spinner light={false} /> : null}
+                Remove
               </Button>
             </div>
           </div>

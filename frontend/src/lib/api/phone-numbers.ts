@@ -33,3 +33,11 @@ export async function detachPhoneNumber(phoneNumber: string): Promise<{ status: 
     body: JSON.stringify({ phone_number: phoneNumber }),
   });
 }
+
+/** Removes the number from org inventory (detaches first if attached). Does not release it at the provider. */
+export async function removePhoneNumber(phoneNumber: string): Promise<{ status: string; message: string }> {
+  return apiFetch("/phone-numbers/remove", {
+    method: "DELETE",
+    body: JSON.stringify({ phone_number: phoneNumber }),
+  });
+}
