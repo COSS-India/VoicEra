@@ -13,12 +13,14 @@ export interface LoginResponse {
   token_type: string;
   org_id: string;
   role: string;
+  name?: string | null;
   organisations: OrganisationSummary[];
   is_first_login?: boolean;
 }
 
 export interface UserProfile {
   email: string;
+  name?: string | null;
   org_id: string;
   role: UserRole;
   organisation_name?: string;
@@ -124,6 +126,25 @@ export interface PhoneNumberItem {
 export interface PhoneNumberInventoryResponse {
   status: string;
   numbers: string[];
+}
+
+export type PhoneNumberActivityAction = "imported" | "attached" | "detached" | "removed" | string;
+
+export interface PhoneNumberActivityItem {
+  phone_number: string;
+  provider: string;
+  action: PhoneNumberActivityAction;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  by_email?: string | null;
+  at: string;
+}
+
+export interface PhoneNumberActivityResponse {
+  events: PhoneNumberActivityItem[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export type CallLogStatus = "initiated" | "ringing" | "failed" | "in_progress" | "completed";

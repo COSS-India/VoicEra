@@ -14,6 +14,7 @@ from app.utils.mongo_utils import prepare_mongo_response, prepare_mongo_response
 logger = logging.getLogger(__name__)
 
 COLLECTION = "PhoneNumbers"
+EVENTS_COLLECTION = "PhoneNumberEvents"
 AGENTS_COLLECTION = "Agents"
 
 
@@ -58,6 +59,112 @@ def _last_link_fields(
         "last_link_agent_id": agent_id or "",
         "last_link_by_email": member_email,
         "last_link_at": at,
+    }
+
+
+def _agent_name(org_id: str, agent_id: str | None) -> str | None:
+    if not agent_id:
+        return None
+    doc = get_database()[AGENTS_COLLECTION].find_one(
+        {"org_id": org_id, "agent_id": agent_id},
+        {"name": 1},
+    )
+    name = (doc or {}).get("name")
+    return str(name) if name else None
+
+
+def _record_event(
+    *,
+    org_id: str,
+    phone_number: str,
+    provider: str,
+    action: str,
+    agent_id: str | None = None,
+    agent_name: str | None = None,
+    by_email: str | None = None,
+    at: str | None = None,
+) -> None:
+    """Append an immutable activity event for the org phone-number log."""
+    when = at or _now_iso()
+    resolved_name = agent_name
+    if agent_id and not resolved_name:
+        resolved_name = _agent_name(org_id, agent_id)
+    event: dict[str, Any] = {
+        "org_id": org_id,
+        "phone_number": phone_number,
+        "provider": provider,
+        "action": action,
+        "agent_id": agent_id,
+        "agent_name": resolved_name,
+        "by_email": by_email,
+        "at": when,
+    }
+    get_database()[EVENTS_COLLECTION].insert_one(event)
+
+
+def _seed_activity_from_last_link(org_id: str) -> None:
+    """
+    One-time backfill: if the org has no events yet, seed from each
+    inventory row's last_link_* fields so Activity is not empty.
+    """
+    db = get_database()
+    events = db[EVENTS_COLLECTION]
+    if events.find_one({"org_id": org_id}):
+        return
+
+    phones = list(db[COLLECTION].find({"org_id": org_id}))
+    for phone in phones:
+        action = phone.get("last_link_action")
+        at = phone.get("last_link_at")
+        if not action or not at:
+            continue
+        agent_id = phone.get("last_link_agent_id") or phone.get("agent_id") or None
+        if agent_id == "":
+            agent_id = None
+        events.insert_one(
+            {
+                "org_id": org_id,
+                "phone_number": phone.get("phone_number"),
+                "provider": phone.get("provider") or "",
+                "action": action,
+                "agent_id": agent_id,
+                "agent_name": _agent_name(org_id, agent_id) if agent_id else None,
+                "by_email": phone.get("last_link_by_email"),
+                "at": at,
+            }
+        )
+
+
+def list_activity(
+    org_id: str,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Return append-only phone-number activity for ``org_id``, newest first."""
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    _seed_activity_from_last_link(org_id)
+
+    events_col = get_database()[EVENTS_COLLECTION]
+    query = {"org_id": org_id}
+    total = events_col.count_documents(query)
+    cursor = (
+        events_col.find(query)
+        .sort("at", -1)
+        .skip(offset)
+        .limit(limit)
+    )
+    items = []
+    for doc in cursor:
+        prepared = prepare_mongo_response(doc) or {}
+        prepared.pop("_id", None)
+        items.append(prepared)
+    return {
+        "events": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
     }
 
 
@@ -286,6 +393,18 @@ async def attach(
             )
         _set_agent_linked_number(org_id, agent_id, phone_number, now)
 
+    action = "attached" if agent_id else "imported"
+    _record_event(
+        org_id=org_id,
+        phone_number=phone_number,
+        provider=provider,
+        action=action,
+        agent_id=agent_id,
+        agent_name=_agent_name(org_id, agent_id) if agent_id else None,
+        by_email=member_email,
+        at=now,
+    )
+
     logger.info(
         "Phone number attached org=%s phone=%s agent_id=%s",
         org_id,
@@ -341,6 +460,17 @@ async def detach(
     )
     _clear_agent_linked_number(org_id, str(agent_id), now)
 
+    _record_event(
+        org_id=org_id,
+        phone_number=phone_number,
+        provider=provider,
+        action="detached",
+        agent_id=str(agent_id),
+        agent_name=_agent_name(org_id, str(agent_id)),
+        by_email=member_email,
+        at=now,
+    )
+
     logger.info(
         "Phone number detached org=%s phone=%s agent_id=%s",
         org_id,
@@ -348,6 +478,57 @@ async def detach(
         agent_id,
     )
     return {"status": "success", "message": "Phone number detached successfully"}
+
+
+async def remove(
+    org_id: str,
+    phone_number: str,
+    *,
+    member_email: str | None = None,
+) -> dict[str, Any]:
+    """Detach if attached, then delete the inventory row for this org."""
+    phone_number = phone_number.strip()
+    phones = get_database()[COLLECTION]
+    existing = phones.find_one({"phone_number": phone_number})
+    if not existing:
+        raise PhoneNumberNotFoundError()
+    if existing.get("org_id") != org_id:
+        raise PhoneNumberError(
+            "Not authorized to remove this phone number",
+            status_code=403,
+        )
+
+    if existing.get("agent_id"):
+        await detach(
+            org_id,
+            phone_number,
+            member_email=member_email,
+            unlink_provider=True,
+        )
+
+    provider = str(existing.get("provider") or "").strip()
+    now = _now_iso()
+    _record_event(
+        org_id=org_id,
+        phone_number=phone_number,
+        provider=provider,
+        action="removed",
+        agent_id=None,
+        by_email=member_email,
+        at=now,
+    )
+
+    result = phones.delete_one({"phone_number": phone_number, "org_id": org_id})
+    if result.deleted_count == 0:
+        raise PhoneNumberNotFoundError()
+
+    logger.info(
+        "Phone number removed org=%s phone=%s by=%s",
+        org_id,
+        phone_number,
+        member_email,
+    )
+    return {"status": "success", "message": "Phone number removed successfully"}
 
 
 async def detach_from_agent(

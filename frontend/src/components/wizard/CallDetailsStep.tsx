@@ -285,9 +285,9 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
 
       <div className="flex flex-col gap-5 rounded-v-md border border-v-line bg-white p-5">
         <SectionHeader
-          title="Voice activity detection"
-          subtitle="How the agent decides when the caller starts and stops speaking."
-          tip="These tune Silero VAD for turn detection. Lower confidence and volume make the agent more sensitive to quiet speech."
+          title="VAD while speaking"
+          subtitle="Used while the agent is talking. Higher confidence / volume makes barge-in harder, so noise and short sounds are less likely to interrupt the agent."
+          tip="Applied when the agent is speaking (same bot-speaking signal as interrupt threshold). Tune this to control how easy it is to barge in."
         />
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <NumberField
@@ -327,6 +327,54 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
             max={1}
             step={0.1}
             onChange={(v) => onChange("vadMinVolume", v)}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-5 rounded-v-md border border-v-line bg-white p-5">
+        <SectionHeader
+          title="VAD while idle"
+          subtitle="Used when the agent is silent and waiting for the caller. Lower confidence / volume makes the agent pick up quiet or short replies faster."
+          tip="Applied when the agent is not speaking. Tune this for how quickly the agent hears the caller after it finishes talking."
+        />
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <NumberField
+            label="Confidence"
+            tipKey="vadIdleConfidence"
+            value={form.vadIdleConfidence}
+            min={0}
+            max={1}
+            step={0.1}
+            onChange={(v) => onChange("vadIdleConfidence", v)}
+          />
+          <NumberField
+            label="Speech start"
+            tipKey="vadIdleStartSecs"
+            unit="s"
+            value={form.vadIdleStartSecs}
+            min={0}
+            max={2}
+            step={0.1}
+            onChange={(v) => onChange("vadIdleStartSecs", v)}
+          />
+          <NumberField
+            label="Speech stop"
+            tipKey="vadIdleStopSecs"
+            unit="s"
+            value={form.vadIdleStopSecs}
+            min={0}
+            max={2}
+            step={0.1}
+            onChange={(v) => onChange("vadIdleStopSecs", v)}
+          />
+          <NumberField
+            label="Min volume"
+            tipKey="vadIdleMinVolume"
+            value={form.vadIdleMinVolume}
+            min={0}
+            max={1}
+            step={0.1}
+            onChange={(v) => onChange("vadIdleMinVolume", v)}
           />
         </div>
       </div>

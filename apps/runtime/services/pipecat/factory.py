@@ -31,7 +31,10 @@ from apps.runtime.services.pipecat.call_ending import configure_call_ending
 from apps.runtime.services.language_switch.tools import configure_language_switching
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
-from apps.runtime.services.pipecat.vad import vad_params_from_behaviour
+from apps.runtime.services.pipecat.vad import (
+    VadProfileSwitcher,
+    vad_params_from_behaviour,
+)
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
 
@@ -67,9 +70,16 @@ def build_pipeline_components(
     rec_rate = recording_sample_rate or sample_rate
     capture_tts_before_transport = rec_rate != sample_rate
 
+    speaking_vad = vad_params_from_behaviour(behaviour, key="vad")
+    idle_vad = vad_params_from_behaviour(behaviour, key="vad_idle")
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
-        params=vad_params_from_behaviour(behaviour),
+        params=idle_vad,
+    )
+    vad_switcher = VadProfileSwitcher(
+        vad_analyzer,
+        speaking=speaking_vad,
+        idle=idle_vad,
     )
 
     audiobuffer = AudioBufferProcessor(
@@ -144,6 +154,7 @@ def build_pipeline_components(
 
     pipeline_processors = [
         transport.input(),
+        vad_switcher,
         stt,
         user_aggregator,
     ]

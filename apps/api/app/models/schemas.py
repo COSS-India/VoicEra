@@ -15,6 +15,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     organisation_name: str
+    name: Optional[str] = None
 
 
 class OrganisationSummary(BaseModel):
@@ -31,6 +32,7 @@ class UserResponse(BaseModel):
     email: str
     org_id: str
     role: Role
+    name: Optional[str] = None
     organisation_name: Optional[str] = None
     organisations: list[OrganisationSummary] = []
     created_at: Optional[str] = None
@@ -52,6 +54,7 @@ class UserLoginResponse(BaseModel):
     token_type: Optional[str] = None
     org_id: Optional[str] = None
     role: Optional[Role] = None
+    name: Optional[str] = None
     organisations: list[OrganisationSummary] = []
     is_first_login: bool = False
 
@@ -102,6 +105,7 @@ class MemberJoin(BaseModel):
     email: EmailStr
     password: str
     org_id: str
+    name: Optional[str] = None
 
 
 class MemberListItem(BaseModel):
@@ -225,6 +229,12 @@ class AgentBehaviour(BaseModel):
                         "stop_secs": 0.4,
                         "min_volume": 0.5,
                     },
+                    "vad_idle": {
+                        "confidence": 0.3,
+                        "start_secs": 0.1,
+                        "stop_secs": 0.4,
+                        "min_volume": 0.5,
+                    },
                 }
             ]
         }
@@ -285,6 +295,7 @@ class AgentBehaviour(BaseModel):
     )
     automatic_call_ending: AutomaticCallEnding = AutomaticCallEnding()
     vad: VadSettings = VadSettings()
+    vad_idle: VadSettings = VadSettings()
 
 
 class AgentLanguage(BaseModel):
@@ -576,6 +587,12 @@ class PhoneNumberDetachRequest(BaseModel):
     phone_number: str
 
 
+class PhoneNumberRemoveRequest(BaseModel):
+    """Remove a phone number from the org inventory (detaches first if needed)."""
+
+    phone_number: str
+
+
 class PhoneNumberResponse(BaseModel):
     """Phone number inventory document."""
 
@@ -596,6 +613,27 @@ class PhoneNumberInventoryResponse(BaseModel):
 
     status: str = "success"
     numbers: list[str] = []
+
+
+class PhoneNumberActivityItem(BaseModel):
+    """One append-only phone-number activity event."""
+
+    phone_number: str
+    provider: str = ""
+    action: str
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    by_email: Optional[str] = None
+    at: str
+
+
+class PhoneNumberActivityResponse(BaseModel):
+    """Paginated org phone-number activity log."""
+
+    events: list[PhoneNumberActivityItem] = []
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
 
 
 # ---------------------------------------------------------------------------
