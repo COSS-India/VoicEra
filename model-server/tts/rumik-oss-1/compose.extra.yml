@@ -151,12 +151,13 @@ services:
       # decode is short, so this mostly trades GPU memory for a PCIe copy per
       # chunk.
       RUMIK_DECODER_DEVICE: ${RUMIK_DECODER_DEVICE:-cuda}
-      # Mimi's precision, separate from the backbone's RUMIK_DTYPE. bfloat16 is
-      # what upstream's server uses; a bfloat16 decode is itself some distance
-      # from a float32 one, which check_streaming.py measures on this
-      # checkpoint, together with what each costs per step. Decide with those
-      # numbers: float32 is the codec at full precision, at a higher decode cost.
-      RUMIK_DECODER_DTYPE: ${RUMIK_DECODER_DTYPE:-bfloat16}
+      # Mimi's precision, separate from the backbone's RUMIK_DTYPE. Measured on
+      # ace-h200 with check_streaming.py, real speech, against a float32
+      # one-shot decode: bfloat16 is 2.5% peak / 0.15% rms off (upstream's own
+      # server decodes in bfloat16), float32 streaming 0.06% / 0.005%. The cost
+      # is ~nothing: one batched step at 128 streams is 17.5 ms in float32
+      # against 16.4 ms in bfloat16. Hence float32.
+      RUMIK_DECODER_DTYPE: ${RUMIK_DECODER_DTYPE:-float32}
       # Most windows one batched Mimi call decodes. Every stream's chunk goes
       # to one shared decoder, which decodes whatever has queued together, so
       # this is the ceiling on streams served per decode call, not a queue

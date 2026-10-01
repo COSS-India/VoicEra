@@ -148,8 +148,10 @@ class Config:
             ),
             max_new_tokens_limit=int(_number(os.getenv("RUMIK_MAX_NEW_TOKENS_LIMIT"), 3072, int)),
             decoder_device=_text(os.getenv("RUMIK_DECODER_DEVICE"), "cuda"),
-            # The codec's own precision, separate from the 3B backbone's.
-            decoder_dtype=_text(os.getenv("RUMIK_DECODER_DTYPE"), "bfloat16"),
+            # The codec's own precision, separate from the 3B backbone's. float32:
+            # measured on ace-h200, bfloat16 is 2.5% peak off a float32 decode
+            # and saves ~nothing (16.4 vs 17.5 ms per step at 128 streams).
+            decoder_dtype=_text(os.getenv("RUMIK_DECODER_DTYPE"), "float32"),
             decoder_max_batch=int(_number(os.getenv("RUMIK_DECODER_MAX_BATCH"), 64, int)),
             decode_chunk_frames=int(_number(os.getenv("RUMIK_DECODE_CHUNK_FRAMES"), 2, int)),
             warmup_enabled=_flag(os.getenv("RUMIK_WARMUP_ENABLED"), True),

@@ -277,10 +277,25 @@ docker exec rumik-test python check_streaming.py /tmp/clip.wav
 ```
 
 reports streamed against one-shot decodes in both precisions, and the cost of a
-step early and late in an utterance at several widths. `RUMIK_DECODER_DTYPE` is
-Mimi's precision (bfloat16, upstream's choice): a bfloat16 decode is itself some
-distance from a float32 one, and that report is how to decide whether float32 is
-worth its cost.
+step early and late in an utterance at several widths. Measured on ace-h200, real
+speech, against a float32 one-shot decode:
+
+| | peak | rms |
+|---|---|---|
+| float32 streamed (3 streams, worst) | 0.057% | 0.005% |
+| bfloat16 one-shot (upstream's path) | 2.51% | 0.149% |
+| bfloat16 streamed | 2.20% | 0.142% |
+
+| width | float32 step, frame 2 → 200 | bfloat16 step, frame 2 → 200 |
+|---|---|---|
+| 1 | 7.45 → 7.44 ms | 7.78 → 7.73 ms |
+| 16 | 8.34 → 8.22 ms | 8.71 → 8.48 ms |
+| 64 | 11.93 → 11.86 ms | 11.78 → 11.62 ms |
+| 128 | 17.48 → 17.35 ms | 16.43 → 16.19 ms |
+
+The step cost does not grow with position — the live-streaming constraint — and
+float32 costs about the same as bfloat16, so `RUMIK_DECODER_DTYPE` defaults to
+**float32**: the codec at full precision, rather than the 2.5% bfloat16 adds.
 
 ## Gotchas
 
