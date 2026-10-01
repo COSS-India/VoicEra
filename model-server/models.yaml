@@ -176,8 +176,9 @@ tts:
       H200 but has NOT yet produced a measured utterance, nor been compared
       against the transformers reference -- so until it has, treat this as demo
       and evaluation grade, and RUMIK_MAX_CONCURRENCY stays 1.
-      Still unverified: the streaming decode's left-context window, a chosen 32
-      frames rather than a measured one. The folder README says what to run.
+      Mimi is decoded as a streaming codec (streaming.py): per-stream KV and
+      conv state, a fixed cost per chunk, audio equal to a one-shot decode. The
+      windowed decode it replaced was measured 6.7% off at its 32-frame default.
 
   - id: omnivoice
     name: k2-fsa OmniVoice 0.6B

@@ -7,13 +7,14 @@ numbers). The fix moves three things, and each can fail without an error:
   * FrameAssembler replaces re-running frames_from_tokens on the whole token
     list per chunk. If it disagrees with frames_from_tokens by one token, every
     later frame shifts and the stream is plausible-sounding noise.
-  * StreamWindows decides what to decode and what to keep. A slip there is a
-    repeated or missing 80 ms of audio at every chunk boundary.
-  * BatchedDecoder has to hand every stream back exactly its own row. A mix-up
-    is one caller hearing another caller's words.
+  * FrameChunker hands each frame to the decoder exactly once. A slip there is
+    a repeated or missing 80 ms of audio at every chunk boundary.
+  * BatchedDecoder has to hand every stream back exactly its own audio, and
+    must never put one decoder slot in a step twice. A mix-up is one caller
+    hearing another caller's words.
 
-None of this needs torch; MimiRows, the only torch code, is exercised on
-hardware by the load bench.
+None of this needs torch. The decoder itself (streaming.py) is checked against
+MimiModel.decode in tests/test_rumik_streaming.py.
 """
 import asyncio
 import importlib.util
@@ -96,44 +97,40 @@ def test_the_assembler_stops_at_the_end_token():
     assert len(assembler.frames) == 2 and assembler.ended
 
 
-# ------------------------------------------------------------- StreamWindows
+# -------------------------------------------------------------- FrameChunker
 
-def drive(n_frames: int, chunk: int, context: int):
-    windows = codec.StreamWindows(codec.FrameAssembler(LAYOUT), chunk=chunk, context=context)
-    out = [w for t in clean(n_frames) if (w := windows.push(t)) is not None]
-    if (tail := windows.flush()) is not None:
+def drive(n_frames: int, chunk: int):
+    chunker = codec.FrameChunker(codec.FrameAssembler(LAYOUT), chunk=chunk)
+    out = [c for t in clean(n_frames) if (c := chunker.push(t)) is not None]
+    if (tail := chunker.flush()) is not None:
         out.append(tail)
-    return windows, out
+    return chunker, out
 
 
-@pytest.mark.parametrize(("n_frames", "chunk", "context"),
-                         [(1, 2, 32), (2, 2, 32), (37, 2, 32), (40, 4, 8), (13, 3, 0), (64, 1, 5)])
-def test_kept_frames_tile_the_stream_exactly_once(n_frames, chunk, context):
-    windows, out = drive(n_frames, chunk, context)
-    kept = [f for window, new in out for f in window[len(window) - new:]]
-    assert kept == windows.assembler.frames          # no gap, no repeat, in order
-    assert windows.emitted == n_frames
+@pytest.mark.parametrize(("n_frames", "chunk"),
+                         [(1, 2), (2, 2), (37, 2), (40, 4), (13, 3), (64, 1)])
+def test_chunks_tile_the_stream_exactly_once(n_frames, chunk):
+    chunker, out = drive(n_frames, chunk)
+    assert [f for c in out for f in c] == chunker.assembler.frames
+    assert chunker.emitted == n_frames
 
 
-@pytest.mark.parametrize(("chunk", "context"), [(2, 32), (4, 8)])
-def test_every_window_carries_as_much_left_context_as_exists(chunk, context):
-    _, out = drive(60, chunk, context)
-    emitted = 0
-    for window, new in out:
-        assert len(window) - new == min(context, emitted)
-        emitted += new
-
-
-def test_steady_state_windows_share_one_length_so_they_batch():
-    _, out = drive(100, 2, 32)
-    lengths = [len(w) for w, _ in out]
-    assert set(lengths[16:-1]) == {34}
+def test_every_chunk_but_the_last_is_full():
+    _, out = drive(37, 4)
+    assert [len(c) for c in out] == [4] * 9 + [1]
 
 
 # ------------------------------------------------------------ BatchedDecoder
 
-class FakeRows:
-    """Stands in for MimiRows: each row's 'audio' names the row, so a mix-up shows.
+class Chunk:
+    """Stands in for streaming.Chunk."""
+
+    def __init__(self, slot, tag, start=False):
+        self.slot, self.tag, self.start = slot, tag, start
+
+
+class FakeStep:
+    """Stands in for MimiStreamer.step: each chunk's 'audio' names the chunk.
 
     Holds the first call open until released, which is what lets requests that
     arrive meanwhile queue up behind it -- the shape a busy GPU produces.
@@ -145,101 +142,95 @@ class FakeRows:
         if not hold_first:
             self.release.set()
 
-    def __call__(self, windows, news):
+    def __call__(self, chunks):
         self.release.wait(5)
-        self.calls.append([len(w) for w in windows])
-        return [f"{w[-1][0]}:{new}".encode() for w, new in zip(windows, news, strict=True)]
+        slots = [c.slot for c in chunks]
+        assert len(set(slots)) == len(slots), "a slot appeared twice in one step"
+        self.calls.append(slots)
+        return [f"{c.tag}".encode() for c in chunks]
 
 
-def window(tag: int, frames: int = 34):
-    return [[tag] * Q for _ in range(frames)]
-
-
-async def test_every_stream_gets_its_own_row_back():
-    rows = FakeRows()
-    batched = decoder.BatchedDecoder(rows, max_batch=64)
+async def test_every_stream_gets_its_own_audio_back():
+    step = FakeStep()
+    batched = decoder.BatchedDecoder(step, max_batch=64)
     batched.start()
     try:
-        got = await asyncio.gather(*(batched.decode(window(i), 2) for i in range(40)))
+        got = await asyncio.gather(*(batched.decode(Chunk(i, i)) for i in range(40)))
     finally:
         batched.stop()
-    assert got == [f"{i}:2".encode() for i in range(40)]
+    assert got == [f"{i}".encode() for i in range(40)]
 
 
 async def test_requests_that_queue_behind_a_decode_are_decoded_together():
-    rows = FakeRows(hold_first=True)
-    batched = decoder.BatchedDecoder(rows, max_batch=64)
+    step = FakeStep(hold_first=True)
+    batched = decoder.BatchedDecoder(step, max_batch=64)
     batched.start()
     try:
-        first = asyncio.ensure_future(batched.decode(window(0), 2))
+        first = asyncio.ensure_future(batched.decode(Chunk(0, 0)))
         await asyncio.sleep(0.05)                        # the worker is now inside call 1
-        rest = [asyncio.ensure_future(batched.decode(window(i), 2)) for i in range(1, 33)]
+        rest = [asyncio.ensure_future(batched.decode(Chunk(i, i))) for i in range(1, 33)]
         await asyncio.sleep(0.05)
-        rows.release.set()
+        step.release.set()
         await asyncio.gather(first, *rest)
     finally:
         batched.stop()
     # 33 streams, 2 calls: the one that was running, then everyone who queued.
-    assert [len(c) for c in rows.calls] == [1, 32]
+    assert [len(c) for c in step.calls] == [1, 32]
     assert batched.snapshot()["decode_calls"] == 2
 
 
-async def test_unequal_windows_are_decoded_as_separate_groups():
-    rows = FakeRows(hold_first=True)
-    batched = decoder.BatchedDecoder(rows, max_batch=64)
+async def test_max_batch_caps_the_chunks_per_wakeup():
+    step = FakeStep(hold_first=True)
+    batched = decoder.BatchedDecoder(step, max_batch=8)
     batched.start()
     try:
-        first = asyncio.ensure_future(batched.decode(window(0), 2))
+        first = asyncio.ensure_future(batched.decode(Chunk(0, 0)))
         await asyncio.sleep(0.05)
-        rest = [asyncio.ensure_future(batched.decode(window(i, 34 if i % 2 else 4), 2))
-                for i in range(1, 9)]
+        rest = [asyncio.ensure_future(batched.decode(Chunk(i, i))) for i in range(1, 21)]
         await asyncio.sleep(0.05)
-        rows.release.set()
-        got = await asyncio.gather(first, *rest)
-    finally:
-        batched.stop()
-    assert sorted(len(c) for c in rows.calls[1:]) == [4, 4]
-    assert all(set(c) == {c[0]} for c in rows.calls)     # one length per call
-    assert got == [f"{i}:2".encode() for i in range(9)]
-
-
-async def test_max_batch_caps_the_rows_per_call():
-    rows = FakeRows(hold_first=True)
-    batched = decoder.BatchedDecoder(rows, max_batch=8)
-    batched.start()
-    try:
-        first = asyncio.ensure_future(batched.decode(window(0), 2))
-        await asyncio.sleep(0.05)
-        rest = [asyncio.ensure_future(batched.decode(window(i), 2)) for i in range(1, 21)]
-        await asyncio.sleep(0.05)
-        rows.release.set()
+        step.release.set()
         await asyncio.gather(first, *rest)
     finally:
         batched.stop()
-    assert max(len(c) for c in rows.calls) <= 8
+    assert max(len(c) for c in step.calls) <= 8
+
+
+def test_a_reused_slot_never_shares_a_step_and_keeps_its_order():
+    # A cancelled stream left a chunk queued on slot 3; the stream that got slot 3
+    # next queued its first chunk behind it.
+    chunks = [Chunk(3, "old"), Chunk(5, "a"), Chunk(3, "new", start=True), Chunk(7, "b")]
+    order = decoder.rounds(chunks)
+    assert order == [[0, 1, 3], [2]]
 
 
 async def test_a_failed_decode_reaches_its_callers_and_the_decoder_keeps_serving():
     calls = {"n": 0}
 
-    def flaky(windows, news):
+    def flaky(chunks):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("CUDA error")
-        return [b"ok"] * len(windows)
+        return [b"ok"] * len(chunks)
 
     batched = decoder.BatchedDecoder(flaky, max_batch=64)
     batched.start()
     try:
         with pytest.raises(RuntimeError, match="CUDA error"):
-            await batched.decode(window(1), 2)
-        assert await batched.decode(window(2), 2) == b"ok"
+            await batched.decode(Chunk(1, 1))
+        assert await batched.decode(Chunk(2, 2)) == b"ok"
     finally:
         batched.stop()
 
 
-def test_warm_runs_each_width_once():
-    rows = FakeRows()
-    batched = decoder.BatchedDecoder(rows, max_batch=64)
-    batched.warm(34, Q, [1, 2, 4, 8, 16, 32, 64, 64, 128])
-    assert [len(c) for c in rows.calls] == [1, 2, 4, 8, 16, 32, 64]
+def test_warm_runs_each_width_with_a_fresh_start():
+    step = FakeStep()
+    batched = decoder.BatchedDecoder(step, max_batch=64)
+    seen = []
+
+    def make(slot, start):
+        seen.append(start)
+        return Chunk(slot, 0, start)
+
+    batched.warm(make, [1, 4, 4, 128], steps=2)
+    assert [len(c) for c in step.calls] == [1, 1, 4, 4]
+    assert seen == [True, False] + [True] * 4 + [False] * 4

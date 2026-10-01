@@ -249,48 +249,39 @@ class FrameAssembler:
         return False
 
 
-class StreamWindows:
-    """Which frames to decode next, and how many samples of the result to keep.
+class FrameChunker:
+    """Hands out each stream's frames once, in chunks of ``chunk`` frames.
 
-    The window rule is the one this folder has always used: once ``chunk`` new
-    frames exist, decode them together with up to ``context`` frames before
-    them and keep only the new frames' samples. Mimi is causal, so there is
-    nothing to wait for on the right. Consecutive windows tile the stream
-    exactly once -- no gap, no repeat -- which tests/test_rumik_codec.py checks.
-
-    Decoding does not happen here. The engine hands each window to the batched
-    decoder, which is the point: every stream's windows are decoded together.
-    Steady-state windows are all ``context + chunk`` frames long, so they stack
-    on one batch dimension; only a stream's first few windows are shorter.
+    The decoder keeps every stream's history itself (streaming.MimiStreamer),
+    so a chunk is only the frames that are new: nothing is re-sent, and every
+    chunk costs the decoder the same however far into the utterance it is.
+    Consecutive chunks tile the stream exactly once -- no gap, no repeat --
+    which tests/test_rumik_decoder.py checks.
     """
 
-    def __init__(self, assembler: FrameAssembler, *, chunk: int, context: int) -> None:
-        if chunk < 1 or context < 0:
-            raise ValueError("chunk must be >= 1 and context >= 0")
+    def __init__(self, assembler: FrameAssembler, *, chunk: int) -> None:
+        if chunk < 1:
+            raise ValueError("chunk must be >= 1")
         self.assembler = assembler
         self.chunk = chunk
-        self.context = context
         self.emitted = 0
 
-    def _window(self, new: int) -> tuple[list[list[int]], int]:
-        frames = self.assembler.frames
-        total = self.emitted + new
-        start = max(0, total - new - self.context)
-        self.emitted = total
-        return frames[start:total], new
+    def _take(self) -> list[list[int]]:
+        frames = self.assembler.frames[self.emitted:]
+        self.emitted = len(self.assembler.frames)
+        return frames
 
-    def push(self, token_id: int) -> tuple[list[list[int]], int] | None:
-        """Feed one token; ``(window, new_frames)`` when a chunk is ready."""
+    def push(self, token_id: int) -> list[list[int]] | None:
+        """Feed one token; the new frames once a chunk's worth exists."""
         if not self.assembler.push(token_id):
             return None
         if len(self.assembler.frames) - self.emitted < self.chunk:
             return None
-        return self._window(len(self.assembler.frames) - self.emitted)
+        return self._take()
 
-    def flush(self) -> tuple[list[list[int]], int] | None:
+    def flush(self) -> list[list[int]] | None:
         """The frames still short of a full chunk when generation ends."""
-        pending = len(self.assembler.frames) - self.emitted
-        return self._window(pending) if pending > 0 else None
+        return self._take() if len(self.assembler.frames) > self.emitted else None
 
 
 def unit_token(code: int, quantizer: int, layout: CodecLayout) -> int:

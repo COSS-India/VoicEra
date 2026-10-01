@@ -37,22 +37,17 @@ method call.
 --------------------------------------------------------------------------
 Decoding while generating
 
-Mimi's decoder in `transformers` has no streaming state to carry across calls,
-so frames are decoded in a window and only the newest samples are kept:
+Mimi is decoded as the streaming codec it is (streaming.MimiStreamer): every
+admitted stream owns a decoder slot holding its upsample, transformer-KV and
+SEANet history, so each chunk sends only its new frames and costs the same at
+the end of a long utterance as at the start. The output equals a one-shot decode
+of the whole utterance. The earlier build re-decoded a window of past frames per
+chunk instead, which on real speech was 6.7% off a whole decode at 32 frames and
+49% at 8 -- streaming.py has the measurement.
 
-    decode frames [total - new - RUMIK_DECODE_CONTEXT_FRAMES : total]
-    emit the last  new * samples_per_frame  samples
-
-`tests/` proves that tiles the clip exactly once, with no gap or repeat.
-`codec.StreamWindows` keeps that bookkeeping per stream, and
-`codec.FrameAssembler` de-interleaves tokens as they arrive instead of
-re-walking the whole utterance per chunk.
-
-The decode itself is shared. Every stream's windows go to one
-`decoder.BatchedDecoder`, which decodes whatever has queued in one Mimi call per
-window length. Before it, each stream decoded on its own from a thread, and the
-server stopped at ~16 audio-seconds per second however many streams it had --
-decoder.py has the measurement.
+All streams' chunks go to one decoder.BatchedDecoder, which steps whatever has
+queued in one call. Before it, each stream decoded on its own from a thread and
+the server stopped at ~16 audio-seconds per second however many streams it had.
 """
 from __future__ import annotations
 
@@ -66,10 +61,11 @@ from dataclasses import dataclass
 
 import torch
 from audio import SAMPLE_RATE
-from codec import CodecLayout, FrameAssembler, StreamWindows, check_prompt_ids
+from codec import CodecLayout, FrameAssembler, FrameChunker, check_prompt_ids
 from config import Config
-from decoder import BatchedDecoder, MimiRows
+from decoder import BatchedDecoder
 from prompt import PromptError, build_prompt, check_text
+from streaming import Chunk, MimiStreamer
 from transformers import AutoFeatureExtractor, AutoTokenizer, MimiModel
 
 log = logging.getLogger("rumik.engine")
@@ -311,6 +307,9 @@ class RumikTTSEngine:
         self._tokens = None
         self._decoder: BatchedDecoder | None = None
         self._slots = asyncio.Semaphore(cfg.max_concurrency)
+        # One decoder slot per admitted stream: the semaphore above guarantees
+        # one is free whenever a stream gets past it.
+        self._free_slots = list(range(cfg.max_concurrency))
         self.streams_active = 0
 
     # ---------------------------------------------------------------- loading
@@ -323,16 +322,17 @@ class RumikTTSEngine:
         cfg = self.cfg
         await asyncio.to_thread(self._load_shared)
 
-        self._decoder = BatchedDecoder(
-            MimiRows(self.mimi, self.samples_per_frame), max_batch=cfg.decoder_max_batch
-        )
+        streamer = MimiStreamer(self.mimi, slots=cfg.max_concurrency)
+        self._decoder = BatchedDecoder(streamer.step, max_batch=cfg.decoder_max_batch)
         # Every width up to the ceiling, before traffic: the first burst at a
         # batch size the decoder has never run otherwise pays for it in TTFA.
-        widths = [1 << i for i in range(cfg.decoder_max_batch.bit_length())]
+        top = min(cfg.decoder_max_batch, cfg.max_concurrency)
+        widths = [1 << i for i in range(top.bit_length())]
+        silence = [[0] * self.quantizers for _ in range(cfg.decode_chunk_frames)]
         await asyncio.to_thread(
             self._decoder.warm,
-            cfg.decode_context_frames + cfg.decode_chunk_frames, self.quantizers,
-            [*widths, cfg.decoder_max_batch],
+            lambda slot, start: Chunk(slot=slot, frames=silence, start=start),
+            [*widths, top],
         )
         self._decoder.start()
 
@@ -356,9 +356,11 @@ class RumikTTSEngine:
     def _load_shared(self) -> None:
         """Everything both backends need: the layout, the codec, the tokenizer."""
         cfg = self.cfg
-        dtype = getattr(torch, cfg.dtype, None)
+        dtype = getattr(torch, cfg.decoder_dtype, None)
         if not isinstance(dtype, torch.dtype):
-            raise TTSGenerationError(f"RUMIK_DTYPE={cfg.dtype!r} is not a torch dtype")
+            raise TTSGenerationError(
+                f"RUMIK_DECODER_DTYPE={cfg.decoder_dtype!r} is not a torch dtype"
+            )
 
         self.layout = CodecLayout.from_config(cfg.model_path)
         self.quantizers = self.layout.num_quantizers
@@ -530,9 +532,9 @@ class RumikTTSEngine:
         cfg = self.cfg
         stats.frame_ms = self.frame_ms
         async with self._slots:
-            windows = StreamWindows(FrameAssembler(self.layout),
-                                    chunk=cfg.decode_chunk_frames,
-                                    context=cfg.decode_context_frames)
+            chunker = FrameChunker(FrameAssembler(self.layout), chunk=cfg.decode_chunk_frames)
+            slot = self._free_slots.pop()
+            first = True
             count, last = 0, None
             started = time.perf_counter()
             self.streams_active += 1
@@ -546,10 +548,11 @@ class RumikTTSEngine:
                     stats.token_wait_ms += (time.perf_counter() - waiting) * 1000.0
                     count, last = count + 1, token
                     stats.tokens = count
-                    pending = windows.push(token)
-                    if pending is not None:
-                        pcm = await self._decode(pending, stats)
-                        self._record(stats, started, windows.emitted, pcm)
+                    frames = chunker.push(token)
+                    if frames is not None:
+                        pcm = await self._decode(Chunk(slot, frames, first), stats)
+                        first = False
+                        self._record(stats, started, chunker.emitted, pcm)
                         yield pcm
                     waiting = time.perf_counter()
 
@@ -563,19 +566,21 @@ class RumikTTSEngine:
                         max_new_tokens, max_new_tokens / self.layout.tokens_per_second,
                     )
 
-                tail = windows.flush()
+                tail = chunker.flush()
                 if tail is not None:
-                    pcm = await self._decode(tail, stats)
-                    self._record(stats, started, windows.emitted, pcm)
+                    pcm = await self._decode(Chunk(slot, tail, first), stats)
+                    self._record(stats, started, chunker.emitted, pcm)
                     yield pcm
             finally:
+                # The slot's state is reset by the next stream's first chunk,
+                # which the decoder runs strictly after anything still queued here.
+                self._free_slots.append(slot)
                 self.streams_active -= 1
                 stats.gen_ms = (time.perf_counter() - started) * 1000.0
 
-    async def _decode(self, pending, stats: StreamStats) -> bytes:
-        window, new = pending
+    async def _decode(self, chunk: Chunk, stats: StreamStats) -> bytes:
         submitted = time.perf_counter()
-        pcm = await self._decoder.decode(window, new)
+        pcm = await self._decoder.decode(chunk)
         stats.decode_wait_ms += (time.perf_counter() - submitted) * 1000.0
         stats.decode_calls += 1
         return pcm
@@ -598,7 +603,6 @@ class RumikTTSEngine:
             "streams_active": self.streams_active,
             "max_concurrency": self.cfg.max_concurrency,
             "decode_chunk_frames": self.cfg.decode_chunk_frames,
-            "decode_context_frames": self.cfg.decode_context_frames,
             "decoder": self._decoder.snapshot() if self._decoder is not None else None,
         }
 

@@ -143,26 +143,28 @@ services:
 
       # ---- streaming decode --------------------------------------------
       # Emit every 2 frames = 160 ms of audio. Smaller chunks cut
-      # time-to-first-audio and cost one Mimi decode each.
+      # time-to-first-audio; the decoder is stateful (streaming.py), so a chunk
+      # costs the same however far into an utterance it is, and its audio
+      # equals a one-shot decode. There is no context window to tune.
       RUMIK_DECODE_CHUNK_FRAMES: ${RUMIK_DECODE_CHUNK_FRAMES:-2}
-      # Left context per decode, in frames. Mimi in transformers has no
-      # streaming state to carry between calls, so each chunk is decoded with
-      # the preceding frames as context and only the new samples are kept. 32
-      # frames is 2.56 s, generous for a convolutional decoder with local
-      # attention -- and NOT yet verified against a single whole-clip decode.
-      # See the README for that check. Too small shows up as a click or a seam
-      # at every chunk boundary, not as an error.
-      RUMIK_DECODE_CONTEXT_FRAMES: ${RUMIK_DECODE_CONTEXT_FRAMES:-32}
       # Set to cpu to keep the codec off the GPU. It is small (384 MB) and the
       # decode is short, so this mostly trades GPU memory for a PCIe copy per
       # chunk.
       RUMIK_DECODER_DEVICE: ${RUMIK_DECODER_DEVICE:-cuda}
+      # Mimi's precision, separate from the backbone's RUMIK_DTYPE. bfloat16 is
+      # what upstream's server uses; a bfloat16 decode is itself some distance
+      # from a float32 one, which check_streaming.py measures on this
+      # checkpoint, together with what each costs per step. Decide with those
+      # numbers: float32 is the codec at full precision, at a higher decode cost.
+      RUMIK_DECODER_DTYPE: ${RUMIK_DECODER_DTYPE:-bfloat16}
       # Most windows one batched Mimi call decodes. Every stream's chunk goes
       # to one shared decoder, which decodes whatever has queued together, so
       # this is the ceiling on streams served per decode call, not a queue
       # length. Keep it at or above RUMIK_MAX_CONCURRENCY: below it, a burst
       # takes more than one call per round. Each width up to it is run once at
       # startup, so the first real burst at a new size does not pay for it.
+      # Decoder state is held per admitted stream (RUMIK_MAX_CONCURRENCY
+      # slots), ~4 MB each in bf16 for the transformer's KV ring buffer.
       RUMIK_DECODER_MAX_BATCH: ${RUMIK_DECODER_MAX_BATCH:-64}
 
       # ---- warmup ------------------------------------------------------

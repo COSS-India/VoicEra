@@ -218,10 +218,12 @@ doubled the ceiling, while cutting each call's window from 34 frames to 12 barel
 moved it.
 
 `decoder.BatchedDecoder` is `tts/orpheus`'s batched decoder adapted to Mimi:
-every stream's window goes on one queue, one worker decodes whatever has queued
-in one call per window length, and each stream gets its own rows back. N streams
-cost one decode, not N. `RUMIK_DECODER_MAX_BATCH` (64) caps rows per call; keep
-it at or above `RUMIK_MAX_CONCURRENCY`.
+every stream's next chunk goes on one queue, one worker steps whatever has
+queued in one call, and each stream gets its own audio back. N streams cost one
+decode, not N. `RUMIK_DECODER_MAX_BATCH` (64) caps chunks per call; keep it at or
+above `RUMIK_MAX_CONCURRENCY`. With it the same card served 96 streams at RTF p95
+0.79 and 32 req/s of Poisson arrivals at 0.88 — measured with the windowed
+decoder described next, which has since been replaced.
 
 What to read under load:
 
@@ -234,21 +236,51 @@ What to read under load:
 - `/health` carries `streams_active`, which the staging benches poll to drain
   between cells.
 
-## Still unverified: the decode context
+## Mimi as a streaming codec
 
-`RUMIK_DECODE_CONTEXT_FRAMES` (32 frames, 2.56 s) was chosen, not measured. Too
-little does not error — it puts a seam at every chunk boundary. Measure it on
-real speech, the way `tts/orpheus` measured its Vocos decoder:
+`MimiModel.decode` in `transformers` keeps no state between calls, so the first
+build decoded each chunk together with a window of the frames before it. Measured
+on ace-h200 against one whole-clip decode of real speech, that window was never
+good enough — the decoder transformer attends 250 steps back, so any shorter
+window changes every chunk:
+
+| window | peak error | rms error |
+|---|---|---|
+| 8 frames (all load tests above) | 48.8% | 2.30% |
+| 32 frames (the old default) | 6.7% | 0.63% |
+
+Widening it to the whole utterance is exact, but then a chunk costs more the
+longer a stream talks, which a live call cannot afford. So `streaming.py` decodes
+Mimi the way it was designed to run, carrying each stream's state between chunks:
+
+| stage | state per stream |
+|---|---|
+| quantizer | none |
+| upsample (transposed conv, kernel 4, stride 2) | the previous frame |
+| decoder transformer (8 layers, 250-step sliding window) | a KV ring buffer of 250 steps |
+| SEANet (local convs up to 24 kHz) | the last 8 transformer-output steps |
+
+Every chunk costs the same however far into an utterance it is, and the audio
+equals a one-shot decode. The 8 steps are measured: below it the output is wrong
+(38% off at 6), from 8 on it matches to float noise, including utterances longer
+than the attention window. The transformer step is re-implemented over the
+checkpoint's own modules so that streams at different positions share one
+batched step; `tests/test_rumik_streaming.py` checks it against
+`MimiModel.decode` with concurrent streams, a wrapped ring and reused slots.
+
+State is held per admitted stream (`RUMIK_MAX_CONCURRENCY` slots), about 4 MB
+each for the KV buffers. On the real checkpoint:
 
 ```bash
 docker cp some_24khz_clip.wav rumik-test:/tmp/clip.wav
-docker exec rumik-test python measure_context.py /tmp/clip.wav
+docker exec rumik-test python check_streaming.py /tmp/clip.wav
 ```
 
-It encodes the clip with this checkpoint's Mimi, streams it back through the
-same windowing at contexts 0–32, and prints each one's error against one
-whole-utterance decode. Pick the smallest context where the peak error is
-inaudible, and record the number here.
+reports streamed against one-shot decodes in both precisions, and the cost of a
+step early and late in an utterance at several widths. `RUMIK_DECODER_DTYPE` is
+Mimi's precision (bfloat16, upstream's choice): a bfloat16 decode is itself some
+distance from a float32 one, and that report is how to decide whether float32 is
+worth its cost.
 
 ## Gotchas
 

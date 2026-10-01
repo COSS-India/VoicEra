@@ -128,7 +128,7 @@ Streaming it needed a seam. `generate_audio()` is a hand-written per-token loop 
 
 Inputs are capped at 400 characters and generation at 3072 tokens (~30 s, the card's limit). An utterance that still hits the cap is reported as `X-Truncated` or SSE `truncated` rather than silently cut off.
 
-Still unverified: the **streaming decode window**. Mimi in `transformers` carries no state between `decode()` calls, so each chunk is decoded with `RUMIK_DECODE_CONTEXT_FRAMES` (32) preceding frames as context and only the new samples kept. Too small does not error — it puts a seam at every chunk boundary. The folder README has the comparison to run.
+**Mimi runs as a streaming codec.** `transformers` keeps no state between `decode()` calls, and decoding each chunk with a window of past frames was measured 6.7% off a whole decode at 32 frames and 49% at 8, because Mimi's decoder transformer attends 250 steps back. `streaming.py` carries each stream's upsample, KV and SEANet state instead, so every chunk costs the same and the audio equals a one-shot decode. The folder README has the details and the check to run.
 
 ## Format negotiation
 

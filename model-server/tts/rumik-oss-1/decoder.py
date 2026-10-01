@@ -1,4 +1,4 @@
-"""One Mimi decoder for every stream: windows from all callers, decoded together.
+"""One Mimi decoder for every stream: chunks from all callers, decoded together.
 
 Why this exists, measured on ace-h200 GPU 1 (H200, 0.12 of memory, shared
 through MPS) with tests/bench/sweep.py, before it:
@@ -8,24 +8,20 @@ through MPS) with tests/bench/sweep.py, before it:
     burst        8 / 16 / 32 -> 16.7 / 15.9 / 16.2 audio-s/s
 
 Output stopped at ~16 audio-seconds per second whatever the arrival pattern,
-while vLLM itself was nowhere near busy (RTF 0.40 -> 0.44 from 1 to 8 streams).
-Orpheus on the same card and the same 0.12 reaches 96 concurrent streams. The
-difference was here: every stream called Mimi on its own, from a thread, once
-per chunk. A Mimi decode of a few frames is dozens of small kernels -- its cost
-is launch overhead, nearly independent of how many frames it decodes, which is
-why cutting the window from 34 frames to 12 barely moved the ceiling and
-halving the number of calls (2-frame chunks -> 4) doubled it.
+while vLLM itself was nowhere near busy. Every stream called Mimi on its own,
+from a thread, once per chunk, and a small Mimi decode costs about the same
+whatever its size -- so the number of calls is what must not scale with
+streams. With this in front of the decoder the same card served 96 streams at
+RTF p95 0.79 and 32 req/s of Poisson arrivals at 0.88.
 
-So calls are what must not scale with streams, and they no longer do. This is
-tts/orpheus's BatchedAudioDecoder, adapted: every stream puts its window on one
-queue, a single worker takes whatever has queued, groups the windows by length
-(only equal-length rows stack), and decodes each group in ONE call. N streams
-cost one decode, not N. There is no timer: under load the GPU is busy long
-enough for the next batch to fill by itself; when idle, a lone window goes
-straight through.
+This is tts/orpheus's BatchedAudioDecoder, adapted: every stream puts its next
+chunk on one queue, a single worker takes whatever has queued, and the
+streaming decoder (streaming.MimiStreamer) steps all of them in one batched
+call. There is no timer: under load the GPU is busy long enough for the next
+batch to fill by itself; when idle, a lone chunk goes straight through.
 
-The batching logic is written against a plain `decode_rows` callable so it can
-be tested without torch; MimiRows is the real one.
+The batching logic is written against a plain `step` callable so it can be
+tested without torch.
 """
 from __future__ import annotations
 
@@ -39,36 +35,9 @@ from collections.abc import Callable, Sequence
 
 log = logging.getLogger("rumik.decoder")
 
-#: A window is a list of frames, each frame the num_quantizers codes of one
-#: 80 ms step. `new` is how many of its LAST frames to keep the audio of.
-Window = Sequence[Sequence[int]]
-DecodeRows = Callable[[list[Window], list[int]], list[bytes]]
-
-
-class MimiRows:
-    """Decode equal-length windows as one batch. Called only from the worker thread."""
-
-    def __init__(self, mimi, samples_per_frame: int) -> None:
-        self.mimi = mimi
-        self.samples_per_frame = samples_per_frame
-
-    def __call__(self, windows: list[Window], news: list[int]) -> list[bytes]:
-        import torch
-
-        frames = len(windows[0])
-        if any(len(w) != frames for w in windows):
-            raise ValueError("MimiRows decodes one window length per call")
-        # [B, T, Q] -> [B, Q, T], the layout MimiModel.decode wants.
-        codes = torch.tensor([[list(f) for f in w] for w in windows], dtype=torch.long)
-        codes = codes.permute(0, 2, 1).contiguous().to(self.mimi.device)
-        with torch.inference_mode():
-            audio = self.mimi.decode(codes).audio_values[:, 0, :]          # [B, T*spf]
-            # Scale and narrow on the GPU: half the bytes cross the bus, and it
-            # is one conversion for the whole batch instead of one per stream.
-            pcm = (audio.float().clamp(-1.0, 1.0) * 32767.0).to(torch.int16).cpu().numpy()
-        spf = self.samples_per_frame
-        return [pcm[i, pcm.shape[1] - new * spf:].astype("<i2").tobytes()
-                for i, new in enumerate(news)]
+#: Takes a list of chunks (each naming its stream's slot) and returns one PCM
+#: payload per chunk, in order. A slot appears at most once per call.
+Step = Callable[[list], list[bytes]]
 
 
 class _Recent:
@@ -91,13 +60,33 @@ class _Recent:
         return {"n": len(xs), "p50": pct(0.50), "p95": pct(0.95), "max": round(xs[-1], 2)}
 
 
-class BatchedDecoder:
-    """Coalesces decode requests from every concurrent stream into batched calls."""
+def rounds(chunks: Sequence) -> list[list[int]]:
+    """Indexes split so no slot appears twice in one step, order kept per slot.
 
-    def __init__(self, decode_rows: DecodeRows, *, max_batch: int = 64) -> None:
+    Normally every chunk in a wake-up is from a different stream -- a stream
+    awaits each chunk before sending the next. The exception is a stream that
+    was cancelled with a chunk still queued: its slot can be handed to a new
+    stream whose first chunk then queues behind the old one. That must not
+    reach the decoder in the same step, and the old chunk must go first.
+    """
+    out: list[list[int]] = []
+    level_of: dict[int, int] = {}
+    for i, chunk in enumerate(chunks):
+        level = level_of.get(chunk.slot, -1) + 1
+        level_of[chunk.slot] = level
+        if level == len(out):
+            out.append([])
+        out[level].append(i)
+    return out
+
+
+class BatchedDecoder:
+    """Coalesces decode requests from every concurrent stream into batched steps."""
+
+    def __init__(self, step: Step, *, max_batch: int = 64) -> None:
         if max_batch < 1:
             raise ValueError("max_batch must be at least 1")
-        self.decode_rows = decode_rows
+        self.step = step
         self.max_batch = max_batch
         self._queue: _queue.Queue = _queue.Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -107,8 +96,8 @@ class BatchedDecoder:
         self.batches = 0
         self.rows = 0
         self.calls = 0
-        self.decode_ms = _Recent()      # one sample per decode call (one length group)
-        self.batch_rows = _Recent()     # rows per worker wake-up, all groups together
+        self.decode_ms = _Recent()      # one sample per step call
+        self.batch_rows = _Recent()     # chunks per worker wake-up
         self.wait_ms = _Recent()        # submit -> result, as a stream experiences it
 
     # ------------------------------------------------------------ lifecycle
@@ -121,21 +110,24 @@ class BatchedDecoder:
         self._stop.set()
 
     # --------------------------------------------------------------- submit
-    async def decode(self, window: Window, new: int) -> bytes:
-        """The audio of the last `new` frames of `window`, as s16le PCM."""
+    async def decode(self, chunk) -> bytes:
+        """The audio of `chunk`'s frames, as s16le PCM."""
         if self._loop is None:
             raise RuntimeError("BatchedDecoder.start() was not called")
         future = self._loop.create_future()
-        self._queue.put((window, new, future, time.perf_counter()))
+        self._queue.put((chunk, future, time.perf_counter()))
         return await future
 
-    def warm(self, window_frames: int, quantizers: int, widths: Sequence[int]) -> None:
-        """Run each batch width once, before traffic, so the first real burst
-        does not pay for first-use allocations at a size never seen."""
-        window = [[0] * quantizers for _ in range(window_frames)]
+    def warm(self, make_chunk: Callable[[int, bool], object], widths: Sequence[int],
+             steps: int = 3) -> None:
+        """Step each batch width a few times before traffic, so the first real
+        burst does not pay for first-use allocations at a size never seen.
+        `make_chunk(slot, start)` builds a throwaway chunk; every slot is reset
+        by the first real chunk that uses it."""
         for width in sorted({w for w in widths if 1 <= w <= self.max_batch}):
             started = time.perf_counter()
-            self.decode_rows([window] * width, [1] * width)
+            for i in range(steps):
+                self.step([make_chunk(slot, i == 0) for slot in range(width)])
             log.info("decoder warmup: width %d in %.0f ms",
                      width, (time.perf_counter() - started) * 1000.0)
 
@@ -155,18 +147,14 @@ class BatchedDecoder:
             self._run(batch)
 
     def _run(self, batch: list[tuple]) -> None:
-        """Decode one wake-up's worth: each window length as its own call."""
-        groups: dict[int, list[int]] = {}
-        for i, (window, _, _, _) in enumerate(batch):
-            groups.setdefault(len(window), []).append(i)
+        chunks = [chunk for chunk, _, _ in batch]
         results: list[bytes | BaseException] = [b""] * len(batch)
-        for indexes in groups.values():
+        for indexes in rounds(chunks):
             started = time.perf_counter()
             try:
-                out = self.decode_rows([batch[i][0] for i in indexes],
-                                       [batch[i][1] for i in indexes])
-            except Exception as exc:  # noqa: BLE001 -- every waiter in the group gets it
-                log.exception("decode failed for a group of %d", len(indexes))
+                out = self.step([chunks[i] for i in indexes])
+            except Exception as exc:  # noqa: BLE001 -- every waiter in the step gets it
+                log.exception("decode step failed for %d chunks", len(indexes))
                 out = [exc] * len(indexes)
             self.decode_ms.add((time.perf_counter() - started) * 1000.0)
             self.calls += 1
@@ -176,7 +164,7 @@ class BatchedDecoder:
         self.rows += len(batch)
         self.batch_rows.add(float(len(batch)))
         now = time.perf_counter()
-        for (_, _, future, submitted), result in zip(batch, results, strict=True):
+        for (_, future, submitted), result in zip(batch, results, strict=True):
             self.wait_ms.add((now - submitted) * 1000.0)
             self._loop.call_soon_threadsafe(_settle, future, result)
 

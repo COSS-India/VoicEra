@@ -105,9 +105,9 @@ class Config:
 
     # ---- decode ---------------------------------------------------------
     decoder_device: str
+    decoder_dtype: str
     decoder_max_batch: int
     decode_chunk_frames: int
-    decode_context_frames: int
 
     # ---- warmup ---------------------------------------------------------
     warmup_enabled: bool
@@ -148,11 +148,10 @@ class Config:
             ),
             max_new_tokens_limit=int(_number(os.getenv("RUMIK_MAX_NEW_TOKENS_LIMIT"), 3072, int)),
             decoder_device=_text(os.getenv("RUMIK_DECODER_DEVICE"), "cuda"),
+            # The codec's own precision, separate from the 3B backbone's.
+            decoder_dtype=_text(os.getenv("RUMIK_DECODER_DTYPE"), "bfloat16"),
             decoder_max_batch=int(_number(os.getenv("RUMIK_DECODER_MAX_BATCH"), 64, int)),
             decode_chunk_frames=int(_number(os.getenv("RUMIK_DECODE_CHUNK_FRAMES"), 2, int)),
-            decode_context_frames=int(
-                _number(os.getenv("RUMIK_DECODE_CONTEXT_FRAMES"), 32, int)
-            ),
             warmup_enabled=_flag(os.getenv("RUMIK_WARMUP_ENABLED"), True),
             warmup_tokens=int(_number(os.getenv("RUMIK_WARMUP_TOKENS"), 256, int)),
             warmup_widths=_widths(os.getenv("RUMIK_WARMUP_WIDTHS"),
@@ -162,17 +161,6 @@ class Config:
     def __post_init__(self) -> None:
         if self.decode_chunk_frames < 1:
             raise ValueError("RUMIK_DECODE_CHUNK_FRAMES must be at least 1")
-        if self.decode_context_frames < self.decode_chunk_frames:
-            # The window has to cover the frames it emits, or the tail slice
-            # below reaches past the start of the decoded audio and the stream
-            # repeats samples it has already sent.
-            raise ValueError(
-                "RUMIK_DECODE_CONTEXT_FRAMES must be >= RUMIK_DECODE_CHUNK_FRAMES"
-            )
-        if self.max_new_tokens_default > self.max_new_tokens_limit:
-            raise ValueError(
-                "RUMIK_MAX_NEW_TOKENS_DEFAULT must be <= RUMIK_MAX_NEW_TOKENS_LIMIT"
-            )
         if self.decoder_max_batch < 1:
             raise ValueError("RUMIK_DECODER_MAX_BATCH must be at least 1")
         if self.max_concurrency < 1:
