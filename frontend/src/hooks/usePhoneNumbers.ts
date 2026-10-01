@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { listAgents, listConfiguredProviders, listTelephonyProviders } from "@/lib/api-client";
-import { attachPhoneNumber, detachPhoneNumber, listPhoneNumbers } from "@/lib/api/phone-numbers";
+import {
+  attachPhoneNumber,
+  deletePhoneNumber,
+  detachPhoneNumber,
+  listPhoneNumbers,
+} from "@/lib/api/phone-numbers";
 import type { AgentApiResponse, PhoneNumberItem } from "@/lib/api-types";
 import type { ProviderList } from "@/lib/catalog-types";
 
@@ -82,6 +87,19 @@ export function usePhoneNumbers(onNotify: (title: string, note: string) => void)
     }
   }
 
+  async function deleteNumber(number: PhoneNumberItem) {
+    setBusyNumber(number.phone_number);
+    try {
+      await deletePhoneNumber(number.phone_number);
+      onNotify("Deleted", `${number.phone_number} was removed from your inventory.`);
+      await load();
+    } catch (err) {
+      onNotify("Couldn't delete", err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setBusyNumber(null);
+    }
+  }
+
   return {
     numbers,
     agents,
@@ -93,6 +111,7 @@ export function usePhoneNumbers(onNotify: (title: string, note: string) => void)
     importNumber,
     attachToAgent,
     detach,
+    deleteNumber,
     reload: load,
   };
 }
