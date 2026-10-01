@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...base import BaseSTTConfig, BaseTTSConfig, BaseTTSSettings
 from ...capabilities import languages_map, model_ids, settings_tree
@@ -54,6 +54,16 @@ class SmallestTTSSettings(BaseTTSSettings):
         description="Audio sample rate in Hz.",
         json_schema_extra={"examples": list(TTS_SAMPLE_RATES)},
     )
+
+    @field_validator("sample_rate")
+    @classmethod
+    def _check_sample_rate(cls, value: int) -> int:
+        # int (not Literal) so the wizard dropdown's string "24000" still coerces;
+        # the closed set is enforced here instead.
+        if value not in TTS_SAMPLE_RATES:
+            allowed = ", ".join(str(rate) for rate in TTS_SAMPLE_RATES)
+            raise ValueError(f"sample_rate must be one of {allowed} Hz")
+        return value
 
 
 class SmallestSTTConfig(SmallestAuth, SmallestSTTSettings, BaseSTTConfig):
