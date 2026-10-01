@@ -7,9 +7,9 @@ VoicEra stores everything in FerretDB, which speaks the MongoDB wire protocol ov
 
 Collection names and indexes come from `apps/api/app/database_init.py`. Document field names come from `apps/api/app/models/schemas.py` and the services that write them. Campaign and queued-run documents come from `apps/api/app/services/campaign/campaign_repository.py`.
 
-`initialize_database()` runs on every API startup and is idempotent. It creates all eleven collections and their indexes if they are missing and leaves existing data alone. There is no migration system — a schema change is a code change plus whatever backfill you write yourself.
+`initialize_database()` runs on every API startup and is idempotent. It creates all collections and their indexes if they are missing and leaves existing data alone. There is no migration system — a schema change is a code change plus whatever backfill you write yourself.
 
-There are eleven collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, and `QueuedRuns`.
+There are twelve collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `PhoneNumberEvents`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, and `QueuedRuns`.
 
 ## Relationships
 
@@ -20,6 +20,7 @@ erDiagram
   Organizations ||--o{ ProviderAuth : "owns"
   Organizations ||--o{ Agents : "owns"
   Organizations ||--o{ PhoneNumbers : "owns"
+  Organizations ||--o{ PhoneNumberEvents : "logs"
   Organizations ||--o{ KnowledgeDocuments : "owns"
   Organizations ||--o{ CallLogs : "owns"
   Organizations ||--o{ Campaigns : "owns"
@@ -136,6 +137,21 @@ The organisation's number inventory. A number belongs to one organisation global
 <Note>
 The `phone_number_unique` index is on `phone_number` alone, with no `org_id` component. Two organisations cannot hold the same number, and the second attach fails on a duplicate key rather than with a clear conflict message.
 </Note>
+
+## PhoneNumberEvents
+
+Append-only activity log for phone-number import, attach, detach, and remove. Survives inventory-row deletion.
+
+| Field | Type | Notes |
+|---|---|---|
+| `org_id` | string | Owning organisation. |
+| `phone_number` | string | Number the action concerned. |
+| `provider` | string | Telephony provider id at event time. |
+| `action` | string | `imported`, `attached`, `detached`, or `removed`. |
+| `agent_id` | string or null | Agent involved, when applicable. |
+| `agent_name` | string or null | Snapshot of the agent name at event time. |
+| `by_email` | string or null | Member who performed the action. |
+| `at` | string | UTC ISO 8601. |
 
 ## CallLogs
 
@@ -306,6 +322,8 @@ Created by `initialize_database()` on every API startup. Failures on already-exi
 | PhoneNumbers | `agent_id_index` | `agent_id` | No |
 | PhoneNumbers | `org_agent_id_index` | `org_id`, `agent_id` | No |
 | PhoneNumbers | `provider_index` | `provider` | No |
+| PhoneNumberEvents | `org_at_index` | `org_id`, `at` | No |
+| PhoneNumberEvents | `org_phone_at_index` | `org_id`, `phone_number`, `at` | No |
 | KnowledgeDocuments | `org_document_id_unique` | `org_id`, `document_id` | Yes |
 | KnowledgeDocuments | `org_created_at_index` | `org_id`, `created_at` desc | No |
 | KnowledgeDocuments | `org_status_index` | `org_id`, `status` | No |

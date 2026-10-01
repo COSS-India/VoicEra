@@ -15,7 +15,10 @@ import { parseTranscript } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
 import { buildCsvReport, downloadBlob, type ReportMeta } from "@/lib/report";
 import { CallDetailSheet } from "@/components/dashboard/CallDetailSheet";
+import { HistoryDateFilter } from "@/components/dashboard/HistoryDateFilter";
 import type { AgentApiResponse, CallLogItem, CallType } from "@/lib/api-types";
+import { filterAndSortCalls, type DatePreset } from "@/lib/history-filters";
+import { useDateRangeFilter } from "@/lib/use-date-range-filter";
 
 const PAGE_SIZE = 20;
 
@@ -51,30 +54,6 @@ function statusTone(call: CallLogItem) {
   if (call.status === "completed") return "live" as const;
   if (call.status === "in_progress" || call.status === "ringing") return "accent" as const;
   return "neutral" as const;
-}
-
-type DatePreset = "all" | "today" | "7d" | "30d" | "custom";
-
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-/** Maps a preset to a concrete from/to range; "custom" and "all" are handled by
- * the caller (custom keeps whatever's in the date inputs, all clears both). */
-function presetToRange(preset: DatePreset): { from: string; to: string } {
-  const today = isoDate(new Date());
-  if (preset === "today") return { from: today, to: today };
-  if (preset === "7d") {
-    const from = new Date();
-    from.setDate(from.getDate() - 6);
-    return { from: isoDate(from), to: today };
-  }
-  if (preset === "30d") {
-    const from = new Date();
-    from.setDate(from.getDate() - 29);
-    return { from: isoDate(from), to: today };
-  }
-  return { from: "", to: "" };
 }
 
 function callsToCsv(rows: CallLogItem[], meta: ReportMeta): string {
@@ -283,19 +262,31 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   const agentFromUrl = searchParams.get("agent") ?? "";
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [datePreset, setDatePreset] = useState<DatePreset>("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const dateFilter = useDateRangeFilter();
   const [agents, setAgents] = useState<AgentApiResponse[]>([]);
   const [agentFilterId, setAgentFilterId] = useState(agentFromUrl);
+  /** Full org list when filters are applied — dograh re-fetches on every Apply. */
+  const [allCalls, setAllCalls] = useState<CallLogItem[] | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const hasActiveFilters =
+    dateFilter.hasDateFilter ||
+    typeFilter !== "all" ||
+    statusFilter !== "all" ||
+    Boolean(agentFilterId);
 
   function onDatePresetChange(preset: DatePreset) {
-    setDatePreset(preset);
-    if (preset !== "custom") {
-      const range = presetToRange(preset);
-      setDateFrom(range.from);
-      setDateTo(range.to);
-    }
+    setOffset(0);
+    const result = dateFilter.selectPreset(preset);
+    if (result.shouldReload) setReloadToken((n) => n + 1);
+  }
+
+  function onApplyCustomRange() {
+    const range = dateFilter.applyCustom();
+    if (!range) return;
+    setOffset(0);
+    // Always reload on Apply (dograh pattern) so re-selecting dates is stable.
+    setReloadToken((n) => n + 1);
   }
 
   useEffect(() => {
@@ -317,7 +308,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     [agents, agentFilterId],
   );
 
-  const load = useCallback(
+  const loadPage = useCallback(
     async (nextOffset: number) => {
       if (!orgId) return;
       setLoading(true);
@@ -338,31 +329,98 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   );
 
   useEffect(() => {
-    load(0);
-  }, [load]);
+    if (!orgId) return;
+    const id = orgId;
+    let cancelled = false;
+
+    async function run() {
+      setLoading(true);
+      setLoadError("");
+      try {
+        if (hasActiveFilters) {
+          const rows = await listAllOrgCalls(id);
+          if (cancelled) return;
+          setAllCalls(rows);
+          setLastUpdated(new Date());
+        } else {
+          setAllCalls(null);
+          const res = await listOrgCalls(id, { limit: PAGE_SIZE, offset: 0 });
+          if (cancelled) return;
+          setCalls(res.calls);
+          setTotal(res.total);
+          setOffset(0);
+          setLastUpdated(new Date());
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : "Couldn't load call history.");
+        if (hasActiveFilters) setAllCalls([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, hasActiveFilters, reloadToken]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(id);
   }, []);
 
-  const filtered = useMemo(() => {
-    const from = dateFrom ? new Date(dateFrom).getTime() : null;
-    const to = dateTo ? new Date(dateTo).getTime() + 24 * 60 * 60 * 1000 : null;
-    return calls.filter((c) => {
-      if (typeFilter !== "all" && c.call_type !== typeFilter) return false;
-      if (statusFilter !== "all" && c.status !== statusFilter) return false;
-      if (agentFilterId && c.agent_id !== agentFilterId) return false;
-      const at = c.start_time_utc ?? c.created_at;
-      const ts = at ? new Date(at).getTime() : null;
-      if (from !== null && (ts === null || ts < from)) return false;
-      if (to !== null && (ts === null || ts > to)) return false;
-      return true;
+  const filteredAll = useMemo(() => {
+    const source = hasActiveFilters ? (allCalls ?? []) : calls;
+    return filterAndSortCalls(source, {
+      range: dateFilter.applied,
+      type: typeFilter,
+      status: statusFilter,
+      agentId: agentFilterId,
     });
-  }, [calls, typeFilter, statusFilter, agentFilterId, dateFrom, dateTo]);
+  }, [hasActiveFilters, allCalls, calls, dateFilter.applied, typeFilter, statusFilter, agentFilterId]);
 
+  // Client-side page when filters are on; server page when they're off.
+  const pageCalls = useMemo(() => {
+    if (!hasActiveFilters) return filteredAll;
+    return filteredAll.slice(offset, offset + PAGE_SIZE);
+  }, [hasActiveFilters, filteredAll, offset]);
+
+  const displayTotal = hasActiveFilters ? filteredAll.length : total;
   const canPrev = offset > 0;
-  const canNext = offset + calls.length < total;
+  const canNext = offset + pageCalls.length < displayTotal;
+
+  function refresh() {
+    setReloadToken((n) => n + 1);
+  }
+
+  function goPrev() {
+    const next = Math.max(0, offset - PAGE_SIZE);
+    if (hasActiveFilters) {
+      setOffset(next);
+      return;
+    }
+    loadPage(next);
+  }
+
+  function goNext() {
+    const next = offset + PAGE_SIZE;
+    if (hasActiveFilters) {
+      setOffset(next);
+      return;
+    }
+    loadPage(next);
+  }
+
+  useEffect(() => {
+    if (!hasActiveFilters) return;
+    if (offset === 0) return;
+    if (offset < filteredAll.length) return;
+    setOffset(Math.max(0, Math.floor(Math.max(filteredAll.length - 1, 0) / PAGE_SIZE) * PAGE_SIZE));
+  }, [hasActiveFilters, filteredAll.length, offset]);
+
+  const waitingForFilterData = hasActiveFilters && allCalls === null;
 
   return (
     <>
@@ -372,41 +430,16 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
       </div>
 
       <div className="sticky top-0 z-30 flex flex-wrap items-center gap-x-6 gap-y-3 rounded-v-md border border-v-line bg-white p-3.5 shadow-[var(--v-shadow-card)]">
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="text-[13px] font-medium text-v-body">Date</span>
-          <Select
-            size="sm"
-            aria-label="Date range"
-            className="!h-9 !py-0"
-            value={datePreset}
-            onChange={(e) => onDatePresetChange(e.target.value as DatePreset)}
-          >
-            <option value="all">All time</option>
-            <option value="today">Today</option>
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
-            <option value="custom">Custom range</option>
-          </Select>
-          {datePreset === "custom" ? (
-            <>
-              <input
-                type="date"
-                aria-label="From date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-9 rounded-v-lg border border-v-line-strong bg-white px-3.5 text-xs text-v-fg transition-colors duration-[120ms] hover:border-v-accent focus:border-v-accent focus:outline-none"
-              />
-              <span className="text-xs text-v-muted">to</span>
-              <input
-                type="date"
-                aria-label="To date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-9 rounded-v-lg border border-v-line-strong bg-white px-3.5 text-xs text-v-fg transition-colors duration-[120ms] hover:border-v-accent focus:border-v-accent focus:outline-none"
-              />
-            </>
-          ) : null}
-        </div>
+        <HistoryDateFilter
+          preset={dateFilter.preset}
+          draftFrom={dateFilter.draftFrom}
+          draftTo={dateFilter.draftTo}
+          canApply={dateFilter.canApply}
+          onPresetChange={onDatePresetChange}
+          onDraftFromChange={dateFilter.setDraftFrom}
+          onDraftToChange={dateFilter.setDraftTo}
+          onApply={onApplyCustomRange}
+        />
 
         <div className="flex shrink-0 items-center gap-2">
           <span className="text-[13px] font-medium text-v-body">Call type</span>
@@ -415,7 +448,10 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             aria-label="Call type"
             className="!h-9 !py-0"
             value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
+            onChange={(e) => {
+              setOffset(0);
+              setTypeFilter(e.target.value as TypeFilter);
+            }}
           >
             <option value="all">All</option>
             <option value="inbound">Inbound</option>
@@ -431,7 +467,10 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             aria-label="Status"
             className="!h-9 !py-0"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            onChange={(e) => {
+              setOffset(0);
+              setStatusFilter(e.target.value as StatusFilter);
+            }}
           >
             <option value="all">All</option>
             <option value="completed">Completed</option>
@@ -448,9 +487,12 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             <Select
               size="sm"
               aria-label="Filter by agent"
-              className="!h-9 !py-0"
+              className="!h-9 !py-0 min-w-[10rem] max-w-[14rem]"
               value={agentFilterId}
-              onChange={(e) => setAgentFilterId(e.target.value)}
+              onChange={(e) => {
+                setOffset(0);
+                setAgentFilterId(e.target.value);
+              }}
             >
               <option value="">All agents</option>
               {agents.map((a) => (
@@ -469,13 +511,13 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
           <button
             type="button"
             aria-label="Refresh"
-            onClick={() => load(offset)}
+            onClick={refresh}
             className="flex size-9 cursor-pointer items-center justify-center rounded-full border border-v-line bg-white text-v-muted transition-colors hover:border-v-accent hover:text-v-accent"
           >
             <RefreshCw className="size-3.5" strokeWidth={2} />
           </button>
           <ExportMenu
-            filteredCalls={filtered}
+            filteredCalls={filteredAll}
             orgId={orgId}
             meta={reportMeta}
             selectedAgent={selectedAgent}
@@ -491,15 +533,19 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         </div>
       ) : null}
 
-      {loading ? (
+      {loading || waitingForFilterData ? (
         <div className="flex items-center gap-2 text-sm text-v-muted">
           <Spinner light={false} /> Loading calls…
         </div>
-      ) : filtered.length === 0 ? (
+      ) : pageCalls.length === 0 ? (
         <div className="flex flex-col items-center gap-1 rounded-v-md border border-dashed border-v-line bg-white p-12 text-center">
-          <span className="text-sm font-semibold">No calls yet</span>
+          <span className="text-sm font-semibold">
+            {hasActiveFilters ? "No matching calls" : "No calls yet"}
+          </span>
           <span className="text-xs font-light text-v-muted">
-            Telephony calls and test calls will show up here once they happen.
+            {hasActiveFilters
+              ? "Try a wider date range or clear filters to see more calls."
+              : "Telephony calls and test calls will show up here once they happen."}
           </span>
         </div>
       ) : (
@@ -518,7 +564,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => {
+              {pageCalls.map((c) => {
                 return (
                   <tr key={c.call_id} className="border-b border-v-line last:border-b-0">
                     <td className="px-4 py-3">
@@ -546,16 +592,16 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         </div>
       )}
 
-      {!loading && total > PAGE_SIZE ? (
+      {!loading && !waitingForFilterData && displayTotal > PAGE_SIZE ? (
         <div className="flex items-center justify-between gap-3 text-xs text-v-muted">
           <span>
-            {offset + 1}–{offset + calls.length} of {total}
+            {offset + 1}–{offset + pageCalls.length} of {displayTotal}
           </span>
           <div className="flex gap-2">
-            <Button variant="ghost" size="sm" disabled={!canPrev} onClick={() => load(Math.max(0, offset - PAGE_SIZE))}>
+            <Button variant="ghost" size="sm" disabled={!canPrev} onClick={goPrev}>
               Previous
             </Button>
-            <Button variant="ghost" size="sm" disabled={!canNext} onClick={() => load(offset + PAGE_SIZE)}>
+            <Button variant="ghost" size="sm" disabled={!canNext} onClick={goNext}>
               Next
             </Button>
           </div>
@@ -567,7 +613,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
       ) : null}
     </div>
 
-    <PrintableReport calls={filtered} meta={reportMeta} />
+    <PrintableReport calls={filteredAll} meta={reportMeta} />
     </>
   );
 }

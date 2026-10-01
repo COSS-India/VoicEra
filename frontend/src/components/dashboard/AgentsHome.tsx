@@ -534,12 +534,9 @@ export function AgentsHome({ onNotify }: { onNotify: (title: string, note: strin
     return "Good evening";
   }
 
-  // Attempt to extract user name from session (using common fields: displayName, name, email fallback)
   const userName =
-    (session && ("displayName" in session) && (session as any).displayName) ||
-    (session && ("name" in session) && (session as any).name) ||
-    (session && ("userName" in session) && (session as any).userName) ||
-    (session && ("email" in session) && (session as any).email.split("@")[0]) ||
+    session?.name?.trim() ||
+    (session?.email ? session.email.split("@")[0] : "") ||
     "";
 
   const greeting = `${getGreeting()}${userName ? `, ${userName}` : ""}`;
