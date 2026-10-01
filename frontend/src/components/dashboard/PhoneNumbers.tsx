@@ -369,18 +369,18 @@ function activityActionLabel(action: string): string {
   }
 }
 
-function activityActionClass(action: string): string {
+function activityActionTone(action: string): "accent" | "live" | "warn" | "danger" | "neutral" {
   switch (action) {
     case "imported":
-      return "bg-v-accent text-white border-v-accent";
+      return "accent";
     case "attached":
-      return "bg-v-ok text-white border-v-ok";
+      return "live";
     case "detached":
-      return "bg-v-warn-ink text-white border-v-warn-ink";
+      return "warn";
     case "removed":
-      return "bg-v-danger text-white border-v-danger";
+      return "danger";
     default:
-      return "bg-v-fg text-white border-v-fg";
+      return "neutral";
   }
 }
 
@@ -403,57 +403,53 @@ function ActivityDialog({
         onClose={onClose}
         titleEnd={
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             disabled={refreshing}
             aria-label="Refresh activity"
             onClick={() => void onRefresh()}
           >
-            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={2} />
+            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
             Refresh
           </Button>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {refreshing && events.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm font-medium text-v-muted">
+          <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm text-v-muted">
             <Spinner light={false} /> Loading activity…
           </div>
         ) : events.length === 0 ? (
-          <div className="px-5 py-12 text-center text-sm font-medium text-v-muted">
+          <div className="px-5 py-12 text-center text-sm font-light text-v-muted">
             No activity yet. Actions on numbers will show up here.
           </div>
         ) : (
           <div className="max-h-[min(60vh,520px)] overflow-auto overscroll-contain">
             <table className="w-full min-w-[640px] border-collapse text-sm">
-              <thead className="sticky top-0 z-[1] bg-v-fg text-white">
-                <tr className="text-left font-mono text-[10px] uppercase tracking-[.12em]">
-                  <th className="px-4 py-3 font-semibold">Time</th>
-                  <th className="px-4 py-3 font-semibold">Action</th>
-                  <th className="px-4 py-3 font-semibold">Number</th>
-                  <th className="px-4 py-3 font-semibold">Agent</th>
-                  <th className="px-4 py-3 font-semibold">By</th>
+              <thead className="sticky top-0 z-[1] border-b border-v-line bg-v-surface-sunk">
+                <tr className="text-left font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">
+                  <th className="px-4 py-3 font-medium">Time</th>
+                  <th className="px-4 py-3 font-medium">Action</th>
+                  <th className="px-4 py-3 font-medium">Number</th>
+                  <th className="px-4 py-3 font-medium">Agent</th>
+                  <th className="px-4 py-3 font-medium">By</th>
                 </tr>
               </thead>
               <tbody>
                 {events.map((e, i) => (
                   <tr
                     key={`${e.at}-${e.phone_number}-${e.action}-${e.by_email ?? ""}-${i}`}
-                    className="border-b border-v-line bg-white odd:bg-v-soft/60 last:border-b-0"
+                    className="border-b border-v-line last:border-b-0"
                   >
-                    <td className="px-4 py-3 font-medium text-v-body">{formatDateTime(e.at)}</td>
+                    <td className="px-4 py-3 text-v-muted">{formatDateTime(e.at)}</td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center rounded-v-sm border px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[.12em] ${activityActionClass(e.action)}`}
-                      >
-                        {activityActionLabel(e.action)}
-                      </span>
+                      <Badge tone={activityActionTone(e.action)}>{activityActionLabel(e.action)}</Badge>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-v-fg">{e.phone_number}</td>
-                    <td className="px-4 py-3 font-medium text-v-fg">
+                    <td className="px-4 py-3 font-medium">{e.phone_number}</td>
+                    <td className="px-4 py-3">
                       {e.agent_name ?? (e.agent_id ? e.agent_id : <span className="text-v-muted">–</span>)}
                     </td>
-                    <td className="px-4 py-3 font-semibold text-v-fg">{e.by_email ?? "–"}</td>
+                    <td className="px-4 py-3 text-v-muted">{e.by_email ?? "–"}</td>
                   </tr>
                 ))}
               </tbody>
