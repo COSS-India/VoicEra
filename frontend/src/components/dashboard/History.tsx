@@ -56,7 +56,22 @@ function statusTone(call: CallLogItem) {
 type DatePreset = "all" | "today" | "7d" | "30d" | "custom";
 
 function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Local midnight for a YYYY-MM-DD value — avoids the UTC shift from `new Date("YYYY-MM-DD")`. */
+function startOfLocalDay(yyyyMmDd: string): number {
+  const [y, m, d] = yyyyMmDd.split("-").map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+}
+
+/** Inclusive end of a local calendar day. */
+function endOfLocalDay(yyyyMmDd: string): number {
+  const [y, m, d] = yyyyMmDd.split("-").map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
 }
 
 /** Maps a preset to a concrete from/to range; "custom" and "all" are handled by
@@ -284,18 +299,54 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [datePreset, setDatePreset] = useState<DatePreset>("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  /** Draft inputs — editing these alone never filters the table. */
+  const [draftFrom, setDraftFrom] = useState("");
+  const [draftTo, setDraftTo] = useState("");
+  /** Applied range — only set by presets or the custom Apply button. */
+  const [appliedFrom, setAppliedFrom] = useState("");
+  const [appliedTo, setAppliedTo] = useState("");
   const [agents, setAgents] = useState<AgentApiResponse[]>([]);
   const [agentFilterId, setAgentFilterId] = useState(agentFromUrl);
+  /** When any filter is active we page through the full org list client-side,
+   * because the list endpoint has no filter params — otherwise a date range
+   * only ever sees the current 20-row page and shows empty while total stays 870. */
+  const [allCalls, setAllCalls] = useState<CallLogItem[] | null>(null);
+
+  const hasDateFilter = Boolean(appliedFrom && appliedTo);
+  const hasActiveFilters =
+    hasDateFilter || typeFilter !== "all" || statusFilter !== "all" || Boolean(agentFilterId);
+  const customDirty =
+    datePreset === "custom" && (draftFrom !== appliedFrom || draftTo !== appliedTo);
+  const canApplyCustom = Boolean(draftFrom && draftTo && draftFrom <= draftTo);
+
+  function applyRange(from: string, to: string) {
+    setAppliedFrom(from);
+    setAppliedTo(to);
+    setDraftFrom(from);
+    setDraftTo(to);
+    setOffset(0);
+  }
 
   function onDatePresetChange(preset: DatePreset) {
     setDatePreset(preset);
-    if (preset !== "custom") {
-      const range = presetToRange(preset);
-      setDateFrom(range.from);
-      setDateTo(range.to);
+    setOffset(0);
+    if (preset === "custom") {
+      // Show empty draft inputs; keep previous applied range until Apply.
+      setDraftFrom(appliedFrom);
+      setDraftTo(appliedTo);
+      return;
     }
+    if (preset === "all") {
+      applyRange("", "");
+      return;
+    }
+    const range = presetToRange(preset);
+    applyRange(range.from, range.to);
+  }
+
+  function applyCustomRange() {
+    if (!canApplyCustom) return;
+    applyRange(draftFrom, draftTo);
   }
 
   useEffect(() => {
@@ -317,7 +368,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     [agents, agentFilterId],
   );
 
-  const load = useCallback(
+  const loadPage = useCallback(
     async (nextOffset: number) => {
       if (!orgId) return;
       setLoading(true);
@@ -337,32 +388,142 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     [orgId],
   );
 
+  const loadAllForFilters = useCallback(async () => {
+    if (!orgId) return;
+    setLoading(true);
+    setLoadError("");
+    try {
+      const rows = await listAllOrgCalls(orgId);
+      setAllCalls(rows);
+      setLastUpdated(new Date());
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Couldn't load call history.");
+      setAllCalls([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
   useEffect(() => {
-    load(0);
-  }, [load]);
+    if (!orgId) return;
+    const id = orgId;
+    let cancelled = false;
+
+    async function run() {
+      if (hasActiveFilters) {
+        setLoading(true);
+        setLoadError("");
+        try {
+          const rows = await listAllOrgCalls(id);
+          if (cancelled) return;
+          setAllCalls(rows);
+          setLastUpdated(new Date());
+        } catch (err) {
+          if (cancelled) return;
+          setLoadError(err instanceof Error ? err.message : "Couldn't load call history.");
+          setAllCalls([]);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
+
+      setAllCalls(null);
+      setLoading(true);
+      setLoadError("");
+      try {
+        const res = await listOrgCalls(id, { limit: PAGE_SIZE, offset: 0 });
+        if (cancelled) return;
+        setCalls(res.calls);
+        setTotal(res.total);
+        setOffset(res.offset);
+        setLastUpdated(new Date());
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : "Couldn't load call history.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, hasActiveFilters]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(id);
   }, []);
 
-  const filtered = useMemo(() => {
-    const from = dateFrom ? new Date(dateFrom).getTime() : null;
-    const to = dateTo ? new Date(dateTo).getTime() + 24 * 60 * 60 * 1000 : null;
-    return calls.filter((c) => {
+  const filteredAll = useMemo(() => {
+    const source = hasActiveFilters ? (allCalls ?? []) : calls;
+    const from = hasDateFilter ? startOfLocalDay(appliedFrom) : null;
+    const to = hasDateFilter ? endOfLocalDay(appliedTo) : null;
+    const rows = source.filter((c) => {
       if (typeFilter !== "all" && c.call_type !== typeFilter) return false;
       if (statusFilter !== "all" && c.status !== statusFilter) return false;
       if (agentFilterId && c.agent_id !== agentFilterId) return false;
+      if (from === null || to === null) return true;
       const at = c.start_time_utc ?? c.created_at;
       const ts = at ? new Date(at).getTime() : null;
-      if (from !== null && (ts === null || ts < from)) return false;
-      if (to !== null && (ts === null || ts > to)) return false;
-      return true;
+      if (ts === null || Number.isNaN(ts)) return false;
+      return ts >= from && ts <= to;
     });
-  }, [calls, typeFilter, statusFilter, agentFilterId, dateFrom, dateTo]);
+    // Stable newest-first so applying a range doesn't reshuffle ties.
+    return rows.sort((a, b) => {
+      const at = new Date(a.start_time_utc ?? a.created_at ?? 0).getTime();
+      const bt = new Date(b.start_time_utc ?? b.created_at ?? 0).getTime();
+      const diff = bt - at;
+      return diff !== 0 ? diff : a.call_id.localeCompare(b.call_id);
+    });
+  }, [hasActiveFilters, allCalls, calls, typeFilter, statusFilter, agentFilterId, hasDateFilter, appliedFrom, appliedTo]);
 
+  // Client-side page when filters are on; server page when they're off.
+  const pageCalls = useMemo(() => {
+    if (!hasActiveFilters) return filteredAll;
+    return filteredAll.slice(offset, offset + PAGE_SIZE);
+  }, [hasActiveFilters, filteredAll, offset]);
+
+  const displayTotal = hasActiveFilters ? filteredAll.length : total;
   const canPrev = offset > 0;
-  const canNext = offset + calls.length < total;
+  const canNext = offset + pageCalls.length < displayTotal;
+
+  function refresh() {
+    if (hasActiveFilters) {
+      loadAllForFilters();
+      return;
+    }
+    loadPage(offset);
+  }
+
+  function goPrev() {
+    const next = Math.max(0, offset - PAGE_SIZE);
+    if (hasActiveFilters) {
+      setOffset(next);
+      return;
+    }
+    loadPage(next);
+  }
+
+  function goNext() {
+    const next = offset + PAGE_SIZE;
+    if (hasActiveFilters) {
+      setOffset(next);
+      return;
+    }
+    loadPage(next);
+  }
+
+  const todayMax = isoDate(new Date());
+
+  useEffect(() => {
+    if (!hasActiveFilters) return;
+    if (offset === 0) return;
+    if (offset < filteredAll.length) return;
+    setOffset(Math.max(0, Math.floor(Math.max(filteredAll.length - 1, 0) / PAGE_SIZE) * PAGE_SIZE));
+  }, [hasActiveFilters, filteredAll.length, offset]);
 
   return (
     <>
@@ -392,18 +553,29 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
               <input
                 type="date"
                 aria-label="From date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                value={draftFrom}
+                max={draftTo || todayMax}
+                onChange={(e) => setDraftFrom(e.target.value)}
                 className="h-9 rounded-v-lg border border-v-line-strong bg-white px-3.5 text-xs text-v-fg transition-colors duration-[120ms] hover:border-v-accent focus:border-v-accent focus:outline-none"
               />
               <span className="text-xs text-v-muted">to</span>
               <input
                 type="date"
                 aria-label="To date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                value={draftTo}
+                min={draftFrom || undefined}
+                max={todayMax}
+                onChange={(e) => setDraftTo(e.target.value)}
                 className="h-9 rounded-v-lg border border-v-line-strong bg-white px-3.5 text-xs text-v-fg transition-colors duration-[120ms] hover:border-v-accent focus:border-v-accent focus:outline-none"
               />
+              <Button
+                size="sm"
+                variant={customDirty ? "primary" : "outline"}
+                disabled={!canApplyCustom || !customDirty}
+                onClick={applyCustomRange}
+              >
+                Apply
+              </Button>
             </>
           ) : null}
         </div>
@@ -415,7 +587,10 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             aria-label="Call type"
             className="!h-9 !py-0"
             value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
+            onChange={(e) => {
+              setOffset(0);
+              setTypeFilter(e.target.value as TypeFilter);
+            }}
           >
             <option value="all">All</option>
             <option value="inbound">Inbound</option>
@@ -431,7 +606,10 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             aria-label="Status"
             className="!h-9 !py-0"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            onChange={(e) => {
+              setOffset(0);
+              setStatusFilter(e.target.value as StatusFilter);
+            }}
           >
             <option value="all">All</option>
             <option value="completed">Completed</option>
@@ -448,9 +626,12 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             <Select
               size="sm"
               aria-label="Filter by agent"
-              className="!h-9 !py-0"
+              className="!h-9 !py-0 min-w-[10rem] max-w-[14rem]"
               value={agentFilterId}
-              onChange={(e) => setAgentFilterId(e.target.value)}
+              onChange={(e) => {
+                setOffset(0);
+                setAgentFilterId(e.target.value);
+              }}
             >
               <option value="">All agents</option>
               {agents.map((a) => (
@@ -469,13 +650,13 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
           <button
             type="button"
             aria-label="Refresh"
-            onClick={() => load(offset)}
+            onClick={refresh}
             className="flex size-9 cursor-pointer items-center justify-center rounded-full border border-v-line bg-white text-v-muted transition-colors hover:border-v-accent hover:text-v-accent"
           >
             <RefreshCw className="size-3.5" strokeWidth={2} />
           </button>
           <ExportMenu
-            filteredCalls={filtered}
+            filteredCalls={filteredAll}
             orgId={orgId}
             meta={reportMeta}
             selectedAgent={selectedAgent}
@@ -491,15 +672,19 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         </div>
       ) : null}
 
-      {loading ? (
+      {loading || (hasActiveFilters && allCalls === null) ? (
         <div className="flex items-center gap-2 text-sm text-v-muted">
           <Spinner light={false} /> Loading calls…
         </div>
-      ) : filtered.length === 0 ? (
+      ) : pageCalls.length === 0 ? (
         <div className="flex flex-col items-center gap-1 rounded-v-md border border-dashed border-v-line bg-white p-12 text-center">
-          <span className="text-sm font-semibold">No calls yet</span>
+          <span className="text-sm font-semibold">
+            {hasActiveFilters ? "No matching calls" : "No calls yet"}
+          </span>
           <span className="text-xs font-light text-v-muted">
-            Telephony calls and test calls will show up here once they happen.
+            {hasActiveFilters
+              ? "Try a wider date range or clear filters to see more calls."
+              : "Telephony calls and test calls will show up here once they happen."}
           </span>
         </div>
       ) : (
@@ -518,7 +703,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => {
+              {pageCalls.map((c) => {
                 return (
                   <tr key={c.call_id} className="border-b border-v-line last:border-b-0">
                     <td className="px-4 py-3">
@@ -546,16 +731,16 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         </div>
       )}
 
-      {!loading && total > PAGE_SIZE ? (
+      {!loading && displayTotal > PAGE_SIZE ? (
         <div className="flex items-center justify-between gap-3 text-xs text-v-muted">
           <span>
-            {offset + 1}–{offset + calls.length} of {total}
+            {offset + 1}–{offset + pageCalls.length} of {displayTotal}
           </span>
           <div className="flex gap-2">
-            <Button variant="ghost" size="sm" disabled={!canPrev} onClick={() => load(Math.max(0, offset - PAGE_SIZE))}>
+            <Button variant="ghost" size="sm" disabled={!canPrev} onClick={goPrev}>
               Previous
             </Button>
-            <Button variant="ghost" size="sm" disabled={!canNext} onClick={() => load(offset + PAGE_SIZE)}>
+            <Button variant="ghost" size="sm" disabled={!canNext} onClick={goNext}>
               Next
             </Button>
           </div>
@@ -567,7 +752,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
       ) : null}
     </div>
 
-    <PrintableReport calls={filtered} meta={reportMeta} />
+    <PrintableReport calls={filteredAll} meta={reportMeta} />
     </>
   );
 }
