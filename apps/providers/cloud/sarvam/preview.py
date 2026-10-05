@@ -7,11 +7,10 @@ import base64
 import httpx
 
 from ...capabilities import api_capabilities
-from ...preview import PreviewProviderError, register_preview
+from ...preview import PreviewProviderError, register_preview, resolve_preview_sample_rate
 from .catalog import TTS_CAPABILITIES, TTS_ENDPOINT
 from .config import SarvamTTSConfig
 
-_PREVIEW_SAMPLE_RATE = 16000
 _OUTPUT_CODEC = "wav"
 
 
@@ -30,7 +29,7 @@ async def synthesize(cfg: SarvamTTSConfig, text: str, client: httpx.AsyncClient)
         "speaker": cfg.voice,
         "model": cfg.model,
         "pace": cfg.speed,
-        "speech_sample_rate": _PREVIEW_SAMPLE_RATE,
+        "speech_sample_rate": resolve_preview_sample_rate(cfg),
         "output_audio_codec": _OUTPUT_CODEC,
     }
     try:
