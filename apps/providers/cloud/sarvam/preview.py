@@ -44,8 +44,11 @@ async def synthesize(cfg: SarvamTTSConfig, text: str, client: httpx.AsyncClient)
     except httpx.HTTPError as exc:
         raise PreviewProviderError(f"Sarvam preview request failed: {exc}") from exc
 
-    data = response.json()
-    audios = data.get("audios") or []
-    if not audios:
+    try:
+        audios = response.json().get("audios") or []
+        audio = base64.b64decode(audios[0]) if audios else b""
+    except (ValueError, LookupError, AttributeError, TypeError) as exc:
+        raise PreviewProviderError("Sarvam preview returned a malformed response") from exc
+    if not audio:
         raise PreviewProviderError("Sarvam preview returned no audio")
-    return base64.b64decode(audios[0])
+    return audio
