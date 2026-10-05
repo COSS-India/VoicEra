@@ -1,0 +1,52 @@
+"""Direct (non-Pipecat) TTS preview for Sarvam Bulbul."""
+
+from __future__ import annotations
+
+import base64
+
+import httpx
+
+from ...capabilities import api_capabilities
+from ...preview import PreviewProviderError, register_preview
+from .catalog import TTS_CAPABILITIES, TTS_ENDPOINT
+from .config import SarvamTTSConfig
+
+_PREVIEW_SAMPLE_RATE = 16000
+_OUTPUT_CODEC = "wav"
+
+
+def _resolve_wire_language_code(model: str, canonical: str) -> str:
+    """Map a canonical language id (e.g. ``hi``) to Sarvam's vendor code (``hi-IN``)."""
+    languages = api_capabilities(TTS_CAPABILITIES).get(model, {}).get("languages", {})
+    return languages.get(canonical, canonical)
+
+
+@register_preview("sarvam")
+async def synthesize(cfg: SarvamTTSConfig, text: str, client: httpx.AsyncClient) -> bytes:
+    """Return WAV bytes for ``text``; raise :class:`PreviewProviderError` on any vendor failure."""
+    payload = {
+        "text": text,
+        "target_language_code": _resolve_wire_language_code(cfg.model, cfg.language),
+        "speaker": cfg.voice,
+        "model": cfg.model,
+        "pace": cfg.speed,
+        "speech_sample_rate": _PREVIEW_SAMPLE_RATE,
+        "output_audio_codec": _OUTPUT_CODEC,
+    }
+    try:
+        response = await client.post(
+            TTS_ENDPOINT,
+            json=payload,
+            headers={"api-subscription-key": cfg.api_key},
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise PreviewProviderError(f"Sarvam preview failed: {exc.response.status_code}") from exc
+    except httpx.HTTPError as exc:
+        raise PreviewProviderError(f"Sarvam preview request failed: {exc}") from exc
+
+    data = response.json()
+    audios = data.get("audios") or []
+    if not audios:
+        raise PreviewProviderError("Sarvam preview returned no audio")
+    return base64.b64decode(audios[0])
