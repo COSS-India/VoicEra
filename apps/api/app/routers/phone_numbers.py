@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.auth import get_current_user
 from app.models.schemas import (
     PhoneNumberAttachRequest,
+    PhoneNumberDeleteRequest,
     PhoneNumberDetachRequest,
     PhoneNumberInventoryResponse,
     PhoneNumberResponse,
@@ -119,6 +120,23 @@ async def detach_phone_number(
         _raise_phone_error(exc)
     except AgentTelephonyError as exc:
         _raise_telephony(exc)
+
+
+@router.delete("/delete", response_model=SuccessResponse)
+async def delete_phone_number(
+    body: PhoneNumberDeleteRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Permanently remove a number from the org inventory (must be detached first)."""
+    org_id = _require_active_org(current_user)
+    try:
+        return await phone_number_service.delete(
+            org_id,
+            body.phone_number,
+            member_email=current_user.get("email"),
+        )
+    except PhoneNumberError as exc:
+        _raise_phone_error(exc)
 
 
 @router.get(
