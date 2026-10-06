@@ -6,26 +6,34 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
 export class ApiError extends Error {
   status: number;
+  /** Machine-readable reason, when the endpoint sends `detail: {code, message}`. */
+  code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
-async function parseError(res: Response): Promise<string> {
+async function parseError(res: Response): Promise<ApiError> {
   try {
     const data = await res.json();
-    if (typeof data.detail === "string") return data.detail;
-    if (Array.isArray(data.detail)) {
-      return data.detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join("; ");
+    const detail = data.detail;
+    if (typeof detail === "string") return new ApiError(detail, res.status);
+    if (typeof detail?.message === "string") {
+      return new ApiError(detail.message, res.status, detail.code);
     }
-    if (data.message) return data.message;
-    if (data.error) return data.error;
+    if (Array.isArray(detail)) {
+      const message = detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join("; ");
+      return new ApiError(message, res.status);
+    }
+    if (data.message) return new ApiError(data.message, res.status);
+    if (data.error) return new ApiError(data.error, res.status);
   } catch {
     /* ignore */
   }
-  return res.statusText || "Request failed";
+  return new ApiError(res.statusText || "Request failed", res.status);
 }
 
 export async function apiFetch<T>(
@@ -61,7 +69,7 @@ export async function apiFetch<T>(
   }
 
   if (!res.ok) {
-    throw new ApiError(await parseError(res), res.status);
+    throw await parseError(res);
   }
 
   if (res.status === 204) return undefined as T;
@@ -86,7 +94,7 @@ export async function apiFetchBlob(path: string, options: RequestInit = {}): Pro
   }
 
   if (!res.ok) {
-    throw new ApiError(await parseError(res), res.status);
+    throw await parseError(res);
   }
 
   return res.blob();
