@@ -34,9 +34,27 @@ services:
     environment:
       # ---- weights -----------------------------------------------------
       # Two checkpoints: the 27-language multisoftmax model, and Bhili on its
-      # own. Both gated on HuggingFace; fetch.sh downloads them into models/.
+      # own. fetch.sh downloads both into models/.
       INDIC_NEMO_PATH: ${NEMOTRON_INDIC_NEMO_PATH:-/models/indic-asr-nemotron-600m/indic_nemotron_v1_1_sft_600k_lr1-averaged-40k.nemo}
-      BHILI_NEMO_PATH: ${NEMOTRON_BHILI_NEMO_PATH:-/models/bhili-asr-nemotron-600m/indic_nemotron_bhili_sft_lr1-averaged.nemo}
+
+      # Bhili is AI4Bharat's 2026-10-05 retrain (Google Drive), not the
+      # HuggingFace release. Same filename as the release, so it lives in a
+      # dated folder -- the path is the only thing that says which one this is.
+      # Roll back by pointing this at /models/bhili-asr-nemotron-600m/... .
+      #
+      # Both ways this can be wrong are SILENT, and /health shows neither:
+      #   * path missing  -> find_model_path (asr_engine.py:105) falls back to
+      #                      its built-in candidates, i.e. the OLD folder if it
+      #                      is still on disk. Bhili works, on the old weights.
+      #   * nothing found -> bhili_model is None and resolve_model_and_prompt
+      #                      routes `bhb` to the multilingual model instead.
+      # Check the load line instead:
+      #   docker logs voicera_model_stt 2>&1 | grep 'Loading bhili'
+      #
+      # The prompt pin AI4Bharat's inference script warns about (bhb pinned:
+      # WER 33.2, random prompt: 50.3, `auto`: 66.8) is already how this engine
+      # works -- every stream sets `bhb` explicitly -- so nothing to declare.
+      BHILI_NEMO_PATH: ${NEMOTRON_BHILI_NEMO_PATH:-/models/bhili-asr-nemotron-600m-2026-10-05/indic_nemotron_bhili_sft_lr1-averaged.nemo}
 
       # ---- streaming geometry ------------------------------------------
       # left,right attention context. The encoder was trained with several

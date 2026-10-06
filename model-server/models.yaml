@@ -85,8 +85,10 @@ stt:
       No "auto" language, deliberately -- the vocabulary is sliced per language
       and an unsliced decode emits cross-script nonsense. Upstream measured two
       language-ID designs and neither discriminated, so callers must name one.
-      Both checkpoints are gated on HuggingFace, and manually: a token is not
-      enough, a maintainer has to approve each account.
+      The multilingual checkpoint is gated on HuggingFace, and manually: a token
+      is not enough, a maintainer has to approve each account. Bhili is
+      AI4Bharat's 2026-10-05 retrain, fetched from Google Drive into a dated
+      folder because it shares the HuggingFace release's filename.
       Running on ace-h200 GPU 1 since 2 September 2026 -- both checkpoints
       loaded, 320 ms confirmed at /health.
 
