@@ -7,7 +7,7 @@ import { Input, Select, Textarea } from "@/components/ui/Field";
 import { SearchSelect } from "@/components/ui/SearchSelect";
 import { InfoTip } from "@/components/ui/Tooltip";
 import { LanguageSearchSelect } from "@/components/wizard/LanguageSearchSelect";
-import type { CatalogField } from "@/lib/catalog-types";
+import type { CatalogField, ProviderList, ProviderSettingsCatalog } from "@/lib/catalog-types";
 import { humanizeFieldKey, resolvedModelFields } from "@/lib/catalog-utils";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
 import {
@@ -214,6 +214,150 @@ interface AgentStackFieldsProps {
   trailing?: ReactNode;
 }
 
+type SectionProps = Pick<AgentStackFieldsProps, "value" | "onChange" | "catalogs">;
+
+/** Provider search + model dropdown shared by the STT and TTS cards. */
+function ProviderModelPickers({
+  kind,
+  providers,
+  settings,
+  provider,
+  model,
+  onProvider,
+  onModel,
+}: {
+  kind: "STT" | "TTS";
+  providers: ProviderList;
+  settings: ProviderSettingsCatalog | null;
+  provider: string;
+  model: string;
+  onProvider: (provider: string) => void;
+  onModel: (model: string) => void;
+}) {
+  const options = searchableProviderOptions(providers);
+  const hasConfigured = options.some((o) => !o.disabled);
+  const models = modelOptionsFromSettings(settings);
+  return (
+    <>
+      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+        Provider
+        <SearchSelect
+          options={options}
+          value={provider}
+          onChange={onProvider}
+          placeholder={`Search ${kind} providers…`}
+          disabled={options.length === 0}
+        />
+        {!hasConfigured ? (
+          <span className="text-xs font-light text-v-muted">
+            No {kind} provider connected yet — add one under Integrations first.
+          </span>
+        ) : settings?.description ? (
+          <span className="text-xs font-light text-v-muted">{settings.description}</span>
+        ) : null}
+      </label>
+
+      {models.length > 0 ? (
+        <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+          Model
+          <Select value={model} onChange={(e) => onModel(e.target.value)} disabled={!provider}>
+            <option value="">Select model…</option>
+            {models.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </Select>
+        </label>
+      ) : null}
+    </>
+  );
+}
+
+/** Card frame shared by the STT and TTS sections. */
+function StackCard({
+  tour,
+  index,
+  icon,
+  title,
+  tip,
+  children,
+}: {
+  tour: string;
+  index: number;
+  icon: ReactNode;
+  title: string;
+  tip: string;
+  children: ReactNode;
+}) {
+  return (
+    <motion.section
+      data-tour={tour}
+      custom={index}
+      initial="hidden"
+      animate="visible"
+      variants={sectionVariants}
+      className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5"
+    >
+      <span className="flex items-center gap-2 text-[14.5px] font-semibold">
+        {icon}
+        {title}
+        <InfoTip text={tip} />
+      </span>
+      {children}
+    </motion.section>
+  );
+}
+
+/** The selected model's own extra fields (speed, base_url, …) as generic controls. */
+function ModelExtraFields({
+  fields,
+  values,
+  onChange,
+}: {
+  fields: [string, CatalogField][];
+  values: Record<string, unknown>;
+  onChange: (values: Record<string, unknown>) => void;
+}) {
+  return fields.map(([key, field]) => (
+    <DynamicModelField
+      key={key}
+      fieldKey={key}
+      field={field}
+      value={values[key]}
+      onChange={(v) => onChange({ ...values, [key]: v })}
+    />
+  ));
+}
+
+/** Transcriber (STT) card: provider, model, then the model's own extra fields. */
+function SttSection({ value, onChange, catalogs }: SectionProps) {
+  return (
+    <StackCard
+      tour="stt-section"
+      index={1}
+      icon={<Mic className="size-4 text-v-muted" strokeWidth={1.9} />}
+      title="Transcriber (STT)"
+      tip="Converts caller speech to text."
+    >
+      <ProviderModelPickers
+        kind="STT"
+        providers={catalogs.sttProviders}
+        settings={catalogs.sttSettings}
+        provider={value.sttProvider}
+        model={value.sttModel}
+        onProvider={(v) => onChange("sttProvider", v)}
+        onModel={(v) => onChange("sttModel", v)}
+      />
+      <ModelExtraFields
+        fields={resolvedModelFields(catalogs.sttSettings, value.sttModel, value.langs[0])}
+        values={value.sttExtra}
+        onChange={(v) => onChange("sttExtra", v)}
+      />
+    </StackCard>
+  );
+}
+
 /**
  * Language + STT/TTS/LLM/voice fields, shared by the agent-creation wizard's Stack step
  * and the agent edit page so both stay in sync with a single implementation.
@@ -228,30 +372,27 @@ export function AgentStackFields({
   // catalogs.sttProviders/ttsProviders are re-fetched from /configuration/{stt,tts}
   // every time the selected language(s) change (see useWizardCatalogs). Every
   // provider is listed; only `authenticated: true` entries are selectable.
-  // LLM has no language dependency.
-  const sttOpts = searchableProviderOptions(catalogs.sttProviders);
-  const ttsOpts = searchableProviderOptions(catalogs.ttsProviders);
+  // LLM has no language dependency. The STT card is its own component.
   const llmOpts = searchableProviderOptions(catalogs.llmProviders);
-  const sttHasConfigured = sttOpts.some((o) => !o.disabled);
-  const ttsHasConfigured = ttsOpts.some((o) => !o.disabled);
   const llmHasConfigured = llmOpts.some((o) => !o.disabled);
   const llmModels = modelOptionsFromSettings(catalogs.llmSettings);
-  const sttModels = modelOptionsFromSettings(catalogs.sttSettings);
-  const ttsModels = modelOptionsFromSettings(catalogs.ttsSettings);
   // Provider settings can vary by (model, language) via `capabilities` — the
   // primary language is what everything below resolves against.
   const primaryLang = value.langs[0];
+  // The LLM model's own extra fields — rendered as a second tier of controls
+  // once a model is picked.
+  const llmModelFields = resolvedModelFields(catalogs.llmSettings, value.llmModel, primaryLang);
+
+  const ttsOpts = searchableProviderOptions(catalogs.ttsProviders);
+  const ttsHasConfigured = ttsOpts.some((o) => !o.disabled);
+  const ttsModels = modelOptionsFromSettings(catalogs.ttsSettings);
   const voices = voiceOptionsFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
   const voiceField = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
   const voiceIsFreeText = voiceFieldIsFreeText(catalogs.ttsSettings, value.ttsModel, primaryLang);
-  // Each provider's chosen model's own extra fields — rendered as a second
-  // tier of controls once a model is picked. TTS excludes "voice" since that
-  // gets its own dedicated picker/input above instead of the generic renderer.
-  const sttModelFields = resolvedModelFields(catalogs.sttSettings, value.sttModel, primaryLang);
+  // TTS excludes "voice" since that gets its own dedicated picker/input above.
   const ttsModelFields = resolvedModelFields(catalogs.ttsSettings, value.ttsModel, primaryLang).filter(
     ([key]) => key !== "voice",
   );
-  const llmModelFields = resolvedModelFields(catalogs.llmSettings, value.llmModel, primaryLang);
 
   const langSummary =
     value.langs.length === 0
@@ -306,67 +447,7 @@ export function AgentStackFields({
         </motion.section>
       ) : null}
 
-      {showStt ? (
-        <motion.section
-          data-tour="stt-section"
-          custom={1}
-          initial="hidden"
-          animate="visible"
-          variants={sectionVariants}
-          className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5"
-        >
-          <span className="flex items-center gap-2 text-[14.5px] font-semibold">
-            <Mic className="size-4 text-v-muted" strokeWidth={1.9} />
-            Transcriber (STT)
-            <InfoTip text="Converts caller speech to text." />
-          </span>
-          <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-            Provider
-            <SearchSelect
-              options={sttOpts}
-              value={value.sttProvider}
-              onChange={(v) => onChange("sttProvider", v)}
-              placeholder="Search STT providers…"
-              disabled={sttOpts.length === 0}
-            />
-            {!sttHasConfigured ? (
-              <span className="text-xs font-light text-v-muted">
-                No STT provider connected yet — add one under Integrations first.
-              </span>
-            ) : catalogs.sttSettings?.description ? (
-              <span className="text-xs font-light text-v-muted">{catalogs.sttSettings.description}</span>
-            ) : null}
-          </label>
-
-          {sttModels.length > 0 ? (
-            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-              Model
-              <Select
-                value={value.sttModel}
-                onChange={(e) => onChange("sttModel", e.target.value)}
-                disabled={!value.sttProvider}
-              >
-                <option value="">Select model…</option>
-                {sttModels.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          ) : null}
-
-          {sttModelFields.map(([key, field]) => (
-            <DynamicModelField
-              key={key}
-              fieldKey={key}
-              field={field}
-              value={value.sttExtra[key]}
-              onChange={(v) => onChange("sttExtra", { ...value.sttExtra, [key]: v })}
-            />
-          ))}
-        </motion.section>
-      ) : null}
+      {showStt ? <SttSection value={value} onChange={onChange} catalogs={catalogs} /> : null}
 
       {showLlm ? (
         <motion.section
