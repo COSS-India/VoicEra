@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from minio.error import S3Error
 
 from apps.providers.preview import PreviewProviderError
 
@@ -15,6 +16,7 @@ from app.services.tts_preview_service import (
     TtsPreviewError,
     TtsPreviewErrorReason,
     _voice_is_supported,
+    build_cache_key,
     check_rate_limit,
     generate_preview,
     resolve_config,
@@ -38,6 +40,20 @@ def _patch_configured_sarvam():
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def _no_such_key() -> S3Error:
+    return S3Error(MagicMock(), "NoSuchKey", "missing", "key", "req", "host")
+
+
+@pytest.fixture(autouse=True)
+def storage():
+    """Stub MinIO with an empty cache so no test touches a real bucket."""
+    mock = MagicMock()
+    mock.get_object_bytes = AsyncMock(side_effect=_no_such_key())
+    mock.put_object_bytes = AsyncMock()
+    with patch("app.services.tts_preview_service.MinIOStorage", return_value=mock):
+        yield mock
 
 
 def test_strip_placeholders_removes_braces_and_collapses_space_before_punctuation():
@@ -274,3 +290,66 @@ def test_check_rate_limit_does_not_reset_expiry_after_first_request():
 
     # Assert
     mock_redis.expire.assert_not_awaited()
+
+
+_SARVAM = {"provider": "sarvam", "model": "bulbul:v3", "voice": "shubh"}
+
+
+def test_generate_preview_cache_hit_skips_rate_limit_and_adapter(storage):
+    # Arrange
+    storage.get_object_bytes.side_effect = None
+    storage.get_object_bytes.return_value = b"cached"
+
+    # Act
+    with patch(
+        "app.services.tts_preview_service.check_rate_limit", new_callable=AsyncMock
+    ) as mock_limit, patch(
+        "app.services.tts_preview_service.synthesize_preview", new_callable=AsyncMock
+    ) as mock_synthesize:
+        audio = _run(generate_preview("org-1", _SARVAM, "hi", "hello"))
+
+    # Assert
+    assert audio == b"cached"
+    mock_limit.assert_not_awaited()
+    mock_synthesize.assert_not_awaited()
+    storage.put_object_bytes.assert_not_awaited()
+
+
+def test_generate_preview_cache_miss_stores_audio(storage):
+    patches = _patch_configured_sarvam()
+    with patches[0], patches[1], patch(
+        "app.services.tts_preview_service.check_rate_limit", new_callable=AsyncMock
+    ), patch(
+        "app.services.tts_preview_service.synthesize_preview",
+        new_callable=AsyncMock,
+        return_value=b"fresh",
+    ):
+        audio = _run(generate_preview("org-1", _SARVAM, "hi", "hello"))
+    assert audio == b"fresh"
+    key, data = storage.put_object_bytes.call_args.args
+    assert key.startswith("org-1/") and data == b"fresh"
+    assert storage.put_object_bytes.call_args.kwargs["content_type"] == "audio/wav"
+
+
+def test_generate_preview_minio_errors_fall_through_to_synthesis(storage):
+    storage.get_object_bytes.side_effect = ConnectionError("minio down")
+    storage.put_object_bytes.side_effect = ConnectionError("minio down")
+    patches = _patch_configured_sarvam()
+    with patches[0], patches[1], patch(
+        "app.services.tts_preview_service.check_rate_limit", new_callable=AsyncMock
+    ), patch(
+        "app.services.tts_preview_service.synthesize_preview",
+        new_callable=AsyncMock,
+        return_value=b"fresh",
+    ):
+        audio = _run(generate_preview("org-1", _SARVAM, "hi", "hello"))
+    assert audio == b"fresh"
+
+
+def test_build_cache_key_is_scoped_by_org_and_stable():
+    key = build_cache_key("org-1", {"voice": "a", "model": "m"}, "hello")
+    assert key.startswith("org-1/") and key.endswith(".wav")
+    assert key == build_cache_key("org-1", {"model": "m", "voice": "a"}, "hello")
+    assert key != build_cache_key("org-2", {"voice": "a", "model": "m"}, "hello")
+    assert key != build_cache_key("org-1", {"voice": "b", "model": "m"}, "hello")
+    assert key != build_cache_key("org-1", {"voice": "a", "model": "m"}, "hi")
