@@ -358,6 +358,73 @@ function SttSection({ value, onChange, catalogs }: SectionProps) {
   );
 }
 
+/** Voice picker for the selected TTS (model, primary language): a dropdown when
+ * the catalog lists voices, a free-text id (e.g. Cartesia's UUID) when it
+ * doesn't, nothing when the provider has no voice field. */
+function TtsVoiceField({ value, onChange, catalogs }: SectionProps) {
+  const primaryLang = value.langs[0];
+  const voices = voiceOptionsFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
+  const voiceField = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
+  if (voices.length > 0) {
+    return (
+      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+        Voice
+        <Select value={value.voice} onChange={(e) => onChange("voice", e.target.value)}>
+          <option value="">Select voice…</option>
+          {voices.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
+        </Select>
+      </label>
+    );
+  }
+  if (!voiceFieldIsFreeText(catalogs.ttsSettings, value.ttsModel, primaryLang)) return null;
+  return (
+    <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+      Voice ID
+      <Input
+        value={value.voice}
+        onChange={(e) => onChange("voice", e.target.value)}
+        placeholder={voiceField?.default ? String(voiceField.default) : "Voice id…"}
+      />
+      {voiceField?.description ? (
+        <span className="text-xs font-light text-v-muted">{voiceField.description}</span>
+      ) : null}
+    </label>
+  );
+}
+
+/** The Voice (TTS) card: provider, model, voice, then the model's own
+ * extra fields ("voice" excluded — TtsVoiceField renders it). */
+function TtsSection({ value, onChange, catalogs }: SectionProps) {
+  const ttsModelFields = resolvedModelFields(catalogs.ttsSettings, value.ttsModel, value.langs[0]).filter(
+    ([key]) => key !== "voice",
+  );
+  return (
+    <StackCard
+      tour="tts-section"
+      index={3}
+      icon={<Volume2 className="size-4 text-v-muted" strokeWidth={1.9} />}
+      title="Voice (TTS)"
+      tip="Speaks the agent's replies."
+    >
+      <ProviderModelPickers
+        kind="TTS"
+        providers={catalogs.ttsProviders}
+        settings={catalogs.ttsSettings}
+        provider={value.ttsProvider}
+        model={value.ttsModel}
+        onProvider={(v) => onChange("ttsProvider", v)}
+        onModel={(v) => onChange("ttsModel", v)}
+      />
+      <TtsVoiceField value={value} onChange={onChange} catalogs={catalogs} />
+      <ModelExtraFields fields={ttsModelFields} values={value.ttsExtra} onChange={(v) => onChange("ttsExtra", v)} />
+    </StackCard>
+  );
+}
+
 /**
  * Language + STT/TTS/LLM/voice fields, shared by the agent-creation wizard's Stack step
  * and the agent edit page so both stay in sync with a single implementation.
@@ -372,7 +439,7 @@ export function AgentStackFields({
   // catalogs.sttProviders/ttsProviders are re-fetched from /configuration/{stt,tts}
   // every time the selected language(s) change (see useWizardCatalogs). Every
   // provider is listed; only `authenticated: true` entries are selectable.
-  // LLM has no language dependency. The STT card is its own component.
+  // LLM has no language dependency. STT/TTS cards are their own components.
   const llmOpts = searchableProviderOptions(catalogs.llmProviders);
   const llmHasConfigured = llmOpts.some((o) => !o.disabled);
   const llmModels = modelOptionsFromSettings(catalogs.llmSettings);
@@ -382,17 +449,6 @@ export function AgentStackFields({
   // The LLM model's own extra fields — rendered as a second tier of controls
   // once a model is picked.
   const llmModelFields = resolvedModelFields(catalogs.llmSettings, value.llmModel, primaryLang);
-
-  const ttsOpts = searchableProviderOptions(catalogs.ttsProviders);
-  const ttsHasConfigured = ttsOpts.some((o) => !o.disabled);
-  const ttsModels = modelOptionsFromSettings(catalogs.ttsSettings);
-  const voices = voiceOptionsFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
-  const voiceField = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
-  const voiceIsFreeText = voiceFieldIsFreeText(catalogs.ttsSettings, value.ttsModel, primaryLang);
-  // TTS excludes "voice" since that gets its own dedicated picker/input above.
-  const ttsModelFields = resolvedModelFields(catalogs.ttsSettings, value.ttsModel, primaryLang).filter(
-    ([key]) => key !== "voice",
-  );
 
   const langSummary =
     value.langs.length === 0
@@ -507,93 +563,7 @@ export function AgentStackFields({
         </motion.section>
       ) : null}
 
-      {showTts ? (
-        <motion.section
-          data-tour="tts-section"
-          custom={3}
-          initial="hidden"
-          animate="visible"
-          variants={sectionVariants}
-          className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5"
-        >
-          <span className="flex items-center gap-2 text-[14.5px] font-semibold">
-            <Volume2 className="size-4 text-v-muted" strokeWidth={1.9} />
-            Voice (TTS)
-            <InfoTip text="Speaks the agent's replies." />
-          </span>
-          <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-            Provider
-            <SearchSelect
-              options={ttsOpts}
-              value={value.ttsProvider}
-              onChange={(v) => onChange("ttsProvider", v)}
-              placeholder="Search TTS providers…"
-              disabled={ttsOpts.length === 0}
-            />
-            {!ttsHasConfigured ? (
-              <span className="text-xs font-light text-v-muted">
-                No TTS provider connected yet — add one under Integrations first.
-              </span>
-            ) : catalogs.ttsSettings?.description ? (
-              <span className="text-xs font-light text-v-muted">{catalogs.ttsSettings.description}</span>
-            ) : null}
-          </label>
-
-          {ttsModels.length > 0 ? (
-            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-              Model
-              <Select
-                value={value.ttsModel}
-                onChange={(e) => onChange("ttsModel", e.target.value)}
-                disabled={!value.ttsProvider}
-              >
-                <option value="">Select model…</option>
-                {ttsModels.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          ) : null}
-
-          {voices.length > 0 ? (
-            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-              Voice
-              <Select value={value.voice} onChange={(e) => onChange("voice", e.target.value)}>
-                <option value="">Select voice…</option>
-                {voices.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          ) : voiceIsFreeText ? (
-            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-              Voice ID
-              <Input
-                value={value.voice}
-                onChange={(e) => onChange("voice", e.target.value)}
-                placeholder={voiceField?.default ? String(voiceField.default) : "Voice id…"}
-              />
-              {voiceField?.description ? (
-                <span className="text-xs font-light text-v-muted">{voiceField.description}</span>
-              ) : null}
-            </label>
-          ) : null}
-
-          {ttsModelFields.map(([key, field]) => (
-            <DynamicModelField
-              key={key}
-              fieldKey={key}
-              field={field}
-              value={value.ttsExtra[key]}
-              onChange={(v) => onChange("ttsExtra", { ...value.ttsExtra, [key]: v })}
-            />
-          ))}
-        </motion.section>
-      ) : null}
+      {showTts ? <TtsSection value={value} onChange={onChange} catalogs={catalogs} /> : null}
 
       {trailing}
     </div>
