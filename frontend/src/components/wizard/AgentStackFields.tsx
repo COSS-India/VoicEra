@@ -7,7 +7,7 @@ import { Input, Select, Textarea } from "@/components/ui/Field";
 import { SearchSelect } from "@/components/ui/SearchSelect";
 import { InfoTip } from "@/components/ui/Tooltip";
 import { LanguageSearchSelect } from "@/components/wizard/LanguageSearchSelect";
-import type { CatalogField, ProviderList, ProviderSettingsCatalog } from "@/lib/catalog-types";
+import type { CatalogField, LanguagesMap, ProviderList, ProviderSettingsCatalog } from "@/lib/catalog-types";
 import { humanizeFieldKey, resolvedModelFields } from "@/lib/catalog-utils";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
 import {
@@ -215,6 +215,65 @@ interface AgentStackFieldsProps {
 }
 
 type SectionProps = Pick<AgentStackFieldsProps, "value" | "onChange" | "catalogs">;
+
+/** "Hindi (primary) · English" — the first selected language opens the call. */
+function languageSummary(langs: string[], languages: LanguagesMap): string {
+  if (langs.length === 0) return "No languages selected";
+  return langs.map((id, i) => `${languageLabel(languages, id)}${i === 0 ? " (primary)" : ""}`).join(" · ");
+}
+
+/** Only offer languages the org's configured STT/TTS providers actually support, but
+ * always keep already-selected languages resolvable to a label even if config changed since. */
+function mergeSelectableLanguages(
+  available: LanguagesMap,
+  all: LanguagesMap,
+  selected: string[],
+): LanguagesMap {
+  const merged = { ...available };
+  for (const id of selected) {
+    if (!merged[id] && all[id]) merged[id] = all[id];
+  }
+  return merged;
+}
+
+/** Languages card: the multi-select plus a "primary first" summary. */
+function LanguagesSection({ value, onChange, catalogs }: SectionProps) {
+  const selectableLanguages = useMemo(
+    () => mergeSelectableLanguages(catalogs.availableLanguages, catalogs.languages, value.langs),
+    [catalogs.availableLanguages, catalogs.languages, value.langs],
+  );
+  const loading = catalogs.loading || catalogs.languagesLoading;
+  const noneSupported = !loading && Object.keys(selectableLanguages).length === 0;
+
+  return (
+    <motion.section
+      custom={0}
+      initial="hidden"
+      animate="visible"
+      variants={sectionVariants}
+      className="flex flex-col gap-3 rounded-v-md border border-v-line bg-white p-5"
+    >
+      <span className="flex items-center gap-2 text-[14.5px] font-semibold">
+        Languages
+        <InfoTip text="The first language opens the call. Additional languages are secondary." />
+      </span>
+      <LanguageSearchSelect
+        languages={selectableLanguages}
+        selected={value.langs}
+        onChange={(ids) => onChange("langs", ids)}
+        disabled={loading}
+      />
+      {noneSupported ? (
+        <p className="text-xs font-light text-v-muted">
+          No configured STT/TTS provider declares language support — add one under Integrations first.
+        </p>
+      ) : null}
+      {value.langs.length > 0 ? (
+        <p className="text-xs font-light text-v-muted">{languageSummary(value.langs, catalogs.languages)}</p>
+      ) : null}
+    </motion.section>
+  );
+}
 
 /** Provider search + model dropdown shared by the STT and TTS cards. */
 function ProviderModelPickers({
@@ -439,7 +498,7 @@ export function AgentStackFields({
   // catalogs.sttProviders/ttsProviders are re-fetched from /configuration/{stt,tts}
   // every time the selected language(s) change (see useWizardCatalogs). Every
   // provider is listed; only `authenticated: true` entries are selectable.
-  // LLM has no language dependency. STT/TTS cards are their own components.
+  // LLM has no language dependency. STT/TTS/Languages cards are their own components.
   const llmOpts = searchableProviderOptions(catalogs.llmProviders);
   const llmHasConfigured = llmOpts.some((o) => !o.disabled);
   const llmModels = modelOptionsFromSettings(catalogs.llmSettings);
@@ -450,23 +509,6 @@ export function AgentStackFields({
   // once a model is picked.
   const llmModelFields = resolvedModelFields(catalogs.llmSettings, value.llmModel, primaryLang);
 
-  const langSummary =
-    value.langs.length === 0
-      ? "No languages selected"
-      : value.langs
-          .map((id, i) => `${languageLabel(catalogs.languages, id)}${i === 0 ? " (primary)" : ""}`)
-          .join(" · ");
-
-  // Only offer languages the org's configured STT/TTS providers actually support, but
-  // always keep already-selected languages resolvable to a label even if config changed since.
-  const selectableLanguages = useMemo(() => {
-    const merged = { ...catalogs.availableLanguages };
-    for (const id of value.langs) {
-      if (!merged[id] && catalogs.languages[id]) merged[id] = catalogs.languages[id];
-    }
-    return merged;
-  }, [catalogs.availableLanguages, catalogs.languages, value.langs]);
-
   const showLanguages = sections.includes("languages");
   const showLlm = sections.includes("llm");
   const showStt = sections.includes("stt");
@@ -474,34 +516,7 @@ export function AgentStackFields({
 
   return (
     <div className="flex flex-col gap-5">
-      {showLanguages ? (
-        <motion.section
-          custom={0}
-          initial="hidden"
-          animate="visible"
-          variants={sectionVariants}
-          className="flex flex-col gap-3 rounded-v-md border border-v-line bg-white p-5"
-        >
-          <span className="flex items-center gap-2 text-[14.5px] font-semibold">
-            Languages
-            <InfoTip text="The first language opens the call. Additional languages are secondary." />
-          </span>
-          <LanguageSearchSelect
-            languages={selectableLanguages}
-            selected={value.langs}
-            onChange={(ids) => onChange("langs", ids)}
-            disabled={catalogs.loading || catalogs.languagesLoading}
-          />
-          {!catalogs.loading && !catalogs.languagesLoading && Object.keys(selectableLanguages).length === 0 ? (
-            <p className="text-xs font-light text-v-muted">
-              No configured STT/TTS provider declares language support — add one under Integrations first.
-            </p>
-          ) : null}
-          {value.langs.length > 0 ? (
-            <p className="text-xs font-light text-v-muted">{langSummary}</p>
-          ) : null}
-        </motion.section>
-      ) : null}
+      {showLanguages ? <LanguagesSection value={value} onChange={onChange} catalogs={catalogs} /> : null}
 
       {showStt ? <SttSection value={value} onChange={onChange} catalogs={catalogs} /> : null}
 
