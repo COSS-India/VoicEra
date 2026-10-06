@@ -81,3 +81,18 @@ def test_synthesize_raises_preview_error_on_empty_audio():
     # Act / Assert
     with pytest.raises(PreviewProviderError, match="no audio"):
         _synthesize_with(handler)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, text="<html>not json</html>"),
+        httpx.Response(200, json=["not", "a", "dict"]),
+        httpx.Response(200, json={"audios": ["!!not-base64"]}),
+        httpx.Response(200, json={"audios": {"a": "b"}}),
+    ],
+)
+def test_synthesize_raises_preview_error_on_malformed_200(response):
+    # Act / Assert
+    with pytest.raises(PreviewProviderError):
+        _synthesize_with(lambda _request: response)
