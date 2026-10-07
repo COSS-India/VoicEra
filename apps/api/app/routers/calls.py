@@ -323,7 +323,9 @@ async def put_call_metrics(
     body: CallMetricsBody,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Upsert pipeline metrics for one call (bot JWT supported; write-once)."""
+    """Upsert pipeline metrics for one call (bot JWT supported; write-once
+    once the stored record has real turn/latency data — see
+    call_metrics_service.upsert_call_metrics)."""
     org_id = _require_active_org(current_user)
     try:
         return upsert_call_metrics(org_id, call_id, body.model_dump())

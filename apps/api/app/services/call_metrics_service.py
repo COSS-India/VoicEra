@@ -35,19 +35,45 @@ def _to_response(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     return prepared
 
 
+def _has_latency_data(doc: dict[str, Any]) -> bool:
+    """True if a stored CallMetrics doc already carries real turn/latency data,
+    as opposed to a transport-only placeholder from a run that never completed
+    a turn (see upsert_call_metrics)."""
+    if doc.get("turns"):
+        return True
+    latencies = doc.get("latencies") or {}
+    return bool(latencies.get("breakdowns")) or bool(latencies.get("user_to_bot_secs"))
+
+
 def upsert_call_metrics(
     org_id: str,
     call_id: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Insert metrics for a call if none exist yet (write-once)."""
+    """Insert metrics for a call, or fill in a prior empty/placeholder record.
+
+    A telephony media-stream reconnect (brief WS drop/reconnect on the same
+    call_sid) starts a second pipeline run for the same call_id. Each run's
+    CallMetricsWriter flushes at most once (apps/runtime), but if the FIRST
+    run's connection dropped before any turn completed, it can still flush a
+    "has_content" doc (e.g. transport timing only, zero turns/breakdowns).
+    Under strict write-once semantics that placeholder was kept forever and
+    the second run's complete metrics were silently discarded — the
+    Telemetry dashboard then shows "-" for AVG STT/LLM TTFB/TTS/Latency on a
+    call that actually completed normally.
+
+    We now only treat the stored doc as final once it has real turn/latency
+    data of its own (_has_latency_data). A payload arriving on top of an
+    empty placeholder is treated as the authoritative one and replaces it;
+    once a doc has real data, later writes are still ignored as before.
+    """
     get_call_log(org_id, call_id)
 
     existing = get_database()[COLLECTION].find_one(
         {"org_id": org_id, "call_id": call_id}
     )
-    if existing:
-        logger.debug("CallMetrics already set call_id=%s", call_id)
+    if existing and _has_latency_data(existing):
+        logger.debug("CallMetrics already populated call_id=%s", call_id)
         return _to_response(existing) or {}
 
     doc = {
@@ -59,8 +85,14 @@ def upsert_call_metrics(
         "turns": payload.get("turns") or [],
         "latencies": payload.get("latencies") or {},
     }
-    get_database()[COLLECTION].insert_one(doc)
-    logger.info("CallMetrics created call_id=%s org=%s", call_id, org_id)
+    if existing:
+        get_database()[COLLECTION].update_one(
+            {"org_id": org_id, "call_id": call_id}, {"$set": doc}
+        )
+        logger.info("CallMetrics backfilled call_id=%s org=%s", call_id, org_id)
+    else:
+        get_database()[COLLECTION].insert_one(doc)
+        logger.info("CallMetrics created call_id=%s org=%s", call_id, org_id)
     return _to_response(doc) or {}
 
 
