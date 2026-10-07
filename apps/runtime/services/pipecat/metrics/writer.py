@@ -55,6 +55,15 @@ class CallMetricsWriter:
     def call_id(self) -> str:
         return self._call_id
 
+    @property
+    def processor_stages(self) -> dict[str, ProcessorStage]:
+        """Pipeline role map (``FrameProcessor.name`` → stage), read-only.
+
+        Exposed so observer registration can single out which processor
+        names are the LLM stage without reaching into a private attribute.
+        """
+        return dict(self._processor_stages)
+
     def record_transport_report(self, report: Any) -> None:
         self._transport = {
             "start_time": report.start_time,
