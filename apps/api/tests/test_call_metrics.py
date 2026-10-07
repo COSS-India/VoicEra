@@ -137,6 +137,58 @@ def test_put_call_metrics_write_once(
 
 @_patch_metrics_db("app.services.call_metrics_service.get_database")
 @_patch_metrics_db("app.services.call_log_service.get_database")
+def test_put_call_metrics_backfills_empty_placeholder(
+    _call_log_db: MagicMock,
+    _metrics_db: MagicMock,
+) -> None:
+    """A reconnect can leave a transport-only doc with no turns/breakdowns
+    (e.g. the WS dropped before any turn completed). The real metrics from
+    the run that actually finished the call must still land, not be
+    silently discarded by write-once — see upsert_call_metrics."""
+    _CALL_STORE.clear()
+    _METRICS_STORE.clear()
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _METRICS_STORE["call-abc-123"] = _sample_metrics_doc(
+        summary={"turn_count": 0, "interrupted_turn_count": 0},
+        turns=[],
+        latencies={},
+    )
+    client = _make_client()
+    real_metrics = {
+        "summary": {"turn_count": 2},
+        "turns": [{"turn_number": 1, "duration_secs": 9.0, "was_interrupted": False}],
+        "latencies": {
+            "breakdowns": [
+                {
+                    "ttfb": [
+                        {"processor": "RayaSTTService#1", "duration_secs": 0.6},
+                        {"processor": "BlueDotsLLMService#1", "duration_secs": 1.1},
+                        {"processor": "RayaTTSService#1", "duration_secs": 0.3},
+                    ],
+                    "user_turn_start_time": 1.0,
+                }
+            ]
+        },
+    }
+
+    response = client.put("/api/v1/calls/call-abc-123/metrics", json=real_metrics)
+
+    assert response.status_code == 200
+    stored = _METRICS_STORE["call-abc-123"]
+    assert stored["summary"]["turn_count"] == 2
+    assert stored["latencies"]["breakdowns"][0]["ttfb"][0]["duration_secs"] == 0.6
+
+    # And it's locked in from here — a THIRD write does not clobber it.
+    response2 = client.put(
+        "/api/v1/calls/call-abc-123/metrics",
+        json={"summary": {"turn_count": 99}, "turns": [], "latencies": {}},
+    )
+    assert response2.status_code == 200
+    assert _METRICS_STORE["call-abc-123"]["summary"]["turn_count"] == 2
+
+
+@_patch_metrics_db("app.services.call_metrics_service.get_database")
+@_patch_metrics_db("app.services.call_log_service.get_database")
 def test_get_call_metrics_not_found(
     _call_log_db: MagicMock,
     _metrics_db: MagicMock,
