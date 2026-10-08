@@ -364,6 +364,182 @@ def test_the_fetcher_checks_the_files_it_claims_to_have_downloaded():
         assert f in body, f"fetch.sh never verifies {f} arrived"
 
 
+# ---------------------------------------------- the Bhili checkpoint (2026-10-05)
+#
+# AI4Bharat's retrain ships under the SAME filename as the HuggingFace release.
+# Everything below exists because of that: the path is the only thing that tells
+# the two apart, and every way of getting the path wrong is silent -- the engine
+# falls back to another Bhili file, or to the multilingual model, and /health
+# still says "bhili": true or simply nothing useful.
+
+BHILI_FILE = "indic_nemotron_bhili_sft_lr1-averaged.nemo"
+
+
+def overlay_bhili_default() -> str:
+    raw = str(stt_env()["BHILI_NEMO_PATH"])
+    m = re.fullmatch(r"\$\{NEMOTRON_BHILI_NEMO_PATH:-([^}]+)\}", raw)
+    assert m, f"BHILI_NEMO_PATH is {raw!r}; expected an overridable default"
+    return m.group(1)
+
+
+def test_the_overlay_loads_the_bhili_checkpoint_the_fetcher_downloads():
+    """Two files name one folder. If they drift, fetch.sh downloads into a
+    directory nothing reads, and the container falls back to the old weights."""
+    path = overlay_bhili_default()
+    assert path.startswith("/models/") and path.endswith("/" + BHILI_FILE), path
+    folder = path.split("/")[2]
+    assert f"BHILI_DRIVE_DIR={folder}" in source("fetch.sh"), (
+        f"compose.extra.yml loads Bhili from {folder}/ but fetch.sh downloads the "
+        f"Drive checkpoint somewhere else"
+    )
+
+
+def test_the_new_bhili_checkpoint_is_not_on_one_of_the_engines_fallback_paths():
+    """asr_engine.py's built-in candidates are where the HuggingFace release
+    lives. Loading the retrain from one of them would make the two
+    indistinguishable on disk and in the load line -- same name, same path."""
+    candidates = re.findall(r'"(/models/bhili[^"]+)"', source("asr_engine.py"))
+    assert candidates, "asr_engine.py no longer has a /models Bhili fallback; re-check"
+    assert overlay_bhili_default() not in candidates
+
+
+# ------------------------------------------- fetch.sh, run against stub tools
+
+STUB_HF = """#!/bin/sh
+# hf download <repo> --local-dir <dir> [--token t]: lay down the file fetch.sh checks.
+while [ $# -gt 0 ]; do [ "$1" = --local-dir ] && dir=$2; shift; done
+mkdir -p "$dir"
+case "$dir" in
+  *indic-asr*) : > "$dir/indic_nemotron_v1_1_sft_600k_lr1-averaged-40k.nemo" ;;
+  *)           : > "$dir/indic_nemotron_bhili_sft_lr1-averaged.nemo" ;;
+esac
+"""
+
+# gdown <id> -O <out>: copy whatever STUB_SRC names; record that it ran.
+STUB_GDOWN = """#!/bin/sh
+echo called >> "$STUB_LOG"
+[ "$2" = -O ] || exit 9
+cp "$STUB_SRC" "$3"
+"""
+
+
+def _nemo(path: Path) -> Path:
+    """A minimal .nemo: a tar with model_config.yaml in it."""
+    import tarfile
+    inner = path.parent / "model_config.yaml"
+    inner.write_text("name: stub\n")
+    with tarfile.open(path, "w") as t:
+        t.add(inner, arcname="./model_config.yaml")
+    return path
+
+
+def _sha(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@pytest.fixture
+def fetch(tmp_path):
+    import os
+    import shutil
+    if not shutil.which("tar"):
+        pytest.skip("no tar")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    for name, body in (("hf", STUB_HF), ("gdown", STUB_GDOWN)):
+        (bin_ / name).write_text(body)
+        (bin_ / name).chmod(0o755)
+    models = tmp_path / "models"
+    log = tmp_path / "gdown.log"
+
+    def run(src: Path | None = None, **env):
+        e = {"PATH": f"{bin_}:{os.environ['PATH']}", "HOME": str(tmp_path),
+             "HF_TOKEN": "stub", "NEMOTRON_MODELS_DIR": str(models),
+             "STUB_LOG": str(log), "STUB_SRC": str(src or "/nonexistent"), **env}
+        return subprocess.run(["sh", str(FOLDER / "fetch.sh")], env=e,
+                              capture_output=True, text=True)
+
+    run.models = models
+    run.calls = lambda: len(log.read_text().splitlines()) if log.exists() else 0
+    run.target = models / "bhili-asr-nemotron-600m-2026-10-05" / BHILI_FILE
+    return run
+
+
+def test_fetch_lands_the_drive_checkpoint_where_the_overlay_looks(fetch, tmp_path):
+    good = _nemo(tmp_path / "good.nemo")
+    out = fetch(good)
+    assert out.returncode == 0, out.stderr
+    assert fetch.target.is_file()
+    assert "/models/" + fetch.target.relative_to(fetch.models).as_posix() \
+        == overlay_bhili_default()
+    assert not list(fetch.models.rglob("*.part")), "a .part file was left behind"
+
+
+def test_fetch_prints_the_sha256_to_pin_when_none_is_pinned(fetch, tmp_path):
+    good = _nemo(tmp_path / "good.nemo")
+    out = fetch(good, NEMOTRON_BHILI_SHA256="")
+    assert out.returncode == 0, out.stderr
+    assert _sha(good) in out.stdout, "the first download must say what to pin"
+
+
+def test_fetch_rejects_an_html_page_saved_as_the_checkpoint(fetch, tmp_path):
+    """Drive's characteristic failure: quota exceeded / virus-scan interstitial,
+    written to disk under the requested name, exit status 0."""
+    page = tmp_path / "page.html"
+    page.write_text("<html><title>Google Drive - Quota exceeded</title></html>")
+    out = fetch(page)
+    assert out.returncode != 0
+    assert "not a .nemo archive" in out.stderr
+
+
+def test_fetch_rejects_a_checksum_mismatch(fetch, tmp_path):
+    good = _nemo(tmp_path / "good.nemo")
+    out = fetch(good, NEMOTRON_BHILI_SHA256="0" * 64)
+    assert out.returncode != 0
+    assert "sha256 mismatch" in out.stderr
+
+
+def test_fetch_accepts_the_pinned_checksum(fetch, tmp_path):
+    good = _nemo(tmp_path / "good.nemo")
+    out = fetch(good, NEMOTRON_BHILI_SHA256=_sha(good))
+    assert out.returncode == 0, out.stderr
+    assert "sha256 ok" in out.stdout
+
+
+def test_fetch_verifies_an_existing_checkpoint_instead_of_downloading_it(fetch, tmp_path):
+    """2.4 GB from Drive, which rate-limits. A rerun must not pay for it again --
+    and must still check what is there, since the copy may have been placed by
+    hand after a browser download."""
+    good = _nemo(tmp_path / "good.nemo")
+    assert fetch(good).returncode == 0
+    assert fetch.calls() == 1
+    out = fetch(good)
+    assert out.returncode == 0, out.stderr
+    assert fetch.calls() == 1, "the checkpoint was downloaded a second time"
+    assert "already present" in out.stdout
+
+
+def test_fetch_can_still_get_the_huggingface_release_for_rollback(fetch):
+    out = fetch(NEMOTRON_BHILI_SOURCE="hf")
+    assert out.returncode == 0, out.stderr
+    assert (fetch.models / "bhili-asr-nemotron-600m" / BHILI_FILE).is_file()
+    assert fetch.calls() == 0, "rollback went to Drive"
+    assert "NEMOTRON_BHILI_NEMO_PATH=/models/bhili-asr-nemotron-600m/" in out.stdout, \
+        "rollback must say the overlay still points at the retrain"
+
+
+def test_fetch_refuses_an_unknown_bhili_source(fetch):
+    out = fetch(NEMOTRON_BHILI_SOURCE="s3")
+    assert out.returncode != 0
+    assert "drive" in out.stderr and "hf" in out.stderr
+
+
+def test_the_standalone_runner_parses():
+    script = ROOT / "tests" / "bench" / "nemotron_standalone.sh"
+    out = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+
+
 def test_the_fetcher_parses():
     if not (FOLDER / "fetch.sh").is_file():
         pytest.skip("no fetcher")
