@@ -220,6 +220,7 @@ export interface CallLogItem {
   transcript_url?: string | null;
   error_message?: string | null;
   campaign_id?: string | null;
+  campaign_name?: string | null;
   queued_run_id?: string | null;
 }
 
@@ -367,11 +368,56 @@ export interface CreateCampaignPayload {
 export interface CampaignRunItem {
   call_id?: string;
   to_number?: string;
+  from_number?: string;
   status?: string;
   call_response?: string | null;
   duration?: number | null;
   created_at?: string | null;
+  agent_id?: string;
+  agent_name?: string | null;
+  campaign_id?: string | null;
+  campaign_name?: string | null;
+  recording_url?: string | null;
+  transcript_url?: string | null;
   [key: string]: unknown;
+}
+
+export interface CampaignRunsListResponse {
+  calls: CampaignRunItem[];
+  limit: number;
+  offset: number;
+  total: number;
+}
+
+export interface CampaignProgressResponse {
+  campaign_id: string;
+  state: CampaignState;
+  total_rows: number;
+  processed_rows: number;
+  failed_rows: number;
+  progress_percentage: number;
+  rate_limit?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface CampaignAnalyticsResponse {
+  campaign_id: string;
+  state: CampaignState;
+  total_rows: number;
+  processed_rows: number;
+  failed_rows: number;
+  progress_percentage: number;
+  calls_attempted: number;
+  calls_connected: number;
+  calls_busy: number;
+  calls_no_answer: number;
+  calls_failed: number;
+  calls_cancelled: number;
+  connection_rate: number;
+  total_duration_seconds: number;
+  average_duration_seconds: number;
+  by_call_response: Record<string, number>;
 }
 
 export interface AgentCallCount {

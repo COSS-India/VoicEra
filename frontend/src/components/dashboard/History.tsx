@@ -9,15 +9,26 @@ import { CallTypeBadge, CALL_TYPE_META } from "@/components/ui/CallTypeBadge";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/components/AuthProvider";
+import Link from "next/link";
 import { listAgents } from "@/lib/api-client";
 import { listAllOrgCalls, listOrgCalls, fetchCallTranscriptText } from "@/lib/api/calls";
+import { listCampaigns } from "@/lib/api/campaigns";
 import { parseTranscript } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
 import { buildCsvReport, downloadBlob, type ReportMeta } from "@/lib/report";
 import { CallDetailSheet } from "@/components/dashboard/CallDetailSheet";
 import { HistoryDateFilter } from "@/components/dashboard/HistoryDateFilter";
-import type { AgentApiResponse, CallLogItem, CallType } from "@/lib/api-types";
-import { filterAndSortCalls, type DatePreset } from "@/lib/history-filters";
+import type {
+  AgentApiResponse,
+  CallLogItem,
+  CallType,
+  CampaignApiResponse,
+} from "@/lib/api-types";
+import {
+  buildHistoryListQuery,
+  type CampaignScope,
+  type DatePreset,
+} from "@/lib/history-filters";
 import { useDateRangeFilter } from "@/lib/use-date-range-filter";
 
 const PAGE_SIZE = 20;
@@ -57,10 +68,20 @@ function statusTone(call: CallLogItem) {
 }
 
 function callsToCsv(rows: CallLogItem[], meta: ReportMeta): string {
-  const header = ["Call Type", "Agent", "To", "From", "Status", "Called On", "Duration (s)"];
+  const header = [
+    "Call Type",
+    "Agent",
+    "Campaign",
+    "To",
+    "From",
+    "Status",
+    "Called On",
+    "Duration (s)",
+  ];
   const dataRows = rows.map((r) => [
     r.call_type,
     r.agent_name ?? r.agent_id,
+    r.campaign_name ?? r.campaign_id ?? "",
     r.to_number,
     r.from_number,
     r.status,
@@ -70,10 +91,26 @@ function callsToCsv(rows: CallLogItem[], meta: ReportMeta): string {
   return buildCsvReport(meta, header, dataRows);
 }
 
+function campaignScopeSelectValue(scope: CampaignScope): string {
+  if (scope.mode === "all") return "all";
+  if (scope.mode === "one_off") return "one_off";
+  return `campaign:${scope.campaignId}`;
+}
+
+function parseCampaignScopeSelect(value: string): CampaignScope {
+  if (value === "all") return { mode: "all" };
+  if (value === "one_off") return { mode: "one_off" };
+  if (value.startsWith("campaign:")) {
+    return { mode: "campaign", campaignId: value.slice("campaign:".length) };
+  }
+  return { mode: "all" };
+}
+
 const todayStamp = () => new Date().toISOString().slice(0, 10);
 
 interface ExportMenuProps {
   filteredCalls: CallLogItem[];
+  listFilters: ReturnType<typeof buildHistoryListQuery>;
   orgId: string | undefined;
   meta: ReportMeta;
   selectedAgent: AgentApiResponse | null;
@@ -83,9 +120,17 @@ interface ExportMenuProps {
 
 /** Hick's Law: four related-but-distinct actions grouped behind one disclosure
  * rather than four separate top-level buttons, so the toolbar stays scannable. */
-function ExportMenu({ filteredCalls, orgId, meta, selectedAgent, onNotify, onPrint }: ExportMenuProps) {
+function ExportMenu({
+  filteredCalls,
+  listFilters,
+  orgId,
+  meta,
+  selectedAgent,
+  onNotify,
+  onPrint,
+}: ExportMenuProps) {
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<"transcripts" | "agent" | null>(null);
+  const [busy, setBusy] = useState<"transcripts" | "agent" | "csv" | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -97,9 +142,24 @@ function ExportMenu({ filteredCalls, orgId, meta, selectedAgent, onNotify, onPri
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [open]);
 
-  function exportCsv() {
-    downloadBlob(callsToCsv(filteredCalls, meta), "text/csv", `call-history-${todayStamp()}.csv`);
-    setOpen(false);
+  async function exportCsv() {
+    if (!orgId) {
+      downloadBlob(callsToCsv(filteredCalls, meta), "text/csv", `call-history-${todayStamp()}.csv`);
+      setOpen(false);
+      return;
+    }
+    setBusy("csv");
+    try {
+      const { limit: _l, offset: _o, ...filters } = listFilters;
+      const rows = await listAllOrgCalls(orgId, filters);
+      downloadBlob(callsToCsv(rows, meta), "text/csv", `call-history-${todayStamp()}.csv`);
+      onNotify("Export complete", `${rows.length} calls exported.`);
+    } catch (err) {
+      onNotify("Export failed", err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setBusy(null);
+      setOpen(false);
+    }
   }
 
   function exportPdf() {
@@ -111,9 +171,10 @@ function ExportMenu({ filteredCalls, orgId, meta, selectedAgent, onNotify, onPri
     if (!orgId) return;
     setBusy("transcripts");
     try {
-      const allCalls = await listAllOrgCalls(orgId);
+      const { limit: _l, offset: _o, ...filters } = listFilters;
+      const allCalls = await listAllOrgCalls(orgId, filters);
       const withTranscripts = allCalls.filter((c) => c.transcript_url);
-      const header = ["Call ID", "Agent", "Call Type", "Called On", "Line Timestamp", "Role", "Content"];
+      const header = ["Call ID", "Agent", "Campaign", "Call Type", "Called On", "Line Timestamp", "Role", "Content"];
       const rows: unknown[][] = [];
       let lineCount = 0;
       for (const call of withTranscripts) {
@@ -123,6 +184,7 @@ function ExportMenu({ filteredCalls, orgId, meta, selectedAgent, onNotify, onPri
             rows.push([
               call.call_id,
               call.agent_name ?? call.agent_id,
+              call.campaign_name ?? call.campaign_id ?? "",
               call.call_type,
               call.start_time_utc ?? call.created_at ?? "",
               line.timestamp,
@@ -149,8 +211,7 @@ function ExportMenu({ filteredCalls, orgId, meta, selectedAgent, onNotify, onPri
     if (!orgId || !selectedAgent) return;
     setBusy("agent");
     try {
-      const allCalls = await listAllOrgCalls(orgId);
-      const agentCalls = allCalls.filter((c) => c.agent_id === selectedAgent.agent_id);
+      const agentCalls = await listAllOrgCalls(orgId, { agent_id: selectedAgent.agent_id });
       downloadBlob(
         callsToCsv(agentCalls, meta),
         "text/csv",
@@ -172,8 +233,8 @@ function ExportMenu({ filteredCalls, orgId, meta, selectedAgent, onNotify, onPri
       hint: "Current filtered view",
       icon: Table,
       onClick: exportCsv,
-      disabled: filteredCalls.length === 0,
-      loading: false,
+      disabled: filteredCalls.length === 0 && busy !== "csv",
+      loading: busy === "csv",
     },
     {
       key: "pdf",
@@ -187,7 +248,7 @@ function ExportMenu({ filteredCalls, orgId, meta, selectedAgent, onNotify, onPri
     {
       key: "transcripts",
       label: "Export all transcripts",
-      hint: "Every call in this org, CSV",
+      hint: "Matching current filters, CSV",
       icon: Download,
       onClick: exportAllTranscripts,
       disabled: !orgId,
@@ -262,18 +323,32 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   const agentFromUrl = searchParams.get("agent") ?? "";
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [campaignScope, setCampaignScope] = useState<CampaignScope>({ mode: "all" });
   const dateFilter = useDateRangeFilter();
   const [agents, setAgents] = useState<AgentApiResponse[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignApiResponse[]>([]);
   const [agentFilterId, setAgentFilterId] = useState(agentFromUrl);
-  /** Full org list when filters are applied — dograh re-fetches on every Apply. */
-  const [allCalls, setAllCalls] = useState<CallLogItem[] | null>(null);
+  const [exportCalls, setExportCalls] = useState<CallLogItem[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
 
   const hasActiveFilters =
     dateFilter.hasDateFilter ||
     typeFilter !== "all" ||
     statusFilter !== "all" ||
-    Boolean(agentFilterId);
+    Boolean(agentFilterId) ||
+    campaignScope.mode !== "all";
+
+  const listFilters = useMemo(
+    () =>
+      buildHistoryListQuery({
+        range: dateFilter.applied,
+        type: typeFilter,
+        status: statusFilter,
+        agentId: agentFilterId,
+        campaignScope,
+      }),
+    [dateFilter.applied, typeFilter, statusFilter, agentFilterId, campaignScope],
+  );
 
   function onDatePresetChange(preset: DatePreset) {
     setOffset(0);
@@ -298,6 +373,13 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
       .catch(() => {
         /* agent filter is a nice-to-have — table still works without it */
       });
+    listCampaigns()
+      .then((res) => {
+        if (!cancelled) setCampaigns(res);
+      })
+      .catch(() => {
+        /* campaign filter is optional */
+      });
     return () => {
       cancelled = true;
     };
@@ -314,7 +396,11 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
       setLoading(true);
       setLoadError("");
       try {
-        const res = await listOrgCalls(orgId, { limit: PAGE_SIZE, offset: nextOffset });
+        const res = await listOrgCalls(orgId, {
+          ...listFilters,
+          limit: PAGE_SIZE,
+          offset: nextOffset,
+        });
         setCalls(res.calls);
         setTotal(res.total);
         setOffset(res.offset);
@@ -325,7 +411,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         setLoading(false);
       }
     },
-    [orgId],
+    [orgId, listFilters],
   );
 
   useEffect(() => {
@@ -337,24 +423,19 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
       setLoading(true);
       setLoadError("");
       try {
-        if (hasActiveFilters) {
-          const rows = await listAllOrgCalls(id);
-          if (cancelled) return;
-          setAllCalls(rows);
-          setLastUpdated(new Date());
-        } else {
-          setAllCalls(null);
-          const res = await listOrgCalls(id, { limit: PAGE_SIZE, offset: 0 });
-          if (cancelled) return;
-          setCalls(res.calls);
-          setTotal(res.total);
-          setOffset(0);
-          setLastUpdated(new Date());
-        }
+        const res = await listOrgCalls(id, {
+          ...listFilters,
+          limit: PAGE_SIZE,
+          offset: 0,
+        });
+        if (cancelled) return;
+        setCalls(res.calls);
+        setTotal(res.total);
+        setOffset(0);
+        setLastUpdated(new Date());
       } catch (err) {
         if (cancelled) return;
         setLoadError(err instanceof Error ? err.message : "Couldn't load call history.");
-        if (hasActiveFilters) setAllCalls([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -364,30 +445,35 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     return () => {
       cancelled = true;
     };
-  }, [orgId, hasActiveFilters, reloadToken]);
+  }, [orgId, listFilters, reloadToken]);
+
+  // Keep a full filtered set for PDF print export.
+  useEffect(() => {
+    if (!orgId) {
+      setExportCalls([]);
+      return;
+    }
+    let cancelled = false;
+    const { limit: _l, offset: _o, ...filters } = listFilters;
+    listAllOrgCalls(orgId, filters)
+      .then((rows) => {
+        if (!cancelled) setExportCalls(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setExportCalls([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, listFilters, reloadToken]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(id);
   }, []);
 
-  const filteredAll = useMemo(() => {
-    const source = hasActiveFilters ? (allCalls ?? []) : calls;
-    return filterAndSortCalls(source, {
-      range: dateFilter.applied,
-      type: typeFilter,
-      status: statusFilter,
-      agentId: agentFilterId,
-    });
-  }, [hasActiveFilters, allCalls, calls, dateFilter.applied, typeFilter, statusFilter, agentFilterId]);
-
-  // Client-side page when filters are on; server page when they're off.
-  const pageCalls = useMemo(() => {
-    if (!hasActiveFilters) return filteredAll;
-    return filteredAll.slice(offset, offset + PAGE_SIZE);
-  }, [hasActiveFilters, filteredAll, offset]);
-
-  const displayTotal = hasActiveFilters ? filteredAll.length : total;
+  const pageCalls = calls;
+  const displayTotal = total;
   const canPrev = offset > 0;
   const canNext = offset + pageCalls.length < displayTotal;
 
@@ -396,31 +482,12 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   }
 
   function goPrev() {
-    const next = Math.max(0, offset - PAGE_SIZE);
-    if (hasActiveFilters) {
-      setOffset(next);
-      return;
-    }
-    loadPage(next);
+    loadPage(Math.max(0, offset - PAGE_SIZE));
   }
 
   function goNext() {
-    const next = offset + PAGE_SIZE;
-    if (hasActiveFilters) {
-      setOffset(next);
-      return;
-    }
-    loadPage(next);
+    loadPage(offset + PAGE_SIZE);
   }
-
-  useEffect(() => {
-    if (!hasActiveFilters) return;
-    if (offset === 0) return;
-    if (offset < filteredAll.length) return;
-    setOffset(Math.max(0, Math.floor(Math.max(filteredAll.length - 1, 0) / PAGE_SIZE) * PAGE_SIZE));
-  }, [hasActiveFilters, filteredAll.length, offset]);
-
-  const waitingForFilterData = hasActiveFilters && allCalls === null;
 
   return (
     <>
@@ -504,6 +571,28 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
           </div>
         ) : null}
 
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[13px] font-medium text-v-body">Campaign</span>
+          <Select
+            size="sm"
+            aria-label="Filter by campaign"
+            className="!h-9 !py-0 min-w-[11rem] max-w-[16rem]"
+            value={campaignScopeSelectValue(campaignScope)}
+            onChange={(e) => {
+              setOffset(0);
+              setCampaignScope(parseCampaignScopeSelect(e.target.value));
+            }}
+          >
+            <option value="all">All calls</option>
+            <option value="one_off">One-off only</option>
+            {campaigns.map((c) => (
+              <option key={c.campaign_id} value={`campaign:${c.campaign_id}`}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
         <span className="ml-auto flex shrink-0 items-center gap-2.5">
           <span className="font-mono text-[10px] uppercase tracking-[.12em] text-v-muted">
             {lastUpdated ? `Updated ${relativeTime(lastUpdated, now)}` : ""}
@@ -517,7 +606,8 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             <RefreshCw className="size-3.5" strokeWidth={2} />
           </button>
           <ExportMenu
-            filteredCalls={filteredAll}
+            filteredCalls={pageCalls}
+            listFilters={listFilters}
             orgId={orgId}
             meta={reportMeta}
             selectedAgent={selectedAgent}
@@ -533,7 +623,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         </div>
       ) : null}
 
-      {loading || waitingForFilterData ? (
+      {loading ? (
         <div className="flex items-center gap-2 text-sm text-v-muted">
           <Spinner light={false} /> Loading calls…
         </div>
@@ -550,11 +640,12 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         </div>
       ) : (
         <div className="overflow-x-auto rounded-v-md border border-v-line bg-white">
-          <table className="w-full min-w-[900px] border-collapse text-sm">
+          <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-v-line text-left font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">
                 <th className="px-4 py-3 font-medium">Call Type</th>
                 <th className="px-4 py-3 font-medium">Agent Name</th>
+                <th className="px-4 py-3 font-medium">Campaign</th>
                 <th className="px-4 py-3 font-medium">To</th>
                 <th className="px-4 py-3 font-medium">From</th>
                 <th className="px-4 py-3 font-medium">Call Status</th>
@@ -571,6 +662,18 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
                       <CallTypeBadge type={c.call_type} />
                     </td>
                     <td className="px-4 py-3 font-medium">{c.agent_name ?? c.agent_id}</td>
+                    <td className="px-4 py-3 text-v-muted">
+                      {c.campaign_id ? (
+                        <Link
+                          href={`/batches?campaign=${encodeURIComponent(c.campaign_id)}`}
+                          className="text-v-accent hover:underline"
+                        >
+                          {c.campaign_name ?? c.campaign_id}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 text-v-muted">{displayToNumber(c)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-v-muted">{displayFromNumber(c)}</td>
                     <td className="px-4 py-3">
@@ -592,7 +695,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         </div>
       )}
 
-      {!loading && !waitingForFilterData && displayTotal > PAGE_SIZE ? (
+      {!loading && displayTotal > PAGE_SIZE ? (
         <div className="flex items-center justify-between gap-3 text-xs text-v-muted">
           <span>
             {offset + 1}–{offset + pageCalls.length} of {displayTotal}
@@ -613,7 +716,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
       ) : null}
     </div>
 
-    <PrintableReport calls={filteredAll} meta={reportMeta} />
+    <PrintableReport calls={exportCalls} meta={reportMeta} />
     </>
   );
 }
@@ -632,7 +735,7 @@ function PrintableReport({ calls, meta }: { calls: CallLogItem[]; meta: ReportMe
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr>
-            {["Call Type", "Agent", "To", "From", "Status", "Called On", "Duration"].map((h) => (
+            {["Call Type", "Agent", "Campaign", "To", "From", "Status", "Called On", "Duration"].map((h) => (
               <th key={h} className="border border-v-line px-2 py-1.5 text-left">
                 {h}
               </th>
@@ -644,6 +747,7 @@ function PrintableReport({ calls, meta }: { calls: CallLogItem[]; meta: ReportMe
             <tr key={c.call_id}>
               <td className="border border-v-line px-2 py-1.5">{CALL_TYPE_META[c.call_type].label}</td>
               <td className="border border-v-line px-2 py-1.5">{c.agent_name ?? c.agent_id}</td>
+              <td className="border border-v-line px-2 py-1.5">{c.campaign_name ?? c.campaign_id ?? "—"}</td>
               <td className="whitespace-nowrap border border-v-line px-2 py-1.5">{displayToNumber(c)}</td>
               <td className="whitespace-nowrap border border-v-line px-2 py-1.5">{displayFromNumber(c)}</td>
               <td className="border border-v-line px-2 py-1.5">{c.status}</td>

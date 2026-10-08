@@ -15,10 +15,12 @@ from app.constants.campaign import DEFAULT_CAMPAIGN_RETRY_CONFIG
 from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.models.schemas import (
+    CampaignAnalyticsResponse,
     CampaignCallStatusRequest,
     CampaignCsvUploadResponse,
     CampaignProgressResponse,
     CampaignResponse,
+    CampaignRunsListResponse,
     CreateCampaignRequest,
     RedialCampaignRequest,
     SuccessResponse,
@@ -26,8 +28,14 @@ from app.models.schemas import (
 )
 from app.services import agent_service
 from app.services.agent_service import AgentNotFoundError
-from app.services.call_log_service import list_call_logs_by_campaign, transform_call_log_urls
+from app.services.call_log_service import (
+    CallLogListFilters,
+    count_call_logs,
+    list_call_logs_by_campaign,
+    transform_call_log_urls,
+)
 from app.services.campaign import campaign_repository as repo
+from app.services.campaign.campaign_analytics import get_campaign_analytics
 from app.services.campaign.campaign_repository import CampaignNotFoundError, get_org_concurrent_limit
 from app.services.campaign.runner import campaign_runner_service
 from app.services.campaign.source_sync_factory import get_sync_service
@@ -355,20 +363,46 @@ async def update_campaign(
     return _to_campaign_response(doc)
 
 
-@router.get("/{campaign_id}/runs")
+@router.get("/{campaign_id}/runs", response_model=CampaignRunsListResponse)
 async def get_campaign_runs(
     campaign_id: str,
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    status_filter: str | None = Query(default=None, alias="status"),
+    call_response: str | None = Query(default=None),
+    created_after: str | None = Query(default=None),
+    created_before: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(get_current_user),
-) -> list[dict[str, Any]]:
+) -> CampaignRunsListResponse:
     org_id = _require_org(current_user)
     try:
         repo.get_campaign_for_org(org_id, campaign_id)
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    logs = list_call_logs_by_campaign(org_id, campaign_id, limit=limit, offset=offset)
-    return [transform_call_log_urls(log) for log in logs]
+    filters = CallLogListFilters(
+        campaign_id=campaign_id,
+        status=status_filter,
+        call_response=call_response,
+        created_after=created_after,
+        created_before=created_before,
+    )
+    logs = list_call_logs_by_campaign(
+        org_id,
+        campaign_id,
+        limit=limit,
+        offset=offset,
+        filters=filters,
+    )
+    total = count_call_logs(org_id, filters)
+    return CampaignRunsListResponse(
+        calls=[
+            transform_call_log_urls(log, api_prefix=settings.API_V1_PREFIX)
+            for log in logs
+        ],
+        limit=limit,
+        offset=offset,
+        total=total,
+    )
 
 
 @router.get("/{campaign_id}/progress", response_model=CampaignProgressResponse)
@@ -382,7 +416,21 @@ async def get_campaign_progress(
         status_doc = await campaign_runner_service.get_campaign_status(campaign_id)
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CampaignProgressResponse(**status_doc)
+
+
+@router.get("/{campaign_id}/analytics", response_model=CampaignAnalyticsResponse)
+async def get_campaign_analytics_route(
+    campaign_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> CampaignAnalyticsResponse:
+    org_id = _require_org(current_user)
+    try:
+        return CampaignAnalyticsResponse(**get_campaign_analytics(org_id, campaign_id))
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/{campaign_id}/redial", response_model=CampaignResponse, status_code=201)
@@ -453,6 +501,8 @@ async def source_download_url(
 @router.get("/{campaign_id}/report")
 async def campaign_report(
     campaign_id: str,
+    created_after: str | None = Query(default=None),
+    created_before: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
     org_id = _require_org(current_user)
@@ -460,7 +510,13 @@ async def campaign_report(
         repo.get_campaign_for_org(org_id, campaign_id)
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    logs = list_call_logs_by_campaign(org_id, campaign_id, limit=500, offset=0)
+
+    filters = CallLogListFilters(
+        campaign_id=campaign_id,
+        created_after=created_after,
+        created_before=created_before,
+    )
+    page_size = 500
 
     def generate():
         buffer = io.StringIO()
@@ -468,30 +524,59 @@ async def campaign_report(
         writer.writerow(
             [
                 "call_id",
+                "campaign_id",
+                "agent_id",
+                "from_number",
                 "to_number",
                 "status",
                 "call_response",
                 "duration",
                 "created_at",
+                "recording_url",
+                "transcript_url",
             ]
         )
         yield buffer.getvalue()
         buffer.seek(0)
         buffer.truncate(0)
-        for log in logs:
-            writer.writerow(
-                [
-                    log.get("call_id"),
-                    log.get("to_number"),
-                    log.get("status"),
-                    log.get("call_response"),
-                    log.get("duration"),
-                    log.get("created_at"),
-                ]
+
+        offset = 0
+        while True:
+            logs = list_call_logs_by_campaign(
+                org_id,
+                campaign_id,
+                limit=page_size,
+                offset=offset,
+                filters=filters,
+                enrich_campaign_names=False,
             )
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate(0)
+            if not logs:
+                break
+            for log in logs:
+                transformed = transform_call_log_urls(
+                    log, api_prefix=settings.API_V1_PREFIX
+                )
+                writer.writerow(
+                    [
+                        transformed.get("call_id"),
+                        campaign_id,
+                        transformed.get("agent_id"),
+                        transformed.get("from_number"),
+                        transformed.get("to_number"),
+                        transformed.get("status"),
+                        transformed.get("call_response"),
+                        transformed.get("duration"),
+                        transformed.get("created_at"),
+                        transformed.get("recording_url"),
+                        transformed.get("transcript_url"),
+                    ]
+                )
+                yield buffer.getvalue()
+                buffer.seek(0)
+                buffer.truncate(0)
+            if len(logs) < page_size:
+                break
+            offset += page_size
 
     return StreamingResponse(
         generate(),

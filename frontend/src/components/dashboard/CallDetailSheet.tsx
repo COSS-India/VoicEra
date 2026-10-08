@@ -350,6 +350,14 @@ export function CallDetailSheet({
       { label: "Provider call SID", value: call.provider_call_sid ?? "–" },
       { label: "Telephony provider", value: call.telephony_provider ?? "–" },
       { label: "Call response", value: call.call_response ?? "–" },
+      ...(call.campaign_id
+        ? [
+            {
+              label: "Campaign",
+              value: call.campaign_name ?? call.campaign_id,
+            },
+          ]
+        : []),
       { label: "From", value: displayFromNumber(call) },
       { label: "To", value: displayToNumber(call) },
       { label: "Started", value: formatDateTime(call.start_time_utc ?? call.created_at) },
@@ -442,6 +450,14 @@ export function CallDetailSheet({
           <span className="text-xs text-v-muted">{formatDateTime(call.start_time_utc ?? call.created_at)}</span>
           <CallTypeBadge type={call.call_type} />
           <Badge tone={statusTone(call)}>{call.status}</Badge>
+          {call.campaign_id ? (
+            <Link
+              href={`/batches?campaign=${encodeURIComponent(call.campaign_id)}`}
+              className="rounded-v-sm border border-v-line bg-v-soft px-2 py-0.5 text-[11px] font-medium text-v-accent hover:underline"
+            >
+              {call.campaign_name ?? "Campaign"}
+            </Link>
+          ) : null}
         </div>
 
         <div className="flex items-center justify-between border-b border-v-line">

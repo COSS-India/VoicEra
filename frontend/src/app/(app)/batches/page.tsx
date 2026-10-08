@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { Campaigns } from "@/components/dashboard/Campaigns";
 import { useToast } from "@/components/ui/useToast";
 
@@ -8,7 +9,9 @@ export default function CampaignsPage() {
 
   return (
     <main className="flex w-full flex-col gap-6">
-      <Campaigns onNotify={notify} />
+      <Suspense fallback={null}>
+        <Campaigns onNotify={notify} />
+      </Suspense>
       {toastNode}
     </main>
   );

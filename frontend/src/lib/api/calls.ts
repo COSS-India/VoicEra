@@ -10,6 +10,35 @@ import type {
   WebCallRegisterResponse,
 } from "@/lib/api-types";
 
+export type CallListQuery = {
+  limit?: number;
+  offset?: number;
+  campaign_id?: string;
+  exclude_campaign?: boolean;
+  agent_id?: string;
+  status?: string;
+  call_type?: string;
+  call_response?: string;
+  created_after?: string;
+  created_before?: string;
+};
+
+function buildCallListQuery(params: CallListQuery): string {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.offset != null) q.set("offset", String(params.offset));
+  if (params.campaign_id) q.set("campaign_id", params.campaign_id);
+  if (params.exclude_campaign) q.set("exclude_campaign", "true");
+  if (params.agent_id) q.set("agent_id", params.agent_id);
+  if (params.status && params.status !== "all") q.set("status", params.status);
+  if (params.call_type && params.call_type !== "all") q.set("call_type", params.call_type);
+  if (params.call_response) q.set("call_response", params.call_response);
+  if (params.created_after) q.set("created_after", params.created_after);
+  if (params.created_before) q.set("created_before", params.created_before);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
 /** Places a real outbound call from the agent's linked number to `to_number`. */
 export async function createOutboundCall(payload: OutboundCallRequest): Promise<OutboundCallResponse> {
   return apiFetch<OutboundCallResponse>("/calls/outbound", {
@@ -30,20 +59,24 @@ export async function createWebCall(payload: WebCallRegisterRequest): Promise<We
 
 export async function listOrgCalls(
   orgId: string,
-  { limit = 50, offset = 0 }: { limit?: number; offset?: number } = {},
+  params: CallListQuery = {},
 ): Promise<CallLogListResponse> {
+  const { limit = 50, offset = 0, ...filters } = params;
   return apiFetch<CallLogListResponse>(
-    `/calls/org/${encodeURIComponent(orgId)}?limit=${limit}&offset=${offset}`,
+    `/calls/org/${encodeURIComponent(orgId)}${buildCallListQuery({ limit, offset, ...filters })}`,
   );
 }
 
-/** Pages through the whole org — for bulk exports, where "all calls"/"all
- * transcripts" means every call, not just the page currently on screen. */
-export async function listAllOrgCalls(orgId: string, pageSize = 100): Promise<CallLogItem[]> {
+/** Pages through matching org calls — for bulk exports. */
+export async function listAllOrgCalls(
+  orgId: string,
+  filters: Omit<CallListQuery, "limit" | "offset"> = {},
+  pageSize = 100,
+): Promise<CallLogItem[]> {
   const all: CallLogItem[] = [];
   let offset = 0;
   for (;;) {
-    const res = await listOrgCalls(orgId, { limit: pageSize, offset });
+    const res = await listOrgCalls(orgId, { ...filters, limit: pageSize, offset });
     all.push(...res.calls);
     offset += res.calls.length;
     if (res.calls.length === 0 || offset >= res.total) break;

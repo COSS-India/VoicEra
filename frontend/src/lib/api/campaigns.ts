@@ -1,13 +1,20 @@
-import { apiFetch } from "@/lib/api/http";
+import { apiFetch, apiFetchBlob } from "@/lib/api/http";
 import type {
+  CampaignAnalyticsResponse,
   CampaignApiResponse,
   CampaignCsvUploadResponse,
+  CampaignProgressResponse,
   CampaignRunItem,
+  CampaignRunsListResponse,
   CreateCampaignPayload,
 } from "@/lib/api-types";
 
 export async function listCampaigns(): Promise<CampaignApiResponse[]> {
   return apiFetch<CampaignApiResponse[]>("/campaign/");
+}
+
+export async function getCampaign(campaignId: string): Promise<CampaignApiResponse> {
+  return apiFetch<CampaignApiResponse>(`/campaign/${encodeURIComponent(campaignId)}`);
 }
 
 /** CSV only — returns a source_id to pass straight through to createCampaign. */
@@ -50,12 +57,71 @@ export async function deleteCampaign(campaignId: string): Promise<{ status: stri
   return apiFetch(`/campaign/${encodeURIComponent(campaignId)}`, { method: "DELETE" });
 }
 
+export type CampaignRunsQuery = {
+  limit?: number;
+  offset?: number;
+  status?: string;
+  call_response?: string;
+  created_after?: string;
+  created_before?: string;
+};
+
 export async function getCampaignRuns(
   campaignId: string,
-  limit = 50,
-  offset = 0,
-): Promise<CampaignRunItem[]> {
-  return apiFetch<CampaignRunItem[]>(
-    `/campaign/${encodeURIComponent(campaignId)}/runs?limit=${limit}&offset=${offset}`,
+  params: CampaignRunsQuery = {},
+): Promise<CampaignRunsListResponse> {
+  const q = new URLSearchParams();
+  q.set("limit", String(params.limit ?? 50));
+  q.set("offset", String(params.offset ?? 0));
+  if (params.status) q.set("status", params.status);
+  if (params.call_response) q.set("call_response", params.call_response);
+  if (params.created_after) q.set("created_after", params.created_after);
+  if (params.created_before) q.set("created_before", params.created_before);
+  return apiFetch<CampaignRunsListResponse>(
+    `/campaign/${encodeURIComponent(campaignId)}/runs?${q.toString()}`,
   );
+}
+
+/** Page through every call for a campaign (exports / bulk downloads). */
+export async function listAllCampaignRuns(
+  campaignId: string,
+  filters: Omit<CampaignRunsQuery, "limit" | "offset"> = {},
+  pageSize = 100,
+): Promise<CampaignRunItem[]> {
+  const all: CampaignRunItem[] = [];
+  let offset = 0;
+  for (;;) {
+    const res = await getCampaignRuns(campaignId, {
+      ...filters,
+      limit: pageSize,
+      offset,
+    });
+    all.push(...res.calls);
+    offset += res.calls.length;
+    if (res.calls.length === 0 || offset >= res.total) break;
+  }
+  return all;
+}
+
+export async function getCampaignProgress(campaignId: string): Promise<CampaignProgressResponse> {
+  return apiFetch<CampaignProgressResponse>(
+    `/campaign/${encodeURIComponent(campaignId)}/progress`,
+  );
+}
+
+export async function getCampaignAnalytics(campaignId: string): Promise<CampaignAnalyticsResponse> {
+  return apiFetch<CampaignAnalyticsResponse>(
+    `/campaign/${encodeURIComponent(campaignId)}/analytics`,
+  );
+}
+
+export async function downloadCampaignReport(
+  campaignId: string,
+  opts: { created_after?: string; created_before?: string } = {},
+): Promise<Blob> {
+  const q = new URLSearchParams();
+  if (opts.created_after) q.set("created_after", opts.created_after);
+  if (opts.created_before) q.set("created_before", opts.created_before);
+  const suffix = q.toString() ? `?${q.toString()}` : "";
+  return apiFetchBlob(`/campaign/${encodeURIComponent(campaignId)}/report${suffix}`);
 }

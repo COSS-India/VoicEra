@@ -656,6 +656,8 @@ CallResponse = Literal[
     "failed",
     "cancelled",
 ]
+# Disposition that counts as a successful connection for analytics.
+CONNECTED_CALL_RESPONSE: CallResponse = "answered"
 
 
 class OutboundCallRequest(BaseModel):
@@ -795,6 +797,7 @@ class CallLogResponse(BaseModel):
     transcript_url: Optional[str] = None
     error_message: Optional[str] = None
     campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
     queued_run_id: Optional[str] = None
 
 
@@ -958,6 +961,36 @@ class CampaignProgressResponse(BaseModel):
     rate_limit: Optional[int] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+
+
+class CampaignAnalyticsResponse(BaseModel):
+    """Campaign-scoped call analytics from CallLogs + progress counters."""
+
+    campaign_id: str
+    state: CampaignState
+    total_rows: int = 0
+    processed_rows: int = 0
+    failed_rows: int = 0
+    progress_percentage: float = 0.0
+    calls_attempted: int = 0
+    calls_connected: int = 0
+    calls_busy: int = 0
+    calls_no_answer: int = 0
+    calls_failed: int = 0
+    calls_cancelled: int = 0
+    connection_rate: float = 0.0
+    total_duration_seconds: float = 0.0
+    average_duration_seconds: float = 0.0
+    by_call_response: dict[str, int] = Field(default_factory=dict)
+
+
+class CampaignRunsListResponse(BaseModel):
+    """Paginated campaign call runs."""
+
+    calls: list[CallLogResponse] = Field(default_factory=list)
+    limit: int
+    offset: int
+    total: int
 
 
 class CampaignCallStatusRequest(BaseModel):

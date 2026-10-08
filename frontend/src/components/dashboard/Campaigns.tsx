@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { csvParse } from "d3";
-import { AlertCircle, Download, LayoutGrid, List, Trash2, Upload } from "lucide-react";
+import {
+  AlertCircle,
+  BarChart3,
+  Download,
+  LayoutGrid,
+  List,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { CampaignAnalyticsDialog } from "@/components/dashboard/CampaignAnalyticsDialog";
 import { Button, IconButton } from "@/components/ui/Button";
 import { StatCard } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -14,14 +24,17 @@ import { Switch } from "@/components/ui/Switch";
 import { Spinner } from "@/components/ui/Spinner";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useCampaigns } from "@/hooks/useCampaigns";
-import { getCampaignRuns } from "@/lib/api/campaigns";
 import { listAgents } from "@/lib/api-client";
-import { formatDateTime, maskPhoneNumber } from "@/lib/format";
+import {
+  campaignProgressPct,
+  campaignStateLabel,
+  campaignStateTone,
+} from "@/lib/campaign-ui";
+import { formatDateTime } from "@/lib/format";
 import type {
   AgentApiResponse,
   CampaignApiResponse,
   CampaignRetryConfig,
-  CampaignRunItem,
   CampaignScheduleConfig,
   CampaignScheduleSlot,
   CampaignState,
@@ -63,23 +76,6 @@ const DEFAULT_SCHEDULE_CONFIG: CampaignScheduleConfig = {
   timezone: "Asia/Kolkata",
   slots: slotsForEveryday("09:00", "17:00"),
 };
-
-function stateTone(state: CampaignState) {
-  if (state === "running") return "live" as const;
-  if (state === "completed") return "accent" as const;
-  if (state === "syncing") return "accent" as const;
-  if (state === "failed") return "danger" as const;
-  return "neutral" as const; // created, paused
-}
-
-function stateLabel(state: CampaignState) {
-  return state.charAt(0).toUpperCase() + state.slice(1);
-}
-
-function progressPct(c: CampaignApiResponse): number {
-  if (!c.total_rows) return 0;
-  return (c.processed_rows / c.total_rows) * 100;
-}
 
 // --- Upload → preview → details dialog -------------------------------------
 
@@ -562,76 +558,6 @@ function RedialDialog({
   );
 }
 
-// --- Call-status ("View calls") dialog ---------------------------------------
-
-function RunsDialog({ campaign, onClose }: { campaign: CampaignApiResponse | null; onClose: () => void }) {
-  const [runs, setRuns] = useState<CampaignRunItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!campaign) return;
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    getCampaignRuns(campaign.campaign_id)
-      .then((res) => {
-        if (!cancelled) setRuns(res);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load calls.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [campaign]);
-
-  return (
-    <Dialog open={Boolean(campaign)} onClose={onClose} widthClassName="max-w-3xl">
-      <DialogHeader title={`Calls — ${campaign?.name ?? ""}`} onClose={onClose} />
-      <div className="flex flex-col gap-4 overflow-y-auto p-5">
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-v-muted">
-            <Spinner light={false} /> Loading calls…
-          </div>
-        ) : error ? (
-          <p className="text-sm text-v-danger">{error}</p>
-        ) : runs.length === 0 ? (
-          <p className="text-sm text-v-muted">No calls placed yet.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-v-md border border-v-line">
-            <table className="w-full min-w-[560px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-v-line text-left font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">
-                  <th className="px-4 py-3 font-medium">Number</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Response</th>
-                  <th className="px-4 py-3 font-medium">Duration</th>
-                  <th className="px-4 py-3 font-medium">When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((r, i) => (
-                  <tr key={r.call_id ?? i} className="border-b border-v-line last:border-b-0">
-                    <td className="px-4 py-3 font-mono text-xs">{maskPhoneNumber(r.to_number)}</td>
-                    <td className="px-4 py-3">{r.status ?? "–"}</td>
-                    <td className="px-4 py-3">{r.call_response ?? "–"}</td>
-                    <td className="px-4 py-3">{r.duration != null ? `${r.duration}s` : "–"}</td>
-                    <td className="px-4 py-3 text-xs text-v-muted">{formatDateTime(r.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </Dialog>
-  );
-}
-
 // --- Delete confirmation dialog ----------------------------------------------
 
 function DeleteCampaignDialog({
@@ -670,6 +596,8 @@ function DeleteCampaignDialog({
 // --- Main page ---------------------------------------------------------------
 
 export function Campaigns({ onNotify }: { onNotify: (title: string, note: string) => void }) {
+  const searchParams = useSearchParams();
+  const campaignFromUrl = searchParams.get("campaign") ?? "";
   const {
     campaigns,
     loading,
@@ -690,8 +618,14 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
   const [layout, setLayout] = useState<"cards" | "list">("cards");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [redialTarget, setRedialTarget] = useState<CampaignApiResponse | null>(null);
-  const [runsTarget, setRunsTarget] = useState<CampaignApiResponse | null>(null);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analyticsCampaignId, setAnalyticsCampaignId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CampaignApiResponse | null>(null);
+
+  function openAnalytics(campaignId?: string | null) {
+    setAnalyticsCampaignId(campaignId ?? null);
+    setAnalyticsOpen(true);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -704,6 +638,14 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
       cancelled = true;
     };
   }, []);
+
+  const openedFromUrl = useRef<string | null>(null);
+  useEffect(() => {
+    if (!campaignFromUrl) return;
+    if (openedFromUrl.current === campaignFromUrl) return;
+    openedFromUrl.current = campaignFromUrl;
+    openAnalytics(campaignFromUrl);
+  }, [campaignFromUrl]);
 
   const agentNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -776,9 +718,15 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
             people.
           </p>
         </div>
-        <Button variant="primary" onClick={() => setUploadOpen(true)}>
-          + New campaign
-        </Button>
+        <span className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => openAnalytics(null)}>
+            <BarChart3 className="size-3.5" strokeWidth={1.75} />
+            Campaign analytics
+          </Button>
+          <Button variant="primary" onClick={() => setUploadOpen(true)}>
+            + New campaign
+          </Button>
+        </span>
       </div>
 
       {loadError ? (
@@ -851,7 +799,7 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((c) => (
             <div key={c.campaign_id} className="flex flex-col gap-3.5 rounded-v-md border border-v-line bg-white p-4.5">
-              <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge>
+              <Badge tone={campaignStateTone(c.state)}>{campaignStateLabel(c.state)}</Badge>
               <span className="flex flex-col gap-1 min-w-0">
                 <span className="truncate text-[15px] font-semibold">{c.name}</span>
                 <span className="text-xs font-light text-v-muted">
@@ -859,7 +807,7 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
                 </span>
               </span>
               <div className="flex flex-col gap-1.5">
-                <ProgressBar pct={progressPct(c)} thick />
+                <ProgressBar pct={campaignProgressPct(c)} thick />
                 <span className="flex items-center justify-between text-[10.5px] font-mono text-v-muted">
                   <span>
                     {c.processed_rows.toLocaleString()} of {c.total_rows ? c.total_rows.toLocaleString() : "–"} placed
@@ -872,13 +820,13 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
                   {formatDateTime(c.started_at ?? c.created_at)}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <Tooltip text="View calls">
+                  <Tooltip text="Campaign analytics">
                     <IconButton
-                      aria-label="View calls"
-                      onClick={() => setRunsTarget(c)}
+                      aria-label="Campaign analytics"
+                      onClick={() => openAnalytics(c.campaign_id)}
                       className="bg-v-soft hover:border-v-accent hover:bg-v-pale hover:text-v-accent"
                     >
-                      <List className="size-4" strokeWidth={1.75} />
+                      <BarChart3 className="size-4" strokeWidth={1.75} />
                     </IconButton>
                   </Tooltip>
                   <Tooltip text="Delete campaign">
@@ -899,7 +847,12 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
       ) : (
         <div className="flex flex-col rounded-v-md border border-v-line bg-white">
           {rows.map((c) => (
-            <div key={c.campaign_id} className="flex flex-wrap items-center justify-between gap-3 border-b border-v-line px-4.5 py-3 last:border-0">
+            <button
+              key={c.campaign_id}
+              type="button"
+              onClick={() => openAnalytics(c.campaign_id)}
+              className="flex flex-wrap items-center justify-between gap-3 border-b border-v-line px-4.5 py-3 text-left last:border-0 hover:bg-v-soft/60"
+            >
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-[13.5px] font-medium">{c.name}</span>
                 <span className="text-xs font-light text-v-muted">
@@ -908,14 +861,14 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
               </span>
               <span className="flex items-center gap-3">
                 <span className="w-24">
-                  <ProgressBar pct={progressPct(c)} />
+                  <ProgressBar pct={campaignProgressPct(c)} />
                 </span>
                 <span className="font-mono text-[10.5px] w-16 text-right text-v-muted">
-                  {Math.round(progressPct(c))}%
+                  {Math.round(campaignProgressPct(c))}%
                 </span>
-                <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge>
+                <Badge tone={campaignStateTone(c.state)}>{campaignStateLabel(c.state)}</Badge>
               </span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -941,7 +894,16 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
         onClose={() => setRedialTarget(null)}
       />
 
-      <RunsDialog campaign={runsTarget} onClose={() => setRunsTarget(null)} />
+      <CampaignAnalyticsDialog
+        open={analyticsOpen}
+        initialCampaignId={analyticsCampaignId}
+        campaignOptions={campaigns}
+        onClose={() => {
+          setAnalyticsOpen(false);
+          setAnalyticsCampaignId(null);
+        }}
+        onNotify={onNotify}
+      />
 
       <DeleteCampaignDialog
         campaign={deleteTarget}

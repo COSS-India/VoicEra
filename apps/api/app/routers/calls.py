@@ -25,8 +25,9 @@ from app.models.schemas import (
 )
 from app.services import member_service, org_service
 from app.services.call_log_service import (
+    CallLogListFilters,
     CallLogNotFoundError,
-    count_call_logs_by_org,
+    count_call_logs,
     get_call_log,
     get_org_call_analytics,
     list_call_logs_by_org,
@@ -336,6 +337,23 @@ async def list_org_calls(
     org_id: str,
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    campaign_id: str | None = Query(default=None),
+    exclude_campaign: bool = Query(
+        default=False,
+        description="If true, return only one-off calls (no campaign_id)",
+    ),
+    agent_id: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    call_type: str | None = Query(default=None),
+    call_response: str | None = Query(default=None),
+    created_after: str | None = Query(
+        default=None,
+        description="ISO-8601 lower bound on created_at (inclusive)",
+    ),
+    created_before: str | None = Query(
+        default=None,
+        description="ISO-8601 upper bound on created_at (inclusive)",
+    ),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CallLogListResponse:
     """List call logs for an organisation (Bearer; must be a member of that org)."""
@@ -354,8 +372,24 @@ async def list_org_calls(
             detail="Organisation not found",
         )
 
-    logs = list_call_logs_by_org(org_id, limit=limit, offset=offset)
-    total = count_call_logs_by_org(org_id)
+    if exclude_campaign and campaign_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="exclude_campaign and campaign_id cannot be combined",
+        )
+
+    filters = CallLogListFilters(
+        campaign_id=campaign_id,
+        exclude_campaign=exclude_campaign,
+        agent_id=agent_id,
+        status=status_filter,
+        call_type=call_type,
+        call_response=call_response,
+        created_after=created_after,
+        created_before=created_before,
+    )
+    logs = list_call_logs_by_org(org_id, limit=limit, offset=offset, filters=filters)
+    total = count_call_logs(org_id, filters)
     return CallLogListResponse(
         calls=[
             transform_call_log_urls(log, api_prefix=settings.API_V1_PREFIX)

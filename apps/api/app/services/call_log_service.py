@@ -3,15 +3,32 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.database import get_database
+from app.models.schemas import CONNECTED_CALL_RESPONSE
 from app.utils.mongo_utils import prepare_mongo_response
 
 logger = logging.getLogger(__name__)
 
 COLLECTION = "CallLogs"
+CAMPAIGNS_COLLECTION = "Campaigns"
+
+
+@dataclass(frozen=True)
+class CallLogListFilters:
+    """Server-side filters for CallLogs list/count queries."""
+
+    campaign_id: str | None = None
+    exclude_campaign: bool = False
+    agent_id: str | None = None
+    status: str | None = None
+    call_type: str | None = None
+    call_response: str | None = None
+    created_after: str | None = None
+    created_before: str | None = None
 
 
 class CallLogNotFoundError(Exception):
@@ -88,7 +105,7 @@ def patch_call_log(org_id: str, call_id: str, patch: dict[str, Any]) -> dict[str
     if not doc:
         raise CallLogNotFoundError(call_id)
 
-    if doc.get("call_response") == "answered":
+    if doc.get("call_response") == CONNECTED_CALL_RESPONSE:
         patch.pop("call_response", None)
         patch.pop("status", None)
 
@@ -162,7 +179,9 @@ def get_call_log(org_id: str, call_id: str) -> dict[str, Any]:
     )
     if not doc:
         raise CallLogNotFoundError(call_id)
-    return _to_response(doc) or {}
+    result = _to_response(doc) or {}
+    enriched = _enrich_with_campaign_names(org_id, [result])
+    return enriched[0] if enriched else result
 
 
 def get_call_log_by_provider_sid(
@@ -178,11 +197,49 @@ def get_call_log_by_provider_sid(
     return _to_response(doc)
 
 
-def _list_query(org_id: str, *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def build_call_log_query(
+    org_id: str,
+    filters: CallLogListFilters | None = None,
+    *,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a Mongo query for CallLogs list/count/analytics match stages."""
     query: dict[str, Any] = {"org_id": org_id}
     if extra:
         query.update(extra)
+
+    f = filters or CallLogListFilters()
+    if f.exclude_campaign:
+        # One-off calls: missing or null campaign_id
+        query["$or"] = [
+            {"campaign_id": {"$exists": False}},
+            {"campaign_id": None},
+        ]
+    elif f.campaign_id:
+        query["campaign_id"] = f.campaign_id
+
+    if f.agent_id:
+        query["agent_id"] = f.agent_id
+    if f.status:
+        query["status"] = f.status
+    if f.call_type:
+        query["call_type"] = f.call_type
+    if f.call_response:
+        query["call_response"] = f.call_response
+
+    created_at: dict[str, str] = {}
+    if f.created_after:
+        created_at["$gte"] = f.created_after
+    if f.created_before:
+        created_at["$lte"] = f.created_before
+    if created_at:
+        query["created_at"] = created_at
+
     return query
+
+
+def _list_query(org_id: str, *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    return build_call_log_query(org_id, extra=extra)
 
 
 def _paginated_call_log_cursor(
@@ -200,6 +257,39 @@ def _paginated_call_log_cursor(
     )
 
 
+def _campaign_names_by_id(org_id: str, campaign_ids: set[str]) -> dict[str, str]:
+    """Batched Campaigns lookup: campaign_id → name."""
+    ids = {cid for cid in campaign_ids if cid}
+    if not ids:
+        return {}
+    cursor = get_database()[CAMPAIGNS_COLLECTION].find(
+        {"org_id": org_id, "campaign_id": {"$in": list(ids)}},
+        {"campaign_id": 1, "name": 1},
+    )
+    return {
+        str(doc["campaign_id"]): str(doc.get("name") or "")
+        for doc in cursor
+        if doc.get("campaign_id")
+    }
+
+
+def _enrich_with_campaign_names(
+    org_id: str,
+    logs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    names = _campaign_names_by_id(
+        org_id,
+        {str(log.get("campaign_id") or "") for log in logs},
+    )
+    for log in logs:
+        cid = str(log.get("campaign_id") or "")
+        if cid and cid in names:
+            log["campaign_name"] = names[cid]
+        elif cid:
+            log["campaign_name"] = None
+    return logs
+
+
 def _prepare_call_log_list(docs) -> list[dict[str, Any]]:
     from app.utils.mongo_utils import prepare_mongo_response_list
 
@@ -208,9 +298,39 @@ def _prepare_call_log_list(docs) -> list[dict[str, Any]]:
     )
 
 
+def count_call_logs(
+    org_id: str,
+    filters: CallLogListFilters | None = None,
+) -> int:
+    """Count call logs for an organisation with optional filters."""
+    return get_database()[COLLECTION].count_documents(
+        build_call_log_query(org_id, filters)
+    )
+
+
 def count_call_logs_by_org(org_id: str) -> int:
     """Count call logs for an organisation."""
-    return get_database()[COLLECTION].count_documents(_list_query(org_id))
+    return count_call_logs(org_id)
+
+
+def list_call_logs(
+    org_id: str,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    filters: CallLogListFilters | None = None,
+    enrich_campaign_names: bool = True,
+) -> list[dict[str, Any]]:
+    """List call logs for an organisation with optional filters."""
+    cursor = _paginated_call_log_cursor(
+        build_call_log_query(org_id, filters),
+        limit=limit,
+        offset=offset,
+    )
+    logs = _prepare_call_log_list(cursor)
+    if enrich_campaign_names:
+        return _enrich_with_campaign_names(org_id, logs)
+    return logs
 
 
 def list_call_logs_by_org(
@@ -218,14 +338,10 @@ def list_call_logs_by_org(
     *,
     limit: int = 50,
     offset: int = 0,
+    filters: CallLogListFilters | None = None,
 ) -> list[dict[str, Any]]:
     """List call logs for an organisation."""
-    cursor = _paginated_call_log_cursor(
-        _list_query(org_id),
-        limit=limit,
-        offset=offset,
-    )
-    return _prepare_call_log_list(cursor)
+    return list_call_logs(org_id, limit=limit, offset=offset, filters=filters)
 
 
 def list_call_logs_by_campaign(
@@ -234,17 +350,35 @@ def list_call_logs_by_campaign(
     *,
     limit: int = 50,
     offset: int = 0,
+    filters: CallLogListFilters | None = None,
+    enrich_campaign_names: bool = True,
 ) -> list[dict[str, Any]]:
     """List call logs for a campaign scoped to ``org_id``."""
-    cursor = _paginated_call_log_cursor(
-        _list_query(org_id, extra={"campaign_id": campaign_id}),
+    base = CallLogListFilters(campaign_id=campaign_id)
+    if filters:
+        merged = CallLogListFilters(
+            campaign_id=campaign_id,
+            exclude_campaign=False,
+            agent_id=filters.agent_id,
+            status=filters.status,
+            call_type=filters.call_type,
+            call_response=filters.call_response,
+            created_after=filters.created_after,
+            created_before=filters.created_before,
+        )
+    else:
+        merged = base
+    return list_call_logs(
+        org_id,
         limit=limit,
         offset=offset,
+        filters=merged,
+        enrich_campaign_names=enrich_campaign_names,
     )
-    return _prepare_call_log_list(cursor)
 
 
-def _connection_rate(attempted: int, connected: int) -> float:
+def connection_rate(attempted: int, connected: int) -> float:
+    """Percent of attempted calls that connected (0–100, one decimal)."""
     if attempted <= 0:
         return 0.0
     return round((connected / attempted) * 100, 1)
@@ -310,7 +444,7 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
     this_week_start = (now - timedelta(days=7)).isoformat()
     last_week_start = (now - timedelta(days=14)).isoformat()
 
-    connected_match = {"call_response": "answered"}
+    connected_match = {"call_response": CONNECTED_CALL_RESPONSE}
 
     pipeline = [
         {"$match": _list_query(org_id)},
@@ -345,7 +479,13 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
                             "_id": None,
                             "attempted": {"$sum": 1},
                             "connected": {
-                                "$sum": {"$cond": [{"$eq": ["$call_response", "answered"]}, 1, 0]}
+                                "$sum": {
+                                    "$cond": [
+                                        {"$eq": ["$call_response", CONNECTED_CALL_RESPONSE]},
+                                        1,
+                                        0,
+                                    ]
+                                }
                             },
                         }
                     },
@@ -361,7 +501,13 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
                             "_id": None,
                             "attempted": {"$sum": 1},
                             "connected": {
-                                "$sum": {"$cond": [{"$eq": ["$call_response", "answered"]}, 1, 0]}
+                                "$sum": {
+                                    "$cond": [
+                                        {"$eq": ["$call_response", CONNECTED_CALL_RESPONSE]},
+                                        1,
+                                        0,
+                                    ]
+                                }
                             },
                         }
                     },
@@ -383,11 +529,11 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
 
     this_week = next(iter(result.get("this_week") or []), {})
     last_week = next(iter(result.get("last_week") or []), {})
-    this_week_rate = _connection_rate(
+    this_week_rate = connection_rate(
         int(this_week.get("attempted") or 0), int(this_week.get("connected") or 0)
     )
     last_week_attempted = int(last_week.get("attempted") or 0)
-    last_week_rate = _connection_rate(last_week_attempted, int(last_week.get("connected") or 0))
+    last_week_rate = connection_rate(last_week_attempted, int(last_week.get("connected") or 0))
     trend_vs_last_week_pct = (
         round(this_week_rate - last_week_rate, 1) if last_week_attempted > 0 else None
     )
@@ -415,7 +561,7 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
         "calls_attempted": attempted,
         "calls_connected": connected,
         "calls_failed": max(0, attempted - connected),
-        "connection_rate": _connection_rate(attempted, connected),
+        "connection_rate": connection_rate(attempted, connected),
         "total_duration_seconds": total_duration,
         "average_duration_seconds": average_duration,
         "trend_vs_last_week_pct": trend_vs_last_week_pct,
