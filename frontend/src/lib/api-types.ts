@@ -410,10 +410,6 @@ export interface CampaignAnalyticsResponse {
   progress_percentage: number;
   calls_attempted: number;
   calls_connected: number;
-  calls_busy: number;
-  calls_no_answer: number;
-  calls_failed: number;
-  calls_cancelled: number;
   connection_rate: number;
   total_duration_seconds: number;
   average_duration_seconds: number;

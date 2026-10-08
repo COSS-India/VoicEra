@@ -17,16 +17,23 @@ import {
   dispositionFilterOptions,
   hasArtifactUrl,
   humanizeToken,
-} from "@/lib/campaign-artifacts";
-import {
-  campaignProgressPct,
-  campaignStateLabel,
-  campaignStateTone,
-} from "@/lib/campaign-ui";
+} from "@/lib/campaign-exports";
 import { formatDateTime, formatDuration, maskPhoneNumber } from "@/lib/format";
-import type { CampaignApiResponse } from "@/lib/api-types";
+import type { CampaignApiResponse, CampaignState } from "@/lib/api-types";
 
 const DISPOSITION_OPTIONS = dispositionFilterOptions();
+
+function stateTone(state: CampaignState) {
+  if (state === "running") return "live" as const;
+  if (state === "completed" || state === "syncing") return "accent" as const;
+  if (state === "failed") return "danger" as const;
+  return "neutral" as const;
+}
+
+function progressPct(c: Pick<CampaignApiResponse, "total_rows" | "processed_rows">) {
+  if (!c.total_rows) return 0;
+  return (c.processed_rows / c.total_rows) * 100;
+}
 
 type Props = {
   open: boolean;
@@ -75,7 +82,7 @@ export function CampaignAnalyticsDialog({
   );
 
   const progressPctValue =
-    progress?.progress_percentage ?? (campaign ? campaignProgressPct(campaign) : 0);
+    progress?.progress_percentage ?? (campaign ? progressPct(campaign) : 0);
 
   return (
     <Dialog open={open} onClose={onClose} widthClassName="max-w-4xl">
@@ -152,8 +159,8 @@ export function CampaignAnalyticsDialog({
                   {campaign.name}
                 </span>
                 <span className="font-mono text-[11px] text-v-muted">{campaign.campaign_id}</span>
-                <Badge tone={campaignStateTone(campaign.state)}>
-                  {campaignStateLabel(campaign.state)}
+                <Badge tone={stateTone(campaign.state)}>
+                  {humanizeToken(campaign.state)}
                 </Badge>
               </div>
               <div className="flex flex-wrap gap-2">

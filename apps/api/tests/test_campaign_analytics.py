@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
 from app.routers import campaign as campaign_router
-from app.services.campaign.campaign_analytics import get_campaign_analytics
+from app.services.call_log_service import CallLogListFilters, get_call_analytics
 from app.services.campaign.campaign_repository import CampaignNotFoundError
 
 
@@ -27,16 +27,7 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def test_get_campaign_analytics_aggregates_dispositions() -> None:
-    campaign = {
-        "campaign_id": "camp-1",
-        "org_id": "org-1",
-        "name": "Spring",
-        "state": "running",
-        "total_rows": 10,
-        "processed_rows": 8,
-        "failed_rows": 1,
-    }
+def test_get_call_analytics_aggregates_dispositions() -> None:
     aggregate_result = {
         "attempted": [{"count": 5}],
         "connected": [
@@ -54,75 +45,57 @@ def test_get_campaign_analytics_aggregates_dispositions() -> None:
         ],
     }
 
-    with (
-        patch(
-            "app.services.campaign.campaign_analytics.repo.get_campaign_for_org",
-            return_value=campaign,
-        ),
-        patch("app.services.campaign.campaign_analytics.get_database") as get_db,
-    ):
+    with patch("app.services.call_log_service.get_database") as get_db:
         coll = MagicMock()
         coll.aggregate.return_value = iter([aggregate_result])
         get_db.return_value = {"CallLogs": coll}
 
-        result = get_campaign_analytics("org-1", "camp-1")
+        result = get_call_analytics("org-1", CallLogListFilters(campaign_id="camp-1"))
 
-    assert result["campaign_id"] == "camp-1"
     assert result["calls_attempted"] == 5
     assert result["calls_connected"] == 2
-    assert result["calls_busy"] == 1
-    assert result["calls_no_answer"] == 1
-    assert result["calls_failed"] == 1
     assert result["connection_rate"] == 40.0
     assert result["average_duration_seconds"] == 45.0
     assert result["by_call_response"]["answered"] == 2
-    assert result["progress_percentage"] == 80.0
-    assert result["processed_rows"] == 8
-
-
-def test_get_campaign_analytics_not_found() -> None:
-    with patch(
-        "app.services.campaign.campaign_analytics.repo.get_campaign_for_org",
-        side_effect=CampaignNotFoundError("missing"),
-    ):
-        with pytest.raises(CampaignNotFoundError):
-            get_campaign_analytics("org-1", "missing")
+    assert result["by_call_response"]["busy"] == 1
 
 
 def test_analytics_route(client: TestClient) -> None:
-    payload = {
+    campaign = {
         "campaign_id": "camp-1",
         "state": "running",
         "total_rows": 10,
         "processed_rows": 5,
         "failed_rows": 0,
-        "progress_percentage": 50.0,
+    }
+    stats = {
         "calls_attempted": 4,
         "calls_connected": 2,
-        "calls_busy": 1,
-        "calls_no_answer": 1,
-        "calls_failed": 0,
-        "calls_cancelled": 0,
         "connection_rate": 50.0,
         "total_duration_seconds": 60.0,
         "average_duration_seconds": 30.0,
         "by_call_response": {"answered": 2, "busy": 1, "no_answer": 1},
     }
-    with patch(
-        "app.routers.campaign.get_campaign_analytics",
-        return_value=payload,
+    with (
+        patch(
+            "app.routers.campaign.repo.get_campaign_for_org",
+            return_value=campaign,
+        ),
+        patch("app.routers.campaign.get_call_analytics", return_value=stats),
     ):
         response = client.get("/api/v1/campaign/camp-1/analytics")
     assert response.status_code == 200
     body = response.json()
     assert body["calls_attempted"] == 4
     assert body["connection_rate"] == 50.0
+    assert body["progress_percentage"] == 50.0
     assert body["by_call_response"]["answered"] == 2
+    assert "calls_busy" not in body
 
 
 def test_analytics_route_404(client: TestClient) -> None:
     with patch(
-        "app.routers.campaign.get_campaign_analytics",
+        "app.routers.campaign.repo.get_campaign_for_org",
         side_effect=CampaignNotFoundError("camp-x"),
     ):
         response = client.get("/api/v1/campaign/camp-x/analytics")

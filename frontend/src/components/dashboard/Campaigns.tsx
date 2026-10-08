@@ -25,11 +25,6 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useCampaigns } from "@/hooks/useCampaigns";
 import { listAgents } from "@/lib/api-client";
-import {
-  campaignProgressPct,
-  campaignStateLabel,
-  campaignStateTone,
-} from "@/lib/campaign-ui";
 import { formatDateTime } from "@/lib/format";
 import type {
   AgentApiResponse,
@@ -44,6 +39,22 @@ import type {
 const STATES: CampaignState[] = ["created", "syncing", "running", "paused", "completed", "failed"];
 const FILTERS = ["All", ...STATES] as const;
 type Filter = (typeof FILTERS)[number];
+
+function stateTone(state: CampaignState) {
+  if (state === "running") return "live" as const;
+  if (state === "completed" || state === "syncing") return "accent" as const;
+  if (state === "failed") return "danger" as const;
+  return "neutral" as const;
+}
+
+function stateLabel(state: CampaignState) {
+  return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function progressPct(c: CampaignApiResponse): number {
+  if (!c.total_rows) return 0;
+  return (c.processed_rows / c.total_rows) * 100;
+}
 
 const TIMEZONE_OPTIONS = [
   { value: "Asia/Kolkata", label: "IST (Asia/Kolkata)" },
@@ -799,7 +810,7 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((c) => (
             <div key={c.campaign_id} className="flex flex-col gap-3.5 rounded-v-md border border-v-line bg-white p-4.5">
-              <Badge tone={campaignStateTone(c.state)}>{campaignStateLabel(c.state)}</Badge>
+              <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge>
               <span className="flex flex-col gap-1 min-w-0">
                 <span className="truncate text-[15px] font-semibold">{c.name}</span>
                 <span className="text-xs font-light text-v-muted">
@@ -807,7 +818,7 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
                 </span>
               </span>
               <div className="flex flex-col gap-1.5">
-                <ProgressBar pct={campaignProgressPct(c)} thick />
+                <ProgressBar pct={progressPct(c)} thick />
                 <span className="flex items-center justify-between text-[10.5px] font-mono text-v-muted">
                   <span>
                     {c.processed_rows.toLocaleString()} of {c.total_rows ? c.total_rows.toLocaleString() : "–"} placed
@@ -861,12 +872,12 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
               </span>
               <span className="flex items-center gap-3">
                 <span className="w-24">
-                  <ProgressBar pct={campaignProgressPct(c)} />
+                  <ProgressBar pct={progressPct(c)} />
                 </span>
                 <span className="font-mono text-[10.5px] w-16 text-right text-v-muted">
-                  {Math.round(campaignProgressPct(c))}%
+                  {Math.round(progressPct(c))}%
                 </span>
-                <Badge tone={campaignStateTone(c.state)}>{campaignStateLabel(c.state)}</Badge>
+                <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge>
               </span>
             </button>
           ))}

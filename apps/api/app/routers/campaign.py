@@ -31,11 +31,11 @@ from app.services.agent_service import AgentNotFoundError
 from app.services.call_log_service import (
     CallLogListFilters,
     count_call_logs,
+    get_call_analytics,
     list_call_logs_by_campaign,
     transform_call_log_urls,
 )
 from app.services.campaign import campaign_repository as repo
-from app.services.campaign.campaign_analytics import get_campaign_analytics
 from app.services.campaign.campaign_repository import CampaignNotFoundError, get_org_concurrent_limit
 from app.services.campaign.runner import campaign_runner_service
 from app.services.campaign.source_sync_factory import get_sync_service
@@ -428,9 +428,23 @@ async def get_campaign_analytics_route(
 ) -> CampaignAnalyticsResponse:
     org_id = _require_org(current_user)
     try:
-        return CampaignAnalyticsResponse(**get_campaign_analytics(org_id, campaign_id))
+        campaign = repo.get_campaign_for_org(org_id, campaign_id)
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    stats = get_call_analytics(org_id, CallLogListFilters(campaign_id=campaign_id))
+    total_rows = int(campaign.get("total_rows") or 0)
+    processed_rows = int(campaign.get("processed_rows") or 0)
+    failed_rows = int(campaign.get("failed_rows") or 0)
+    return CampaignAnalyticsResponse(
+        campaign_id=campaign_id,
+        state=campaign.get("state", "created"),
+        total_rows=total_rows,
+        processed_rows=processed_rows,
+        failed_rows=failed_rows,
+        progress_percentage=(processed_rows / total_rows * 100) if total_rows > 0 else 0.0,
+        **stats,
+    )
 
 
 @router.post("/{campaign_id}/redial", response_model=CampaignResponse, status_code=201)

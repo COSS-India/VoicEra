@@ -13,8 +13,8 @@ import type {
   CampaignProgressResponse,
   CampaignRunItem,
 } from "@/lib/api-types";
-import { CAMPAIGN_RUNS_PAGE_SIZE } from "@/lib/campaign-artifacts";
 import {
+  CAMPAIGN_RUNS_PAGE_SIZE,
   downloadCallRecording,
   downloadCallTranscript,
   exportCampaignRecordingsZip,
@@ -155,40 +155,6 @@ export function useCampaignAnalytics(
     }
   }
 
-  async function downloadReport() {
-    await runExport("report", exportCampaignReport);
-  }
-
-  async function downloadTranscriptsZip() {
-    await runExport("transcripts", exportCampaignTranscriptsZip);
-  }
-
-  async function downloadRecordingsZip() {
-    await runExport("recordings", exportCampaignRecordingsZip);
-  }
-
-  async function downloadRowRecording(callId: string) {
-    setRowBusy(`rec:${callId}`);
-    try {
-      await downloadCallRecording(callId);
-    } catch (err) {
-      onNotify("Download failed", err instanceof Error ? err.message : "Recording unavailable.");
-    } finally {
-      setRowBusy(null);
-    }
-  }
-
-  async function downloadRowTranscript(callId: string) {
-    setRowBusy(`tr:${callId}`);
-    try {
-      await downloadCallTranscript(callId);
-    } catch (err) {
-      onNotify("Download failed", err instanceof Error ? err.message : "Transcript unavailable.");
-    } finally {
-      setRowBusy(null);
-    }
-  }
-
   return {
     campaignIdInput,
     setCampaignIdInput,
@@ -208,10 +174,28 @@ export function useCampaignAnalytics(
     rowBusy,
     pageSize: CAMPAIGN_RUNS_PAGE_SIZE,
     loadCampaign,
-    downloadReport,
-    downloadTranscriptsZip,
-    downloadRecordingsZip,
-    downloadRowRecording,
-    downloadRowTranscript,
+    downloadReport: () => runExport("report", exportCampaignReport),
+    downloadTranscriptsZip: () => runExport("transcripts", exportCampaignTranscriptsZip),
+    downloadRecordingsZip: () => runExport("recordings", exportCampaignRecordingsZip),
+    downloadRowRecording: async (callId: string) => {
+      setRowBusy(`rec:${callId}`);
+      try {
+        await downloadCallRecording(callId);
+      } catch (err) {
+        onNotify("Download failed", err instanceof Error ? err.message : "Recording unavailable.");
+      } finally {
+        setRowBusy(null);
+      }
+    },
+    downloadRowTranscript: async (callId: string) => {
+      setRowBusy(`tr:${callId}`);
+      try {
+        await downloadCallTranscript(callId);
+      } catch (err) {
+        onNotify("Download failed", err instanceof Error ? err.message : "Transcript unavailable.");
+      } finally {
+        setRowBusy(null);
+      }
+    },
   };
 }

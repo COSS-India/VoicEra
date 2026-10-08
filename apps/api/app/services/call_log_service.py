@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.database import get_database
-from app.models.schemas import CONNECTED_CALL_RESPONSE
 from app.utils.mongo_utils import prepare_mongo_response
 
 logger = logging.getLogger(__name__)
@@ -105,7 +104,8 @@ def patch_call_log(org_id: str, call_id: str, patch: dict[str, Any]) -> dict[str
     if not doc:
         raise CallLogNotFoundError(call_id)
 
-    if doc.get("call_response") == CONNECTED_CALL_RESPONSE:
+    # Answered is sticky: later telephony updates must not overwrite disposition/status.
+    if doc.get("call_response") == "answered":
         patch.pop("call_response", None)
         patch.pop("status", None)
 
@@ -377,11 +377,71 @@ def list_call_logs_by_campaign(
     )
 
 
-def connection_rate(attempted: int, connected: int) -> float:
-    """Percent of attempted calls that connected (0–100, one decimal)."""
+def _connection_rate(attempted: int, connected: int) -> float:
     if attempted <= 0:
         return 0.0
     return round((connected / attempted) * 100, 1)
+
+
+def get_call_analytics(
+    org_id: str,
+    filters: CallLogListFilters | None = None,
+) -> dict[str, Any]:
+    """Aggregate CallLogs for an org, optionally scoped by ``filters`` (e.g. campaign).
+
+    ``calls_connected`` / connection rate use ``call_response == "answered"``.
+    """
+    match = build_call_log_query(org_id, filters)
+    connected_match = {"call_response": "answered"}
+
+    pipeline = [
+        {"$match": match},
+        {
+            "$facet": {
+                "attempted": [{"$count": "count"}],
+                "connected": [
+                    {"$match": connected_match},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "count": {"$sum": 1},
+                            "total_duration": {
+                                "$sum": {"$ifNull": ["$duration", 0]}
+                            },
+                            "average_duration": {"$avg": "$duration"},
+                        }
+                    },
+                ],
+                "by_call_response": [
+                    {
+                        "$group": {
+                            "_id": {"$ifNull": ["$call_response", "unknown"]},
+                            "count": {"$sum": 1},
+                        }
+                    },
+                    {"$sort": {"count": -1}},
+                ],
+            }
+        },
+    ]
+    result = next(iter(get_database()[COLLECTION].aggregate(pipeline)), {})
+
+    attempted = int(next(iter(result.get("attempted") or []), {}).get("count") or 0)
+    connected_row = next(iter(result.get("connected") or []), {})
+    connected = int(connected_row.get("count") or 0)
+    by_call_response: dict[str, int] = {}
+    for row in result.get("by_call_response") or []:
+        key = str(row.get("_id") or "unknown")
+        by_call_response[key] = int(row.get("count") or 0)
+
+    return {
+        "calls_attempted": attempted,
+        "calls_connected": connected,
+        "connection_rate": _connection_rate(attempted, connected),
+        "total_duration_seconds": float(connected_row.get("total_duration") or 0.0),
+        "average_duration_seconds": float(connected_row.get("average_duration") or 0.0),
+        "by_call_response": by_call_response,
+    }
 
 
 def _model_usage_pipeline(stage: str) -> list[dict[str, Any]]:
@@ -444,7 +504,7 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
     this_week_start = (now - timedelta(days=7)).isoformat()
     last_week_start = (now - timedelta(days=14)).isoformat()
 
-    connected_match = {"call_response": CONNECTED_CALL_RESPONSE}
+    connected_match = {"call_response": "answered"}
 
     pipeline = [
         {"$match": _list_query(org_id)},
@@ -481,7 +541,7 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
                             "connected": {
                                 "$sum": {
                                     "$cond": [
-                                        {"$eq": ["$call_response", CONNECTED_CALL_RESPONSE]},
+                                        {"$eq": ["$call_response", "answered"]},
                                         1,
                                         0,
                                     ]
@@ -503,7 +563,7 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
                             "connected": {
                                 "$sum": {
                                     "$cond": [
-                                        {"$eq": ["$call_response", CONNECTED_CALL_RESPONSE]},
+                                        {"$eq": ["$call_response", "answered"]},
                                         1,
                                         0,
                                     ]
@@ -529,11 +589,11 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
 
     this_week = next(iter(result.get("this_week") or []), {})
     last_week = next(iter(result.get("last_week") or []), {})
-    this_week_rate = connection_rate(
+    this_week_rate = _connection_rate(
         int(this_week.get("attempted") or 0), int(this_week.get("connected") or 0)
     )
     last_week_attempted = int(last_week.get("attempted") or 0)
-    last_week_rate = connection_rate(last_week_attempted, int(last_week.get("connected") or 0))
+    last_week_rate = _connection_rate(last_week_attempted, int(last_week.get("connected") or 0))
     trend_vs_last_week_pct = (
         round(this_week_rate - last_week_rate, 1) if last_week_attempted > 0 else None
     )
@@ -561,7 +621,7 @@ def get_org_call_analytics(org_id: str) -> dict[str, Any]:
         "calls_attempted": attempted,
         "calls_connected": connected,
         "calls_failed": max(0, attempted - connected),
-        "connection_rate": connection_rate(attempted, connected),
+        "connection_rate": _connection_rate(attempted, connected),
         "total_duration_seconds": total_duration,
         "average_duration_seconds": average_duration,
         "trend_vs_last_week_pct": trend_vs_last_week_pct,

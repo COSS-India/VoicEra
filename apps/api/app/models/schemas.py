@@ -656,8 +656,6 @@ CallResponse = Literal[
     "failed",
     "cancelled",
 ]
-# Disposition that counts as a successful connection for analytics.
-CONNECTED_CALL_RESPONSE: CallResponse = "answered"
 
 
 class OutboundCallRequest(BaseModel):
@@ -964,7 +962,7 @@ class CampaignProgressResponse(BaseModel):
 
 
 class CampaignAnalyticsResponse(BaseModel):
-    """Campaign-scoped call analytics from CallLogs + progress counters."""
+    """Campaign progress + CallLogs analytics (see ``get_call_analytics``)."""
 
     campaign_id: str
     state: CampaignState
@@ -974,10 +972,6 @@ class CampaignAnalyticsResponse(BaseModel):
     progress_percentage: float = 0.0
     calls_attempted: int = 0
     calls_connected: int = 0
-    calls_busy: int = 0
-    calls_no_answer: int = 0
-    calls_failed: int = 0
-    calls_cancelled: int = 0
     connection_rate: float = 0.0
     total_duration_seconds: float = 0.0
     average_duration_seconds: float = 0.0
