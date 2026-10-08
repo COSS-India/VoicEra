@@ -7,6 +7,7 @@ import { Input, Select, Textarea } from "@/components/ui/Field";
 import { SearchSelect } from "@/components/ui/SearchSelect";
 import { InfoTip } from "@/components/ui/Tooltip";
 import { LanguageSearchSelect } from "@/components/wizard/LanguageSearchSelect";
+import { VoiceSelect } from "@/components/wizard/VoicePreview";
 import type { CatalogField } from "@/lib/catalog-types";
 import { humanizeFieldKey, resolvedModelFields } from "@/lib/catalog-utils";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
@@ -212,6 +213,8 @@ interface AgentStackFieldsProps {
   sections?: StackFieldsSection[];
   /** Extra card rendered after the last section (e.g. the wizard's Delivery section). */
   trailing?: ReactNode;
+  /** The agent's greeting. When passed, each voice gets a play button that speaks it. */
+  welcome?: string;
 }
 
 /**
@@ -224,6 +227,7 @@ export function AgentStackFields({
   catalogs,
   sections = ALL_SECTIONS,
   trailing,
+  welcome,
 }: AgentStackFieldsProps) {
   // catalogs.sttProviders/ttsProviders are re-fetched from /configuration/{stt,tts}
   // every time the selected language(s) change (see useWizardCatalogs). Every
@@ -479,14 +483,13 @@ export function AgentStackFields({
           {voices.length > 0 ? (
             <label className="flex flex-col gap-1.5 text-[13px] font-medium">
               Voice
-              <Select value={value.voice} onChange={(e) => onChange("voice", e.target.value)}>
-                <option value="">Select voice…</option>
-                {voices.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </Select>
+              <VoiceSelect
+                value={value}
+                catalogs={catalogs}
+                voices={voices}
+                onChange={(v) => onChange("voice", v)}
+                welcome={welcome}
+              />
             </label>
           ) : voiceIsFreeText ? (
             <label className="flex flex-col gap-1.5 text-[13px] font-medium">
