@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.auth import get_current_user
+from app.config import settings
 from app.models.schemas import TtsPreviewRequest
 from app.services.tts_preview_service import (
     PREVIEW_MEDIA_TYPE,
@@ -70,3 +71,12 @@ async def preview_tts(
         raise _to_http_error(exc) from exc
 
     return Response(content=audio, media_type=PREVIEW_MEDIA_TYPE)
+
+
+@router.get("/preview/limits")
+async def preview_limits(
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, int]:
+    """Preview limits the UI checks before calling ``POST /tts/preview``, so the
+    server stays the single source of truth for them."""
+    return {"max_chars": settings.TTS_PREVIEW_MAX_CHARS}

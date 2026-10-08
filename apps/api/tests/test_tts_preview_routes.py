@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
+from app.config import settings
 from app.routers import tts_preview
 from app.services.tts_preview_service import TtsPreviewError, TtsPreviewErrorReason
 
@@ -93,3 +94,12 @@ def test_preview_requires_active_org(monkeypatch):
     # Assert
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "no_active_org"
+
+
+def test_preview_limits_returns_configured_max_chars():
+    # Act
+    response = client.get("/api/v1/tts/preview/limits")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == {"max_chars": settings.TTS_PREVIEW_MAX_CHARS}

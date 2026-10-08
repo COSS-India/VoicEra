@@ -137,6 +137,11 @@ export interface TtsPreviewBody {
   text: string;
 }
 
+/** Server-owned preview limits (the single source of truth for them). */
+export async function getPreviewLimits(): Promise<{ max_chars: number }> {
+  return apiFetch<{ max_chars: number }>("/tts/preview/limits");
+}
+
 /** Returns a WAV clip of the unsaved TTS config speaking `text`. */
 export async function previewTts(body: TtsPreviewBody, signal?: AbortSignal): Promise<Blob> {
   // apiFetchBlob doesn't default Content-Type like apiFetch does.
