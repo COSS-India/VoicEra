@@ -86,6 +86,8 @@ async def run_one(client: httpx.AsyncClient, url: str, index: int, prompt: str,
     }
     if args.style:
         payload["style"] = args.style
+    if args.instructions:
+        payload["instructions"] = args.instructions
     if args.max_tokens:
         payload["max_tokens"] = args.max_tokens
     pcm = array.array("h")
@@ -198,6 +200,13 @@ def resolve_voice(base: str, language: str, wanted: str) -> str:
     silently broken. Ask the server instead, and say so plainly when the name is
     not there.
     """
+    if wanted:
+        # Named explicitly: trust it. The roster lookup is a gateway route
+        # (/tts/v1/voices) in Orpheus's per-language shape, so asking for it
+        # would stop this script working against a model container directly,
+        # or against a model whose voices are not per-language (rumik-oss-1).
+        # A wrong name still fails loudly, as the server's own 400.
+        return wanted
     r = httpx.get(f"{base}/tts/v1/voices", params={"language": language}, timeout=10.0)
     r.raise_for_status()
     voices = r.json().get(language, {}).get("voices") or []
@@ -249,6 +258,9 @@ def main() -> None:
                    help="pause between sequential requests (ignored when concurrent)")
     p.add_argument("--voice", default="", help="speaker name; default: first for --language")
     p.add_argument("--style", default="", help="speaking style, or 'none' for no style block")
+    p.add_argument("--instructions", default="",
+                   help="OpenAI `instructions`: rumik-oss-1's delivery description, "
+                        "e.g. 'professional, Hindi accent, steady pace'")
     p.add_argument("--language", default="hi", help="language tag (default hi)")
     p.add_argument("--max-tokens", type=int, default=0,
                    help="cap generated audio tokens, so every request does equal work")

@@ -1,0 +1,200 @@
+# What rumik-oss-1 needs from the slot beyond a build context.
+#
+# Two things, and one deliberate absence.
+#
+# 1. THE WEIGHTS NEED SOMEWHERE TO ARRIVE. The slot mounts only the model folder
+#    itself at /app, so RUMIK_MODEL_PATH=/models/... would point at a path
+#    nothing provides and the load would fail on a missing directory, minutes
+#    into a first start. fetch.sh downloads into this folder's models/ dir; the
+#    mount below is what makes it visible at /models.
+#
+# 2. EVERY KNOB IS DECLARED HERE. Not documentation -- Compose passes a variable
+#    into a container only if the service's `environment:` block names it, so a
+#    value set in .env that is missing from this list is inert: the operator
+#    sets it, restarts, and the code silently keeps the fallback written in
+#    config.py. tests/test_engine_env_surface.py fails the build for exactly
+#    that, and the comment at the top of that file is worth reading before
+#    deleting a line here.
+#
+# THE ABSENCE: HF_HUB_OFFLINE is NOT pinned, unlike tts/orpheus, which pins it
+# to "0" because its SNAC codec lives in a SEPARATE HuggingFace repo that is
+# fetched at startup -- so an .env carrying HF_HUB_OFFLINE=1 for
+# stt/indic-transcribe would hang that container in a socket read. This model's
+# Mimi codec ships INSIDE the same repo, in codec/, which fetch.sh has already
+# put on local disk. So this folder runs correctly airgapped and should inherit
+# whatever the deployment sets. The one case that needs the network is
+# RUMIK_MODEL_PATH naming a HuggingFace repo id instead of a path, which makes
+# the load call snapshot_download; do not combine that with offline mode.
+
+services:
+  tts:
+    # A 20-second utterance is a 20-second generation. The default 10s SIGKILL
+    # cuts in-flight streams mid-word on every deploy; uvicorn drains cleanly
+    # given the room.
+    stop_grace_period: 60s
+    environment:
+      # ---- engine ------------------------------------------------------
+      # vllm or transformers. vLLM is the default and the reason this folder
+      # gained a second backend: the transformers path runs upstream's
+      # hand-written per-token Python loop, measured at ~45 tok/s against the
+      # 100 tok/s one realtime stream needs. It is kept selectable so the two
+      # can be compared rather than argued about -- see the folder README for
+      # the greedy-decode parity check.
+      RUMIK_ENGINE: ${RUMIK_ENGINE:-vllm}
+      # The checkpoint's max_position_embeddings. Prompt and audio share it.
+      RUMIK_MAX_MODEL_LEN: ${RUMIK_MAX_MODEL_LEN:-8192}
+      # A FRACTION OF THE CARD'S TOTAL, reserved at startup and held whether or
+      # not it is needed -- the trap tts/orpheus documents at length, where
+      # upstream's 0.90 would claim ~129 GB of a 143 GB H200 shared with
+      # production. 0.12 is what orpheus settled on for a 3B model on this same
+      # card: ~17 GB, against 6.76 GB of weights, 0.4 GB of codec and KV at
+      # ~72 KB/token, so fifty streams of ~500 tokens is under 2 GB.
+      #
+      # 0.12 IS H200-SPECIFIC. The same fraction is 9.6 GB of an 80 GB card
+      # (fine) and 2.9 GB of a 24 GB one (less than the weights). Size it as
+      # (6.8 GB weights + ~3 GB engine + the KV you want) / card total -- e.g.
+      # ~0.45 on 24 GB, ~0.25 on 48 GB. The server refuses at startup, naming a
+      # working value, when the fraction cannot hold the weights at all.
+      RUMIK_GPU_MEMORY_UTILIZATION: ${RUMIK_GPU_MEMORY_UTILIZATION:-0.12}
+      # vLLM's own batch ceiling. Distinct from RUMIK_MAX_CONCURRENCY, which is
+      # the slot's admission limit: this bounds what the scheduler will run at
+      # once, that bounds what the server will accept.
+      RUMIK_MAX_NUM_SEQS: ${RUMIK_MAX_NUM_SEQS:-64}
+      # false on purpose: CUDA graphs are most of why vLLM is faster than the
+      # loop this replaces. Set true only to debug a suspected graph-capture
+      # problem.
+      RUMIK_ENFORCE_EAGER: ${RUMIK_ENFORCE_EAGER:-false}
+      # Upstream's sigmoid stop head, run in the vLLM model's compute_logits.
+      # On by default because upstream's generate_audio stops on it: without
+      # it the model still emits </audio> by itself, but later (321-369 tokens
+      # against 273-361 on the same prompts), i.e. extra tail audio. false is
+      # for comparing the two. Read by the vLLM worker process itself (see
+      # rumik_vllm_plugin.py), which is why it is an environment variable. No
+      # effect on RUMIK_ENGINE=transformers, which runs upstream's own loop.
+      RUMIK_STOP_HEAD: ${RUMIK_STOP_HEAD:-true}
+
+      # ---- model -------------------------------------------------------
+      # A directory under the mount below, or a HuggingFace repo id -- in which
+      # case the load fetches into HF_HOME instead and the mount goes unused.
+      RUMIK_MODEL_PATH: ${RUMIK_MODEL_PATH:-/models/rumik-oss-1}
+      # The id this server reports at /v1/models and /health. Kept equal to the
+      # folder and catalogue id: the voice pipeline selects a local model by the
+      # name the gateway lists, so three spellings of one model is how a
+      # deployment ends up healthy and unreachable.
+      RUMIK_MODEL_NAME: ${RUMIK_MODEL_NAME:-rumik-oss-1}
+      RUMIK_DEVICE: ${RUMIK_DEVICE:-cuda}
+      # bfloat16 is what the checkpoint was saved in (config.json: dtype
+      # bfloat16). float16 would load and would quietly change the audio.
+      RUMIK_DTYPE: ${RUMIK_DTYPE:-bfloat16}
+      # transformers engine only; vLLM picks its own attention backend.
+      # sdpa is what their own server asks for. 'eager' is the fallback on a
+      # stack where sdpa's kernels are unavailable; flash_attention_2 needs the
+      # package and is unverified here.
+      RUMIK_ATTN_IMPLEMENTATION: ${RUMIK_ATTN_IMPLEMENTATION:-sdpa}
+
+      # ---- capacity, sized for a shared card ---------------------------
+      # The slot's admission limit. Still 1, but NO LONGER for the reason it
+      # was set: that was the transformers loop, which has no batching and ran
+      # one stream at RTF ~2.2. vLLM batches continuously, so this is now the
+      # one thing keeping it to a single stream -- RUMIK_MAX_NUM_SEQS=64 is
+      # unreachable while this is 1. It stays 1 only because the vLLM path has
+      # not been measured yet. Once a single stream shows X-RTF well under 1.0,
+      # raise it and re-measure at each step; the number to watch is per-stream
+      # RTF staying under 1.0, not total throughput. Only affects the
+      # transformers engine as a hard ceiling -- keep it at 1 there.
+      RUMIK_MAX_CONCURRENCY: ${RUMIK_MAX_CONCURRENCY:-1}
+      # ~30 s of speech at a typical 12-15 characters per second, which is the
+      # model card's limit ("training utterances are limited to 30 seconds";
+      # do not exceed ~35 s) and what RUMIK_MAX_NEW_TOKENS_LIMIT allows. 1000
+      # characters was ~70 s of speech: it was accepted and then cut off at the
+      # token cap. A longer input is now a 400 saying so, not truncated audio.
+      RUMIK_MAX_INPUT_CHARS: ${RUMIK_MAX_INPUT_CHARS:-400}
+
+      # ---- server ------------------------------------------------------
+      # PORT is set by the slot, not here; see config.py on why there is no
+      # RUMIK_PORT.
+      RUMIK_HOST: ${RUMIK_HOST:-0.0.0.0}
+      RUMIK_LOG_LEVEL: ${RUMIK_LOG_LEVEL:-INFO}
+      RUMIK_CORS_ORIGINS: ${RUMIK_CORS_ORIGINS:-}
+
+      # ---- synthesis defaults ------------------------------------------
+      # Restated from the model card's recommended settings (temperature 0.8,
+      # top_k 30, top_p 1.0, at most 3072 tokens) rather than inherited from
+      # their server.py, which is not the file this deployment runs. top_p 1.0
+      # is vLLM's default and so not a knob.
+      RUMIK_DEFAULT_VOICE: ${RUMIK_DEFAULT_VOICE:-Ira}
+      # Empty means no <description=...> prefix at all, which is NOT the same as
+      # an empty description -- the model would condition on that. Set a house
+      # style here (e.g. "neutral, steady pace") to give every caller one by
+      # default.
+      RUMIK_DEFAULT_INSTRUCTIONS: ${RUMIK_DEFAULT_INSTRUCTIONS:-}
+      RUMIK_TEMPERATURE: ${RUMIK_TEMPERATURE:-0.8}
+      RUMIK_TOP_K: ${RUMIK_TOP_K:-30}
+      # Their server's floor. Below one frame's worth of tokens the stop head
+      # can fire before any complete frame exists and the response is empty.
+      RUMIK_MIN_NEW_TOKENS: ${RUMIK_MIN_NEW_TOKENS:-8}
+      # Eight tokens make one 80 ms frame, so 3072 is ~30.7 s of speech -- the
+      # model card's stated maximum. It is a ceiling, not a target: the stop
+      # head ends each utterance on its own. The cap is also bounded at request
+      # time by what is left of the 8192-position context after the prompt.
+      # Hitting it is logged, and reported as X-Truncated / SSE `truncated`.
+      RUMIK_MAX_NEW_TOKENS_DEFAULT: ${RUMIK_MAX_NEW_TOKENS_DEFAULT:-3072}
+      RUMIK_MAX_NEW_TOKENS_LIMIT: ${RUMIK_MAX_NEW_TOKENS_LIMIT:-3072}
+
+      # ---- streaming decode --------------------------------------------
+      # Emit every 2 frames = 160 ms of audio. Smaller chunks cut
+      # time-to-first-audio; the decoder is stateful (streaming.py), so a chunk
+      # costs the same however far into an utterance it is, and its audio
+      # equals a one-shot decode. There is no context window to tune.
+      RUMIK_DECODE_CHUNK_FRAMES: ${RUMIK_DECODE_CHUNK_FRAMES:-2}
+      # Set to cpu to keep the codec off the GPU. It is small (384 MB) and the
+      # decode is short, so this mostly trades GPU memory for a PCIe copy per
+      # chunk.
+      RUMIK_DECODER_DEVICE: ${RUMIK_DECODER_DEVICE:-cuda}
+      # Mimi's precision, separate from the backbone's RUMIK_DTYPE. Measured on
+      # ace-h200 with check_streaming.py, real speech, against a float32
+      # one-shot decode: bfloat16 is 2.5% peak / 0.15% rms off (upstream's own
+      # server decodes in bfloat16), float32 streaming 0.06% / 0.005%. The cost
+      # is ~nothing: one batched step at 128 streams is 17.5 ms in float32
+      # against 16.4 ms in bfloat16. Hence float32.
+      RUMIK_DECODER_DTYPE: ${RUMIK_DECODER_DTYPE:-float32}
+      # Most windows one batched Mimi call decodes. Every stream's chunk goes
+      # to one shared decoder, which decodes whatever has queued together, so
+      # this is the ceiling on streams served per decode call, not a queue
+      # length. Keep it at or above RUMIK_MAX_CONCURRENCY: below it, a burst
+      # takes more than one call per round. Each width up to it is run once at
+      # startup, so the first real burst at a new size does not pay for it.
+      # Decoder state is held per admitted stream (RUMIK_MAX_CONCURRENCY
+      # slots), ~4 MB each in bf16 for the transformer's KV ring buffer.
+      RUMIK_DECODER_MAX_BATCH: ${RUMIK_DECODER_MAX_BATCH:-64}
+
+      # ---- warmup ------------------------------------------------------
+      # One short synthesis at startup. It also proves the sampling tap that
+      # streaming and cancellation both depend on is still wired -- see
+      # engine.install_tap. Disabling it moves that check to the first real
+      # request, where a broken tap looks like a wedged GPU.
+      #
+      # 256 rather than 32, because the cold-context cliff is real and measured:
+      # the first generation runs at 12.5 tok/s and settles at ~45 by the
+      # second. 32 tokens did not establish the context, so the first caller
+      # paid 50 s for a 6 s utterance. This costs ~20 s of container start
+      # instead.
+      RUMIK_WARMUP_ENABLED: ${RUMIK_WARMUP_ENABLED:-true}
+      RUMIK_WARMUP_TOKENS: ${RUMIK_WARMUP_TOKENS:-256}
+      # Concurrency widths vLLM is run at once each before traffic (vllm
+      # engine only; widths above RUMIK_MAX_CONCURRENCY / RUMIK_MAX_NUM_SEQS are
+      # skipped). Without it the first wave to reach a new width waited ~2.2 s
+      # for first audio on ace-h200. Same idea as ORPHEUS_WARMUP_WIDTHS.
+      RUMIK_WARMUP_WIDTHS: ${RUMIK_WARMUP_WIDTHS:-1,2,4,8,16,24,32,48,64,96,128}
+    volumes:
+      # Read-only: nothing in this stack should ever write a checkpoint. The
+      # path resolves against --project-directory (model-server/), NOT against
+      # this file -- see the note in stt/indic-transcribe/compose.extra.yml,
+      # which learned that the hard way.
+      - ${RUMIK_MODELS_DIR:-./tts/rumik-oss-1/models}:/models:ro
+      # The slot mounts hf_cache at /root/.cache/huggingface, which this image
+      # cannot use: HF_HOME is /hf-cache and the container runs as uid 1000, so
+      # /root is not writable by it. Mounting the same volume where this image
+      # actually reads means anything it does fetch survives a restart instead
+      # of landing in the container layer.
+      - hf_cache:/hf-cache

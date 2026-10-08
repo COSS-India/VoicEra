@@ -133,6 +133,53 @@ tts:
       picks the language, so `voice` and `language` are not independent.
       Running on ace-h200 GPU 1, on the bodhan-ai/indic-speak checkpoint (the released model; the deployment was on indic-speak-preview-v2 before). Decoded with SNAC's own decoder -- the release ships a fine-tuned Vocos decoder it was actually tuned for, which is not wired up yet.
 
+  - id: rumik-oss-1
+    name: Rumik OSS-1 3B
+    status: ready
+    runtime: vllm                  # RUMIK_ENGINE=transformers keeps upstream's loop as the reference
+    sample_rate: 24000
+    audio_format: pcm              # OpenAI's 16-bit LE mono, like orpheus
+    streaming: true                # chunked while generating, and SSE audio deltas
+    license: cc-by-nc-4.0          # NON-COMMERCIAL. See the note below.
+    voice: {presets: [Ira, Aisha, Siya, Zoya], free_text_description: true, cloning: false}
+    languages: [22 Indian languages, en]
+    notes: >-
+      Cohere2-style 3B backbone emitting Mimi codec tokens, eight per frame at
+      12.5 Hz -- so eight tokens are one 80 ms frame and realtime is 100 tokens
+      per second of speech. The Mimi decoder ships inside the same repo, so
+      unlike orpheus this folder needs no second HuggingFace repo at startup and
+      runs airgapped once fetch.sh has run. Repo is public, not gated.
+      Every voice covers every language, which is the real difference from
+      orpheus, where the speaker name selects the language and `voice` and
+      `language` are therefore not independent. Delivery is a free-text
+      description -- emotion, accent, pace -- carried on `instructions`, as with
+      indic-parler.
+      LICENCE IS CC-BY-NC-4.0 with an acceptable-use addendum: research and
+      non-commercial use only, and a commercial deployment needs separate
+      permission from Rumik. This is the only model in this catalogue with that
+      restriction, which is why `license` appears here at all.
+      MEASURED ON THE TRANSFORMERS ENGINE, and that does not reach realtime. On ace-h200 GPU 1 (H200 NVL,
+      Exclusive Process behind the shared MPS daemon), 15 Sep 2026: ~45 tok/s
+      warm (43.1-48.9 over three runs), RTF 2.05-2.33, time-to-first-audio
+      ~370 ms. Realtime needs 100 tok/s, so this is about 2.2x too slow to hold
+      a live call -- audio starts promptly and then underruns. The first
+      generation after a cold context runs at 12.5 tok/s (RTF 8.0), which is
+      what the 256-token warmup exists to absorb.
+      The cost is upstream's decode loop, not the slot: one 3B forward per token
+      in Python, eager, no CUDA graphs, no continuous batching. Running
+      `generate_audio` directly with no server, no tap and no streaming decode
+      reproduces the same 45 tok/s to the decimal, so the slot's layer adds no
+      measurable overhead. The vLLM engine (now the default) is the fix: vLLM's
+      own Cohere2 plus a plugin carrying upstream's stop head and the
+      audio-vocabulary mask, sampled at the card's settings (t 0.8, top_k 30,
+      top_p 1.0, <= 3072 tokens). It loads and captures CUDA graphs on the
+      H200 but has NOT yet produced a measured utterance, nor been compared
+      against the transformers reference -- so until it has, treat this as demo
+      and evaluation grade, and RUMIK_MAX_CONCURRENCY stays 1.
+      Mimi is decoded as a streaming codec (streaming.py): per-stream KV and
+      conv state, a fixed cost per chunk, audio equal to a one-shot decode. The
+      windowed decode it replaced was measured 6.7% off at its 32-frame default.
+
   - id: omnivoice
     name: k2-fsa OmniVoice 0.6B
     status: planned

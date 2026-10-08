@@ -1,0 +1,27 @@
+# This folder is pip-installed in the image for one reason: the vLLM plugin
+# entry point below.
+#
+# vLLM runs its EngineCore in a spawned process (it says so at startup:
+# "We must use the `spawn` multiprocessing start method ... CUDA is
+# initialized"), so a ModelRegistry.register_model() call in the server process
+# is invisible to the worker that actually loads the model. Entry points in the
+# vllm.general_plugins group are loaded by every vLLM process instead.
+#
+# Nothing else here depends on being installed -- server.py, engine.py and the
+# rest are bind-mounted and take effect on a container restart. Only this
+# registration needs the rebuild.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rumik-vllm-plugin"
+version = "0.1.0"
+description = "Registers rumik-oss-1 with vLLM as Cohere2, dropping the unused stop head"
+requires-python = ">=3.12"
+
+[project.entry-points."vllm.general_plugins"]
+rumik_oss = "rumik_vllm_plugin:register"
+
+[tool.setuptools]
+py-modules = ["rumik_vllm_plugin"]
