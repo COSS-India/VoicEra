@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from test_call_artifacts import (
     _CALL_STORE,
     _FakeCollection,
@@ -292,3 +293,49 @@ def test_get_call_metrics_prefers_explicit_stage(
 
     assert response.status_code == 200
     assert response.json()["summary"]["avg_tts_secs"] == 0.33
+
+
+@_patch_metrics_db("app.services.call_metrics_service.get_database")
+@_patch_metrics_db("app.services.call_log_service.get_database")
+def test_get_call_metrics_averages_first_breakdown_per_turn(
+    _call_log_db: MagicMock,
+    _metrics_db: MagicMock,
+) -> None:
+    """Mirrors the frontend's normalizeCallMetrics: a stray second breakdown
+    in the same turn (e.g. the bot resuming after a sub-threshold
+    backchannel) must not skew the averages. Legacy breakdowns without
+    turn_number still all count."""
+
+    def tts_breakdown(secs: float, turn_number: int | None = None) -> dict[str, Any]:
+        breakdown: dict[str, Any] = {
+            "ttfb": [{"processor": "X#1", "stage": "tts", "duration_secs": secs}],
+            "user_turn_start_time": 1.0,
+        }
+        if turn_number is not None:
+            breakdown["turn_number"] = turn_number
+        return breakdown
+
+    _CALL_STORE.clear()
+    _METRICS_STORE.clear()
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _METRICS_STORE["call-abc-123"] = _sample_metrics_doc(
+        latencies={
+            "breakdowns": [
+                tts_breakdown(0.2, 2),
+                tts_breakdown(0.9, 2),
+                tts_breakdown(0.4, 3),
+            ]
+        }
+    )
+    client = _make_client()
+
+    response = client.get("/api/v1/calls/call-abc-123/metrics")
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["avg_tts_secs"] == pytest.approx(0.3)
+
+    _METRICS_STORE["call-abc-123"] = _sample_metrics_doc(
+        latencies={"breakdowns": [tts_breakdown(0.2), tts_breakdown(0.4)]}
+    )
+    response = client.get("/api/v1/calls/call-abc-123/metrics")
+    assert response.json()["summary"]["avg_tts_secs"] == pytest.approx(0.3)

@@ -227,8 +227,9 @@ export interface CallMetricsTtfbEntry {
   stage?: "stt" | "llm" | "tts";
 }
 
-/** breakdowns[] aligns positionally with turns[] (breakdowns[i] ↔ turn_number i+1).
- * A null user_turn_start_time means the entry is bot-initiated speech (e.g. an
+/** One per bot utterance that answered a user stop (or the greeting); matched
+ * to turns[] by turn_number (positionally on legacy docs without it). A null
+ * user_turn_start_time means the entry is bot-initiated speech (e.g. an
  * opening greeting), not a real user turn. */
 export interface CallMetricsBreakdown {
   ttfb: CallMetricsTtfbEntry[];
@@ -236,6 +237,9 @@ export interface CallMetricsBreakdown {
   user_turn_start_time?: number | null;
   user_turn_secs?: number | null;
   function_calls?: unknown[];
+  /** Turn the breakdown was recorded in. Absent on docs written before the
+   * runtime started stamping it — those fall back to positional matching. */
+  turn_number?: number | null;
 }
 
 export interface CallMetricsResponse {

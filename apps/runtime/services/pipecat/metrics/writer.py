@@ -45,6 +45,7 @@ class CallMetricsWriter:
         self._flushed = False
         self._transport: dict[str, Any] | None = None
         self._turns: list[dict[str, Any]] = []
+        self._current_turn: int | None = None
         self._latencies: dict[str, Any] = {
             "first_bot_speech_secs": None,
             "user_to_bot_secs": [],
@@ -72,6 +73,7 @@ class CallMetricsWriter:
         }
 
     def record_turn_started(self, turn_number: int) -> None:
+        self._current_turn = turn_number
         self._turns.append({"turn_number": turn_number, "started": True})
 
     def record_turn_ended(
@@ -96,7 +98,10 @@ class CallMetricsWriter:
 
     def record_latency_breakdown(self, breakdown: Any) -> None:
         payload = _model_to_dict(breakdown)
-        if isinstance(payload, dict) and self._processor_stages:
+        if isinstance(payload, dict):
+            # Breakdowns fire per bot utterance, turns per user utterance, so
+            # the two lists don't line up by index — record the owning turn.
+            payload["turn_number"] = self._current_turn
             for entry in payload.get("ttfb") or []:
                 if not isinstance(entry, dict):
                     continue

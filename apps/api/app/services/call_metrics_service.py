@@ -136,15 +136,24 @@ def _average(values: list[float]) -> float | None:
 def _with_avg_latency(doc: dict[str, Any]) -> dict[str, Any]:
     """Adds avg_stt_secs/avg_tts_secs/avg_llm_secs/avg_latency_secs to
     ``summary``, computed from the per-turn ttfb breakdowns (mirrors the
-    frontend's normalizeCallMetrics so both surfaces agree) — bot-initiated
-    turns with no real user turn are excluded, same as there. avg_latency_secs
-    is the sum of avg_llm_secs and avg_tts_secs (STT excluded), using
-    whichever of those two are actually available."""
+    frontend's normalizeCallMetrics so both surfaces agree) — only the first
+    breakdown per turn_number counts, and bot-initiated turns with no real
+    user turn are excluded, same as there. avg_latency_secs is the sum of
+    avg_llm_secs and avg_tts_secs (STT excluded), using whichever of those two
+    are actually available."""
     breakdowns = (doc.get("latencies") or {}).get("breakdowns") or []
     stt_values: list[float] = []
     tts_values: list[float] = []
     llm_values: list[float] = []
+    seen_turns: set[Any] = set()
     for breakdown in breakdowns:
+        # Docs written before the runtime stamped turn_number have none; each
+        # of their breakdowns counts on its own (positional in the frontend).
+        turn_number = breakdown.get("turn_number")
+        if turn_number is not None:
+            if turn_number in seen_turns:
+                continue
+            seen_turns.add(turn_number)
         if breakdown.get("user_turn_start_time") is None:
             continue
         stt = _stage_secs_from_breakdown(breakdown, "stt")
