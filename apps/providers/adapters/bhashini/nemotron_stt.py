@@ -210,6 +210,7 @@ class BhashiniNemotronSTTService(STTService):
                     if t.is_final:
                         self._pending_final = text
                         if self._flush_event is not None:
+                            self.confirm_finalize()
                             self._flush_event.set()
                         if text:
                             await self.stop_ttfb_metrics()
@@ -281,6 +282,7 @@ class BhashiniNemotronSTTService(STTService):
             event = asyncio.Event()
             self._flush_event = event
             try:
+                self.request_finalize()
                 await self._enqueue(_COMMIT)
                 try:
                     await asyncio.wait_for(event.wait(), timeout=5.0)
