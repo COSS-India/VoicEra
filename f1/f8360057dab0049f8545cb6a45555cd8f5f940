@@ -1,0 +1,23 @@
+apps/api/app/routers/calls.py
+  s_c6dc94dd9f0bb8::t_f31cc7984201b4 326-327
+apps/api/app/services/call_metrics_service.py
+  s_c6dc94dd9f0bb8::t_f31cc7984201b4 38-50,58,63-75,82
+apps/api/tests/test_call_metrics.py
+  s_c6dc94dd9f0bb8::t_f31cc7984201b4 145-149,154-169,176,206-230,382-402
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f1f8360057dab0049f8545cb6a45555cd8f5f940",
+  "prompts": {},
+  "sessions": {
+    "s_c6dc94dd9f0bb8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "62ab6ed1-3e46-46e9-bcd8-869474b26e6c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
