@@ -142,23 +142,38 @@ def test_put_call_metrics_backfills_empty_placeholder(
     _call_log_db: MagicMock,
     _metrics_db: MagicMock,
 ) -> None:
-    """A reconnect can leave a transport-only doc with no turns/breakdowns
-    (e.g. the WS dropped before any turn completed). The real metrics from
-    the run that actually finished the call must still land, not be
-    silently discarded by write-once — see upsert_call_metrics."""
+    """A reconnect can leave a placeholder doc from a run that dropped before
+    the caller was answered. It still has turns (the runtime opens turn 1 on
+    StartFrame) and maybe a greeting breakdown, but no user→bot latency. The
+    real metrics from the run that actually finished the call must still
+    land, not be silently discarded by write-once — see upsert_call_metrics."""
     _CALL_STORE.clear()
     _METRICS_STORE.clear()
     _CALL_STORE["call-abc-123"] = _sample_call_doc()
     _METRICS_STORE["call-abc-123"] = _sample_metrics_doc(
-        summary={"turn_count": 0, "interrupted_turn_count": 0},
-        turns=[],
-        latencies={},
+        summary={"turn_count": 1, "interrupted_turn_count": 1},
+        turns=[
+            {"turn_number": 1, "started": True},
+            {"turn_number": 1, "duration_secs": 4.2, "was_interrupted": True},
+        ],
+        latencies={
+            "first_bot_speech_secs": 0.3,
+            "user_to_bot_secs": [],
+            "breakdowns": [
+                {
+                    "ttfb": [{"processor": "RayaTTSService#1", "duration_secs": 0.2}],
+                    "user_turn_start_time": None,
+                    "turn_number": 1,
+                }
+            ],
+        },
     )
     client = _make_client()
     real_metrics = {
         "summary": {"turn_count": 2},
         "turns": [{"turn_number": 1, "duration_secs": 9.0, "was_interrupted": False}],
         "latencies": {
+            "user_to_bot_secs": [1.4],
             "breakdowns": [
                 {
                     "ttfb": [
@@ -185,6 +200,31 @@ def test_put_call_metrics_backfills_empty_placeholder(
         json={"summary": {"turn_count": 99}, "turns": [], "latencies": {}},
     )
     assert response2.status_code == 200
+    assert _METRICS_STORE["call-abc-123"]["summary"]["turn_count"] == 2
+
+
+@_patch_metrics_db("app.services.call_metrics_service.get_database")
+@_patch_metrics_db("app.services.call_log_service.get_database")
+def test_put_call_metrics_keeps_richer_stored_doc(
+    _call_log_db: MagicMock,
+    _metrics_db: MagicMock,
+) -> None:
+    """A later run with fewer answered user turns must not replace the run
+    that carried more of the conversation."""
+    _CALL_STORE.clear()
+    _METRICS_STORE.clear()
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _METRICS_STORE["call-abc-123"] = _sample_metrics_doc()  # 2 answered turns
+    client = _make_client()
+    poorer = {
+        "summary": {"turn_count": 99},
+        "turns": [{"turn_number": 1, "duration_secs": 3.0, "was_interrupted": False}],
+        "latencies": {"user_to_bot_secs": [0.8]},
+    }
+
+    response = client.put("/api/v1/calls/call-abc-123/metrics", json=poorer)
+
+    assert response.status_code == 200
     assert _METRICS_STORE["call-abc-123"]["summary"]["turn_count"] == 2
 
 
@@ -339,3 +379,24 @@ def test_get_call_metrics_averages_first_breakdown_per_turn(
     )
     response = client.get("/api/v1/calls/call-abc-123/metrics")
     assert response.json()["summary"]["avg_tts_secs"] == pytest.approx(0.3)
+
+
+@_patch_metrics_db("app.services.call_metrics_service.get_database")
+@_patch_metrics_db("app.services.call_log_service.get_database")
+def test_put_call_metrics_tolerates_malformed_user_to_bot_secs(
+    _call_log_db: MagicMock,
+    _metrics_db: MagicMock,
+) -> None:
+    _CALL_STORE.clear()
+    _METRICS_STORE.clear()
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _METRICS_STORE["call-abc-123"] = _sample_metrics_doc()
+    client = _make_client()
+
+    response = client.put(
+        "/api/v1/calls/call-abc-123/metrics",
+        json={"summary": {"turn_count": 99}, "latencies": {"user_to_bot_secs": 7}},
+    )
+
+    assert response.status_code == 200
+    assert _METRICS_STORE["call-abc-123"]["summary"]["turn_count"] == 2
