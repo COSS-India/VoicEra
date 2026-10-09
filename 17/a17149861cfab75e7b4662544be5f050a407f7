@@ -1,0 +1,23 @@
+apps/providers/tests/test_stt_finalize.py
+  s_c6dc94dd9f0bb8::t_0fc68bbc6bc604 1-125
+apps/providers/adapters/bhashini/nemotron_stt.py
+  s_c6dc94dd9f0bb8::t_28171047a2bbd8 213,285
+apps/providers/local/indic_nemotron/stt.py
+  s_c6dc94dd9f0bb8::t_0e3487812d61eb 182,224
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "17a17149861cfab75e7b4662544be5f050a407f7",
+  "prompts": {},
+  "sessions": {
+    "s_c6dc94dd9f0bb8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "62ab6ed1-3e46-46e9-bcd8-869474b26e6c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
