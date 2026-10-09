@@ -1,0 +1,27 @@
+apps/runtime/tests/test_turns.py
+  s_98cd7e0c1d1e07::t_be2e5586c64eff 1-113,117-170
+  s_98cd7e0c1d1e07::t_1b4d24b30cee3f 114-116
+apps/runtime/services/pipecat/turns.py
+  s_98cd7e0c1d1e07::t_5f5182a09a3897 1-28
+apps/runtime/services/pipecat/factory.py
+  s_98cd7e0c1d1e07::t_dfd4107a72288e 111-112,119-122
+  s_98cd7e0c1d1e07::t_e1303aa64cbf04 35
+  s_98cd7e0c1d1e07::t_6d645c91514dac 8
+  s_98cd7e0c1d1e07::t_9598e5c305e9c3 123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f86925aa68bf8f0b96548597361d8966be1b5738",
+  "prompts": {},
+  "sessions": {
+    "s_98cd7e0c1d1e07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6d8f65e7-ec0a-4f57-bdf2-3a5e0129ff8f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
