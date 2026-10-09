@@ -1,0 +1,23 @@
+apps/runtime/tests/test_call_metrics_observers.py
+  s_c6dc94dd9f0bb8::t_a59d4c448db5f1 18,49-54,66,105-113,115-161,180,182
+apps/runtime/services/pipecat/metrics/LATENCY_FIX_NOTES.md
+  s_c6dc94dd9f0bb8::t_a59d4c448db5f1 116,119-127
+apps/runtime/services/pipecat/metrics/observers.py
+  s_c6dc94dd9f0bb8::t_a59d4c448db5f1 15-19,54-69,93-99,102,105,108-123,125,130-141,191,193-194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "958172aa3d712988a22c6618a88b0baf2d47eb9c",
+  "prompts": {},
+  "sessions": {
+    "s_c6dc94dd9f0bb8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "62ab6ed1-3e46-46e9-bcd8-869474b26e6c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
