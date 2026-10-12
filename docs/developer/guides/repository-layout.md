@@ -112,7 +112,7 @@ apps/providers/
 ├── readme.md
 ├── cloud/          22 vendor folders → provider_type=cloud
 ├── adapters/       bhashini · kenpath → provider_type=adapter
-├── local/          indic_nemotron (STT) · indic_orpheus (TTS) → provider_type=local
+├── local/          indic_conformer · indic_nemotron · indic_transcribe (STT) · indic_mio · indic_orpheus · indic_parler · rumik_oss (TTS) → provider_type=local
 └── tests/          5 test modules
 ```
 
