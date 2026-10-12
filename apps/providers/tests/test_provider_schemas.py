@@ -34,7 +34,7 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 def test_union_variant_counts_match_registry():
     assert len(_union_variants(STTConfig)) == 15
-    assert len(_union_variants(TTSConfig)) == 17
+    assert len(_union_variants(TTSConfig)) == 18
     assert len(_union_variants(LLMConfig)) == 10
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
@@ -579,6 +579,54 @@ def test_indic_parler_tts_registered(monkeypatch):
 
     no_speaker = TTS_CREATORS["indic_parler"](IndicParlerTTSConfig(language="ur", voice=""))
     assert no_speaker._voice is None
+
+
+def test_indic_mio_tts_registered(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.indic_mio.catalog import (
+        SAMPLE_RATE,
+        TTS_CAPABILITIES,
+        TTS_VOICES,
+    )
+    from apps.providers.local.indic_mio.config import IndicMioTTSConfig
+    from apps.providers.local.indic_mio.tts import IndicMioTTSService
+    from apps.providers.scoped_settings import CAPABILITIES_KEY
+
+    monkeypatch.setenv("MODEL_SERVER_URL", "http://host.docker.internal:8100/v1")
+
+    schema = provider_schemas(Kind.TTS)["indic_mio"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Indic-Mio"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    # The server ignores instructions, so there is no field pretending otherwise.
+    assert "style" not in schema["fields"]
+    assert model_ids(TTS_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    codes = lang["language_codes"]["indic-mio"]
+    assert len(codes) == 23
+    assert codes["od"] == "or"
+    assert "en" in lang["examples"]
+
+    settings = schema[CAPABILITIES_KEY]["indic-mio"]["settings"]
+    # Same five voices under every language; the default follows the accent.
+    for canonical in codes:
+        assert settings[canonical]["voice"]["options"] == list(TTS_VOICES)
+        assert set(settings[canonical]) == {"voice"}
+    assert settings["hi"]["voice"]["default"] == "Aditi"
+    assert settings["ta"]["voice"]["default"] == "Meera"
+    assert settings["bn"]["voice"]["default"] == "Ananya"
+    assert settings["te"]["voice"]["default"] == "Arjun"
+    assert settings["mr"]["voice"]["default"] == "Aditi"
+
+    svc = TTS_CREATORS["indic_mio"](IndicMioTTSConfig(language="ta", voice="Meera"))
+    assert isinstance(svc, IndicMioTTSService)
+    assert svc._voice == "Meera"
+    assert not hasattr(svc, "_style")
+    assert svc._init_sample_rate == SAMPLE_RATE == 44100
 
 
 def test_indic_nemotron_stt_registered(monkeypatch):
