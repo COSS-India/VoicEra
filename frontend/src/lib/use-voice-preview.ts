@@ -2,15 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, previewTts, type TtsPreviewBody } from "@/lib/api-client";
-import { PREVIEW_MAX_CHARS } from "@/lib/voice-preview-text";
 
 // Keyed by the server's error `code` (apps/api/app/routers/tts_preview.py),
 // not status: 400 and 422 each cover several reasons. The server's message is
 // developer-facing, so it's never shown. 401 never lands here — apiFetchBlob
 // already clears the session and redirects.
 const PREVIEW_ERROR_MESSAGES: Record<string, string> = {
-  empty_text: "Enter some text to generate a preview.",
-  oversized: `Preview text is limited to ${PREVIEW_MAX_CHARS} characters.`,
+  empty_text: "Add a greeting on the Agent step to preview voices.",
+  oversized: "The greeting is too long to preview.",
   invalid_config: "This voice configuration isn't valid. Check the voice settings.",
   unsupported_voice: "Preview is not available for this voice.",
   not_configured: "Connect this provider first.",
