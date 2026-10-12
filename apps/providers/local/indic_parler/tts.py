@@ -98,13 +98,16 @@ class IndicParlerTTSService(TTSService):
 
         # response_format is pinned to pcm (16-bit): the server's default is
         # float32, which Pipecat would misread as 16-bit noise.
+        # voice is always sent: the OpenAI SDK makes it a required keyword.
+        # An empty string is what "no named speaker" looks like on the wire --
+        # the server's description() treats it exactly like a missing voice
+        # and prompts with the instructions alone.
         create_params: dict = {
             "input": text,
             "model": self._model,
+            "voice": self._voice or "",
             "response_format": "pcm",
         }
-        if self._voice:
-            create_params["voice"] = self._voice
         if self._style:
             create_params["instructions"] = self._style
 
