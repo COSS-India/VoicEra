@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
@@ -31,6 +32,7 @@ from apps.runtime.services.pipecat.call_ending import configure_call_ending
 from apps.runtime.services.language_switch.tools import configure_language_switching
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
+from apps.runtime.services.pipecat.turns import FinalizedTranscriptUserTurnStopStrategy
 from apps.runtime.services.pipecat.vad import vad_params_from_behaviour
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
@@ -106,11 +108,18 @@ def build_pipeline_components(
     # > 0 → replace default start strategies with MinWords (STT word count).
     # Leaving strategies unset would keep Pipecat's default, which also includes
     # TranscriptionUserTurnStartStrategy — still word/transcript based.
+    # MinWords starts the turn on a transcript after VAD stop, so the stop
+    # strategy must release on a finalized transcript (see turns.py).
     if config.interruption_min_words > 0:
         user_params.user_turn_strategies = UserTurnStrategies(
             start=[
                 MinWordsUserTurnStartStrategy(
                     min_words=config.interruption_min_words
+                )
+            ],
+            stop=[
+                FinalizedTranscriptUserTurnStopStrategy(
+                    turn_analyzer=LocalSmartTurnAnalyzerV3()
                 )
             ],
         )
