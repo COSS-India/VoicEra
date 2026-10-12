@@ -24,7 +24,8 @@ several subsystems are new.
   drive the `/configuration/*` endpoints, so adding a vendor never means editing
   a central if/elif chain. 22 cloud vendors, the Bhashini (STT/TTS) and Kenpath
   (LLM) adapters, and local providers — `indic_orpheus` and `rumik_oss` (TTS),
-  `indic_nemotron` and `indic_conformer` (STT) — reached through the model
+  `indic_nemotron`, `indic_conformer` and
+  `indic_transcribe` (STT) — reached through the model
   server gateway instead of stored credentials. Kenpath and its Bharat Vistaar variant detect their own
   "goodbye" end-of-call signal in streamed LLM text, strip it before TTS speaks
   the chunk, and end the pipeline — a provider-specific mechanism alongside the

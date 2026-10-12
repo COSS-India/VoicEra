@@ -33,7 +33,7 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 
 def test_union_variant_counts_match_registry():
-    assert len(_union_variants(STTConfig)) == 14
+    assert len(_union_variants(STTConfig)) == 15
     assert len(_union_variants(TTSConfig)) == 16
     assert len(_union_variants(LLMConfig)) == 10
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
@@ -621,6 +621,60 @@ def test_indic_conformer_stt_creator(monkeypatch):
     assert svc._wire_language == "or"
     assert str(svc._settings.language) == "or"
     assert svc._settings.model == "indic-conformer"
+    assert svc._server_vad_enabled is False
+
+
+def test_indic_transcribe_stt_registered(monkeypatch):
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.indic_transcribe.catalog import (
+        STT_CAPABILITIES,
+        resolve_realtime_url,
+        resolve_wire_language,
+    )
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
+    )
+
+    schema = provider_schemas(Kind.STT)["indic_transcribe"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Indic Transcribe"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    assert model_ids(STT_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    codes = lang["language_codes"]["indic-transcribe"]
+    assert len(codes) == 25
+    assert codes["od"] == "or"
+    assert codes["bh"] == "bhb"
+    for canonical in ("hi", "bho", "en", "sd"):
+        assert canonical in lang["examples"]
+    # Advertised upstream but absent from the checkpoint's vocabulary.
+    assert "hne" not in lang["examples"]
+    assert "bgc" not in lang["examples"]
+    assert "multi" not in lang["examples"]
+
+    assert resolve_wire_language("indic-transcribe", "od") == "or"
+    assert resolve_realtime_url() == "ws://host.docker.internal:8100/v1/realtime"
+
+
+def test_indic_transcribe_stt_creator(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.local.indic_transcribe.config import IndicTranscribeSTTConfig
+    from apps.providers.local.indic_transcribe.stt import IndicTranscribeSTTService
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
+    )
+
+    svc = STT_CREATORS["indic_transcribe"](IndicTranscribeSTTConfig(language="bh"))
+    assert isinstance(svc, IndicTranscribeSTTService)
+    assert svc._base_url == "ws://host.docker.internal:8100/v1/realtime"
+    assert svc._wire_language == "bhb"
+    assert str(svc._settings.language) == "bhb"
+    assert svc._settings.model == "indic-transcribe"
     assert svc._server_vad_enabled is False
 
 
