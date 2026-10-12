@@ -1,9 +1,16 @@
 import type { CallLogItem, CallType } from "@/lib/api-types";
+import type { CallListQuery } from "@/lib/api/calls";
 
 export type DatePreset = "all" | "today" | "7d" | "30d" | "custom";
 
 /** Dograh-style range: real Date objects with local day bounds. */
 export type DateRangeValue = { from: Date | null; to: Date | null };
+
+/** History campaign scope: all calls, one-off only, or a specific campaign. */
+export type CampaignScope =
+  | { mode: "all" }
+  | { mode: "one_off" }
+  | { mode: "campaign"; campaignId: string };
 
 export function isoDate(d: Date): string {
   const y = d.getFullYear();
@@ -59,6 +66,44 @@ export function callTimeMs(call: CallLogItem): number {
   return Number.isFinite(ts) ? ts : 0;
 }
 
+/** Convert local Date bounds to ISO strings for the CallLogs created_at filter. */
+export function rangeToApiBounds(range: DateRangeValue | null): {
+  created_after?: string;
+  created_before?: string;
+} {
+  if (!range?.from || !range?.to) return {};
+  return {
+    created_after: range.from.toISOString(),
+    created_before: range.to.toISOString(),
+  };
+}
+
+export function buildHistoryListQuery(opts: {
+  range: DateRangeValue | null;
+  type: "all" | CallType;
+  status: string;
+  agentId: string;
+  campaignScope: CampaignScope;
+  limit?: number;
+  offset?: number;
+}): CallListQuery {
+  const dates = rangeToApiBounds(opts.range);
+  const query: CallListQuery = {
+    limit: opts.limit,
+    offset: opts.offset,
+    ...dates,
+  };
+  if (opts.type !== "all") query.call_type = opts.type;
+  if (opts.status !== "all") query.status = opts.status;
+  if (opts.agentId) query.agent_id = opts.agentId;
+  if (opts.campaignScope.mode === "one_off") {
+    query.exclude_campaign = true;
+  } else if (opts.campaignScope.mode === "campaign") {
+    query.campaign_id = opts.campaignScope.campaignId;
+  }
+  return query;
+}
+
 export function filterAndSortCalls(
   calls: CallLogItem[],
   opts: {
@@ -66,15 +111,19 @@ export function filterAndSortCalls(
     type: "all" | CallType;
     status: string;
     agentId: string;
+    campaignScope?: CampaignScope;
   },
 ): CallLogItem[] {
   const fromMs = opts.range?.from?.getTime() ?? null;
   const toMs = opts.range?.to?.getTime() ?? null;
+  const scope = opts.campaignScope ?? { mode: "all" as const };
 
   const rows = calls.filter((c) => {
     if (opts.type !== "all" && c.call_type !== opts.type) return false;
     if (opts.status !== "all" && c.status !== opts.status) return false;
     if (opts.agentId && c.agent_id !== opts.agentId) return false;
+    if (scope.mode === "one_off" && c.campaign_id) return false;
+    if (scope.mode === "campaign" && c.campaign_id !== scope.campaignId) return false;
     if (fromMs === null || toMs === null) return true;
     const ts = callTimeMs(c);
     if (!ts) return false;
