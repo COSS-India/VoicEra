@@ -34,7 +34,7 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 def test_union_variant_counts_match_registry():
     assert len(_union_variants(STTConfig)) == 15
-    assert len(_union_variants(TTSConfig)) == 16
+    assert len(_union_variants(TTSConfig)) == 17
     assert len(_union_variants(LLMConfig)) == 10
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
@@ -521,6 +521,64 @@ def test_indic_orpheus_tts_registered(monkeypatch):
     )
     assert isinstance(svc, IndicOrpheusTTSService)
     assert svc._style == DEFAULT_TTS_STYLE
+
+
+def test_indic_parler_tts_registered(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.indic_parler.catalog import (
+        DEFAULT_TTS_STYLE,
+        SAMPLE_RATE,
+        TTS_CAPABILITIES,
+        TTS_STYLES,
+    )
+    from apps.providers.local.indic_parler.config import IndicParlerTTSConfig
+    from apps.providers.local.indic_parler.tts import IndicParlerTTSService
+    from apps.providers.scoped_settings import CAPABILITIES_KEY
+
+    monkeypatch.setenv("MODEL_SERVER_URL", "http://host.docker.internal:8100/v1")
+
+    schema = provider_schemas(Kind.TTS)["indic_parler"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Indic Parler"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    assert model_ids(TTS_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    codes = lang["language_codes"]["indic-parler"]
+    assert len(codes) == 25
+    assert codes["od"] == "or"
+    assert codes["bh"] == "bhb"
+    for canonical in ("hi", "en", "hne", "sd", "ur"):
+        assert canonical in lang["examples"]
+
+    settings = schema[CAPABILITIES_KEY]["indic-parler"]["settings"]
+    assert settings["hi"]["voice"]["default"] == "Divya"
+    assert settings["hi"]["voice"]["options"] == ["Rohit", "Divya", "Aman", "Rani"]
+    assert settings["hi"]["voice"]["input_type"] == "dropdown"
+    # Bhili borrows the Marathi roster, as the Bhashini adapter does.
+    assert settings["bh"]["voice"]["options"] == settings["mr"]["voice"]["options"]
+    # No named speaker on the model card: free text, empty by default.
+    assert settings["ur"]["voice"]["default"] == ""
+    assert settings["ur"]["voice"]["options"] == []
+    assert settings["ur"]["voice"]["input_type"] == "input"
+    style = settings["hi"]["style"]
+    assert style["default"] == DEFAULT_TTS_STYLE
+    assert style["options"] == list(TTS_STYLES)
+    assert style["input_type"] == "both"
+    assert style["allow_custom_input"] is True
+    assert not any("American" in s for s in TTS_STYLES)
+
+    svc = TTS_CREATORS["indic_parler"](IndicParlerTTSConfig(language="hi", voice="Rohit"))
+    assert isinstance(svc, IndicParlerTTSService)
+    assert svc._voice == "Rohit"
+    assert svc._style == DEFAULT_TTS_STYLE
+    assert svc._init_sample_rate == SAMPLE_RATE == 44100
+
+    no_speaker = TTS_CREATORS["indic_parler"](IndicParlerTTSConfig(language="ur", voice=""))
+    assert no_speaker._voice is None
 
 
 def test_indic_nemotron_stt_registered(monkeypatch):

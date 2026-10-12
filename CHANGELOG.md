@@ -23,7 +23,8 @@ several subsystems are new.
   discriminated union in `factory.py` and a readable schema dump in `schema.py`
   drive the `/configuration/*` endpoints, so adding a vendor never means editing
   a central if/elif chain. 22 cloud vendors, the Bhashini (STT/TTS) and Kenpath
-  (LLM) adapters, and local providers — `indic_orpheus` and `rumik_oss` (TTS),
+  (LLM) adapters, and local providers — `indic_orpheus`, `rumik_oss` and
+  `indic_parler` (TTS),
   `indic_nemotron`, `indic_conformer` and
   `indic_transcribe` (STT) — reached through the model
   server gateway instead of stored credentials. Kenpath and its Bharat Vistaar variant detect their own
