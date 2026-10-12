@@ -33,8 +33,8 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 
 def test_union_variant_counts_match_registry():
-    assert len(_union_variants(STTConfig)) == 13
-    assert len(_union_variants(TTSConfig)) == 15
+    assert len(_union_variants(STTConfig)) == 14
+    assert len(_union_variants(TTSConfig)) == 16
     assert len(_union_variants(LLMConfig)) == 10
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
@@ -569,6 +569,59 @@ def test_indic_nemotron_stt_creator(monkeypatch):
     svc = STT_CREATORS["indic_nemotron"](IndicNemotronSTTConfig(language="od"))
     assert isinstance(svc, IndicNemotronSTTService)
     assert svc._language == "or"
+
+
+def test_indic_conformer_stt_registered(monkeypatch):
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.indic_conformer.catalog import (
+        STT_CAPABILITIES,
+        resolve_realtime_url,
+        resolve_wire_language,
+    )
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime/"
+    )
+
+    schema = provider_schemas(Kind.STT)["indic_conformer"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Indic Conformer"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    assert model_ids(STT_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    assert lang["language_codes"]["indic-conformer"]["od"] == "or"
+    assert lang["language_codes"]["indic-conformer"]["bh"] == "bhb"
+    assert "hi" in lang["examples"]
+    assert "sd" in lang["examples"]
+    # Indic-only checkpoint: no English, and no auto-detect.
+    assert "en" not in lang["examples"]
+    assert "multi" not in lang["examples"]
+
+    assert resolve_wire_language("indic-conformer", "od") == "or"
+    assert resolve_wire_language("indic-conformer", "bh") == "bhb"
+    # Trailing slash stripped: Pipecat appends ?intent=transcription itself.
+    assert resolve_realtime_url() == "ws://host.docker.internal:8100/v1/realtime"
+
+
+def test_indic_conformer_stt_creator(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.local.indic_conformer.config import IndicConformerSTTConfig
+    from apps.providers.local.indic_conformer.stt import IndicConformerSTTService
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
+    )
+
+    svc = STT_CREATORS["indic_conformer"](IndicConformerSTTConfig(language="od"))
+    assert isinstance(svc, IndicConformerSTTService)
+    assert svc._base_url == "ws://host.docker.internal:8100/v1/realtime"
+    assert svc._wire_language == "or"
+    assert str(svc._settings.language) == "or"
+    assert svc._settings.model == "indic-conformer"
+    assert svc._server_vad_enabled is False
 
 
 def test_sarvam_stt_auto_detect_vendor_code_is_unknown():
