@@ -56,10 +56,18 @@ def yield_word_chunks_from_text(text: str) -> Iterator[str]:
 
 
 def extract_last_user_message(context: LLMContext) -> str:
+    """Text for Vistaar ``query=``: trailing user turns since last assistant reply."""
+    parts: list[str] = []
     for message in reversed(context.get_messages()):
-        if message.get("role") == "user":
-            return str(message.get("content") or "").strip()
-    return ""
+        role = message.get("role")
+        if role == "user":
+            text = str(message.get("content") or "").strip()
+            if text:
+                parts.append(text)
+        elif role == "assistant":
+            break
+    parts.reverse()
+    return " ".join(parts)
 
 
 class KenpathLLMService(KenpathCallEndingMixin, LLMService):
