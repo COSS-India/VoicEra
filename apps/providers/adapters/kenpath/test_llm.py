@@ -151,6 +151,16 @@ def test_extract_last_user_message():
     assert extract_last_user_message(context) == "latest question"
 
 
+def test_extract_last_user_message_joins_trailing_users():
+    context = MagicMock()
+    context.get_messages.return_value = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "first chunk"},
+        {"role": "user", "content": "second chunk"},
+    ]
+    assert extract_last_user_message(context) == "first chunk second chunk"
+
+
 def test_parse_bharat_vistaar_voice_delta():
     assert parse_bharat_vistaar_voice_delta("hello") == ("hello", False)
     audio, end = parse_bharat_vistaar_voice_delta(

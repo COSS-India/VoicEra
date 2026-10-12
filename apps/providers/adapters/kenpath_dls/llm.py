@@ -34,14 +34,8 @@ from apps.providers.adapters.kenpath_dls.language_markers import (
     strip_lang_marker_for_tts,
     wire_to_canonical,
 )
+from apps.providers.adapters.kenpath.llm import extract_last_user_message
 from apps.runtime.services.language_switch.frames import LanguageSwitchFrame
-
-
-def extract_last_user_message(context: LLMContext) -> str:
-    for message in reversed(context.get_messages()):
-        if message.get("role") == "user":
-            return str(message.get("content") or "").strip()
-    return ""
 
 
 class KenpathDlsLLMService(LLMService):
