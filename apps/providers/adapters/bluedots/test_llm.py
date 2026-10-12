@@ -163,3 +163,44 @@ def test_create_llm_honours_auth_base_url():
     pytest.importorskip("pipecat")
     service = create_llm(_config(base_url="https://override.example/v1"))
     assert "override.example" in str(service._client.base_url)
+
+
+# ---------------------------------------------------------------------------
+# call_id metadata (BlueDots x VoicEra requests, Aniket Sakinala, 9 Oct 2026)
+# ---------------------------------------------------------------------------
+
+
+def test_call_id_rides_every_request_as_metadata_alongside_caller_phone():
+    pytest.importorskip("pipecat")
+    service = create_llm(_config(caller_phone="919900112233"))
+    service.set_call_id("8d60bef5-aea7-4891-878e-ce1a8cbc03e3")
+    params = service.build_chat_completion_params({"messages": [_SYSTEM]})
+    assert params["metadata"] == {
+        "caller_phone": "919900112233",
+        "call_id": "8d60bef5-aea7-4891-878e-ce1a8cbc03e3",
+    }
+
+
+def test_call_id_absent_until_set_call_id_is_called():
+    """Additive: a service that never has set_call_id invoked on it keeps
+    sending exactly what it sends today (no call_id key at all)."""
+    pytest.importorskip("pipecat")
+    service = create_llm(_config(caller_phone="919900112233"))
+    params = service.build_chat_completion_params({"messages": [_SYSTEM]})
+    assert params["metadata"] == {"caller_phone": "919900112233"}
+
+
+def test_set_call_id_with_none_sends_it_empty():
+    pytest.importorskip("pipecat")
+    service = create_llm(_config())
+    service.set_call_id(None)
+    params = service.build_chat_completion_params({"messages": [_SYSTEM]})
+    assert params["metadata"] == {"caller_phone": "", "call_id": ""}
+
+
+def test_set_call_id_strips_whitespace():
+    pytest.importorskip("pipecat")
+    service = create_llm(_config())
+    service.set_call_id("  8d60bef5-aea7-4891-878e-ce1a8cbc03e3  ")
+    params = service.build_chat_completion_params({"messages": [_SYSTEM]})
+    assert params["metadata"]["call_id"] == "8d60bef5-aea7-4891-878e-ce1a8cbc03e3"
