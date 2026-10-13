@@ -90,6 +90,23 @@ stt:
       Running on ace-h200 GPU 1 since 2 September 2026 -- both checkpoints
       loaded, 320 ms confirmed at /health.
 
+  - id: pt-whisper
+    name: BuzzASR Portuguese (Whisper-large-v3 fine-tune)
+    status: ready
+    runtime: transformers
+    sample_rate: 16000
+    upload_format: wav
+    partial_transcripts: native        # server re-transcribes the open segment every 600 ms
+    streaming_endpoint: true           # WS /v1/asr/ws, same protocol as indic-nemotron
+    languages: [pt]
+    notes: >-
+      Brazilian Portuguese, for the nees-demo POC. BuzzASR/portuguese, 1.54B,
+      MIT, not gated. Whisper cannot decode incrementally, so the server
+      produces partials itself behind Silero VAD -- the caller sees the same
+      wire protocol as indic-nemotron, and the platform reuses its client.
+      Not an Indic model: excluded from the superset check in
+      test_nemotron_slot.py.
+
   - id: canary
     name: NVIDIA Canary
     status: planned
@@ -132,6 +149,21 @@ tts:
       Llama-3.2-3B backbone with SNAC codec, served by vLLM. The speaker name
       picks the language, so `voice` and `language` are not independent.
       Running on ace-h200 GPU 1, on the bodhan-ai/indic-speak checkpoint (the released model; the deployment was on indic-speak-preview-v2 before). Decoded with SNAC's own decoder -- the release ships a fine-tuned Vocos decoder it was actually tuned for, which is not wired up yet.
+
+  - id: pt-chatterbox
+    name: Chatterbox TTS Portuguese (FearL0rd fine-tune)
+    status: ready
+    runtime: pytorch
+    sample_rate: 24000
+    audio_format: pcm            # OpenAI's 16-bit LE mono
+    streaming: true              # sentence by sentence; Chatterbox does not stream within one
+    voice: {presets: [default], free_text_description: false, cloning: false}
+    languages: [pt]
+    notes: >-
+      Brazilian Portuguese, for the nees-demo POC. Fine-tune of Resemble AI's
+      Chatterbox (0.5B Llama backbone, S3Gen vocoder), MIT, not gated. Uses the
+      checkpoint's built-in voice (conds.pt). Output carries Resemble's Perth
+      watermark, as upstream does.
 
   - id: omnivoice
     name: k2-fsa OmniVoice 0.6B

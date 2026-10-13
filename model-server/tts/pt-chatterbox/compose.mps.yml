@@ -1,0 +1,15 @@
+# pt-chatterbox on a GPU shared through MPS.
+#
+# compose-files.sh layers this in only when this model is selected AND an MPS
+# daemon is detected. It caps what this container can take from a card it
+# shares with other workloads -- MPS does not partition memory on its own.
+#
+# The device index in the memory limit is the ordinal INSIDE the container,
+# which only sees the one GPU it reserved -- so it is 0 whichever physical card
+# that is.
+
+services:
+  tts:
+    environment:
+      CUDA_MPS_PINNED_DEVICE_MEM_LIMIT: "0=${PTC_MPS_MEM_LIMIT:-8G}"
+      CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: ${PTC_MPS_THREAD_PCT:-25}

@@ -33,8 +33,8 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 
 def test_union_variant_counts_match_registry():
-    assert len(_union_variants(STTConfig)) == 14
-    assert len(_union_variants(TTSConfig)) == 17
+    assert len(_union_variants(STTConfig)) == 15
+    assert len(_union_variants(TTSConfig)) == 18
     assert len(_union_variants(LLMConfig)) == 11
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
@@ -903,3 +903,59 @@ def test_provider_level_auth_openai_and_google_merge():
 
     assert provider_level_auth("missing") is None
     assert "openai" in all_provider_level_auth()
+
+
+def test_pt_whisper_stt_registered(monkeypatch):
+    from apps.providers.local.pt_whisper.catalog import resolve_wire_language
+
+    monkeypatch.setenv("MODEL_SERVER_WS_URL", "ws://gateway:8000/v1/asr/ws")
+
+    schema = provider_schemas(Kind.STT)["pt_whisper"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["secrets"] == []
+    assert "pt-whisper" in schema["fields"]["model"]["examples"]
+    lang = schema["fields"]["language"]
+    assert lang["examples"] == ["pt-BR"]
+    assert lang["language_codes"]["pt-whisper"]["pt-BR"] == "pt"
+    assert "pt-BR" in LANGUAGES
+    assert resolve_wire_language("pt-whisper", "pt-BR") == "pt"
+
+
+def test_pt_whisper_stt_creator(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.local.indic_nemotron.stt import IndicNemotronSTTService
+    from apps.providers.local.pt_whisper.config import PtWhisperSTTConfig
+    from apps.providers.local.pt_whisper.stt import PtWhisperSTTService
+
+    monkeypatch.setenv("MODEL_SERVER_WS_URL", "ws://gateway:8000/v1/asr/ws")
+
+    svc = STT_CREATORS["pt_whisper"](PtWhisperSTTConfig())
+    assert isinstance(svc, PtWhisperSTTService)
+    # Same wire protocol as Nemotron: the client is shared, not re-implemented.
+    assert isinstance(svc, IndicNemotronSTTService)
+    assert svc._language == "pt"
+    assert svc._connection_url() == "ws://gateway:8000/v1/asr/ws?language=pt"
+
+
+def test_pt_chatterbox_tts_registered(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.local.pt_chatterbox.config import PtChatterboxTTSConfig
+    from apps.providers.local.pt_chatterbox.tts import PtChatterboxTTSService
+    from apps.providers.scoped_settings import CAPABILITIES_KEY
+
+    monkeypatch.setenv("MODEL_SERVER_URL", "http://gateway:8000/v1")
+
+    schema = provider_schemas(Kind.TTS)["pt_chatterbox"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    lang = schema["fields"]["language"]
+    assert lang["examples"] == ["pt-BR"]
+    assert lang["language_codes"]["pt-chatterbox"]["pt-BR"] == "pt"
+    voice = schema[CAPABILITIES_KEY]["pt-chatterbox"]["settings"]["pt-BR"]["voice"]
+    assert voice["default"] == "default"
+
+    svc = TTS_CREATORS["pt_chatterbox"](PtChatterboxTTSConfig())
+    assert isinstance(svc, PtChatterboxTTSService)
+    assert svc._style is None          # no Orpheus style instructions on the wire
+    assert svc._voice == "default"

@@ -45,6 +45,9 @@ LANGUAGES: dict[str, str] = {
     "bgc": "Haryanvi",
     "hne": "Chhattisgarhi",
 
+    # --- Portuguese ---
+    "pt-BR": "Portuguese (Brazil)",
+
     # --- English variants ---
     "en": "English",
     "en-US": "English (United States)",

@@ -7,11 +7,13 @@
 # fail or come up misconfigured (SECRET_KEY / INTERNAL_API_KEY / PROVIDER_AUTH_ENCRYPTION_KEY).
 #
 # Container names use the voicera_oss_* prefix for a stable, unique identity.
+# CONTAINER_PREFIX overrides it so a second stack (e.g. a demo) can run on the
+# same host -- pair it with COMPOSE_PROJECT_NAME and distinct *_HOST_PORT values.
 
 services:
   postgres:
     image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
-    container_name: voicera_oss_postgres
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: "${MONGODB_USER:-admin}"
@@ -35,7 +37,7 @@ services:
 
   ferretdb:
     image: ghcr.io/ferretdb/ferretdb:2.7.0
-    container_name: voicera_oss_ferretdb
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_ferretdb
     restart: unless-stopped
     ports:
       - "${FERRETDB_HOST_PORT:-27018}:27017"
@@ -58,7 +60,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    container_name: voicera_oss_api
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_api
     restart: unless-stopped
     ports:
       - "${API_HOST_PORT:-8000}:8000"
@@ -86,7 +88,7 @@ services:
       KB_EMBEDDING_MODEL: "${KB_EMBEDDING_MODEL:-text-embedding-3-small}"
       REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
       # Model-server gateway for local provider readiness (configuration authenticated).
-      MODEL_SERVER_URL: http://host.docker.internal:8100/v1
+      MODEL_SERVER_URL: ${MODEL_SERVER_URL:-http://host.docker.internal:8100/v1}
       # DEBUG comes from root .env via env_file only — do not interpolate
       # ${DEBUG} here; the host shell often exports DEBUG=release and would
       # override a boolean False from .env.
@@ -111,7 +113,7 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: voicera_oss_minio
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
@@ -138,7 +140,7 @@ services:
 
   minio-init:
     image: minio/mc:latest
-    container_name: voicera_oss_minio_init
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_minio_init
     depends_on:
       minio:
         condition: service_healthy
@@ -156,7 +158,7 @@ services:
 
   redis:
     image: redis:7
-    container_name: voicera_oss_redis
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:-redissecret}
     logging:
@@ -179,7 +181,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    container_name: voicera_oss_arq_worker
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_arq_worker
     restart: unless-stopped
     env_file:
       - .env
@@ -223,7 +225,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    container_name: voicera_oss_campaign_orchestrator
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_campaign_orchestrator
     restart: unless-stopped
     env_file:
       - .env
@@ -258,7 +260,7 @@ services:
     build:
       context: .
       dockerfile: apps/runtime/Dockerfile
-    container_name: voicera_oss_runtime
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_runtime
     restart: unless-stopped
     ports:
       - "${RUNTIME_HOST_PORT:-7860}:7860"
@@ -270,8 +272,8 @@ services:
       API_BASE_URL: http://api:8000/api/v1
       MINIO_ENDPOINT: minio:9000
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
-      MODEL_SERVER_WS_URL: ws://host.docker.internal:8100/v1/asr/ws
-      MODEL_SERVER_URL: http://host.docker.internal:8100/v1
+      MODEL_SERVER_WS_URL: ${MODEL_SERVER_WS_URL:-ws://host.docker.internal:8100/v1/asr/ws}
+      MODEL_SERVER_URL: ${MODEL_SERVER_URL:-http://host.docker.internal:8100/v1}
     logging:
       driver: "json-file"
       options:
@@ -292,7 +294,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}"
 
-    container_name: voicera_oss_frontend
+    container_name: ${CONTAINER_PREFIX:-voicera_oss}_frontend
     restart: unless-stopped
 
     ports:

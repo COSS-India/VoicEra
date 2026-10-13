@@ -295,7 +295,9 @@ def test_the_catalogue_is_a_superset_of_the_models_it_can_replace():
     doc = yaml.safe_load((ROOT / "models.yaml").read_text(encoding="utf-8"))
     mine = set(catalogue()["languages"])
     for other in doc["stt"]:
-        if other["id"] in ("indic-nemotron", "canary") or other["status"] != "ready":
+        # pt-whisper is a Portuguese model for a separate demo stack, not an
+        # Indic model nemotron could be swapped in for.
+        if other["id"] in ("indic-nemotron", "canary", "pt-whisper") or other["status"] != "ready":
             continue
         langs = other.get("languages") or []
         if not all(isinstance(x, str) and len(x) <= 4 for x in langs):

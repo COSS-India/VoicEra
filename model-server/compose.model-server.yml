@@ -87,7 +87,7 @@ services:
       context: .
       dockerfile: gateway/Dockerfile
     image: voicera/model-gateway:latest
-    container_name: voicera_model_gateway
+    container_name: ${MODEL_CONTAINER_PREFIX:-voicera_model}_gateway
     restart: unless-stopped
     ports:
       - "${GATEWAY_PORT:-8100}:8000"
@@ -135,7 +135,7 @@ services:
         # repo; override with NEMO_CONTEXT_PATH in .env.
         nemo: ${NEMO_CONTEXT_PATH:-../../ai4bharat_nemo}
     image: voicera/model-stt:${STT_MODEL:-indic-conformer}
-    container_name: voicera_model_stt
+    container_name: ${MODEL_CONTAINER_PREFIX:-voicera_model}_stt
     restart: unless-stopped
     environment:
       <<: *alloc
@@ -173,7 +173,7 @@ services:
     build:
       context: ./tts/${TTS_MODEL:-indic-parler}
     image: voicera/model-tts:${TTS_MODEL:-indic-parler}
-    container_name: voicera_model_tts
+    container_name: ${MODEL_CONTAINER_PREFIX:-voicera_model}_tts
     restart: unless-stopped
     environment:
       <<: *alloc
@@ -215,7 +215,7 @@ services:
     build:
       context: ./llm/${LLM_MODEL:-qwen3.5-4b}
     image: voicera/model-llm:${LLM_MODEL:-qwen3.5-4b}
-    container_name: voicera_model_llm
+    container_name: ${MODEL_CONTAINER_PREFIX:-voicera_model}_llm
     restart: unless-stopped
     environment:
       <<: *alloc

@@ -27,7 +27,7 @@ services:
     build:
       context: ./stt/_grpc
     image: voicera/model-stt-grpc:latest
-    container_name: voicera_model_stt_grpc
+    container_name: ${MODEL_CONTAINER_PREFIX:-voicera_model}_stt_grpc
     restart: unless-stopped
     environment:
       # The model's own WebSocket. 8000, not the slot's 8001, because

@@ -1,0 +1,9 @@
+# torch comes from the CUDA wheel index in the Dockerfile, not from here.
+transformers==4.57.6
+silero-vad==6.2.3
+fastapi
+uvicorn[standard]
+python-multipart
+soundfile
+scipy
+numpy

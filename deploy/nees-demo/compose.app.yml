@@ -1,0 +1,42 @@
+# nees-demo overlay for the app stack. Layer it on the repo's compose file:
+#
+#   docker compose -f docker-compose.yaml -f deploy/nees-demo/compose.app.yml up -d
+#
+# Two additions, nothing removed:
+#
+# 1. api and runtime join the demo model stack's network, so they reach its
+#    gateway by container name (MODEL_SERVER_URL in .env). The gateway's host
+#    port is bound to 127.0.0.1, which containers cannot reach through
+#    host.docker.internal -- and production's gateway on :8100 is the one thing
+#    this stack must never talk to.
+#
+# 2. A Cloudflare quick tunnel to the dashboard. The browser test call is a
+#    same-origin WebSocket that Next proxies to the runtime, so the dashboard is
+#    the only thing that has to be public. The URL is random and changes every
+#    time this container restarts: `docker logs nees_demo_tunnel`.
+
+services:
+  api:
+    networks:
+      - app-network
+      - nees_models
+
+  runtime:
+    networks:
+      - app-network
+      - nees_models
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: ${CONTAINER_PREFIX:-nees_demo}_tunnel
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--url", "http://frontend:3000"]
+    depends_on:
+      - frontend
+    networks:
+      - app-network
+
+networks:
+  nees_models:
+    external: true
+    name: voicera-nees-demo-models_model_net

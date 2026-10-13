@@ -1,0 +1,22 @@
+# pt-chatterbox: what this deployment decides, so nothing is inherited.
+#
+# Every variable server.py reads is declared here as well as in the Dockerfile,
+# so it can be set from model-server/.env. Weights come from fetch.sh into
+# ./checkpoints, which the base file already bind-mounts as part of /app.
+
+services:
+
+  tts:
+    environment:
+      PTC_MODEL_DIR: ${PTC_MODEL_DIR:-/app/checkpoints/portuguese}
+      PTC_MODEL_ID: ${PTC_MODEL_ID:-pt-chatterbox}
+      # Chatterbox's own defaults. exaggeration is emotion intensity; cfg_weight
+      # trades adherence to the voice for pacing.
+      PTC_EXAGGERATION: ${PTC_EXAGGERATION:-0.5}
+      PTC_CFG_WEIGHT: ${PTC_CFG_WEIGHT:-0.5}
+      PTC_TEMPERATURE: ${PTC_TEMPERATURE:-0.8}
+      # Longest piece synthesised in one go. Input is split at sentence ends
+      # first; anything longer is broken at commas.
+      PTC_MAX_CHARS: ${PTC_MAX_CHARS:-300}
+      # PyTorch-side memory cap, in GB. 0 = none. See compose.mps.yml.
+      PTC_CUDA_MEM_GB: ${PTC_CUDA_MEM_GB:-0}

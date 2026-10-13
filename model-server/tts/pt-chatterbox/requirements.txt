@@ -1,0 +1,5 @@
+# chatterbox-tts pins torch==2.6.0 / torchaudio==2.6.0 (CUDA 12.4 wheels from
+# PyPI), transformers and the rest. Leave those to it.
+chatterbox-tts==0.1.7
+fastapi
+uvicorn[standard]

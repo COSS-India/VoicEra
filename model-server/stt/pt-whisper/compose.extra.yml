@@ -1,0 +1,28 @@
+# pt-whisper: what this deployment decides, so nothing is inherited.
+#
+# Every variable server.py reads is declared here as well as in the Dockerfile,
+# so it can be set from model-server/.env. Weights come from fetch.sh into
+# ./models, which the base file already bind-mounts as part of /app.
+
+services:
+
+  stt:
+    environment:
+      # Where fetch.sh put the checkpoint, as seen inside the container.
+      PTW_MODEL_DIR: ${PTW_MODEL_DIR:-/app/models/portuguese}
+      # The id the gateway lists in /v1/models is STT_MODEL; this one only
+      # labels /health and the OpenAI response.
+      PTW_MODEL_ID: ${PTW_MODEL_ID:-pt-whisper}
+      # Partials: re-transcribe the open segment this often. Whisper has no
+      # incremental decode, so this is how the caller gets words mid-utterance --
+      # the same 600 ms indic-conformer's client-side path uses.
+      PTW_INTERIM_MS: ${PTW_INTERIM_MS:-600}
+      # Rolling cap on the open segment. Whisper's window is 30 s.
+      PTW_MAX_BUFFER_S: ${PTW_MAX_BUFFER_S:-28}
+      # Silero VAD gate in front of the decoder. Whisper invents text on silence.
+      PTW_VAD_THRESHOLD: ${PTW_VAD_THRESHOLD:-0.5}
+      PTW_NUM_BEAMS: ${PTW_NUM_BEAMS:-1}
+      # PyTorch-side memory cap, in GB. 0 = none. On a shared card set this a
+      # little under the MPS limit in compose.mps.yml so PyTorch fails cleanly
+      # before MPS does.
+      PTW_CUDA_MEM_GB: ${PTW_CUDA_MEM_GB:-0}
