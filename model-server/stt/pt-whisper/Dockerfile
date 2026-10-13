@@ -31,7 +31,8 @@ ENV PORT=8001 \
     PTW_MAX_BUFFER_S=28 \
     PTW_VAD_THRESHOLD=0.5 \
     PTW_NUM_BEAMS=1 \
-    PTW_CUDA_MEM_GB=0
+    PTW_CUDA_MEM_GB=0 \
+    PTW_MIN_SPEECH_S=0.3
 
 EXPOSE 8001
 CMD ["python", "server.py"]

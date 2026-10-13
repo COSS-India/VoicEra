@@ -52,6 +52,7 @@ MAX_BUFFER_S = float(os.getenv("PTW_MAX_BUFFER_S", "28"))
 VAD_THRESHOLD = float(os.getenv("PTW_VAD_THRESHOLD", "0.5"))
 NUM_BEAMS = int(os.getenv("PTW_NUM_BEAMS", "1"))
 CUDA_MEM_GB = float(os.getenv("PTW_CUDA_MEM_GB", "0") or 0)
+MIN_SPEECH_S = float(os.getenv("PTW_MIN_SPEECH_S", "0.3"))
 
 SAMPLE_RATE = 16000
 LANGUAGES = {"pt", "pt-br", "pt_br"}   # one checkpoint, one language
@@ -94,8 +95,10 @@ def _speech_bounds(audio: np.ndarray) -> tuple[int, int] | None:
     with _vad_lock:
         stamps = get_speech_timestamps(
             torch.from_numpy(audio), _state["vad"], sampling_rate=SAMPLE_RATE,
-            threshold=VAD_THRESHOLD, min_speech_duration_ms=150)
-    if not stamps:
+            threshold=VAD_THRESHOLD, min_speech_duration_ms=250)
+    # Whisper invents words from breaths and clicks. Less than MIN_SPEECH_S of
+    # actual speech is not worth decoding.
+    if not stamps or sum(s["end"] - s["start"] for s in stamps) < MIN_SPEECH_S * SAMPLE_RATE:
         return None
     return stamps[0]["start"], stamps[-1]["end"]
 

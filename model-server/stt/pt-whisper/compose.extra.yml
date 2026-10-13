@@ -21,6 +21,9 @@ services:
       PTW_MAX_BUFFER_S: ${PTW_MAX_BUFFER_S:-28}
       # Silero VAD gate in front of the decoder. Whisper invents text on silence.
       PTW_VAD_THRESHOLD: ${PTW_VAD_THRESHOLD:-0.5}
+      # Less speech than this (seconds, summed over VAD segments) is treated as
+      # silence -- a breath or click Whisper would otherwise turn into a word.
+      PTW_MIN_SPEECH_S: ${PTW_MIN_SPEECH_S:-0.3}
       PTW_NUM_BEAMS: ${PTW_NUM_BEAMS:-1}
       # PyTorch-side memory cap, in GB. 0 = none. On a shared card set this a
       # little under the MPS limit in compose.mps.yml so PyTorch fails cleanly

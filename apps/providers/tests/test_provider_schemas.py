@@ -959,3 +959,50 @@ def test_pt_chatterbox_tts_registered(monkeypatch):
     assert isinstance(svc, PtChatterboxTTSService)
     assert svc._style is None          # no Orpheus style instructions on the wire
     assert svc._voice == "default"
+
+
+def test_pt_whisper_drops_partials_outside_the_caller_s_turn(monkeypatch):
+    """Whisper turns breaths and line noise into words. A stray partial while
+    the LLM is answering reads as barge-in and cancels the answer -- which is
+    what the first nees-demo call did -- so partials only pass while the
+    pipeline's VAD says the caller is speaking. Finals always pass."""
+    pytest.importorskip("pipecat")
+    import asyncio
+
+    from pipecat.frames.frames import (
+        InterimTranscriptionFrame,
+        TranscriptionFrame,
+        VADUserStartedSpeakingFrame,
+        VADUserStoppedSpeakingFrame,
+    )
+    from pipecat.processors.frame_processor import FrameDirection
+
+    from apps.providers.local.indic_nemotron.stt import IndicNemotronSTTService
+    from apps.providers.local.pt_whisper.stt import PtWhisperSTTService
+
+    pushed = []
+
+    async def record(self, frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(type(frame).__name__)
+
+    async def noop(self, frame, direction):
+        return None
+
+    monkeypatch.setattr(IndicNemotronSTTService, "push_frame", record)
+    monkeypatch.setattr(IndicNemotronSTTService, "process_frame", noop)
+    svc = PtWhisperSTTService(ws_url="ws://gateway:8000/v1/asr/ws")
+
+    def interim():
+        return InterimTranscriptionFrame(text="Tinha", user_id="", timestamp="")
+
+    async def run():
+        down = FrameDirection.DOWNSTREAM
+        await svc.push_frame(interim())                          # before the turn
+        await svc.process_frame(VADUserStartedSpeakingFrame(), down)
+        await svc.push_frame(interim())                          # during: passes
+        await svc.process_frame(VADUserStoppedSpeakingFrame(), down)
+        await svc.push_frame(interim())                          # after: noise
+        await svc.push_frame(TranscriptionFrame(text="final", user_id="", timestamp=""))
+
+    asyncio.run(run())
+    assert pushed == ["InterimTranscriptionFrame", "TranscriptionFrame"]
