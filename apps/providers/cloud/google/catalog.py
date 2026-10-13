@@ -24,6 +24,12 @@ TTS_VOICES: tuple[str, ...] = (
 
 DEFAULT_TTS_VOICE = "en-US-Chirp3-HD-Charon"
 
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://texttospeech.googleapis.com/v1/text:synthesize"
+TTS_OAUTH_SCOPES: tuple[str, ...] = ("https://www.googleapis.com/auth/cloud-platform",)
+# The service-account JSON carries its own token_uri; preview always uses this one.
+TTS_TOKEN_URI = "https://oauth2.googleapis.com/token"
+
 _STT_LANGS = {
     "as-IN": "as",
     "bn-BD": "bn",
