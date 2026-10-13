@@ -276,7 +276,7 @@ def create_tts(cfg: IndicOrpheusTTSConfig):
 
 Because there is no third-party SDK to configure, a local provider's own transport client is hand-written, the same way an adapter's is:
 
-* `local/indic_orpheus/tts.py` wraps `AsyncOpenAI` pointed at the gateway's OpenAI-compatible `/v1/audio/speech`, reading the gateway URL from `MODEL_SERVER_URL` via `resolve_base_url()` (raises `RuntimeError` if unset).
+* The TTS providers share one client for the gateway's OpenAI-compatible `/v1/audio/speech`: `local/_openai_speech.py` (`ModelServerSpeechTTSService`, wrapping `AsyncOpenAI`). A new TTS model on that endpoint needs only a `tts.py` subclass setting `LABEL`, `NATIVE_SAMPLE_RATE`, `SENDS_STYLE` and `VOICE_OPTIONAL` — see `local/indic_orpheus/tts.py`. The gateway URL comes from `MODEL_SERVER_URL` via the provider's `resolve_base_url()` (raises `RuntimeError` if unset).
 * `local/indic_nemotron/stt.py` hand-rolls a `websockets` client against the gateway's `/v1/asr/ws`, reading the URL from `MODEL_SERVER_WS_URL` via `resolve_ws_url()`.
 
 Auth is often unnecessary — the gateway itself has no auth layer, so `indic_orpheus` has no `Auth` class at all. Don't add one your local provider doesn't need.
