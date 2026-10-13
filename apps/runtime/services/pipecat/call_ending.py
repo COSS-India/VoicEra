@@ -7,7 +7,7 @@ from typing import Any
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
-from pipecat.frames.frames import EndWorkerFrame
+from pipecat.frames.frames import EndWorkerFrame, FunctionCallResultProperties
 from pipecat.processors.aggregators.llm_context import LLMContext, NOT_GIVEN
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import FunctionCallParams
@@ -18,7 +18,10 @@ async def end_conversation(params: FunctionCallParams) -> None:
 
     Call this when the user says goodbye or the task is complete.
     """
-    await params.result_callback({"status": "ended"})
+    await params.result_callback(
+        {"status": "ended"},
+        properties=FunctionCallResultProperties(run_llm=False),
+    )
     await params.llm.push_frame(EndWorkerFrame(), FrameDirection.DOWNSTREAM)
 
 
