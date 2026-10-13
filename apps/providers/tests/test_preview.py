@@ -17,8 +17,10 @@ from apps.providers.preview import (
     has_preview_adapter,
     import_vendor_previews,
     pcm_to_wav,
+    post_for_audio,
     register_preview,
     resolve_preview_sample_rate,
+    resolve_wire_language,
     synthesize_preview,
 )
 
@@ -139,6 +141,50 @@ def test_import_vendor_previews_logs_and_continues_on_broken_vendor_module():
     # Assert: the broken import was logged, not silently swallowed.
     assert mock_logger.warning.called
     assert "sarvam" in mock_logger.warning.call_args.args[1]
+
+
+def _raise_connect_error(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("boom", request=request)
+
+
+def _post(handler) -> httpx.Response:
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await post_for_audio(client, "Acme", "https://tts.example/speak", json={"text": "secret text"})
+
+    return _run(run())
+
+
+@pytest.mark.parametrize(
+    ("handler", "message"),
+    [
+        (lambda _r: httpx.Response(401), "Acme preview failed: 401"),
+        (lambda _r: httpx.Response(200, content=b""), "Acme preview returned no audio"),
+        (_raise_connect_error, "request failed: ConnectError"),
+    ],
+)
+def test_post_for_audio_maps_failures_to_preview_error_without_request_text(handler, message):
+    # Act / Assert
+    with pytest.raises(PreviewProviderError, match=message) as exc_info:
+        _post(handler)
+    assert "secret text" not in str(exc_info.value)
+
+
+def test_post_for_audio_returns_successful_response():
+    # Act
+    response = _post(lambda _r: httpx.Response(200, content=b"audio"))
+
+    # Assert
+    assert response.content == b"audio"
+
+
+def test_resolve_wire_language_maps_canonical_id_and_falls_back():
+    # Arrange
+    capabilities = {"m1": {"languages": {"hi-IN": "hi"}, "settings": {"hi-IN": {}}}}
+
+    # Act / Assert
+    assert resolve_wire_language(capabilities, "m1", "hi") == "hi-IN"
+    assert resolve_wire_language(capabilities, "unknown-model", "ta") == "ta"
 
 
 def _run(coro):

@@ -20,6 +20,9 @@ TTS_VOICES: tuple[str, ...] = (
 
 DEFAULT_TTS_VOICE = "alloy"
 
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://api.openai.com/v1/audio/speech"
+
 # gpt-4o-transcribe is multilingual (Whisper-class ISO 639-1).
 _WHISPER = {
     "en": "en",
