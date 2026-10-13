@@ -5,6 +5,13 @@ from ...capabilities import expand_settings
 TTS_VOICES: tuple[str, ...] = ("147320",)
 DEFAULT_TTS_VOICE = "147320"  # Camb.ai uses numeric voice IDs
 
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://client.camb.ai/apis/tts-stream"
+
+# Native PCM rate per model (pipecat MODEL_SAMPLE_RATES); the API returns
+# headerless pcm_s16le at this rate.
+TTS_SAMPLE_RATES: dict[str, int] = {"mars-flash": 22050, "mars-pro": 48000, "mars-instruct": 22050}
+
 _TTS_LANGS = {
     "en-us": "en-US",
     "en-gb": "en-GB",
