@@ -21,6 +21,8 @@ import httpx
 from loguru import logger
 from pydantic import BaseModel
 
+from .capabilities import api_capabilities
+
 PreviewFn = Callable[[BaseModel, str, httpx.AsyncClient], Awaitable[bytes]]
 
 PREVIEW_ADAPTERS: dict[str, PreviewFn] = {}
@@ -92,6 +94,34 @@ async def synthesize_preview(
     if fn is None:
         raise PreviewProviderError(f"No preview adapter registered for {provider!r}")
     return await fn(cfg, text, client)
+
+
+def resolve_wire_language(capabilities: dict[str, dict], model: str, canonical: str) -> str:
+    """Map a canonical language id (``hi``) to the vendor's code for ``model``.
+
+    Falls back to ``canonical`` when the catalog has no mapping for it.
+    """
+    languages = api_capabilities(capabilities).get(model, {}).get("languages", {})
+    return languages.get(canonical, canonical)
+
+
+async def post_for_audio(client: httpx.AsyncClient, vendor: str, url: str, **kwargs) -> httpx.Response:
+    """POST to a vendor TTS endpoint and return the response with a non-empty body.
+
+    Any transport error, non-2xx status or empty body becomes a
+    :class:`PreviewProviderError`. Only the status code or the error class is
+    put in the message, never the request, so text and keys stay out of logs.
+    """
+    try:
+        response = await client.post(url, **kwargs)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise PreviewProviderError(f"{vendor} preview failed: {exc.response.status_code}") from exc
+    except httpx.HTTPError as exc:
+        raise PreviewProviderError(f"{vendor} preview request failed: {type(exc).__name__}") from exc
+    if not response.content:
+        raise PreviewProviderError(f"{vendor} preview returned no audio")
+    return response
 
 
 def pcm_to_wav(pcm: bytes, *, sample_rate: int, num_channels: int = 1, sample_width: int = 2) -> bytes:
