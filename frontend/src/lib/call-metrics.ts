@@ -10,6 +10,9 @@ export interface NormalizedTurn {
   /** False for bot-initiated speech (e.g. an opening greeting) that has no
    * matching user utterance — excluded from averages/chart-worthy stats. */
   hasUserTurn: boolean;
+  /** False when no latency breakdown was recorded for the turn (e.g. the
+   * caller hung up before the bot replied). */
+  hasBreakdown: boolean;
 }
 
 export interface NormalizedCallMetrics {
@@ -69,17 +72,21 @@ function max(values: number[]): number | undefined {
  *
  * turns[] carries two records per turn_number (a "started" one and a
  * "duration_secs/was_interrupted" one on end) — these get merged by
- * turn_number. latencies.breakdowns[] aligns positionally with turns[]
- * (breakdowns[i] corresponds to turn_number i+1); a breakdown with a null
- * user_turn_start_time is bot-initiated speech (e.g. a greeting) rather than
- * a real user turn, so it's flagged via hasUserTurn but left out of averages. */
+ * turn_number. Each latencies.breakdowns[] entry carries the turn_number it
+ * was recorded in; docs written before the runtime stamped it fall back to
+ * positional matching (breakdowns[i] → turn_number i+1). Only the first
+ * breakdown per turn is used. A breakdown with a null user_turn_start_time is
+ * bot-initiated speech (e.g. a greeting) rather than a real user turn, so it's
+ * flagged via hasUserTurn but left out of averages. */
 export function normalizeCallMetrics(metrics: CallMetricsResponse): NormalizedCallMetrics {
   const byTurnNumber = new Map<number, NormalizedTurn>();
+  const emptyTurn = (turnNumber: number): NormalizedTurn => ({
+    turnNumber,
+    hasUserTurn: false,
+    hasBreakdown: false,
+  });
   for (const record of metrics.turns) {
-    const existing = byTurnNumber.get(record.turn_number) ?? {
-      turnNumber: record.turn_number,
-      hasUserTurn: false,
-    };
+    const existing = byTurnNumber.get(record.turn_number) ?? emptyTurn(record.turn_number);
     if (record.duration_secs !== undefined) existing.durationSecs = record.duration_secs;
     if (record.was_interrupted !== undefined) existing.wasInterrupted = record.was_interrupted;
     byTurnNumber.set(record.turn_number, existing);
@@ -87,8 +94,10 @@ export function normalizeCallMetrics(metrics: CallMetricsResponse): NormalizedCa
 
   const breakdowns = metrics.latencies.breakdowns ?? [];
   breakdowns.forEach((breakdown, index) => {
-    const turnNumber = index + 1;
-    const existing = byTurnNumber.get(turnNumber) ?? { turnNumber, hasUserTurn: false };
+    const turnNumber = breakdown.turn_number ?? index + 1;
+    const existing = byTurnNumber.get(turnNumber) ?? emptyTurn(turnNumber);
+    if (existing.hasBreakdown) return;
+    existing.hasBreakdown = true;
     existing.hasUserTurn = breakdown.user_turn_start_time != null;
     existing.sttMs = msFromBreakdown(breakdown, "stt");
     existing.llmTtfbMs = msFromBreakdown(breakdown, "llm");

@@ -113,10 +113,18 @@ every turn despite real `user_to_bot_secs` values existing. Same root cause.
 `_CorrectedUserBotLatencyObserver` subclasses pipecat's `UserBotLatencyObserver`
 and overrides three things:
 
-- **`_reset_accumulators()`**: also clears `_user_stopped_time` (and the new
+- **`_reset_accumulators()`**: ~~also clears `_user_stopped_time` (and the new
   LLM-content-TTFB tracking state below) on every reset — including on
   `InterruptionFrame` — so a cancelled cycle can never be reported against
-  whatever bot utterance follows it. Fixes Bug 2.
+  whatever bot utterance follows it. Fixes Bug 2.~~
+
+  > **Superseded.** Bug 2's root cause is
+  > transcript-gated turn-start (`interruption_min_words > 0`) firing the
+  > turn's own `InterruptionFrame` after VAD stop, on every turn — not
+  > backchanneling. Clearing `_user_stopped_time` there made those turns
+  > vanish from telemetry entirely. The override now keeps the user timing
+  > and STT entry on such an interruption and drops only the interrupted
+  > response's LLM/TTS leftovers.
 - **`on_push_frame()`**: tracks `LLMFullResponseStartFrame` (pushed the
   instant the LLM call begins) through to the first `LLMTextFrame` carrying
   non-empty text (the first real output token), and records that gap.

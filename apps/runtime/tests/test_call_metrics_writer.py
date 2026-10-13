@@ -77,6 +77,27 @@ def test_writer_stamps_stage_from_pipeline_roles() -> None:
     assert entries[1]["stage"] == "stt"
 
 
+def test_writer_stamps_breakdown_with_owning_turn() -> None:
+    """Breakdowns fire per bot utterance and turns per user utterance, so the
+    two lists can't be zipped by index — each breakdown carries its turn."""
+    writer = CallMetricsWriter(org_id="org-1", call_id="call-1", session_label="s")
+
+    def breakdown(user_turn_start_time: float | None) -> object:
+        payload = {"ttfb": [], "user_turn_start_time": user_turn_start_time}
+        return type("Breakdown", (), {"model_dump": lambda self: dict(payload)})()
+
+    writer.record_turn_started(1)
+    writer.record_latency_breakdown(breakdown(None))  # greeting
+    writer.record_turn_ended(1, 3.0, False)
+    writer.record_turn_started(2)  # user spoke, hung up before any reply
+    writer.record_turn_ended(2, 2.0, False)
+    writer.record_turn_started(3)
+    writer.record_latency_breakdown(breakdown(5.0))
+
+    breakdowns = writer.to_dict()["latencies"]["breakdowns"]
+    assert [b["turn_number"] for b in breakdowns] == [1, 3]
+
+
 @pytest.mark.asyncio
 async def test_flush_skips_without_content() -> None:
     writer = CallMetricsWriter(

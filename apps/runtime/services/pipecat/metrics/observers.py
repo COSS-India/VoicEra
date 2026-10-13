@@ -12,7 +12,11 @@ import time
 from typing import Any
 
 from loguru import logger
-from pipecat.frames.frames import LLMFullResponseStartFrame, LLMTextFrame
+from pipecat.frames.frames import (
+    InterruptionFrame,
+    LLMFullResponseStartFrame,
+    LLMTextFrame,
+)
 from pipecat.observers.base_observer import FramePushed
 from pipecat.observers.startup_timing_observer import StartupTimingObserver
 from pipecat.observers.turn_tracking_observer import TurnTrackingObserver
@@ -47,16 +51,22 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
     ``LATENCY_FIX_NOTES.md`` next to this file — short version below so the
     fix stays self-explanatory on its own.
 
-    **Bug 1 — asymmetric reset on interruption.** Turns where the user
-    genuinely spoke were showing up as "bot-initiated" with no STT/LLM/TTS
-    stage data. Cause: the base class's ``_reset_accumulators()`` clears
-    ``_ttfb`` and ``_user_turn_start_time`` on ``InterruptionFrame``, but
-    leaves ``_user_stopped_time`` untouched. The next
-    ``BotStartedSpeakingFrame`` then still reports a real
-    ``on_latency_measured`` latency against an emptied breakdown — and
-    because the dashboard treats a null ``user_turn_start_time`` as "no real
-    user turn", it mislabels the row bot-initiated. Fix: make the reset
-    symmetric by also clearing ``_user_stopped_time``.
+    **Bug 1 — interruption wipes the current user turn.** Turns where the
+    user genuinely spoke were showing up as "bot-initiated" with no STT
+    stage data. Cause: with a transcript-gated turn-start strategy
+    (``MinWordsUserTurnStartStrategy``, i.e. ``interruption_min_words > 0``)
+    the user aggregator broadcasts the turn-start ``InterruptionFrame`` only
+    once a transcript arrives — usually *after* ``VADUserStoppedSpeakingFrame``.
+    The base class's ``_reset_accumulators()`` then clears
+    ``_user_turn_start_time`` and the STT TTFB entry of the very turn being
+    measured. Fix: an ``InterruptionFrame`` that arrives while a user stop is
+    pending is that turn's own turn-start, so keep the user timing and STT
+    entry and drop only what the interrupted bot response left behind
+    (LLM/TTS TTFB, text aggregation, function calls). Genuine new user speech
+    is always preceded by ``VADUserStartedSpeakingFrame``, which still does
+    the base class's full reset. (An earlier version of this fix also cleared
+    ``_user_stopped_time`` on interruption, which turned the mislabel into the
+    turn vanishing from telemetry altogether.)
 
     **Bug 2 — LLM "TTFB" measures stream-open, not first content token.**
     ``BaseOpenAILLMService._process_context()`` (pipecat's base OpenAI-
@@ -80,23 +90,55 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
     two concurrent LLM stages couldn't be disambiguated this way.
     """
 
-    def __init__(self, *, llm_processor_names: set[str], **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *,
+        llm_processor_names: set[str],
+        stt_processor_names: set[str],
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self._llm_processor_names = llm_processor_names
+        self._stt_processor_names = stt_processor_names
         self._llm_call_started_at: float | None = None
         self._pending_llm_content_ttfb: float | None = None
+        self._turn_start_interruption = False
 
     def _reset_accumulators(self) -> None:
+        if self._turn_start_interruption:
+            # Bug 1 fix: this InterruptionFrame is the current user turn's own
+            # turn-start, so keep its user timing and STT entry; drop only
+            # what the interrupted bot response left behind.
+            self._ttfb = [
+                entry
+                for entry in self._ttfb
+                if entry.processor in self._stt_processor_names
+            ]
+            self._text_aggregation = None
+            self._function_call_starts = {}
+            self._function_call_metrics = []
+            self._llm_call_started_at = None
+            self._pending_llm_content_ttfb = None
+            return
+
         super()._reset_accumulators()
-        # Bug 1 fix: don't let a cancelled cycle's latency get attributed to
-        # whichever bot utterance starts next.
-        self._user_stopped_time = None
-        # A cancelled cycle's in-flight LLM content-TTFB measurement is
-        # equally stale — drop it for the same reason.
+        # A cancelled cycle's in-flight LLM content-TTFB measurement is stale.
         self._llm_call_started_at = None
         self._pending_llm_content_ttfb = None
 
     async def on_push_frame(self, data: FramePushed) -> None:
+        self._turn_start_interruption = (
+            data.direction == FrameDirection.DOWNSTREAM
+            and isinstance(data.frame, InterruptionFrame)
+            and self._user_stopped_time is not None
+        )
+        try:
+            self._track_llm_content_ttfb(data)
+            await super().on_push_frame(data)
+        finally:
+            self._turn_start_interruption = False
+
+    def _track_llm_content_ttfb(self, data: FramePushed) -> None:
         if data.direction == FrameDirection.DOWNSTREAM:
             if isinstance(data.frame, LLMFullResponseStartFrame):
                 self._llm_call_started_at = data.timestamp
@@ -112,8 +154,6 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
                     data.timestamp - self._llm_call_started_at
                 ) / 1_000_000_000
                 self._llm_call_started_at = None
-
-        await super().on_push_frame(data)
 
     async def _handle_bot_started_speaking(self) -> None:
         # Patch the LLM-stage TTFB entry (if any) just before the base class
@@ -148,11 +188,10 @@ def register_call_metrics(worker: PipelineWorker, writer: CallMetricsWriter) -> 
     async def on_transport_timing_report(_observer: Any, report: Any) -> None:
         writer.record_transport_report(report)
 
-    llm_processor_names = {
-        name for name, stage in writer.processor_stages.items() if stage == "llm"
-    }
+    stages = writer.processor_stages
     latency_observer = _CorrectedUserBotLatencyObserver(
-        llm_processor_names=llm_processor_names
+        llm_processor_names={name for name, stage in stages.items() if stage == "llm"},
+        stt_processor_names={name for name, stage in stages.items() if stage == "stt"},
     )
 
     @latency_observer.event_handler("on_latency_measured")

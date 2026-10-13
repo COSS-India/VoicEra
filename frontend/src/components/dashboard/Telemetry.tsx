@@ -131,6 +131,12 @@ type MetricsState = NormalizedCallMetrics | "unavailable" | undefined;
 
 const todayStamp = () => new Date().toISOString().slice(0, 10);
 
+/** "Turn N", qualified when the turn has no user-turn latency data. */
+function turnLabel(t: NormalizedCallMetrics["turns"][number]): string {
+  if (t.hasUserTurn) return `Turn ${t.turnNumber}`;
+  return `Turn ${t.turnNumber} · ${t.hasBreakdown ? "bot-initiated" : "no reply recorded"}`;
+}
+
 function EmptyCallsState({ subtitle }: { subtitle: string }) {
   return (
     <div className="flex flex-col items-center gap-1 rounded-v-md border border-dashed border-v-line bg-white p-12 text-center">
@@ -381,7 +387,7 @@ function CallMetricsDetail({
   // All turns (including the bot-initiated one with no STT/LLM data) share one
   // axis so the chart never renders a phantom gap where a turn is missing.
   const chartData: ChartTurnDatum[] = metrics.turns.map((t) => ({
-    turn: t.hasUserTurn ? `Turn ${t.turnNumber}` : `Turn ${t.turnNumber} · bot-initiated`,
+    turn: turnLabel(t),
     turnNumber: t.turnNumber,
     interrupted: Boolean(t.wasInterrupted),
     botInitiated: !t.hasUserTurn,
@@ -522,7 +528,7 @@ function CallMetricsDetail({
                         {t.hasUserTurn ? (
                           `Turn ${t.turnNumber}`
                         ) : (
-                          <span className="italic text-v-muted">Turn {t.turnNumber} · bot-initiated</span>
+                          <span className="italic text-v-muted">{turnLabel(t)}</span>
                         )}
                         {t.wasInterrupted ? (
                           <span className="ml-1.5 text-[11px] text-v-danger">interrupted</span>

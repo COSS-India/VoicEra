@@ -15,6 +15,7 @@ from pipecat.frames.frames import (
     LLMFullResponseStartFrame,
     LLMTextFrame,
     MetricsFrame,
+    VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
 from pipecat.metrics.metrics import TTFBMetricsData
@@ -45,6 +46,12 @@ class _Clock:
         )
 
 
+def _observer() -> _CorrectedUserBotLatencyObserver:
+    return _CorrectedUserBotLatencyObserver(
+        llm_processor_names={"MyLLM"}, stt_processor_names={"MySTT"}
+    )
+
+
 async def _feed(
     observer: _CorrectedUserBotLatencyObserver, clock: _Clock, frames
 ) -> None:
@@ -56,7 +63,7 @@ async def _feed(
 async def test_llm_ttfb_corrected_to_first_content_token() -> None:
     """The LLM-stage TTFB reported in the breakdown should be the gap to the
     first real content token, not to OpenAI's empty role-preamble chunk."""
-    observer = _CorrectedUserBotLatencyObserver(llm_processor_names={"MyLLM"})
+    observer = _observer()
     breakdowns = []
 
     @observer.event_handler("on_latency_breakdown")
@@ -95,18 +102,17 @@ async def test_llm_ttfb_corrected_to_first_content_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_interruption_does_not_leak_stale_latency() -> None:
-    """A cycle cancelled by InterruptionFrame before the bot actually speaks
-    must not surface a latency/breakdown for whatever bot utterance follows.
+async def test_turn_start_interruption_keeps_current_user_turn() -> None:
+    """With a transcript-gated turn-start strategy (MinWords), the user turn's
+    own InterruptionFrame arrives *after* VADUserStoppedSpeakingFrame. It must
+    not wipe that turn's user timing or STT entry — only what the interrupted
+    bot response left behind (here a stale TTS TTFB).
 
-    Before the fix, pipecat's _reset_accumulators() cleared ttfb/
-    user_turn_start_time on InterruptionFrame but left _user_stopped_time
-    untouched, so the *next* BotStartedSpeakingFrame still fired
-    on_latency_measured() with a real number against an empty breakdown —
-    which the dashboard then displayed as a "bot-initiated" turn with no
-    stage data, even though the user had genuinely spoken.
+    Before the fix the turn was either labelled bot-initiated with no STT
+    (stock pipecat) or dropped from telemetry entirely (an earlier version of
+    this observer that also cleared _user_stopped_time).
     """
-    observer = _CorrectedUserBotLatencyObserver(llm_processor_names={"MyLLM"})
+    observer = _observer()
     breakdowns = []
     latencies = []
 
@@ -124,13 +130,57 @@ async def test_interruption_does_not_leak_stale_latency() -> None:
         clock,
         [
             VADUserStoppedSpeakingFrame(stop_secs=0.0),
-            LLMFullResponseStartFrame(),
-            MetricsFrame(
-                data=[TTFBMetricsData(processor="MyLLM", value=0.009, model="gpt")]
-            ),
+            # Leftover from the bot response still being synthesized.
+            MetricsFrame(data=[TTFBMetricsData(processor="MyTTS", value=0.99)]),
+            MetricsFrame(data=[TTFBMetricsData(processor="MySTT", value=0.3)]),
             InterruptionFrame(),
-            # Whatever bot utterance follows the interruption shouldn't be
-            # reported against the cancelled cycle's (now stale) state.
+            MetricsFrame(
+                data=[TTFBMetricsData(processor="MyLLM", value=0.4, model="gpt")]
+            ),
+            MetricsFrame(data=[TTFBMetricsData(processor="MyTTS", value=0.2)]),
+            BotStartedSpeakingFrame(),
+        ],
+    )
+    await asyncio.sleep(0.02)  # let the scheduled event-handler tasks run
+
+    assert len(latencies) == 1
+    assert len(breakdowns) == 1
+    breakdown = breakdowns[0]
+    assert breakdown.user_turn_start_time is not None
+    assert [(e.processor, e.duration_secs) for e in breakdown.ttfb] == [
+        ("MySTT", pytest.approx(0.3)),
+        ("MyLLM", pytest.approx(0.4)),
+        ("MyTTS", pytest.approx(0.2)),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_new_user_speech_still_discards_cancelled_cycle() -> None:
+    """If the user speaks again before the bot answers, the abandoned cycle
+    must not be reported against the next bot utterance."""
+    observer = _observer()
+    breakdowns = []
+    latencies = []
+
+    @observer.event_handler("on_latency_breakdown")
+    async def _capture_breakdown(_observer, breakdown) -> None:
+        breakdowns.append(breakdown)
+
+    @observer.event_handler("on_latency_measured")
+    async def _capture_latency(_observer, latency_seconds) -> None:
+        latencies.append(latency_seconds)
+
+    clock = _Clock()
+    await _feed(
+        observer,
+        clock,
+        [
+            VADUserStoppedSpeakingFrame(stop_secs=0.0),
+            MetricsFrame(
+                data=[TTFBMetricsData(processor="MyLLM", value=0.4, model="gpt")]
+            ),
+            VADUserStartedSpeakingFrame(),
+            InterruptionFrame(),
             BotStartedSpeakingFrame(),
         ],
     )

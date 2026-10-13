@@ -35,14 +35,19 @@ def _to_response(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     return prepared
 
 
-def _has_latency_data(doc: dict[str, Any]) -> bool:
-    """True if a stored CallMetrics doc already carries real turn/latency data,
-    as opposed to a transport-only placeholder from a run that never completed
-    a turn (see upsert_call_metrics)."""
-    if doc.get("turns"):
-        return True
-    latencies = doc.get("latencies") or {}
-    return bool(latencies.get("breakdowns")) or bool(latencies.get("user_to_bot_secs"))
+def _answered_user_turns(doc: dict[str, Any]) -> int:
+    """Number of user→bot cycles measured in a CallMetrics doc or payload.
+
+    ``turns`` can't tell a placeholder from a real call: the runtime's
+    TurnTrackingObserver opens turn 1 on StartFrame, so every flushed run has
+    turns. Likewise a greeting alone produces a breakdown. Measured
+    user→bot latencies only exist once the caller actually spoke and the bot
+    answered."""
+    latencies = doc.get("latencies")
+    if not isinstance(latencies, dict):
+        return 0
+    values = latencies.get("user_to_bot_secs")
+    return len(values) if isinstance(values, list) else 0
 
 
 def upsert_call_metrics(
@@ -50,29 +55,31 @@ def upsert_call_metrics(
     call_id: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Insert metrics for a call, or fill in a prior empty/placeholder record.
+    """Insert metrics for a call, or replace a stored record with a richer one.
 
     A telephony media-stream reconnect (brief WS drop/reconnect on the same
     call_sid) starts a second pipeline run for the same call_id. Each run's
     CallMetricsWriter flushes at most once (apps/runtime), but if the FIRST
-    run's connection dropped before any turn completed, it can still flush a
-    "has_content" doc (e.g. transport timing only, zero turns/breakdowns).
-    Under strict write-once semantics that placeholder was kept forever and
-    the second run's complete metrics were silently discarded — the
-    Telemetry dashboard then shows "-" for AVG STT/LLM TTFB/TTS/Latency on a
-    call that actually completed normally.
+    run's connection dropped before the caller was answered, it still
+    flushes a doc (transport timing, the pipeline-start turn, maybe the
+    greeting). Under strict write-once semantics that placeholder was kept
+    forever and the second run's complete metrics were silently discarded —
+    the Telemetry dashboard then shows "-" for AVG STT/LLM TTFB/TTS/Latency on
+    a call that actually completed normally.
 
-    We now only treat the stored doc as final once it has real turn/latency
-    data of its own (_has_latency_data). A payload arriving on top of an
-    empty placeholder is treated as the authoritative one and replaces it;
-    once a doc has real data, later writes are still ignored as before.
+    The stored doc is kept unless the payload has strictly more answered user
+    turns (_answered_user_turns), so duplicate flushes and placeholder-vs-
+    placeholder stay write-once while the run that actually carried the
+    conversation wins. If both runs answered turns, the poorer run's turns
+    are lost — merging them is possible but only worth it if reconnects turn
+    out to be common.
     """
     get_call_log(org_id, call_id)
 
     existing = get_database()[COLLECTION].find_one(
         {"org_id": org_id, "call_id": call_id}
     )
-    if existing and _has_latency_data(existing):
+    if existing and _answered_user_turns(existing) >= _answered_user_turns(payload):
         logger.debug("CallMetrics already populated call_id=%s", call_id)
         return _to_response(existing) or {}
 
@@ -136,15 +143,24 @@ def _average(values: list[float]) -> float | None:
 def _with_avg_latency(doc: dict[str, Any]) -> dict[str, Any]:
     """Adds avg_stt_secs/avg_tts_secs/avg_llm_secs/avg_latency_secs to
     ``summary``, computed from the per-turn ttfb breakdowns (mirrors the
-    frontend's normalizeCallMetrics so both surfaces agree) — bot-initiated
-    turns with no real user turn are excluded, same as there. avg_latency_secs
-    is the sum of avg_llm_secs and avg_tts_secs (STT excluded), using
-    whichever of those two are actually available."""
+    frontend's normalizeCallMetrics so both surfaces agree) — only the first
+    breakdown per turn_number counts, and bot-initiated turns with no real
+    user turn are excluded, same as there. avg_latency_secs is the sum of
+    avg_llm_secs and avg_tts_secs (STT excluded), using whichever of those two
+    are actually available."""
     breakdowns = (doc.get("latencies") or {}).get("breakdowns") or []
     stt_values: list[float] = []
     tts_values: list[float] = []
     llm_values: list[float] = []
+    seen_turns: set[Any] = set()
     for breakdown in breakdowns:
+        # Docs written before the runtime stamped turn_number have none; each
+        # of their breakdowns counts on its own (positional in the frontend).
+        turn_number = breakdown.get("turn_number")
+        if turn_number is not None:
+            if turn_number in seen_turns:
+                continue
+            seen_turns.add(turn_number)
         if breakdown.get("user_turn_start_time") is None:
             continue
         stt = _stage_secs_from_breakdown(breakdown, "stt")
