@@ -18,18 +18,26 @@ def run_adapter(
     synthesize: PreviewFn, cfg, response: httpx.Response, text: str = "hi"
 ) -> tuple[bytes, httpx.Request]:
     """Run ``synthesize`` against a mock transport returning ``response``; return audio and the request sent."""
+    audio, sent = run_adapter_sequence(synthesize, cfg, [response], text)
+    return audio, sent[0]
+
+
+def run_adapter_sequence(
+    synthesize: PreviewFn, cfg, responses: list[httpx.Response], text: str = "hi"
+) -> tuple[bytes, list[httpx.Request]]:
+    """Like :func:`run_adapter`, answering successive requests with ``responses`` (the last one repeats)."""
     sent: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.append(request)
-        return response
+        return responses[min(len(sent), len(responses)) - 1]
 
     async def run() -> bytes:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             return await synthesize(cfg, text, client)
 
     audio = asyncio.run(run())
-    return audio, sent[0]
+    return audio, sent
 
 
 def json_body(request: httpx.Request) -> dict:
