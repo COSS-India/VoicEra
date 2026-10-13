@@ -625,7 +625,8 @@ def test_indic_mio_tts_registered(monkeypatch):
     svc = TTS_CREATORS["indic_mio"](IndicMioTTSConfig(language="ta", voice="Meera"))
     assert isinstance(svc, IndicMioTTSService)
     assert svc._voice == "Meera"
-    assert not hasattr(svc, "_style")
+    assert svc._style is None
+    assert "instructions" not in svc._request_params("नमस्ते")
     assert svc._init_sample_rate == SAMPLE_RATE == 44100
 
 
