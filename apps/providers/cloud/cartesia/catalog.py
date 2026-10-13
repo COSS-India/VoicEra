@@ -53,6 +53,11 @@ _SONIC = {
 
 DEFAULT_TTS_VOICE = "3faa81ae-d3d8-4ab1-9e44-e50e46d33c30"
 
+# Voice preview calls this directly (URL allowlist: never built from request data).
+# The version pins the request/response shape; it matches pipecat's.
+TTS_ENDPOINT = "https://api.cartesia.ai/tts/bytes"
+API_VERSION = "2026-03-01"
+
 _TTS_SETTINGS = {
     "voice": {
         "default": DEFAULT_TTS_VOICE,
