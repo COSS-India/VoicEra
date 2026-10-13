@@ -4,6 +4,9 @@ from ...capabilities import expand_settings
 
 DEFAULT_TTS_VOICE = "celeste"
 
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://users.rime.ai/v1/rime-tts"
+
 _TTS_LANGS = {
     "en": "en",
     "hi": "hi",
