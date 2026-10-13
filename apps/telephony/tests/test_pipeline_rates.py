@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from apps.telephony.providers.vi.rates import (
+from apps.telephony.pipeline_rate_helpers import (
     pipeline_sample_rate,
     tts_native_sample_rate,
 )
@@ -42,6 +42,16 @@ def test_resolve_pipeline_rates_vi_registered() -> None:
     load_providers()
     tts = SimpleNamespace(_init_sample_rate=24000, sample_rate=24000)
     rates = resolve_pipeline_rates("vi", tts)
+    assert rates is not None
+    assert rates.wire_rate == 8000
+    assert rates.pipeline_rate == 16000
+    assert rates.recording_rate == 24000
+
+
+def test_resolve_pipeline_rates_go2market_registered() -> None:
+    load_providers()
+    tts = SimpleNamespace(_init_sample_rate=24000, sample_rate=24000)
+    rates = resolve_pipeline_rates("go2market", tts)
     assert rates is not None
     assert rates.wire_rate == 8000
     assert rates.pipeline_rate == 16000

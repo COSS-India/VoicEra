@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -16,9 +17,39 @@ from apps.runtime.services.agent_routing import (
 from apps.runtime.services.backend import BackendError, backend_client
 from apps.runtime.services.pipecat.audio import resolve_custom_variables
 from apps.runtime.services.pipecat.runners import run_telephony_bot, run_websocket_bot
-from apps.telephony import parse_stream_start
+from apps.telephony import parse_stream_start, resolve_provider_call_sid
+from apps.telephony.providers.go2market.stream_protocol import resolve_stream_sid
+from apps.telephony.stream_session import recv_media_stream_start
 
 router = APIRouter()
+
+_DEBUG_LOG_PATH = (
+    "/home/kowshik/voice_era_repos/voicera-merging/voicERA/.cursor/debug-77bfe8.log"
+)
+
+
+def _agent_debug_log(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict[str, Any],
+) -> None:
+    # region agent log
+    try:
+        payload = {
+            "sessionId": "77bfe8",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, default=str) + "\n")
+    except OSError:
+        pass
+    # endregion
 
 
 @router.websocket("/agent/{org_id}/{agent_id}")
@@ -110,34 +141,44 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
 
         provider = telephony_provider(agent)
 
-        first = await websocket.receive_text()
-        data: dict[str, Any] = json.loads(first)
-        if data.get("event") != "start":
-            logger.warning(
-                "Expected start event, got {!r} — closing",
-                data.get("event"),
-            )
-            await websocket.close(code=1008, reason="Expected start event")
+        try:
+            data = await recv_media_stream_start(websocket)
+        except ValueError as exc:
+            logger.warning("Media stream start failed: {}", exc)
+            await websocket.close(code=1008, reason=str(exc)[:120])
             return
 
         start_info = data.get("start") or {}
         stream_meta = parse_stream_start(start_info)
         call_sid = (
-            stream_meta.get("provider_call_sid")
+            resolve_provider_call_sid(data)
+            or stream_meta.get("provider_call_sid")
             or start_info.get("callSid")
             or start_info.get("callId")
             or start_info.get("call_uuid")
+            or call_id
             or "unknown"
         )
-        stream_sid = (
-            start_info.get("streamSid")
-            or start_info.get("streamId")
-            or "unknown"
+        stream_sid = resolve_stream_sid(data) or ""
+        _agent_debug_log(
+            hypothesis_id="H1-flat-start",
+            location="agent.py:telephony_start",
+            message="parsed go2market start",
+            data={
+                "top_keys": sorted(data.keys()),
+                "start_keys": sorted(start_info.keys()) if isinstance(start_info, dict) else [],
+                "resolved_stream_sid_len": len(stream_sid),
+                "has_top_streamSid": bool(data.get("streamSid")),
+                "has_start_streamSid": bool(
+                    isinstance(start_info, dict) and start_info.get("streamSid")
+                ),
+                "call_sid_is_unknown": str(call_sid).lower() == "unknown",
+            },
         )
         logger.info(
             "Call start call_sid={} stream_sid={}",
             call_sid,
-            stream_sid,
+            stream_sid or "pending",
         )
 
         if not call_id and call_sid and call_sid != "unknown":
@@ -187,7 +228,7 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
             websocket,
             org_id=org_id,
             provider=provider,
-            stream_sid=str(stream_sid),
+            stream_sid=str(stream_sid or ""),
             call_sid=str(call_sid),
             call_id=call_id,
             agent=agent,

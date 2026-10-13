@@ -20,6 +20,8 @@ from apps.telephony.registry import (
 )
 from apps.telephony.providers.plivo.config import PlivoConfig
 from apps.telephony.providers.vobiz.config import VobizConfig
+from apps.telephony.providers.go2market.config import Go2MarketConfig
+from apps.telephony.providers.go2market import Go2MarketClient
 from apps.telephony.providers.vi.config import ViConfig
 from apps.telephony.providers.vobiz import VobizClient
 from apps.telephony.providers.plivo import PlivoClient
@@ -35,18 +37,20 @@ def _ensure_providers_loaded() -> None:
     load_providers()
 
 
-def test_registered_providers_include_vobiz_plivo_and_vi() -> None:
-    assert registered_providers() == frozenset({"vobiz", "plivo", "vi"})
+def test_registered_providers_include_vobiz_plivo_vi_and_go2market() -> None:
+    assert registered_providers() == frozenset(
+        {"vobiz", "plivo", "vi", "go2market"}
+    )
 
 
-@pytest.mark.parametrize("provider", ["vobiz", "plivo", "vi"])
+@pytest.mark.parametrize("provider", ["vobiz", "plivo", "vi", "go2market"])
 def test_each_provider_has_config_client_and_xml(provider: str) -> None:
     assert provider in TELEPHONY_CONFIGS
     assert provider in CLIENT_CREATORS
     assert provider in ANSWER_XML_BUILDERS
 
 
-@pytest.mark.parametrize("provider", ["vobiz", "plivo", "vi"])
+@pytest.mark.parametrize("provider", ["vobiz", "plivo", "vi", "go2market"])
 def test_each_provider_has_frame_serializer_after_lazy_load(provider: str) -> None:
     load_frame_serializers()
     assert provider in FRAME_SERIALIZER_FACTORIES
@@ -85,6 +89,17 @@ def test_create_client_from_registered_creators() -> None:
     )
     assert isinstance(vi, ViClient)
     assert vi.dni_flows == [{"dni": _DNI, "flow_id": _FLOW}]
+
+    g2m = create_client(
+        Go2MarketConfig(
+            obd_profiles=(
+                '[{"serviceno":"7971504853","ukey":"ukey","ivrtemplateid":"193"}]'
+            ),
+        )
+    )
+    assert isinstance(g2m, Go2MarketClient)
+    assert g2m.ivrtemplateid == "193"
+    assert g2m.serviceno == "7971504853"
 
 
 def test_build_config_rejects_empty_provider() -> None:

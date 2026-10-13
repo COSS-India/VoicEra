@@ -79,6 +79,10 @@ def get_provider_dial_credentials(org_id: str, provider: str) -> dict[str, Any]:
     # Ensure core fields are present even if catalog only had defaults.
     auth.setdefault("auth_id", getattr(config, "auth_id", None))
     auth.setdefault("auth_token", getattr(config, "auth_token", None))
+    if getattr(config, "obd_profiles", None):
+        auth.setdefault("obd_profiles", getattr(config, "obd_profiles", None))
+    if getattr(config, "ivrtemplateid", None):
+        auth.setdefault("ivrtemplateid", getattr(config, "ivrtemplateid", None))
     if not auth.get("base_url") and getattr(config, "base_url", None):
         auth["base_url"] = getattr(config, "base_url")
     result: dict[str, Any] = {
@@ -101,29 +105,28 @@ def _build_config(org_id: str, provider: str):
         )
 
     auth = stored["auth"]
-    auth_id = str(auth.get("auth_id") or "").strip()
-    auth_token = str(auth.get("auth_token") or "").strip()
-    if not auth_id or not auth_token:
-        raise AgentTelephonyError(
-            f"Incomplete telephony credentials for provider '{provider}' "
-            f"(auth_id and auth_token required)."
-        )
 
     # Pass all stored secret fields so provider-specific secrets reach build_config
-    # without vendor branches here.
+    # without vendor branches here (e.g. Go To Market ``obd_profiles`` rows).
     config_kwargs: dict[str, Any] = {
         key: value
         for key, value in auth.items()
         if value is not None and str(value).strip() != ""
     }
-    config_kwargs["auth_id"] = auth_id
-    config_kwargs["auth_token"] = auth_token
 
     try:
-        # Config defaults (e.g. base_url) come from the registered provider model.
-        return build_config(provider, **config_kwargs)
+        config = build_config(provider, **config_kwargs)
     except (ValueError, TypeError) as exc:
         raise AgentTelephonyError(str(exc)) from exc
+
+    auth_id = str(getattr(config, "auth_id", None) or "").strip()
+    auth_token = str(getattr(config, "auth_token", None) or "").strip()
+    if not auth_id or not auth_token:
+        raise AgentTelephonyError(
+            f"Incomplete telephony credentials for provider '{provider}' "
+            f"(auth_id and auth_token required)."
+        )
+    return config
 
 
 def load_telephony_client(org_id: str, provider: str):
