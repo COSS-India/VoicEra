@@ -652,6 +652,9 @@ async def test_vistaar_no_goodbye_skips_end_worker(
 async def test_vistaar_spoken_goodbye_defers_end_worker(
     service: KenpathLLMService, monkeypatch
 ):
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
 
     stream_cm = AsyncMock()
@@ -692,6 +695,8 @@ async def test_vistaar_spoken_goodbye_defers_end_worker(
     await service.process_frame(
         BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
     )
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
     assert any(isinstance(f, EndWorkerFrame) for f in pushed)
 
 
@@ -699,6 +704,8 @@ async def test_vistaar_spoken_goodbye_defers_end_worker(
 async def test_vistaar_spoken_goodbye_cancelled_on_interruption(
     service: KenpathLLMService, monkeypatch
 ):
+    import asyncio
+
     monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
 
     stream_cm = AsyncMock()
@@ -729,14 +736,23 @@ async def test_vistaar_spoken_goodbye_cancelled_on_interruption(
     service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
     service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
 
+    real_sleep = asyncio.sleep
+
+    async def sleep_then_interrupt(_secs: float) -> None:
+        await real_sleep(0)
+        await service.process_frame(InterruptionFrame(), FrameDirection.UPSTREAM)
+
+    monkeypatch.setattr(asyncio, "sleep", sleep_then_interrupt)
+
     context = LLMContext(messages=[{"role": "user", "content": "bye"}])
     await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
     assert service._hangup_pending
 
-    await service.process_frame(InterruptionFrame(), FrameDirection.UPSTREAM)
     await service.process_frame(
         BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
     )
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
 
 
@@ -843,8 +859,8 @@ async def test_voice_bhili_goodbye_hangup_after_clean_playback(monkeypatch):
         BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
     )
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
-    if service._bhili_hangup_timer_task is not None:
-        await service._bhili_hangup_timer_task
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
     assert any(isinstance(f, EndWorkerFrame) for f in pushed)
 
 
@@ -870,10 +886,10 @@ async def test_voice_bhili_no_hangup_between_tts_chunks(monkeypatch):
         BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
     )
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
-    assert service._bhili_hangup_timer_task is not None
+    assert service._kenpath_hangup_timer_task is not None
 
     await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
-    assert service._bhili_hangup_timer_task is None
+    assert service._kenpath_hangup_timer_task is None
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
 
 
@@ -960,6 +976,6 @@ async def test_voice_bhili_bot_stopped_before_interruption_no_hangup(monkeypatch
     await service.process_frame(
         BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
     )
-    if service._bhili_hangup_timer_task is not None:
-        await service._bhili_hangup_timer_task
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)

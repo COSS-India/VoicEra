@@ -162,7 +162,7 @@ class KenpathDlsLLMService(KenpathCallEndingMixin, LLMService):
         chunk_count = 0
         parts: list[str] = []
         self._stream_hold = ""
-        self._kenpath_had_tts = False
+        self._kenpath_begin_assistant_turn()
         async for chunk in self._stream_voice_dls(user_message):
             if first_chunk:
                 first_chunk = False
@@ -265,6 +265,7 @@ class KenpathDlsLLMService(KenpathCallEndingMixin, LLMService):
         return "".join(parts) if parts else None
 
     async def cleanup(self) -> None:
+        self._kenpath_cleanup_call_ending()
         await super().cleanup()
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()

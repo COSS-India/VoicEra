@@ -379,7 +379,13 @@ async def test_goodbye_with_spoken_text_defers_until_bot_stops(
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
     assert service._hangup_pending
 
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
     await service.process_frame(
         BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
     )
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
     assert any(isinstance(f, EndWorkerFrame) for f in pushed)
