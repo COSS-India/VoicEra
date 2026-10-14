@@ -2,8 +2,10 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { SessionTimeoutGuard } from "@/components/auth/SessionTimeoutGuard";
 import { getMe } from "@/lib/api-client";
 import { clearSession, getSession, saveSession, type AuthSession } from "@/lib/auth-storage";
+import { getLastActivityAt, markSessionExpiredForLogin, shouldExpire } from "@/lib/session-timeout";
 
 interface AuthContextValue {
   session: AuthSession | null;
@@ -25,6 +27,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = getSession();
     if (!stored) {
+      setLoading(false);
+      router.replace("/");
+      return;
+    }
+
+    // Reopening after the inactivity + grace window must not revive the session.
+    const last = getLastActivityAt();
+    if (last && shouldExpire(last)) {
+      clearSession();
+      markSessionExpiredForLogin();
       setLoading(false);
       router.replace("/");
       return;
@@ -68,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ session, loading, signOut }}>
+      <SessionTimeoutGuard />
       {children}
     </AuthContext.Provider>
   );

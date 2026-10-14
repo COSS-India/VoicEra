@@ -72,7 +72,8 @@ const THREE_DIGIT_CALLING_CODES = new Set([
   "971", "966", "965", "962", "961", "960", "886", "852", "234", "254", "255", "256", "212", "213", "216", "220",
 ]);
 
-function splitCallingCode(digits: string): [string, string] {
+/** Split digit-only E.164 (no +) into [callingCode, nationalNumber]. */
+export function splitCallingCode(digits: string): [string, string] {
   if (ONE_DIGIT_CALLING_CODES.has(digits.slice(0, 1))) return [digits.slice(0, 1), digits.slice(1)];
   if (THREE_DIGIT_CALLING_CODES.has(digits.slice(0, 3))) return [digits.slice(0, 3), digits.slice(3)];
   return [digits.slice(0, 2), digits.slice(2)];

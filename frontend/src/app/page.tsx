@@ -9,6 +9,7 @@ import { PasswordInput } from "@/components/ui/Field";
 import { Spinner } from "@/components/ui/Spinner";
 import { login } from "@/lib/api-client";
 import { saveSession } from "@/lib/auth-storage";
+import { consumeSessionExpiredFlag } from "@/lib/session-timeout";
 import { markWalkthroughPending } from "@/components/walkthrough";
 
 export default function SignInPage() {
@@ -17,11 +18,15 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState("");
+  const [sessionExpired, setSessionExpired] = useState(() =>
+    typeof window !== "undefined" ? consumeSessionExpiredFlag() : false,
+  );
 
   async function submit() {
     if (!email || !password) return;
     setSigningIn(true);
     setError("");
+    setSessionExpired(false);
     try {
       const data = await login(email.trim(), password);
       if (data.status === "fail" || !data.access_token) {
@@ -56,9 +61,13 @@ export default function SignInPage() {
           className="mx-auto flex w-full max-w-sm flex-col gap-6"
         >
           <div className="flex flex-col gap-2">
-            <h2 className="m-0 text-3xl font-semibold tracking-tight">Sign in</h2>
+            <h2 className="m-0 text-3xl font-semibold tracking-tight">
+              {sessionExpired ? "Session Expired" : "Sign in"}
+            </h2>
             <p className="m-0 text-sm font-light leading-relaxed text-v-muted">
-              Welcome back — sign in to your VoicEra workspace.
+              {sessionExpired
+                ? "Your session has expired due to inactivity. Please log in again to continue."
+                : "Welcome back — sign in to your VoicEra workspace."}
             </p>
           </div>
 
@@ -118,7 +127,7 @@ export default function SignInPage() {
               className="mt-0.5 flex w-full cursor-pointer items-center justify-center gap-2.5 rounded-v-sm bg-v-fg px-4.5 py-3.5 text-[15px] font-semibold text-white transition-colors hover:bg-v-accent disabled:cursor-not-allowed disabled:opacity-50"
             >
               {signingIn ? <Spinner /> : null}
-              {signingIn ? "Signing in" : "Sign in"}
+              {signingIn ? "Signing in" : sessionExpired ? "Log In" : "Sign in"}
             </button>
           </form>
 

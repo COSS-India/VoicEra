@@ -248,10 +248,11 @@ export function providerOptions(list: ProviderList) {
   }));
 }
 
-/** Every provider from /configuration/{kind}, sorted by name, with
- * unauthenticated ones marked `disabled` (and labeled "(Not configured)") —
- * so pickers show the full catalog but only authenticated entries are selectable.
- * Provider type is passed separately for a badge, not baked into the label. */
+/** Every provider from /configuration/{kind}, with unauthenticated ones marked
+ * `disabled` (and labeled "(Not configured)") — so pickers show the full
+ * catalog but only authenticated entries are selectable. Configured providers
+ * come first (A–Z), then unconfigured (A–Z). Provider type is a badge, not
+ * baked into the label. */
 export function searchableProviderOptions(list: ProviderList) {
   return Object.values(list)
     .map((p) => {
@@ -262,9 +263,14 @@ export function searchableProviderOptions(list: ProviderList) {
         label: disabled ? `${name} (Not configured)` : name,
         providerType: p.provider_type,
         disabled,
+        name,
       };
     })
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => {
+      if (a.disabled !== b.disabled) return a.disabled ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    })
+    .map(({ value, label, providerType, disabled }) => ({ value, label, providerType, disabled }));
 }
 
 export function languageChipOptions(languages: LanguagesMap): string[] {
@@ -387,10 +393,13 @@ export function voiceFieldFromSettings(
   return resolvedField(settings, modelId || defaultModelId(settings), languageId, "voice");
 }
 
-/** First authenticated provider id, if any — used to auto-pick a usable default. */
+/** First authenticated provider id (A–Z by display name), if any — used to
+ * auto-pick a usable default. Never falls back to an unconfigured provider. */
 export function pickFirstProvider(list: ProviderList): string {
-  const authenticated = Object.values(list).find((p) => p.authenticated === true);
-  return authenticated?.provider ?? "";
+  const authenticated = Object.values(list)
+    .filter((p) => p.authenticated === true)
+    .sort((a, b) => (a.name || a.provider).localeCompare(b.name || b.provider));
+  return authenticated[0]?.provider ?? "";
 }
 
 // Knowledge base document listing/upload now goes through useKnowledgeBase
