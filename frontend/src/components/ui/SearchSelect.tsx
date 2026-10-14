@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Search } from "lucide-react";
 import { ProviderTypeBadge } from "@/components/ui/ProviderTypeBadge";
 import { dropdownMenuCoords, type DropdownMenuCoords } from "@/lib/dropdown-placement";
+import { compareProviderOptions } from "@/lib/use-wizard-catalogs";
 
 export interface SearchSelectOption {
   value: string;
@@ -92,13 +93,17 @@ export function SearchSelect({
 
   const selected = options.find((o) => o.value === value);
 
+  // Configured (selectable) providers first A–Z, then unconfigured A–Z — so STT /
+  // LLM / TTS pickers never bury live integrations under "(Not configured)".
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => {
-      const type = o.providerType?.toLowerCase() ?? "";
-      return o.label.toLowerCase().includes(q) || type.includes(q);
-    });
+    const list = !q
+      ? options
+      : options.filter((o) => {
+          const type = o.providerType?.toLowerCase() ?? "";
+          return o.label.toLowerCase().includes(q) || type.includes(q);
+        });
+    return [...list].sort(compareProviderOptions);
   }, [options, query]);
 
   function pick(o: SearchSelectOption) {

@@ -50,7 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const merged: AuthSession = {
           ...stored,
           ...(orgName ? { orgName } : {}),
-          ...(me.name?.trim() ? { name: me.name.trim() } : {}),
+          // Prefer the profile `name` field from /users/me — never derive from email.
+          name: me.name?.trim() || stored.name?.trim() || undefined,
         };
         saveSession(merged);
         setSession(merged);

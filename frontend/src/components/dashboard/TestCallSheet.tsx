@@ -91,17 +91,25 @@ export function TestCallSheet({ agent, onClose, onNotify }: TestCallSheetProps) 
           </label>
           <div className="flex items-center gap-2.5 rounded-v-sm border border-v-line-strong bg-white px-3.5 py-3">
             <Phone className="size-4 shrink-0 text-v-muted" strokeWidth={1.75} />
+            <span className="select-none font-mono text-[15px] text-v-muted-2 pr-1">+91</span>
             <input
               id="test-call-to"
               type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              value={toNumber}
-              onChange={(e) => setToNumber(clampOutboundPhoneInput(e.target.value))}
-              placeholder="+91XXXXXXXXXX"
+              inputMode="numeric"
+              autoComplete="tel-national"
+              value={toNumber.replace(/^\+91/, "")}
+              onChange={(e) => {
+                // Only allow digits and up to 10 numbers after +91
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                setToNumber("+91" + digits);
+              }}
+              placeholder="XXXXXXXXXX"
               className="w-full bg-transparent text-[15px] text-v-fg outline-none"
+              maxLength={10} // Only allow 10 digits input (after the +91)
+              pattern="\d{10}"
             />
           </div>
+ 
           <p className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-v-muted">
             <Info className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.75} />
             Enter your phone number in E.164 format with country code (e.g. +91) and up to 10 digits

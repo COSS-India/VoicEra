@@ -248,6 +248,29 @@ export function providerOptions(list: ProviderList) {
   }));
 }
 
+const NOT_CONFIGURED_SUFFIX = /\s*\(Not configured\)\s*$/i;
+
+/** True when the option is unconfigured — prefer the disabled flag, also trust
+ * the "(Not configured)" label suffix so sort stays correct even if a caller
+ * forgets to set `disabled`. */
+export function isProviderUnconfigured(o: { disabled?: boolean; label: string }): boolean {
+  return o.disabled === true || NOT_CONFIGURED_SUFFIX.test(o.label);
+}
+
+/** Sort key for provider pickers: configured (selectable) first A–Z, then
+ * unconfigured A–Z. Shared by STT / LLM / TTS SearchSelects. */
+export function compareProviderOptions(
+  a: { disabled?: boolean; label: string; name?: string },
+  b: { disabled?: boolean; label: string; name?: string },
+): number {
+  const aOff = isProviderUnconfigured(a);
+  const bOff = isProviderUnconfigured(b);
+  if (aOff !== bOff) return aOff ? 1 : -1;
+  const aName = a.name ?? a.label.replace(NOT_CONFIGURED_SUFFIX, "");
+  const bName = b.name ?? b.label.replace(NOT_CONFIGURED_SUFFIX, "");
+  return aName.localeCompare(bName, undefined, { sensitivity: "base" });
+}
+
 /** Every provider from /configuration/{kind}, with unauthenticated ones marked
  * `disabled` (and labeled "(Not configured)") — so pickers show the full
  * catalog but only authenticated entries are selectable. Configured providers
@@ -266,10 +289,7 @@ export function searchableProviderOptions(list: ProviderList) {
         name,
       };
     })
-    .sort((a, b) => {
-      if (a.disabled !== b.disabled) return a.disabled ? 1 : -1;
-      return a.name.localeCompare(b.name);
-    })
+    .sort(compareProviderOptions)
     .map(({ value, label, providerType, disabled }) => ({ value, label, providerType, disabled }));
 }
 

@@ -7,10 +7,16 @@ import { useAuth } from "@/components/AuthProvider";
 import { getMe, getUserOrganisations, switchOrganisation } from "@/lib/api/users";
 import { saveSession } from "@/lib/auth-storage";
 import type { OrganisationSummary, UserProfile } from "@/lib/api-types";
-import { formatUserRole } from "@/lib/format";
+import { displayUserName, formatUserRole } from "@/lib/format";
 
-function initials(email: string): string {
-  return email.slice(0, 2).toUpperCase();
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return parts
+    .map((p) => p[0]!)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
 function formatDate(iso?: string): string {
@@ -60,6 +66,7 @@ export function Account({
       saveSession({
         accessToken: result.access_token,
         email: session?.email ?? profile?.email ?? "",
+        name: result.name?.trim() || displayUserName(profile?.name) || displayUserName(session?.name) || undefined,
         orgId: result.org_id,
         orgName: result.organisations.find((o) => o.org_id === result.org_id)?.name,
         role: result.role,
@@ -90,16 +97,18 @@ export function Account({
     );
   }
 
+  const displayName = displayUserName(profile.name) || displayUserName(session?.name);
+
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <div className="flex items-center gap-4">
         <span className="flex h-16 w-16 items-center justify-center rounded-full bg-v-accent-deep text-xl font-semibold text-white">
-          {initials(profile.email)}
+          {initialsFromName(displayName || "User")}
         </span>
         <span className="flex flex-col gap-1">
-          <span className="text-2xl font-semibold tracking-tight">{profile.email}</span>
+          <span className="text-2xl font-semibold tracking-tight">{displayName || "User"}</span>
           <span className="text-sm text-v-muted">
-            {profile.organisation_name ?? profile.org_id} · {formatUserRole(profile.role)}
+            {profile.email} · {profile.organisation_name ?? profile.org_id} · {formatUserRole(profile.role)}
           </span>
         </span>
       </div>
@@ -109,6 +118,10 @@ export function Account({
           <span className="text-[15px] font-semibold">Profile</span>
         </div>
         <dl className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
+            <dt className="font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">Name</dt>
+            <dd className="text-sm font-medium">{displayName || "—"}</dd>
+          </div>
           <div className="flex flex-col gap-1">
             <dt className="font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">Email</dt>
             <dd className="text-sm font-medium">{profile.email}</dd>

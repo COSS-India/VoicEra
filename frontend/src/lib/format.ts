@@ -6,8 +6,9 @@ export function truncateLabel(value: string, max = 30): string {
   return `${value.slice(0, max)}...`;
 }
 
-/** No display-name field exists anywhere in the data model — only email — so
- * derive a readable name from the local part (e.g. "jane.doe" -> "Jane Doe"). */
+/** Derive a readable label from an email local part (e.g. "jane.doe" -> "Jane Doe").
+ * Only for fields that *are* emails (e.g. agent `created_by`) — never for the
+ * signed-in user's display name; use `displayUserName` for that. */
 export function nameFromEmail(email: string): string {
   const local = email.split("@")[0] ?? email;
   return local
@@ -15,6 +16,12 @@ export function nameFromEmail(email: string): string {
     .filter(Boolean)
     .map((part) => part[0]!.toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+/** Signed-in user's display name from the account `name` field only — never
+ * derived from email. Empty when no name is set. */
+export function displayUserName(name?: string | null): string {
+  return name?.trim() ?? "";
 }
 
 /** Display label for org membership roles (super_admin → "Super Admin"). */
