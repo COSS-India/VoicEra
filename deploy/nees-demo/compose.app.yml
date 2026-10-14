@@ -36,6 +36,21 @@ services:
     networks:
       - app-network
 
+  # Telephony only. Vobiz/Plivo call the runtime directly -- /answer for the
+  # Stream XML, then a WebSocket for media -- so it needs its own public URL,
+  # separate from the dashboard's. Put this URL in .env as
+  # VOICE_SERVER_BASE_URL and recreate api, arq_worker and runtime. Like the
+  # dashboard tunnel it changes on every restart: `docker logs nees_demo_voice_tunnel`.
+  voice_tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: ${CONTAINER_PREFIX:-nees_demo}_voice_tunnel
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--url", "http://runtime:7860"]
+    depends_on:
+      - runtime
+    networks:
+      - app-network
+
 networks:
   nees_models:
     external: true

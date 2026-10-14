@@ -166,6 +166,29 @@ sudo docker logs --tail 40 nees_demo_model_stt
 sudo docker logs --tail 40 nees_demo_model_tts
 ```
 
+## Step 5 — Phone numbers (optional, bring-your-own Vobiz or Plivo)
+
+The provider calls the runtime directly, so it needs its own public URL. The
+`voice_tunnel` service in `compose.app.yml` provides one.
+
+```bash
+cd ~/voicera-nees-demo
+APP="-p voicera-nees-demo -f docker-compose.yaml -f deploy/nees-demo/compose.app.yml"
+sudo docker compose $APP up -d voice_tunnel
+sleep 10
+VOICE_URL=$(sudo docker logs nees_demo_voice_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1)
+echo "$VOICE_URL"
+sed -i "s#^VOICE_SERVER_BASE_URL=.*#VOICE_SERVER_BASE_URL=$VOICE_URL#" .env
+sudo docker compose $APP up -d api arq_worker runtime      # recreate with the new value
+curl -s -X POST "$VOICE_URL/answer?agent_id=test&org_id=test" | head -5   # runtime answers publicly
+```
+
+Then add the Vobiz/Plivo credentials in the dashboard and attach the number.
+The URL is written onto the agent and the provider application when the number
+is attached, so **if the voice tunnel restarts, repeat this step and re-attach
+the number** -- the old URL stops working. `/answer` and the media socket are
+unauthenticated; take the tunnel down when the demo is over.
+
 ## Teardown
 
 ```bash
