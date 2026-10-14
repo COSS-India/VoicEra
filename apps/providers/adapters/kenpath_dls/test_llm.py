@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import jwt
 import pytest
 from pipecat.frames.frames import (
+    BotStoppedSpeakingFrame,
     EndWorkerFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
@@ -336,3 +337,49 @@ async def test_goodbye_pushes_end_worker_after_response(
     worker_idxs = [i for i, f in enumerate(pushed) if isinstance(f, EndWorkerFrame)]
     assert end_idxs and worker_idxs
     assert worker_idxs[0] > end_idxs[0]
+
+
+@pytest.mark.asyncio
+async def test_goodbye_with_spoken_text_defers_until_bot_stops(
+    service: KenpathDlsLLMService, monkeypatch
+):
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
+    stream_cm = AsyncMock()
+    response = AsyncMock()
+    response.status_code = 200
+
+    async def aiter_bytes():
+        yield b"thanks goodbye"
+
+    response.aiter_bytes = aiter_bytes
+    stream_cm.__aenter__.return_value = response
+    stream_cm.__aexit__.return_value = None
+
+    mock_client = MagicMock()
+    mock_client.is_closed = False
+    mock_client.stream.return_value = stream_cm
+    service._client = mock_client
+
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    service._push_llm_text.assert_called()
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+    assert service._hangup_pending
+
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert any(isinstance(f, EndWorkerFrame) for f in pushed)
