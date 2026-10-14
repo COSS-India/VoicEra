@@ -23,7 +23,7 @@ from pipecat.services.llm_service import LLMService
 from pipecat.utils.tracing.service_decorators import traced_llm
 
 from apps.providers.adapters.kenpath.call_ending import (
-    end_call,
+    KenpathCallEndingMixin,
     response_requests_end_call,
     strip_goodbye_for_tts,
 )
@@ -38,7 +38,7 @@ from apps.providers.adapters.kenpath.llm import extract_last_user_message
 from apps.runtime.services.language_switch.frames import LanguageSwitchFrame
 
 
-class KenpathDlsLLMService(LLMService):
+class KenpathDlsLLMService(KenpathCallEndingMixin, LLMService):
     """Vistaar DLS voice LLM — single endpoint; language via ``<lang:…>`` markers."""
 
     def __init__(
@@ -62,7 +62,7 @@ class KenpathDlsLLMService(LLMService):
         self._client: httpx.AsyncClient | None = None
         self._active_lang: str | None = None
         self._stream_hold = ""
-
+        self._kenpath_init_call_ending()
         logger.info(
             "KenpathDlsLLMService initialized | model={} | url={}",
             self._model,
@@ -116,6 +116,7 @@ class KenpathDlsLLMService(LLMService):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
+        await self._kenpath_on_call_ending_frame(frame)
 
         context = None
         if isinstance(frame, LLMContextFrame):
@@ -143,8 +144,9 @@ class KenpathDlsLLMService(LLMService):
             finally:
                 await self.stop_processing_metrics()
                 await self.push_frame(LLMFullResponseEndFrame())
-                if response_requests_end_call(spoken_text):
-                    await end_call(self)
+                await self._kenpath_finish_turn_if_end(
+                    end_requested=response_requests_end_call(spoken_text),
+                )
 
     @traced_llm
     async def _process_context(self, context: LLMContext) -> str:
@@ -160,6 +162,7 @@ class KenpathDlsLLMService(LLMService):
         chunk_count = 0
         parts: list[str] = []
         self._stream_hold = ""
+        self._kenpath_begin_assistant_turn()
         async for chunk in self._stream_voice_dls(user_message):
             if first_chunk:
                 first_chunk = False
@@ -171,6 +174,7 @@ class KenpathDlsLLMService(LLMService):
             speakable, self._stream_hold = flush_speakable(self._stream_hold)
             tts_text = strip_goodbye_for_tts(strip_lang_marker_for_tts(speakable))
             if tts_text:
+                self._kenpath_had_tts = True
                 await self._push_llm_text(tts_text)
             chunk_count += 1
 
@@ -180,6 +184,7 @@ class KenpathDlsLLMService(LLMService):
             )
             self._stream_hold = ""
             if tts_text:
+                self._kenpath_had_tts = True
                 await self._push_llm_text(tts_text)
 
         logger.info("Kenpath DLS completed — {} chunks streamed", chunk_count)
@@ -260,6 +265,7 @@ class KenpathDlsLLMService(LLMService):
         return "".join(parts) if parts else None
 
     async def cleanup(self) -> None:
+        self._kenpath_cleanup_call_ending()
         await super().cleanup()
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
