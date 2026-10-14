@@ -49,12 +49,14 @@ from apps.providers.adapters.kenpath.llm import (
     yield_word_chunks_from_text,
 )
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     EndWorkerFrame,
     InterruptionFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    UserStartedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -791,3 +793,173 @@ async def test_bharat_end_interaction_defers_end_worker(monkeypatch):
     assert any(isinstance(f, LLMFullResponseEndFrame) for f in pushed)
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
     assert service._hangup_pending
+
+
+def _bhili_goodbye_service(monkeypatch) -> KenpathLLMService:
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
+    service = KenpathLLMService(
+        private_key=_TEST_PRIVATE_KEY,
+        jwt_sub="+91-9000000000",
+        voice_bhili_url=DEFAULT_VOICE_BHILI_DEV_URL,
+        model=VISTAAR_DEV_MODEL,
+        source_lang="bhb",
+        target_lang="bhb",
+    )
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"response": "thanks goodbye"}
+    mock_response.text = ""
+    mock_client = MagicMock()
+    mock_client.is_closed = False
+    mock_client.get = AsyncMock(return_value=mock_response)
+    service._client = mock_client
+    return service
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_goodbye_hangup_after_clean_playback(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+    assert service._hangup_pending
+
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+    if service._bhili_hangup_timer_task is not None:
+        await service._bhili_hangup_timer_task
+    assert any(isinstance(f, EndWorkerFrame) for f in pushed)
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_no_hangup_between_tts_chunks(monkeypatch):
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+    assert service._bhili_hangup_timer_task is not None
+
+    await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    assert service._bhili_hangup_timer_task is None
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_goodbye_cancelled_on_interruption(monkeypatch):
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    await service.process_frame(InterruptionFrame(), FrameDirection.UPSTREAM)
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_user_started_during_playback_no_hangup(monkeypatch):
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await service.process_frame(UserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+    assert not service._hangup_pending
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_bot_stopped_before_interruption_no_hangup(monkeypatch):
+    import asyncio
+
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    real_sleep = asyncio.sleep
+
+    async def sleep_then_interrupt(_secs: float) -> None:
+        await real_sleep(0)
+        await service.process_frame(InterruptionFrame(), FrameDirection.UPSTREAM)
+
+    monkeypatch.setattr(asyncio, "sleep", sleep_then_interrupt)
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    if service._bhili_hangup_timer_task is not None:
+        await service._bhili_hangup_timer_task
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
