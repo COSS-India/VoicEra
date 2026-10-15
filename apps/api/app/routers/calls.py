@@ -18,6 +18,8 @@ from app.models.schemas import (
     CallMetricsResponse,
     InboundCallRegisterRequest,
     InboundCallRegisterResponse,
+    OutboundCallRegisterRequest,
+    OutboundCallRegisterResponse,
     OutboundCallRequest,
     OutboundCallResponse,
     WebCallRegisterRequest,
@@ -41,7 +43,11 @@ from app.services.call_metrics_service import (
     upsert_call_metrics,
 )
 from app.services.inbound_call_service import InboundCallError, register_inbound_call
-from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
+from app.services.outbound_call_service import (
+    OutboundCallError,
+    initiate_outbound_call,
+    register_outbound_call,
+)
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
 
@@ -136,6 +142,29 @@ async def create_outbound_call(
             body.to_number,
             from_number=body.from_number,
             custom_variables=body.custom_variables,
+        )
+    except OutboundCallError as exc:
+        _raise_outbound_error(exc)
+
+
+@router.post(
+    "/outbound/register",
+    response_model=OutboundCallRegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_outbound_call_log(
+    body: OutboundCallRegisterRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Register an outbound CallLog when the voice runtime stream starts (no dial)."""
+    org_id = _require_active_org(current_user)
+    try:
+        return register_outbound_call(
+            org_id,
+            body.agent_id,
+            provider_call_sid=body.provider_call_sid,
+            from_number=body.from_number,
+            to_number=body.to_number,
         )
     except OutboundCallError as exc:
         _raise_outbound_error(exc)

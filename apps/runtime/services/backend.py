@@ -141,6 +141,38 @@ class BackendClient:
             )
         return response.json()
 
+    async def create_outbound_call_register(
+        self,
+        org_id: str,
+        agent_id: str,
+        *,
+        provider_call_sid: str,
+        from_number: str,
+        to_number: str = "unknown",
+    ) -> dict[str, Any]:
+        """Register an outbound CallLog when the VI stream starts (no dial)."""
+        url = f"{self._base()}/calls/outbound/register"
+        headers = await self._auth_headers(org_id)
+        payload = {
+            "agent_id": agent_id,
+            "provider_call_sid": provider_call_sid,
+            "from_number": from_number,
+            "to_number": to_number,
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+        if response.status_code == 401:
+            await self.get_bot_token(org_id, force=True)
+            headers = await self._auth_headers(org_id)
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+        if response.status_code >= 400:
+            raise BackendError(
+                f"POST calls/outbound/register failed "
+                f"({response.status_code}): {response.text}"
+            )
+        return response.json()
+
     async def create_web_call(
         self,
         org_id: str,

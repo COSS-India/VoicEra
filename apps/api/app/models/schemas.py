@@ -702,6 +702,27 @@ class OutboundCallResponse(BaseModel):
     custom_variables: dict[str, Any] = Field(default_factory=dict)
 
 
+class OutboundCallRegisterRequest(BaseModel):
+    """Register an outbound call from the voice runtime stream (no dial)."""
+
+    agent_id: str
+    provider_call_sid: str
+    from_number: str
+    to_number: str = "unknown"
+
+
+class OutboundCallRegisterResponse(BaseModel):
+    """Response after registering an outbound call log."""
+
+    call_id: str
+    status: CallLogStatus
+    provider_call_sid: str
+    call_type: CallType
+    from_number: str
+    to_number: str
+    agent_id: str
+
+
 class InboundCallRegisterRequest(BaseModel):
     """Register an inbound call from the voice runtime answer webhook."""
 

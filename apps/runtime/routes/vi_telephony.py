@@ -27,6 +27,7 @@ def _deps() -> ViStreamDeps:
         get_agent=backend_client.get_agent,
         get_agent_by_phone=backend_client.get_agent_by_phone,
         create_inbound_call=backend_client.create_inbound_call,
+        create_outbound_call=backend_client.create_outbound_call_register,
         run_bot=run_telephony_bot,
         agent_category=agent_category,
         telephony_provider=telephony_provider,

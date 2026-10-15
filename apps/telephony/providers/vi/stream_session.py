@@ -13,7 +13,11 @@ from typing import Any, Awaitable, Callable, Optional
 from loguru import logger
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from .auth_helpers import phone_lookup_candidates, resolve_vi_agent_id
+from .auth_helpers import (
+    normalize_msisdn,
+    phone_lookup_candidates,
+    resolve_vi_agent_id,
+)
 
 VI_START_TIMEOUT_SECS = 15.0
 VI_START_MAX_MESSAGES = 20
@@ -21,6 +25,7 @@ VI_START_MAX_MESSAGES = 20
 GetAgentFn = Callable[[str, str], Awaitable[dict[str, Any]]]
 GetAgentByPhoneFn = Callable[[str], Awaitable[dict[str, Any]]]
 CreateInboundCallFn = Callable[..., Awaitable[dict[str, Any]]]
+CreateOutboundCallFn = Callable[..., Awaitable[dict[str, Any]]]
 RunBotFn = Callable[..., Awaitable[None]]
 AgentCategoryFn = Callable[[dict[str, Any]], str]
 TelephonyProviderFn = Callable[[dict[str, Any]], str]
@@ -33,6 +38,7 @@ class ViStreamDeps:
     get_agent: GetAgentFn
     get_agent_by_phone: GetAgentByPhoneFn
     create_inbound_call: CreateInboundCallFn
+    create_outbound_call: CreateOutboundCallFn
     run_bot: RunBotFn
     agent_category: AgentCategoryFn
     telephony_provider: TelephonyProviderFn
@@ -151,6 +157,30 @@ async def resolve_agent_full(
     return None, ""
 
 
+def _phones_equal(a: str, b: str) -> bool:
+    """True when two VI CLI/DNI values are the same national number.
+
+    Handles ``+91``, ``91``, and bare 10-digit forms without requiring
+    identical string spelling.
+    """
+    left = str(a or "").strip()
+    right = str(b or "").strip()
+    if not left or not right:
+        return False
+    if left.lower() == "unknown" or right.lower() == "unknown":
+        return False
+    left_msisdn = normalize_msisdn(left)
+    right_msisdn = normalize_msisdn(right)
+    if not left_msisdn or not right_msisdn:
+        return False
+    return left_msisdn == right_msisdn
+
+
+def _is_outbound_stream(cli: str, dni: str) -> bool:
+    """VI outbound streams report the same number on both CLI and DNI."""
+    return _phones_equal(cli, dni)
+
+
 async def ensure_call_log(
     deps: ViStreamDeps,
     agent: dict[str, Any],
@@ -159,11 +189,32 @@ async def ensure_call_log(
     cli: str,
     dni: str,
 ) -> str | None:
-    """Register inbound CallLog for the VI stream; return VoicERA call_id."""
+    """Register CallLog for the VI stream; return VoicERA call_id.
+
+    When CLI and DNI match (outbound), register as outbound with
+    ``from_number`` = CLI/DNI and ``to_number`` = unknown (VI does not
+    supply the callee). Otherwise register as inbound.
+    """
     org_id = str(agent.get("org_id") or "").strip()
     agent_id = str(agent.get("agent_id") or "").strip()
     if not org_id or not agent_id:
         return None
+
+    if _is_outbound_stream(cli, dni):
+        from_number = cli or dni or "unknown"
+        try:
+            created = await deps.create_outbound_call(
+                org_id,
+                agent_id,
+                provider_call_sid=call_sid,
+                from_number=from_number,
+                to_number="NA",
+            )
+            return str(created.get("call_id") or "") or None
+        except deps.backend_error_type as exc:
+            logger.warning("VI create_outbound_call failed: {}", exc)
+            return None
+
     try:
         created = await deps.create_inbound_call(
             org_id,
