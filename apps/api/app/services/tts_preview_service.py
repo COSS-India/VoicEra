@@ -353,6 +353,12 @@ async def _synthesize_with_timeout(
         raise TtsPreviewError(
             TtsPreviewErrorReason.UPSTREAM, "Voice provider request failed"
         ) from exc
+    except Exception as exc:  # noqa: BLE001 - an adapter bug must not become a 500
+        # Class name only: an unexpected message could carry config or key values.
+        log.emit("adapter_error", error=type(exc).__name__)
+        raise TtsPreviewError(
+            TtsPreviewErrorReason.UPSTREAM, "Voice provider request failed"
+        ) from exc
 
 
 async def generate_preview(org_id: str, tts_config: dict[str, Any], language: str, text: str) -> bytes:
