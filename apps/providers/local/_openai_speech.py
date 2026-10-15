@@ -24,7 +24,7 @@ packages under ``local/``, so a plain module here is never mistaken for one.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from loguru import logger
 from openai import AsyncOpenAI, BadRequestError
@@ -32,6 +32,8 @@ from pipecat.frames.frames import ErrorFrame, Frame, TTSAudioRawFrame
 from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
 from pipecat.utils.tracing.service_decorators import traced_tts
+
+from apps.providers.runtime_language import update_tts_settings_with_voice_language
 
 
 class ModelServerSpeechTTSService(TTSService):
@@ -101,6 +103,19 @@ class ModelServerSpeechTTSService(TTSService):
 
     def can_generate_metrics(self) -> bool:
         return True
+
+    async def _update_settings(self, delta: TTSSettings) -> dict[str, Any]:
+        """Apply a runtime settings change, such as a mid-call language switch.
+
+        When two of an agent's languages share this provider and model, the
+        runtime keeps one service and switches it with a settings delta. The
+        voice and model live on private attributes that ``run_tts`` reads, so
+        they are copied across after Pipecat applies the delta. Language needs
+        nothing: the servers read it from the text's script.
+        """
+        return await update_tts_settings_with_voice_language(
+            self, delta, super_update=super()._update_settings
+        )
 
     async def start(self, frame):
         await super().start(frame)

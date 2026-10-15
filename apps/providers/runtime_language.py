@@ -60,3 +60,19 @@ async def update_tts_settings_with_voice_language(
     if model_requested and hasattr(service, "_model"):
         service._model = str(_stored_or_delta(service, "model", delta.model))
     return changed
+
+
+def translate_delta_language(delta: STTSettings | TTSSettings, to_wire) -> None:
+    """Rewrite a delta's language from VoicEra's canonical id to a vendor code.
+
+    Language switching sends the agent config's language as it is stored --
+    the canonical id (``od``, ``bh``) -- but a self-hosted model server expects
+    its own code (``or``, ``bhb``). ``to_wire`` is the provider's catalog
+    mapping; a value that is already a wire code passes through it unchanged.
+    Call this before ``super()._update_settings`` so Pipecat stores and sends
+    the wire code.
+    """
+    if not is_given(delta.language) or delta.language is None:
+        return
+    value = getattr(delta.language, "value", delta.language)
+    delta.language = to_wire(str(value).strip())

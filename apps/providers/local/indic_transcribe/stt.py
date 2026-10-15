@@ -17,10 +17,15 @@ is the client; this subclass only fixes what differs from OpenAI:
 
 from __future__ import annotations
 
+from typing import Any
+
 from loguru import logger
 from pipecat.services.openai.stt import OpenAIRealtimeSTTService
+from pipecat.services.settings import STTSettings
 
-from .catalog import STT_MODEL
+from apps.providers.runtime_language import translate_delta_language
+
+from .catalog import STT_MODEL, resolve_wire_language
 
 
 class IndicTranscribeSTTService(OpenAIRealtimeSTTService):
@@ -43,6 +48,7 @@ class IndicTranscribeSTTService(OpenAIRealtimeSTTService):
             **kwargs,
         )
         self._wire_language = wire
+        self._catalog_model = model
 
         logger.info(
             "Indic Transcribe STT initialized | base_url={} model={} language={}",
@@ -50,3 +56,19 @@ class IndicTranscribeSTTService(OpenAIRealtimeSTTService):
             model,
             wire,
         )
+
+    async def _update_settings(self, delta: STTSettings) -> dict[str, Any]:
+        """Apply a runtime settings change, such as a mid-call language switch.
+
+        The switch carries VoicEra's canonical id (``od``, ``bh``); the server
+        wants its wire code (``or``, ``bhb``). Translated here, Pipecat's own
+        client then stores it and sends the ``session.update``.
+        """
+        translate_delta_language(
+            delta, lambda lang: resolve_wire_language(self._catalog_model, lang)
+        )
+        changed = await super()._update_settings(delta)
+        if "language" in changed:
+            self._wire_language = str(self._settings.language)
+            logger.info("Indic Transcribe STT language switched to {}", self._wire_language)
+        return changed
