@@ -15,8 +15,13 @@ import {
   type WizardCatalogs,
 } from "@/lib/use-wizard-catalogs";
 
-function providerStillValid(list: Record<string, unknown>, id: string): boolean {
-  return Boolean(id && id in list);
+function providerStillValid(
+  list: WizardCatalogs["sttProviders"] | WizardCatalogs["ttsProviders"] | WizardCatalogs["llmProviders"],
+  id: string,
+): boolean {
+  // Must be present *and* configured — an unauthenticated catalog entry (e.g.
+  // AI4Bharat when not integrated) must not stick as the selected default.
+  return Boolean(id && list[id]?.authenticated === true);
 }
 
 function applyStackDefaults(

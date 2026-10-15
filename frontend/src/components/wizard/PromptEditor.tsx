@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { Search } from "lucide-react";
 import type { PromptModule } from "@/lib/prompt-modules";
 
 const VARIABLE_PATTERN = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
 const IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+/** Pixels from the bottom that still count as "at the bottom" for sticky restore. */
+const SCROLL_BOTTOM_SLACK = 2;
 
 /** Every `{{var}}` name referenced in `text`, in order of first appearance, deduped. */
 export function extractVariableNames(text: string): string[] {
@@ -69,6 +79,65 @@ function renderTokens(root: HTMLElement, text: string) {
   if (lastIndex < text.length) {
     root.appendChild(document.createTextNode(text.slice(lastIndex)));
   }
+}
+
+interface ScrollSnapshot {
+  el: HTMLElement;
+  scrollTop: number;
+  atTop: boolean;
+  atBottom: boolean;
+}
+
+/** True when `el` can scroll vertically (overflow-y auto/scroll with overflow). */
+function isVerticallyScrollable(el: HTMLElement): boolean {
+  const { overflowY } = getComputedStyle(el);
+  if (overflowY !== "auto" && overflowY !== "scroll" && overflowY !== "overlay") return false;
+  return el.scrollHeight > el.clientHeight + 1;
+}
+
+/** Capture scroll for the editor and every scrollable ancestor (wizard pane). */
+function captureScrollPositions(root: HTMLElement): ScrollSnapshot[] {
+  const snaps: ScrollSnapshot[] = [];
+  let el: HTMLElement | null = root;
+  while (el) {
+    if (el === root || isVerticallyScrollable(el)) {
+      const max = Math.max(0, el.scrollHeight - el.clientHeight);
+      snaps.push({
+        el,
+        scrollTop: el.scrollTop,
+        atTop: el.scrollTop <= SCROLL_BOTTOM_SLACK,
+        atBottom: max > 0 && el.scrollTop >= max - SCROLL_BOTTOM_SLACK,
+      });
+    }
+    el = el.parentElement;
+  }
+  return snaps;
+}
+
+/** Restore captured positions after content rebuild — clamp, pin top/bottom. */
+function restoreScrollPositions(snaps: ScrollSnapshot[]) {
+  for (const snap of snaps) {
+    const max = Math.max(0, snap.el.scrollHeight - snap.el.clientHeight);
+    if (snap.atTop) {
+      snap.el.scrollTop = 0;
+    } else if (snap.atBottom) {
+      snap.el.scrollTop = max;
+    } else {
+      snap.el.scrollTop = Math.min(snap.scrollTop, max);
+    }
+  }
+}
+
+/**
+ * Rebuild token DOM while preserving the editor's and wizard pane's scroll.
+ * Must run after caret placement when the caller also moves the selection —
+ * `setCaretOffset` can scroll the caret into view and undo a restore done too early.
+ */
+function rebuildWithScrollPreservation(root: HTMLElement, text: string) {
+  const snaps = captureScrollPositions(root);
+  renderTokens(root, text);
+  restoreScrollPositions(snaps);
+  return snaps;
 }
 
 /** Caret position as a plain-text character offset — badge spans count as the
@@ -226,7 +295,7 @@ function VariablePicker({
   const popupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, []);
   useClosePickerOnOutsideClick(popupRef, onClose);
 
@@ -311,7 +380,7 @@ function ModulePicker({
   const popupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, []);
   useClosePickerOnOutsideClick(popupRef, onClose);
 
@@ -410,12 +479,14 @@ export function PromptEditor({
 
   // Re-render from `value` whenever it changes from outside this editor's own
   // typing (template pick, switching agents in edit mode, prompt-module insert).
-  useEffect(() => {
+  // useLayoutEffect so scroll restore happens after the new DOM exists and before paint.
+  useLayoutEffect(() => {
     if (!ref.current || value === lastValue.current) return;
     const offset = getCaretOffset(ref.current);
-    renderTokens(ref.current, value);
+    const snaps = rebuildWithScrollPreservation(ref.current, value);
     lastValue.current = value;
     if (offset !== null) setCaretOffset(ref.current, offset);
+    restoreScrollPositions(snaps);
   }, [value]);
 
   function openPicker(mode: PickerState["mode"], insertAt: number) {
@@ -426,8 +497,10 @@ export function PromptEditor({
 
   function closePicker() {
     if (ref.current && picker) {
-      ref.current.focus();
+      const snaps = captureScrollPositions(ref.current);
+      ref.current.focus({ preventScroll: true });
       setCaretOffset(ref.current, picker.insertAt);
+      restoreScrollPositions(snaps);
     }
     setPicker(null);
   }
@@ -436,10 +509,11 @@ export function PromptEditor({
     if (!ref.current) return;
     const current = ref.current.textContent ?? "";
     const next = current.slice(0, pos) + insertion + current.slice(pos);
-    renderTokens(ref.current, next);
+    const snaps = rebuildWithScrollPreservation(ref.current, next);
     lastValue.current = next;
-    ref.current.focus();
+    ref.current.focus({ preventScroll: true });
     setCaretOffset(ref.current, caretAfter);
+    restoreScrollPositions(snaps);
     setPicker(null);
     onChange(next);
   }
@@ -466,9 +540,10 @@ export function PromptEditor({
     const text = ref.current.textContent ?? "";
     const offset = getCaretOffset(ref.current) ?? text.length;
     const next = text.slice(0, offset) + "\n" + text.slice(offset);
-    renderTokens(ref.current, next);
+    const snaps = rebuildWithScrollPreservation(ref.current, next);
     lastValue.current = next;
     setCaretOffset(ref.current, offset + 1);
+    restoreScrollPositions(snaps);
     onChange(next);
   }
 
@@ -490,9 +565,10 @@ export function PromptEditor({
 
     if (sanitize) next = sanitizeAroundVariables(next, sanitize);
 
-    renderTokens(ref.current, next);
+    const snaps = rebuildWithScrollPreservation(ref.current, next);
     lastValue.current = next;
     setCaretOffset(ref.current, start + pasted.length);
+    restoreScrollPositions(snaps);
     setPicker(null);
     onChange(next);
   }
@@ -510,9 +586,10 @@ export function PromptEditor({
     const triggersModule = triggerChar === "/" && promptModules !== undefined;
     if (offset !== null && (triggersVariable || triggersModule)) {
       const trimmed = text.slice(0, offset - 1) + text.slice(offset);
-      renderTokens(ref.current, trimmed);
+      const snaps = rebuildWithScrollPreservation(ref.current, trimmed);
       lastValue.current = trimmed;
       setCaretOffset(ref.current, offset - 1);
+      restoreScrollPositions(snaps);
       onChange(trimmed);
       openPicker(triggersVariable ? "variable" : "module", offset - 1);
       return;
@@ -527,9 +604,10 @@ export function PromptEditor({
       offset = prefixLen;
     }
 
-    renderTokens(ref.current, text);
+    const snaps = rebuildWithScrollPreservation(ref.current, text);
     lastValue.current = text;
     if (offset !== null) setCaretOffset(ref.current, offset);
+    restoreScrollPositions(snaps);
     onChange(text);
   }
 

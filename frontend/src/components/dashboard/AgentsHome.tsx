@@ -29,7 +29,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { archiveAgent, createAgent, deleteAgent, getAgent, listAgents } from "@/lib/api-client";
 import { listOrgCalls } from "@/lib/api/calls";
 import { listPhoneNumbers } from "@/lib/api/phone-numbers";
-import { formatDuration, nameFromEmail, truncateLabel } from "@/lib/format";
+import { displayUserName, formatDuration, nameFromEmail, truncateLabel } from "@/lib/format";
 import { agentPurposeFromApi } from "@/lib/agent-mapper";
 import { useAuth } from "@/components/AuthProvider";
 import { AgentTestModal } from "@/components/dashboard/AgentTestModal";
@@ -534,11 +534,7 @@ export function AgentsHome({ onNotify }: { onNotify: (title: string, note: strin
     return "Good evening";
   }
 
-  const userName =
-    session?.name?.trim() ||
-    (session?.email ? session.email.split("@")[0] : "") ||
-    "";
-
+  const userName = displayUserName(session?.name);
   const greeting = `${getGreeting()}${userName ? `, ${userName}` : ""}`;
 
   const headline = greeting;

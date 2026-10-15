@@ -87,6 +87,12 @@ export function PromptKnowledgeStep({ form, onChange, onOpenLibrary, onNotify }:
         </div>
 
         {form.kbEnabled ? (
+          <p className="text-[12.5px] leading-relaxed text-v-muted">
+            Text-based PDFs only (up to 25 MB). PDFs with images or scanned pages are not supported.
+          </p>
+        ) : null}
+
+        {form.kbEnabled ? (
           <div className="flex flex-col gap-2.5 rounded-v-md border border-v-line bg-v-soft/40 p-3">
             <span className="text-[13px] font-semibold">Documents</span>
 

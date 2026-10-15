@@ -1,3 +1,5 @@
+import { clearActivityTracking, touchActivity } from "@/lib/session-timeout";
+
 const TOKEN_KEY = "voicera_access_token";
 const SESSION_KEY = "voicera_session";
 
@@ -29,9 +31,12 @@ export function getSession(): AuthSession | null {
 export function saveSession(session: AuthSession) {
   localStorage.setItem(TOKEN_KEY, session.accessToken);
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  // Fresh login / session write starts the active-session inactivity clock.
+  touchActivity();
 }
 
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(SESSION_KEY);
+  clearActivityTracking();
 }
