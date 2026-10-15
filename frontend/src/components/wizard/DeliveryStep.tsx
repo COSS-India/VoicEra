@@ -10,11 +10,6 @@ interface DeliveryStepProps {
   onChange: <K extends keyof AgentForm>(key: K, value: AgentForm[K]) => void;
 }
 
-const TELEPHONY_OPTIONS = [
-  { id: "plivo", name: "Plivo", note: "Real phone number via Plivo." },
-  { id: "vobiz", name: "Vobiz", note: "Real phone number via Vobiz." },
-];
-
 function DeliveryCard({
   name,
   note,
@@ -65,6 +60,11 @@ function DeliveryCard({
  * LLM/model pick, it decides whether this agent even has a real phone number
  * — a bigger decision that deserves more visual weight. */
 export function DeliveryStep({ form, catalogs, onChange }: DeliveryStepProps) {
+  const telephonyOptions = Object.entries(catalogs.telephonyProviders).map(([id, provider]) => ({
+    id,
+    name: provider.name || id,
+  }));
+
   return (
     <div className="flex flex-col gap-6 animate-v-rise">
       <p className="text-[13px] font-light text-v-muted">
@@ -73,21 +73,16 @@ export function DeliveryStep({ form, catalogs, onChange }: DeliveryStepProps) {
       </p>
 
       <div data-tour="delivery-options" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {TELEPHONY_OPTIONS.map((opt) => {
-          const provider = catalogs.telephonyProviders[opt.id];
-          const configured = Boolean(provider);
-          return (
-            <DeliveryCard
-              key={opt.id}
-              name={provider?.name ?? opt.name}
-              note={configured ? opt.note : "Not configured — add it under Integrations first."}
-              icon={Phone}
-              selected={form.delivery === opt.id}
-              disabled={!configured}
-              onClick={() => onChange("delivery", opt.id)}
-            />
-          );
-        })}
+        {telephonyOptions.map((opt) => (
+          <DeliveryCard
+            key={opt.id}
+            name={opt.name}
+            note={`Real phone number via ${opt.name}.`}
+            icon={Phone}
+            selected={form.delivery === opt.id}
+            onClick={() => onChange("delivery", opt.id)}
+          />
+        ))}
         <DeliveryCard
           name="WebSocket"
           note="Browser microphone test call — no phone number needed."

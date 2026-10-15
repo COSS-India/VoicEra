@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncGenerator, Optional, Union
+from typing import Any, AsyncGenerator, Optional, Union
 
 import grpc
 from loguru import logger
@@ -20,9 +20,11 @@ from pipecat.frames.frames import (
     VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.services.settings import STTSettings
 from pipecat.services.stt_service import STTService
 from pipecat.utils.time import time_now_iso8601
 
+from apps.providers.runtime_language import update_stt_settings_with_language
 from . import asr_pb2, asr_pb2_grpc
 from .catalog import DEFAULT_GRPC_URL
 
@@ -377,6 +379,11 @@ class BhashiniNemotronSTTService(STTService):
         self._language = wire
         if self._channel and self._outbound is not None:
             await self._enqueue(self._streaming_config())
+
+    async def _update_settings(self, delta: STTSettings) -> dict[str, Any]:
+        return await update_stt_settings_with_language(
+            self, delta, super_update=super()._update_settings
+        )
 
     def can_generate_metrics(self) -> bool:
         return True

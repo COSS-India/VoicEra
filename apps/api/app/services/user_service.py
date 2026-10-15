@@ -59,6 +59,7 @@ def _auth_success_response(
     access_token = create_access_token(
         data=_token_payload(email, org_id, role),
     )
+    user = get_database()["Users"].find_one({"email": email}) or {}
     return {
         "status": "success",
         "message": message,
@@ -66,6 +67,7 @@ def _auth_success_response(
         "token_type": "bearer",
         "org_id": org_id,
         "role": role,
+        "name": user.get("name"),
         "organisations": organisations,
         "is_first_login": is_first_login,
     }
@@ -168,6 +170,7 @@ def sign_up_user(user_data: UserCreate) -> dict[str, Any]:
                 }
 
         now = datetime.now(timezone.utc).isoformat()
+        display_name = (user_data.name or "").strip() or None
         org = org_service.create_organisation(
             name=user_data.organisation_name,
             created_by_email=user_data.email,
@@ -175,9 +178,12 @@ def sign_up_user(user_data: UserCreate) -> dict[str, Any]:
         org_id = org["org_id"]
 
         if existing_user:
+            patch: dict[str, Any] = {"default_org_id": org_id, "last_logged_in_at": now}
+            if display_name and not existing_user.get("name"):
+                patch["name"] = display_name
             users.update_one(
                 {"email": user_data.email},
-                {"$set": {"default_org_id": org_id, "last_logged_in_at": now}},
+                {"$set": patch},
             )
             is_first_login = existing_user.get("last_logged_in_at") is None
         else:
@@ -185,6 +191,7 @@ def sign_up_user(user_data: UserCreate) -> dict[str, Any]:
                 {
                     "email": user_data.email,
                     "password": get_password_hash(user_data.password),
+                    "name": display_name,
                     "created_at": now,
                     "default_org_id": org_id,
                     "last_logged_in_at": now,
@@ -342,6 +349,7 @@ def get_profile(email: str, active_org_id: str | None) -> dict[str, Any] | None:
         if not organisations:
             return {
                 "email": email,
+                "name": user.get("name"),
                 "org_id": active_org_id or "",
                 "role": ROLE_MEMBER,
                 "organisation_name": None,
@@ -360,6 +368,7 @@ def get_profile(email: str, active_org_id: str | None) -> dict[str, Any] | None:
 
         return {
             "email": email,
+            "name": user.get("name"),
             "org_id": active["org_id"],
             "role": active["role"],
             "organisation_name": active.get("name"),

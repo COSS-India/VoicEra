@@ -135,3 +135,11 @@ def test_deployed_llm_model_ids_and_is_authenticated_share_one_cached_fetch(monk
         assert availability.is_authenticated("indic_nemotron", set()) is True
         assert availability.deployed_llm_model_ids() == frozenset({"gemma-3-4b"})
         assert urlopen.call_count == 1
+
+
+def test_vi_not_authenticated_without_configured():
+    assert availability.is_authenticated("vi", set()) is False
+
+
+def test_vi_authenticated_via_configured():
+    assert availability.is_authenticated("vi", {"vi"}) is True

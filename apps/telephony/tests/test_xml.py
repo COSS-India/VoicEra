@@ -44,3 +44,11 @@ def test_provider_modules_match_parent_dispatch():
     assert plivo_xml.build_answer_stream_xml(WS, sample_rate=8000) == build_answer_stream_xml(
         "plivo", WS, sample_rate=8000
     )
+
+
+def test_vi_xml_is_placeholder():
+    from apps.telephony.providers.vi import xml as vi_xml
+
+    xml = build_answer_stream_xml("vi", WS)
+    assert "does not use" in xml
+    assert xml == vi_xml.build_answer_stream_xml(WS)

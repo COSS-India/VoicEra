@@ -13,6 +13,8 @@ from app.services import agent_service
 from app.services.agent_telephony_service import (
     AgentTelephonyError,
     build_answer_urls,
+    get_provider_dial_credentials,
+    load_telephony_client,
     provision_application,
 )
 from app.services.agent_service import AgentNotFoundError
@@ -134,3 +136,67 @@ async def test_create_websocket_rejects_telephony_provider() -> None:
     )
     with pytest.raises(AgentConfigValidationError):
         await agent_service.create_agent("org-1", "admin@example.com", payload)
+
+
+@patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
+def test_vi_load_telephony_client_requires_provider_auth(
+    get_auth_mock: MagicMock,
+) -> None:
+    import apps.telephony.providers.vi.config  # noqa: F401 — register provider
+
+    get_auth_mock.return_value = None
+    with pytest.raises(AgentTelephonyError, match="not configured"):
+        load_telephony_client("org-1", "vi")
+
+
+@patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
+def test_vi_load_telephony_client_from_provider_auth(
+    get_auth_mock: MagicMock,
+) -> None:
+    import apps.telephony.providers.vi.config  # noqa: F401
+
+    get_auth_mock.return_value = {
+        "auth": {
+            "auth_id": "auth-user",
+            "auth_token": "auth-pass",
+            "dni_flows": '[{"dni":"919876543210","flow_id":"flow-a"}]',
+        }
+    }
+    client = load_telephony_client("org-1", "vi")
+    assert client.credentials.auth_id == "auth-user"
+    assert client.dni_flows[0]["flow_id"] == "flow-a"
+
+
+@patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
+def test_vi_get_provider_dial_credentials_from_auth(
+    get_auth_mock: MagicMock,
+) -> None:
+    import apps.telephony.providers.vi.config  # noqa: F401
+
+    get_auth_mock.return_value = {
+        "auth": {
+            "auth_id": "auth-user",
+            "auth_token": "auth-pass",
+            "dni_flows": '[{"dni":"919876543210","flow_id":"flow-a"}]',
+        }
+    }
+    creds = get_provider_dial_credentials("org-1", "vi")
+    assert creds["auth_id"] == "auth-user"
+    assert "dni_flows" in creds
+
+
+@patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
+def test_vi_client_default_from_number_from_auth(
+    get_auth_mock: MagicMock,
+) -> None:
+    import apps.telephony.providers.vi.config  # noqa: F401
+
+    get_auth_mock.return_value = {
+        "auth": {
+            "auth_id": "u",
+            "auth_token": "p",
+            "dni_flows": '[{"dni":"919769554706","flow_id":"flow-a"}]',
+        }
+    }
+    client = load_telephony_client("org-1", "vi")
+    assert client.default_from_number() == "+919769554706"

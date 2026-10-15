@@ -17,6 +17,8 @@ import { ReviewStep } from "@/components/wizard/ReviewStep";
 import { PromptLibraryDialog } from "@/components/wizard/PromptLibraryDialog";
 import { SectionNav, type SectionNavItem } from "@/components/wizard/SectionNav";
 import type { PromptModule } from "@/lib/prompt-modules";
+import { activeLanguageStack } from "@/lib/language-stacks";
+import { useLanguageStackDefaults } from "@/lib/use-language-stack-defaults";
 import { useWizardCatalogs } from "@/lib/use-wizard-catalogs";
 import { useSyncCustomVariables } from "@/lib/use-sync-custom-variables";
 
@@ -41,12 +43,19 @@ function EditForm({
   const [form, setForm] = useState<AgentForm>(() => agentToForm(agent));
   const [libraryOpen, setLibraryOpen] = useState(false);
 
-  const catalogs = useWizardCatalogs(form.langs, form.sttProvider, form.ttsProvider, form.llmProvider);
+  const activeStack = activeLanguageStack(form);
+  const catalogs = useWizardCatalogs(
+    form.langs,
+    activeStack.sttProvider,
+    activeStack.ttsProvider,
+    activeStack.llmProvider,
+  );
 
   const onChange = <K extends keyof AgentForm>(key: K, value: AgentForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
   useSyncCustomVariables(form, onChange);
+  useLanguageStackDefaults(form, catalogs, setForm);
 
   const insertModule = (m: PromptModule) => {
     setForm((f) => ({
@@ -73,7 +82,7 @@ function EditForm({
           this flex-1 child actually shrink and scroll instead of growing past
           its container; deliberately not overflow-hidden on the outer shell,
           since that would clip the top/bottom bars' edge-to-edge bleed. */}
-      <div className="scrollbar-hide flex min-h-0 flex-1 overflow-y-auto py-6">
+      <div data-wizard-scroll className="scrollbar-hide flex min-h-0 flex-1 overflow-y-auto py-6">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
           {catalogs.error ? (
             <div className="rounded-v-md border border-v-danger-line bg-v-danger-pale px-4 py-3 text-sm text-v-danger">
@@ -95,7 +104,7 @@ function EditForm({
               ) : null}
 
               {currentId === "language" ? (
-                <LanguageProvidersStep form={form} catalogs={catalogs} onChange={onChange} />
+                <LanguageProvidersStep form={form} setForm={setForm} catalogs={catalogs} />
               ) : null}
 
               {currentId === "delivery" ? <DeliveryStep form={form} catalogs={catalogs} onChange={onChange} /> : null}

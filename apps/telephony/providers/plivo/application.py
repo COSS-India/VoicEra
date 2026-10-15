@@ -180,5 +180,6 @@ async def initiate_call(
         "Call initiated successfully",
         call_uuid=call_uuid,
         request_uuid=body.get("request_uuid"),
+        provider_call_sid=str(call_uuid) if call_uuid is not None else None,
         raw=body,
     )

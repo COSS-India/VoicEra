@@ -32,6 +32,8 @@ _EXTRA_KEYS = (
     "secret",
     "examples",
     "multiline",
+    "pair_fields",
+    "ui_label",
     "docs_url",
     "integration_model",
 )
