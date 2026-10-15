@@ -190,7 +190,7 @@ export const TIPS: Record<string, string> = {
   llmProvider: "Changing this resets the model choice below to that provider's default.",
   tokens: "Roughly how long a single reply can run. Lower this for tighter, faster answers.",
   temp: "Higher values make the agent's phrasing less predictable call to call.",
-  kb: "When on, the agent quotes from the documents you attach instead of guessing.",
+  kb: "When on, the agent quotes from the documents you attach instead of guessing. Use text-based PDFs only — PDFs with images are not supported.",
   langs: "The first language opens the call. Callers who switch mid-call are followed automatically.",
   voice: "Preview a voice before committing — it's easy to change later, but callers notice a swap.",
   sttProvider: "Indic-only providers won't appear as options once you pick English as a language.",

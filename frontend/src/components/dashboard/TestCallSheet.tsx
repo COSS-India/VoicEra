@@ -8,8 +8,25 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Sheet, SheetHeader } from "@/components/ui/Sheet";
 import { createOutboundCall } from "@/lib/api/calls";
 import type { AgentApiResponse } from "@/lib/api-types";
+import { splitCallingCode } from "@/lib/format";
 
-const E164_RE = /^\+[1-9]\d{6,14}$/;
+/** Max national (subscriber) digits after the country calling code. */
+const MAX_NATIONAL_DIGITS = 10;
+
+/** Keep a leading +, digits only, and at most 10 national digits after the calling code. */
+function clampOutboundPhoneInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return raw.includes("+") ? "+" : "";
+  const [cc, national] = splitCallingCode(digits);
+  return `+${cc}${national.slice(0, MAX_NATIONAL_DIGITS)}`;
+}
+
+function isValidOutboundPhone(value: string): boolean {
+  const m = /^\+(\d+)$/.exec(value.trim());
+  if (!m) return false;
+  const [, national] = splitCallingCode(m[1]!);
+  return national.length === MAX_NATIONAL_DIGITS && national.length > 0;
+}
 
 function agentCustomVariableEntries(agent: AgentApiResponse): [string, string][] {
   const vars = agent.config?.custom_variables ?? {};
@@ -35,7 +52,7 @@ export function TestCallSheet({ agent, onClose, onNotify }: TestCallSheetProps) 
 
   const callerId = agent.linked_phone_number;
   const trimmed = toNumber.trim();
-  const validNumber = E164_RE.test(trimmed);
+  const validNumber = isValidOutboundPhone(trimmed);
 
   async function handleCall() {
     if (!validNumber || !callerId) return;
@@ -74,19 +91,29 @@ export function TestCallSheet({ agent, onClose, onNotify }: TestCallSheetProps) 
           </label>
           <div className="flex items-center gap-2.5 rounded-v-sm border border-v-line-strong bg-white px-3.5 py-3">
             <Phone className="size-4 shrink-0 text-v-muted" strokeWidth={1.75} />
+            <span className="select-none font-mono text-[15px] text-v-muted-2 pr-1">+91</span>
             <input
               id="test-call-to"
               type="tel"
-              value={toNumber}
-              onChange={(e) => setToNumber(e.target.value)}
-              placeholder="+91XXXXXXXXXX"
+              inputMode="numeric"
+              autoComplete="tel-national"
+              value={toNumber.replace(/^\+91/, "")}
+              onChange={(e) => {
+                // Only allow digits and up to 10 numbers after +91
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                setToNumber("+91" + digits);
+              }}
+              placeholder="XXXXXXXXXX"
               className="w-full bg-transparent text-[15px] text-v-fg outline-none"
+              maxLength={10} // Only allow 10 digits input (after the +91)
+              pattern="\d{10}"
             />
           </div>
+ 
           <p className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-v-muted">
             <Info className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.75} />
-            Enter your phone number in E.164 format. Include country code (e.g., +1 for US, +91 for
-            India)
+            Enter your phone number in E.164 format with country code (e.g. +91) and up to 10 digits
+            after it.
           </p>
         </div>
 

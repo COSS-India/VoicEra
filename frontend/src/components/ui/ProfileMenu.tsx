@@ -87,7 +87,8 @@ export function ProfileMenu({
       saveSession({
         accessToken: result.access_token,
         email,
-        name: result.name?.trim() || existing?.name || (name !== "User" ? name : undefined),
+        // Keep the account name field — never fall back to email local-part.
+        name: result.name?.trim() || existing?.name?.trim() || (name !== "User" ? name.trim() : undefined) || undefined,
         orgId: result.org_id,
         orgName: result.organisations.find((o) => o.org_id === result.org_id)?.name,
         role: result.role,

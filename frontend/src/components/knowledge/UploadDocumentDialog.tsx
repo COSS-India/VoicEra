@@ -64,7 +64,11 @@ export function UploadDocumentDialog({
 
   return (
     <Dialog open={open} onClose={handleClose} widthClassName="max-w-md">
-      <DialogHeader title="Upload a document" subtitle="PDF only, up to 25 MB." onClose={handleClose} />
+      <DialogHeader
+        title="Upload a document"
+        subtitle="PDF only, up to 25 MB. Text-based PDFs only."
+        onClose={handleClose}
+      />
       <div className="flex flex-col gap-4 p-5">
         <div
           onDragOver={(e) => {
@@ -99,6 +103,15 @@ export function UploadDocumentDialog({
               e.target.value = "";
             }}
           />
+        </div>
+
+        <div
+          role="note"
+          className="rounded-v-sm border border-v-line bg-v-soft/60 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-v-body"
+        >
+          <span className="font-semibold text-v-fg">Note: </span>
+          PDFs with images (including scanned pages) are not supported. Upload a text-based PDF
+          instead.
         </div>
 
         {error ? <p className="text-sm text-v-danger">{error}</p> : null}
