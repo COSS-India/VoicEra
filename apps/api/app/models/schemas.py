@@ -691,9 +691,13 @@ class OutboundCallRequest(BaseModel):
 
 
 class OutboundCallResponse(BaseModel):
-    """Response after initiating an outbound call."""
+    """Response after initiating an outbound call.
 
-    call_id: str
+    ``call_id`` is null for providers that register the CallLog on media
+    connect (e.g. VI) rather than at dial time.
+    """
+
+    call_id: Optional[str] = None
     status: CallLogStatus
     provider_call_sid: Optional[str] = None
     from_number: str

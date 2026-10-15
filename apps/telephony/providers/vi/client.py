@@ -17,6 +17,8 @@ class ViClient:
     """
 
     PROVIDER_LABEL = "Vodafone Idea"
+    # Dial SIDs and stream call_ids differ; CallLog is created on media connect.
+    DEFERS_CALL_LOG_TO_STREAM = True
 
     def __init__(
         self,

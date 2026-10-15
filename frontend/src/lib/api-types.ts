@@ -161,7 +161,8 @@ export interface OutboundCallRequest {
 }
 
 export interface OutboundCallResponse {
-  call_id: string;
+  /** Null for providers that register the CallLog on media connect (e.g. VI). */
+  call_id?: string | null;
   status: CallLogStatus;
   provider_call_sid?: string | null;
   from_number: string;

@@ -75,7 +75,7 @@ async def test_ensure_call_log_outbound_when_cli_equals_dni() -> None:
         "agent-1",
         provider_call_sid="sid-1",
         from_number="+919876543210",
-        to_number="unknown",
+        to_number="NA",
     )
     inbound.assert_not_awaited()
 

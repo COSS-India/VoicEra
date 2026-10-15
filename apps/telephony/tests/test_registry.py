@@ -11,7 +11,9 @@ from apps.telephony.registry import (
     TELEPHONY_CONFIGS,
     build_config,
     create_client,
+    defers_call_log_to_stream,
     get_answer_xml_builder,
+    get_client_class,
     get_client_creator,
     get_frame_serializer_factory,
     load_frame_serializers,
@@ -55,6 +57,14 @@ def test_each_provider_has_frame_serializer_after_lazy_load(provider: str) -> No
 def test_get_client_creator_unknown_provider() -> None:
     with pytest.raises(ValueError, match="Unsupported telephony provider"):
         get_client_creator("twilio")
+
+
+def test_defers_call_log_to_stream_is_client_capability() -> None:
+    assert get_client_class("vi") is ViClient
+    assert defers_call_log_to_stream("vi") is True
+    assert defers_call_log_to_stream("vobiz") is False
+    assert defers_call_log_to_stream("plivo") is False
+    assert defers_call_log_to_stream("unknown") is False
 
 
 def test_get_answer_xml_builder_unknown_provider() -> None:

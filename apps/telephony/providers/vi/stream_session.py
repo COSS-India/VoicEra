@@ -192,7 +192,7 @@ async def ensure_call_log(
     """Register CallLog for the VI stream; return VoicERA call_id.
 
     When CLI and DNI match (outbound), register as outbound with
-    ``from_number`` = CLI/DNI and ``to_number`` = unknown (VI does not
+    ``from_number`` = CLI/DNI and ``to_number`` = NA (VI does not
     supply the callee). Otherwise register as inbound.
     """
     org_id = str(agent.get("org_id") or "").strip()

@@ -19,6 +19,7 @@ from app.services.agent_telephony_service import (
 from app.services.phone_number_service import PhoneNumberNotFoundError
 from apps.telephony import initiate_outbound
 from apps.telephony.phone_format import format_e164_for_call_log
+from apps.telephony.registry import defers_call_log_to_stream
 from apps.telephony.results import provider_call_sid_from_result
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,15 @@ def _resolve_from_number(
         status_code=422,
     )
 
+def _mark_call_failed(call_id: str | None, message: str) -> None:
+    if not call_id:
+        return
+    call_log_service.update_call_log(
+        call_id,
+        {"status": "failed", "call_response": "failed", "error_message": message},
+    )
+
+
 async def initiate_outbound_call(
     org_id: str,
     agent_id: str,
@@ -125,7 +135,11 @@ async def initiate_outbound_call(
     from_number: str | None = None,
     custom_variables: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Validate agent, create CallLog, and place an outbound call."""
+    """Validate agent and place an outbound call.
+
+    Most providers create a CallLog at dial time. VI defers CallLog creation
+    until the media WebSocket connects (see :func:`register_outbound_call`).
+    """
     try:
         agent = agent_service.get_agent(org_id, agent_id)
     except AgentNotFoundError as exc:
@@ -137,43 +151,42 @@ async def initiate_outbound_call(
         org_id, agent_id, agent, from_number, provider=provider
     )
     variables = dict(custom_variables or {})
+    defer_log = defers_call_log_to_stream(provider)
 
-    call_id = str(uuid.uuid4())
-    now = _now_iso()
-
-    call_doc: dict[str, Any] = {
-        "call_id": call_id,
-        "provider_call_sid": None,
-        "org_id": org_id,
-        "agent_id": agent_id,
-        "agent_name": agent.get("name"),
-        "call_type": "outbound",
-        "status": "initiated",
-        "call_response": "pending",
-        "from_number": normalized_from,
-        "to_number": normalized_to,
-        "telephony_provider": provider,
-        "custom_variables": variables,
-        "created_at": now,
-        "updated_at": now,
-        "start_time_utc": now,
-        "end_time_utc": None,
-        "duration": None,
-        "recording_url": None,
-        "transcript_url": None,
-        "error_message": None,
-    }
-    call_log_service.create_call_log(call_doc)
+    call_id: str | None = None
+    if not defer_log:
+        call_id = str(uuid.uuid4())
+        now = _now_iso()
+        call_doc: dict[str, Any] = {
+            "call_id": call_id,
+            "provider_call_sid": None,
+            "org_id": org_id,
+            "agent_id": agent_id,
+            "agent_name": agent.get("name"),
+            "call_type": "outbound",
+            "status": "initiated",
+            "call_response": "pending",
+            "from_number": normalized_from,
+            "to_number": normalized_to,
+            "telephony_provider": provider,
+            "custom_variables": variables,
+            "created_at": now,
+            "updated_at": now,
+            "start_time_utc": now,
+            "end_time_utc": None,
+            "duration": None,
+            "recording_url": None,
+            "transcript_url": None,
+            "error_message": None,
+        }
+        call_log_service.create_call_log(call_doc)
 
     answer_url, hangup_url = build_answer_urls(org_id, agent_id, call_id=call_id)
 
     try:
         credentials = dict(get_provider_dial_credentials(org_id, provider))
     except AgentTelephonyError as exc:
-        call_log_service.update_call_log(
-            call_id,
-            {"status": "failed", "call_response": "failed", "error_message": exc.message},
-        )
+        _mark_call_failed(call_id, exc.message)
         raise OutboundCallError(exc.message, status_code=exc.status_code) from exc
 
     auth_id = str(credentials.pop("auth_id", "") or "")
@@ -194,42 +207,37 @@ async def initiate_outbound_call(
         )
     except ValueError as exc:
         message = str(exc)
-        call_log_service.update_call_log(
-            call_id,
-            {"status": "failed", "call_response": "failed", "error_message": message},
-        )
+        _mark_call_failed(call_id, message)
         raise OutboundCallError(message, status_code=502) from exc
     except Exception as exc:
         message = str(exc) or "Telephony dial failed"
-        call_log_service.update_call_log(
-            call_id,
-            {"status": "failed", "call_response": "failed", "error_message": message},
-        )
+        _mark_call_failed(call_id, message)
         raise OutboundCallError(message, status_code=502) from exc
 
     if result.get("status") != "success":
         message = str(result.get("message") or "Telephony dial failed")
-        call_log_service.update_call_log(
-            call_id,
-            {"status": "failed", "call_response": "failed", "error_message": message},
-        )
+        _mark_call_failed(call_id, message)
         raise OutboundCallError(message, status_code=502)
 
     provider_call_sid = provider_call_sid_from_result(result)
     dial_dni = result.get("dni")
     if dial_dni is not None and str(dial_dni).strip():
         normalized_from = format_e164_for_call_log(str(dial_dni))
-    patch: dict[str, Any] = {
-        "status": "ringing",
-        "provider_call_sid": provider_call_sid,
-    }
-    if dial_dni is not None and str(dial_dni).strip():
-        patch["from_number"] = normalized_from
-    updated = call_log_service.update_call_log(call_id, patch)
+
+    status = "ringing"
+    if call_id:
+        patch: dict[str, Any] = {
+            "status": status,
+            "provider_call_sid": provider_call_sid,
+        }
+        if dial_dni is not None and str(dial_dni).strip():
+            patch["from_number"] = normalized_from
+        updated = call_log_service.update_call_log(call_id, patch)
+        status = str(updated.get("status") or status)
 
     return {
         "call_id": call_id,
-        "status": updated.get("status", "ringing"),
+        "status": status,
         "provider_call_sid": provider_call_sid,
         "from_number": normalized_from,
         "to_number": normalized_to,
@@ -279,8 +287,7 @@ def register_outbound_call(
     """Create or return an existing outbound CallLog for a provider call SID.
 
     Used when the voice runtime stream starts for an outbound VI call
-    (CLI == DNI). Idempotent on ``provider_call_sid`` so dial-time logs
-    created by :func:`initiate_outbound_call` are reused.
+    (CLI == DNI). Idempotent on ``provider_call_sid``.
     """
     try:
         agent = agent_service.get_agent(org_id, agent_id)
