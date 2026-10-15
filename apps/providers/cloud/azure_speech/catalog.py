@@ -26,6 +26,10 @@ TTS_VOICES: tuple[str, ...] = (
 )
 DEFAULT_TTS_VOICE = "en-US-AriaNeural"
 
+# Voice preview calls this directly; ``region`` must be one of SPEECH_REGIONS
+# (URL allowlist: the host is never built from unchecked request data).
+TTS_ENDPOINT_TEMPLATE = "https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
+
 # Azure Speech service regions
 SPEECH_REGIONS: tuple[str, ...] = (
     "eastus", "eastus2", "westus", "westus2", "westus3",
