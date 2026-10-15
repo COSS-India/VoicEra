@@ -101,6 +101,14 @@ services:
       STT_MODEL: ${STT_MODEL:-}
       TTS_MODEL: ${TTS_MODEL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      # Paths GET/WS /{slot}/... forwards: comma-separated, exact. Unset keeps
+      # the defaults in gateway/app/config.py; "none" forwards nothing.
+      STT_PASSTHROUGH_GET: ${STT_PASSTHROUGH_GET:-}
+      STT_PASSTHROUGH_WS: ${STT_PASSTHROUGH_WS:-}
+      TTS_PASSTHROUGH_GET: ${TTS_PASSTHROUGH_GET:-}
+      TTS_PASSTHROUGH_WS: ${TTS_PASSTHROUGH_WS:-}
+      LLM_PASSTHROUGH_GET: ${LLM_PASSTHROUGH_GET:-}
+      LLM_PASSTHROUGH_WS: ${LLM_PASSTHROUGH_WS:-}
     volumes:
       # Editing the catalogue takes effect on restart, no rebuild.
       - ./models.yaml:/app/app/models.yaml:ro
