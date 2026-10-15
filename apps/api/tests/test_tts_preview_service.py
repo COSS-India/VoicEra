@@ -139,12 +139,11 @@ def test_invalid_config_returns_invalid_config_reason():
 
 
 def test_provider_without_preview_adapter_returns_unsupported_voice_reason():
-    # Arrange
-    elevenlabs = {"provider": "elevenlabs", "model": "eleven_v3", "voice": "some-voice"}
-
-    # Act
-    with pytest.raises(TtsPreviewError) as exc_info:
-        validate_request(elevenlabs, "en", "hello")
+    # Arrange: patched, so the test survives as vendors gain adapters.
+    with patch("app.services.tts_preview_service.has_preview_adapter", return_value=False):
+        # Act
+        with pytest.raises(TtsPreviewError) as exc_info:
+            validate_request(_SARVAM, "hi", "hello")
 
     # Assert
     assert exc_info.value.reason == TtsPreviewErrorReason.UNSUPPORTED_VOICE
