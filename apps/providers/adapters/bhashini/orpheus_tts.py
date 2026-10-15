@@ -41,17 +41,17 @@ class BhashiniOrpheusTTSService(TTSService):
         poll_interval_s: float = 0.5,
         **kwargs,
     ):
-        rate = sample_rate if sample_rate is not None else ORPHEUS_SAMPLE_RATE
-        if rate != ORPHEUS_SAMPLE_RATE:
+        # API PCM is always 24 kHz. Never inherit the pipeline rate onto frame
+        # metadata — a mislabeled rate warps transport resample and recordings.
+        if sample_rate is not None and sample_rate != ORPHEUS_SAMPLE_RATE:
             logger.warning(
-                "Orpheus TTS only supports {}Hz sample rate. "
-                "Current rate of {}Hz may cause issues.",
+                "Orpheus TTS only supports {}Hz; ignoring requested {}Hz",
                 ORPHEUS_SAMPLE_RATE,
-                rate,
+                sample_rate,
             )
 
         super().__init__(
-            sample_rate=rate,
+            sample_rate=ORPHEUS_SAMPLE_RATE,
             push_start_frame=True,
             push_stop_frames=True,
             **kwargs,
@@ -89,13 +89,8 @@ class BhashiniOrpheusTTSService(TTSService):
 
     async def start(self, frame):
         await super().start(frame)
-        if self.sample_rate != ORPHEUS_SAMPLE_RATE:
-            logger.warning(
-                "Orpheus TTS requires {}Hz sample rate. "
-                "Current rate of {}Hz may cause issues.",
-                ORPHEUS_SAMPLE_RATE,
-                self.sample_rate,
-            )
+        # Pin after StartFrame — Pipecat may otherwise adopt audio_out_sample_rate.
+        self._sample_rate = ORPHEUS_SAMPLE_RATE
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -128,7 +123,7 @@ class BhashiniOrpheusTTSService(TTSService):
                 await self.stop_ttfb_metrics()
                 yield TTSAudioRawFrame(
                     chunk,
-                    self.sample_rate,
+                    ORPHEUS_SAMPLE_RATE,
                     1,
                     context_id=context_id,
                 )
