@@ -914,6 +914,25 @@ class CircuitBreakerConfigRequest(BaseModel):
     min_calls_in_window: int = Field(default=5, ge=1, le=100)
 
 
+class ObdCampaignConfig(BaseModel):
+    """Core Vodafone OBD createCampaign fields (VI bulk campaigns)."""
+
+    description: str = "VoicERA VI campaign"
+    fromdate: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    todate: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    fromtime: str = Field(..., pattern=r"^\d{2}:\d{2}:\d{2}$")
+    totime: str = Field(..., pattern=r"^\d{2}:\d{2}:\d{2}$")
+    dialtimeout: int = Field(default=30, ge=1, le=300)
+    retrycount: int = Field(default=1, ge=0, le=10)
+    retryintervalvalue: int = Field(default=5, ge=1, le=1440)
+    retryintervaltype: int = Field(
+        default=0,
+        ge=0,
+        le=2,
+        description="0=minutes (VI default)",
+    )
+
+
 class CreateCampaignRequest(BaseModel):
     name: str
     agent_id: str
@@ -933,6 +952,10 @@ class CreateCampaignRequest(BaseModel):
     retry_config: Optional[RetryConfigRequest] = None
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
+    obd_config: Optional[ObdCampaignConfig] = Field(
+        default=None,
+        description="VI OBD createCampaign settings; used when agent provider is vi",
+    )
 
 
 class UpdateCampaignRequest(BaseModel):

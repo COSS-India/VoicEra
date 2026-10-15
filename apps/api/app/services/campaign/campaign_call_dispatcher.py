@@ -246,13 +246,32 @@ class CampaignCallDispatcher:
             return 0
 
         to_numbers = [phone for _, phone in valid]
+        metadata = dict(campaign.get("orchestrator_metadata") or {})
+        obd_config = metadata.get("obd_config")
+        if not isinstance(obd_config, dict):
+            obd_config = {}
+        bulk_kwargs: dict[str, Any] = {
+            "from_number": from_number,
+            "to_numbers": to_numbers,
+            "name": f"campaign-{campaign_id[:8]}-{agent_id[:8]}",
+            "description": str(
+                obd_config.get("description") or f"VoicERA campaign {campaign_id}"
+            ),
+        }
+        for key in (
+            "fromdate",
+            "todate",
+            "fromtime",
+            "totime",
+            "dialtimeout",
+            "retrycount",
+            "retryintervalvalue",
+            "retryintervaltype",
+        ):
+            if key in obd_config and obd_config[key] is not None:
+                bulk_kwargs[key] = obd_config[key]
         try:
-            result = await client.initiate_bulk_calls(
-                from_number=from_number,
-                to_numbers=to_numbers,
-                name=f"campaign-{campaign_id[:8]}-{agent_id[:8]}",
-                description=f"VoicERA campaign {campaign_id}",
-            )
+            result = await client.initiate_bulk_calls(**bulk_kwargs)
         except Exception as exc:
             logger.error("Bulk campaign dial failed for %s: %s", campaign_id[:8], exc)
             await self._return_unprocessed_claims(queued_runs, set())

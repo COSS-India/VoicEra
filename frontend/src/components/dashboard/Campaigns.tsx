@@ -34,6 +34,7 @@ import type {
   CampaignScheduleSlot,
   CampaignState,
   CreateCampaignPayload,
+  ObdCampaignConfig,
 } from "@/lib/api-types";
 
 const STATES: CampaignState[] = ["created", "syncing", "running", "paused", "completed", "failed"];
@@ -88,6 +89,35 @@ const DEFAULT_SCHEDULE_CONFIG: CampaignScheduleConfig = {
   slots: slotsForEveryday("09:00", "17:00"),
 };
 
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Default OBD window: now → +1 hour in local calendar (IST for India users). */
+function defaultObdConfig(): ObdCampaignConfig {
+  const start = new Date();
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const dateOf = (d: Date) =>
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const timeOf = (d: Date) =>
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  return {
+    description: "VoicERA VI campaign",
+    fromdate: dateOf(start),
+    todate: dateOf(end),
+    fromtime: timeOf(start),
+    totime: timeOf(end),
+    dialtimeout: 30,
+    retrycount: 1,
+    retryintervalvalue: 5,
+    retryintervaltype: 0,
+  };
+}
+
+function isViAgent(agent: AgentApiResponse | undefined): boolean {
+  return (agent?.telephony?.provider || "").toLowerCase() === "vi";
+}
+
 // --- Upload → preview → details dialog -------------------------------------
 
 type UploadStep = "select" | "preview" | "details";
@@ -125,12 +155,18 @@ function UploadCampaignDialog({
   const [maxConcurrency, setMaxConcurrency] = useState(5);
   const [retryConfig, setRetryConfig] = useState<CampaignRetryConfig>(DEFAULT_RETRY_CONFIG);
   const [scheduleConfig, setScheduleConfig] = useState<CampaignScheduleConfig>(DEFAULT_SCHEDULE_CONFIG);
+  const [obdConfig, setObdConfig] = useState<ObdCampaignConfig>(defaultObdConfig);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const eligibleAgents = useMemo(
     () => agents.filter((a) => a.agent_category === "telephony" && a.linked_phone_number),
     [agents],
   );
+  const selectedAgent = useMemo(
+    () => eligibleAgents.find((a) => a.agent_id === agentId),
+    [eligibleAgents, agentId],
+  );
+  const viSelected = isViAgent(selectedAgent);
   const hasPhoneColumn = headers.includes("phone_number");
   const scheduleWindow = scheduleConfig.slots[0] ?? { start_time: "09:00", end_time: "17:00" };
 
@@ -149,6 +185,11 @@ function UploadCampaignDialog({
     setMaxConcurrency(5);
     setRetryConfig(DEFAULT_RETRY_CONFIG);
     setScheduleConfig(DEFAULT_SCHEDULE_CONFIG);
+    setObdConfig(defaultObdConfig());
+  }
+
+  function patchObd<K extends keyof ObdCampaignConfig>(key: K, value: ObdCampaignConfig[K]) {
+    setObdConfig((prev) => ({ ...prev, [key]: value }));
   }
 
   function patchRetry<K extends keyof CampaignRetryConfig>(key: K, value: CampaignRetryConfig[K]) {
@@ -201,15 +242,27 @@ function UploadCampaignDialog({
 
   async function confirmCreate() {
     if (!uploadResult || !name.trim() || !agentId) return;
-    const ok = await onCreate({
+    const payload: CreateCampaignPayload = {
       name: name.trim(),
       agent_id: agentId,
       source_type: "csv",
       source_id: uploadResult.source_id,
-      rate_limit_per_second: rateLimit,
-      max_concurrency: maxConcurrency,
-      retry_config: retryConfig,
-    });
+    };
+    if (viSelected) {
+      payload.obd_config = {
+        ...obdConfig,
+        description: obdConfig.description.trim() || "VoicERA VI campaign",
+        retryintervaltype: 0,
+      };
+    } else {
+      payload.rate_limit_per_second = rateLimit;
+      payload.max_concurrency = maxConcurrency;
+      payload.retry_config = retryConfig;
+      if (scheduleConfig.enabled) {
+        payload.schedule_config = scheduleConfig;
+      }
+    }
+    const ok = await onCreate(payload);
     if (ok) handleClose();
   }
 
@@ -370,143 +423,250 @@ function UploadCampaignDialog({
               ) : null}
             </label>
 
-            <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-v-soft p-3.5">
-              <span className="text-xs font-semibold uppercase tracking-[.08em] text-v-muted">Advanced settings</span>
+            {viSelected ? (
+              <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-v-soft p-3.5">
+                <span className="text-xs font-semibold uppercase tracking-[.08em] text-v-muted">
+                  OBD campaign settings
+                </span>
 
-              <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-                  Calls per second
+                  Description
                   <Input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={rateLimit}
-                    onChange={(e) => setRateLimit(Number(e.target.value) || 1)}
+                    value={obdConfig.description}
+                    onChange={(e) => patchObd("description", e.target.value)}
+                    placeholder="VoicERA VI campaign"
                   />
                 </label>
-                <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-                  Max concurrent calls
-                  <Input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={maxConcurrency}
-                    onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)}
-                  />
-                </label>
-              </div>
 
-              <div className="flex flex-col gap-3 border-t border-v-line pt-3.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[13px] font-semibold">Retry failed calls</span>
-                    <span className="text-xs font-light text-v-muted">Re-queue contacts that don't connect.</span>
-                  </div>
-                  <Switch
-                    checked={retryConfig.enabled}
-                    label="Retry failed calls"
-                    onChange={(checked) => patchRetry("enabled", checked)}
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    From date
+                    <Input
+                      type="date"
+                      value={obdConfig.fromdate}
+                      onChange={(e) => patchObd("fromdate", e.target.value)}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    To date
+                    <Input
+                      type="date"
+                      value={obdConfig.todate}
+                      onChange={(e) => patchObd("todate", e.target.value)}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    From time
+                    <Input
+                      type="time"
+                      step={1}
+                      value={obdConfig.fromtime.slice(0, 8)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        patchObd("fromtime", v.length === 5 ? `${v}:00` : v);
+                      }}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    To time
+                    <Input
+                      type="time"
+                      step={1}
+                      value={obdConfig.totime.slice(0, 8)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        patchObd("totime", v.length === 5 ? `${v}:00` : v);
+                      }}
+                    />
+                  </label>
                 </div>
 
-                {retryConfig.enabled ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-                        Max retries
-                        <Input
-                          type="number"
-                          min={0}
-                          max={10}
-                          value={retryConfig.max_retries}
-                          onChange={(e) => patchRetry("max_retries", Math.min(10, Math.max(0, Number(e.target.value) || 0)))}
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-                        Retry delay (seconds)
-                        <Input
-                          type="number"
-                          min={30}
-                          max={3600}
-                          value={retryConfig.retry_delay_seconds}
-                          onChange={(e) =>
-                            patchRetry("retry_delay_seconds", Math.min(3600, Math.max(30, Number(e.target.value) || 30)))
-                          }
-                        />
-                      </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    Dial timeout (sec)
+                    <Input
+                      type="number"
+                      min={1}
+                      max={300}
+                      value={obdConfig.dialtimeout}
+                      onChange={(e) =>
+                        patchObd("dialtimeout", Math.min(300, Math.max(1, Number(e.target.value) || 1)))
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    Retry count
+                    <Input
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={obdConfig.retrycount}
+                      onChange={(e) =>
+                        patchObd("retrycount", Math.min(10, Math.max(0, Number(e.target.value) || 0)))
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    Retry interval (min)
+                    <Input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      value={obdConfig.retryintervalvalue}
+                      onChange={(e) =>
+                        patchObd(
+                          "retryintervalvalue",
+                          Math.min(1440, Math.max(1, Number(e.target.value) || 1)),
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-v-soft p-3.5">
+                <span className="text-xs font-semibold uppercase tracking-[.08em] text-v-muted">Advanced settings</span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    Calls per second
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={rateLimit}
+                      onChange={(e) => setRateLimit(Number(e.target.value) || 1)}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                    Max concurrent calls
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={maxConcurrency}
+                      onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)}
+                    />
+                  </label>
+                </div>
+
+                <div className="flex flex-col gap-3 border-t border-v-line pt-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[13px] font-semibold">Retry failed calls</span>
+                      <span className="text-xs font-light text-v-muted">Re-queue contacts that don't connect.</span>
                     </div>
-                    <div className="flex flex-col gap-2.5">
-                      {(
-                        [
-                          ["retry_on_busy", "Retry on busy"],
-                          ["retry_on_no_answer", "Retry on no answer"],
-                          ["retry_on_voicemail", "Retry on voicemail"],
-                        ] as const
-                      ).map(([key, label]) => (
-                        <div key={key} className="flex items-center justify-between gap-3">
-                          <span className="text-[13px] font-medium">{label}</span>
-                          <Switch
-                            checked={retryConfig[key]}
-                            label={label}
-                            onChange={(checked) => patchRetry(key, checked)}
+                    <Switch
+                      checked={retryConfig.enabled}
+                      label="Retry failed calls"
+                      onChange={(checked) => patchRetry("enabled", checked)}
+                    />
+                  </div>
+
+                  {retryConfig.enabled ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                          Max retries
+                          <Input
+                            type="number"
+                            min={0}
+                            max={10}
+                            value={retryConfig.max_retries}
+                            onChange={(e) =>
+                              patchRetry("max_retries", Math.min(10, Math.max(0, Number(e.target.value) || 0)))
+                            }
                           />
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
-              </div>
-
-              <div className="flex flex-col gap-3 border-t border-v-line pt-3.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[13px] font-semibold">Calling schedule</span>
-                    <span className="text-xs font-light text-v-muted">Limit dialling to a daily time window.</span>
-                  </div>
-                  <Switch
-                    checked={scheduleConfig.enabled}
-                    label="Calling schedule"
-                    onChange={(checked) => setScheduleConfig((prev) => ({ ...prev, enabled: checked }))}
-                  />
+                        </label>
+                        <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                          Retry delay (seconds)
+                          <Input
+                            type="number"
+                            min={30}
+                            max={3600}
+                            value={retryConfig.retry_delay_seconds}
+                            onChange={(e) =>
+                              patchRetry(
+                                "retry_delay_seconds",
+                                Math.min(3600, Math.max(30, Number(e.target.value) || 30)),
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-col gap-2.5">
+                        {(
+                          [
+                            ["retry_on_busy", "Retry on busy"],
+                            ["retry_on_no_answer", "Retry on no answer"],
+                            ["retry_on_voicemail", "Retry on voicemail"],
+                          ] as const
+                        ).map(([key, label]) => (
+                          <div key={key} className="flex items-center justify-between gap-3">
+                            <span className="text-[13px] font-medium">{label}</span>
+                            <Switch
+                              checked={retryConfig[key]}
+                              label={label}
+                              onChange={(checked) => patchRetry(key, checked)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
                 </div>
 
-                {scheduleConfig.enabled ? (
-                  <>
-                    <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-                      Timezone
-                      <Select
-                        value={scheduleConfig.timezone}
-                        onChange={(e) => setScheduleConfig((prev) => ({ ...prev, timezone: e.target.value }))}
-                      >
-                        {TIMEZONE_OPTIONS.map((tz) => (
-                          <option key={tz.value} value={tz.value}>
-                            {tz.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-                        Start
-                        <Input
-                          type="time"
-                          value={scheduleWindow.start_time}
-                          onChange={(e) => patchScheduleWindow({ start_time: e.target.value })}
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-                        End
-                        <Input
-                          type="time"
-                          value={scheduleWindow.end_time}
-                          onChange={(e) => patchScheduleWindow({ end_time: e.target.value })}
-                        />
-                      </label>
+                <div className="flex flex-col gap-3 border-t border-v-line pt-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[13px] font-semibold">Calling schedule</span>
+                      <span className="text-xs font-light text-v-muted">Limit dialling to a daily time window.</span>
                     </div>
-                  </>
-                ) : null}
+                    <Switch
+                      checked={scheduleConfig.enabled}
+                      label="Calling schedule"
+                      onChange={(checked) => setScheduleConfig((prev) => ({ ...prev, enabled: checked }))}
+                    />
+                  </div>
+
+                  {scheduleConfig.enabled ? (
+                    <>
+                      <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                        Timezone
+                        <Select
+                          value={scheduleConfig.timezone}
+                          onChange={(e) => setScheduleConfig((prev) => ({ ...prev, timezone: e.target.value }))}
+                        >
+                          {TIMEZONE_OPTIONS.map((tz) => (
+                            <option key={tz.value} value={tz.value}>
+                              {tz.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                          Start
+                          <Input
+                            type="time"
+                            value={scheduleWindow.start_time}
+                            onChange={(e) => patchScheduleWindow({ start_time: e.target.value })}
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                          End
+                          <Input
+                            type="time"
+                            value={scheduleWindow.end_time}
+                            onChange={(e) => patchScheduleWindow({ end_time: e.target.value })}
+                          />
+                        </label>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex justify-between gap-2 border-t border-v-line pt-4">
               <Button variant="ghost" size="sm" onClick={() => setStep("preview")}>

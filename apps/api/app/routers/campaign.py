@@ -217,6 +217,8 @@ async def create_campaign(
         orchestrator_metadata["schedule_config"] = body.schedule_config.model_dump()
     if body.circuit_breaker:
         orchestrator_metadata["circuit_breaker"] = body.circuit_breaker.model_dump()
+    if body.obd_config:
+        orchestrator_metadata["obd_config"] = body.obd_config.model_dump()
 
     retry_config = (
         body.retry_config.model_dump()

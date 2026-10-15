@@ -353,6 +353,19 @@ export interface CampaignScheduleConfig {
   slots: CampaignScheduleSlot[];
 }
 
+/** Core Vodafone OBD createCampaign fields (VI bulk campaigns). */
+export interface ObdCampaignConfig {
+  description: string;
+  fromdate: string;
+  todate: string;
+  fromtime: string;
+  totime: string;
+  dialtimeout: number;
+  retrycount: number;
+  retryintervalvalue: number;
+  retryintervaltype?: number;
+}
+
 export interface CreateCampaignPayload {
   name: string;
   agent_id: string;
@@ -362,6 +375,8 @@ export interface CreateCampaignPayload {
   max_concurrency?: number;
   from_number?: string | null;
   retry_config?: CampaignRetryConfig;
+  schedule_config?: CampaignScheduleConfig;
+  obd_config?: ObdCampaignConfig;
 }
 
 /** GET /campaign/{id}/runs returns raw call-log dicts server-side — only a

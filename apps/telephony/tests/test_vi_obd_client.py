@@ -208,6 +208,50 @@ def test_place_bulk_outbound_calls_mocked(monkeypatch: pytest.MonkeyPatch) -> No
     assert result["dni_source"] == "getActiveDNIList"
 
 
+def test_place_bulk_uses_explicit_obd_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = ViObdClient(
+        "user",
+        "pass",
+        dni_flows='[{"dni":"+919876543210","flow_id":"flow-a"}]',
+    )
+    create_payload: dict = {}
+
+    def fake_request(path: str, *, token=None, json_body=None):
+        if path == "AuthToken":
+            return {"idToken": "tok"}, 200
+        if path == "getActiveDNIList":
+            return {"dniList": ["919876543210"]}, 200
+        if path == "createCampaign":
+            create_payload.update(json_body or {})
+            return {"status": 1, "campainKey": "ckey", "campaign_Ref_ID": 99}, 200
+        if path == "staticCampaignDataIngestion":
+            return {"data": {"status": "success", "rowsAffected": 1}}, 200
+        raise AssertionError(path)
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    client.place_bulk_outbound_calls(
+        ["+919911122233"],
+        from_number="+919876543210",
+        description="Explicit window",
+        fromdate="2026-10-15",
+        todate="2026-10-16",
+        fromtime="09:30:00",
+        totime="18:45:00",
+        dialtimeout=55,
+        retrycount=4,
+        retryintervalvalue=12,
+        retryintervaltype=0,
+    )
+    assert create_payload["description"] == "Explicit window"
+    assert create_payload["fromdate"] == "2026-10-15"
+    assert create_payload["todate"] == "2026-10-16"
+    assert create_payload["fromtime"] == "09:30:00"
+    assert create_payload["totime"] == "18:45:00"
+    assert create_payload["dialtimeout"] == 55
+    assert create_payload["retrycount"] == 4
+    assert create_payload["retryintervalvalue"] == 12
+
+
 def test_auth_token_failure() -> None:
     client = ViObdClient(
         "user",

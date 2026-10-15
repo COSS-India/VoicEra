@@ -107,6 +107,14 @@ class ViClient:
         to_numbers: List[str],
         name: Optional[str] = None,
         description: str = "VoicERA VI campaign",
+        fromdate: Optional[str] = None,
+        todate: Optional[str] = None,
+        fromtime: Optional[str] = None,
+        totime: Optional[str] = None,
+        dialtimeout: Optional[int] = None,
+        retrycount: Optional[int] = None,
+        retryintervalvalue: Optional[int] = None,
+        retryintervaltype: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Capability hook for campaign batch dialing (one OBD campaign)."""
         return await application.initiate_bulk_calls(
@@ -115,6 +123,14 @@ class ViClient:
             to_numbers=to_numbers,
             name=name,
             description=description,
+            fromdate=fromdate,
+            todate=todate,
+            fromtime=fromtime,
+            totime=totime,
+            dialtimeout=dialtimeout,
+            retrycount=retrycount,
+            retryintervalvalue=retryintervalvalue,
+            retryintervaltype=retryintervaltype,
         )
 
     async def get_bulk_status(
