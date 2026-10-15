@@ -5,6 +5,7 @@ fixtures/
 .env.prod
 .venv/
 venv/
+.venv-bench/
 *.pyc
 .DS_Store
 
@@ -42,3 +43,4 @@ Claude outputs/
 # Generated protobuf stubs. Built at image build time and in the test fixture,
 # never committed: generated code checked in beside a .proto drifts from it and
 # nothing notices.
+model-server/tests/bench/__pycache__/

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import codecs
-import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from typing import Any, Optional
 
 import httpx
-import jwt
 from loguru import logger
 from pipecat.frames.frames import (
     Frame,
@@ -23,6 +21,7 @@ from pipecat.services.llm_service import LLMService
 from pipecat.utils.tracing.service_decorators import traced_llm
 
 from .call_ending import KenpathCallEndingMixin, response_requests_end_call, strip_goodbye_for_tts
+from .catalog import generate_jwt
 
 
 def yield_word_chunks_from_text(text: str) -> Iterator[str]:
@@ -127,14 +126,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         return self._call_id or str(uuid.uuid4())
 
     def _generate_jwt(self) -> str:
-        now = int(time.time())
-        payload = {
-            "sub": self._jwt_sub,
-            "iss": "voice-provider",
-            "iat": now,
-            "exp": now + 3600,
-        }
-        return jwt.encode(payload, self._private_key, algorithm="RS256")
+        return generate_jwt(self._private_key, backend="vistaar", subject=self._jwt_sub)
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:

@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 interface DialogProps {
@@ -8,22 +9,40 @@ interface DialogProps {
   onClose: () => void;
   children: ReactNode;
   widthClassName?: string;
+  /** Overrides the panel's background/border/text classes — e.g. a dark
+   * surface for content (like CallStage) that owns its own theming instead
+   * of the default light dialog chrome. */
+  panelClassName?: string;
 }
 
-export function Dialog({ open, onClose, children, widthClassName = "max-w-3xl" }: DialogProps) {
+export function Dialog({
+  open,
+  onClose,
+  children,
+  widthClassName = "max-w-3xl",
+  panelClassName = "border border-v-line bg-white",
+}: DialogProps) {
   if (!open) return null;
-  return (
+  // Portaled to document.body: an ancestor animated with `animate-v-rise` (or
+  // any transform) becomes a containing block for position:fixed descendants
+  // per the CSS spec, which would otherwise trap this overlay inside that
+  // ancestor's bounds instead of covering the viewport — e.g. a Dialog opened
+  // from inside another modal.
+  return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-[var(--v-overlay)] p-6"
       onClick={onClose}
     >
       <div
-        className={`animate-v-rise flex max-h-[85vh] w-full ${widthClassName} flex-col overflow-y-auto overscroll-contain rounded-v-md border border-v-line bg-white shadow-2xl`}
+        role="dialog"
+        aria-modal="true"
+        className={`animate-v-rise flex max-h-[85vh] w-full ${widthClassName} flex-col overflow-y-auto overscroll-contain rounded-v-md shadow-2xl ${panelClassName}`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

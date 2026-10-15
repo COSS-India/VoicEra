@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from typing import Literal
+
+import jwt
 
 DEFAULT_VISTAAR_PROD_URL = "https://voice-prod.mahapocra.gov.in"
 DEFAULT_VISTAAR_DEV_URL = "https://vistaar-dev.mahapocra.gov.in"
@@ -136,3 +139,28 @@ def resolve_auth_secret(model: str) -> str:
         return MODEL_AUTH_SECRETS[model]
     except KeyError as exc:
         raise ValueError(f"Unknown Kenpath model: {model!r}") from exc
+
+
+def generate_jwt(private_key: str, *, backend: KenpathBackend, subject: str) -> str:
+    """Shared JWT construction for both Kenpath backends — previously
+    duplicated inline inside KenpathLLMService._generate_jwt and
+    BharatVistaarLLMService._generate_jwt.
+
+    Payload shape differs per backend, matching each service's prior payload
+    exactly:
+    - vistaar: {"sub": subject, "iss": "voice-provider", ...}
+    - bharatvistaar: {"user_id": subject, "tenant_id": subject, "iss": BHARAT_VISTAAR_JWT_ISS, ...}
+      (BharatVistaarLLMService passes its call/session id as `subject` here.)
+    """
+    now = int(time.time())
+    if backend == "bharatvistaar":
+        payload = {
+            "user_id": subject,
+            "tenant_id": subject,
+            "iss": BHARAT_VISTAAR_JWT_ISS,
+            "iat": now,
+            "exp": now + 3600,
+        }
+    else:
+        payload = {"sub": subject, "iss": "voice-provider", "iat": now, "exp": now + 3600}
+    return jwt.encode(payload, private_key, algorithm="RS256")

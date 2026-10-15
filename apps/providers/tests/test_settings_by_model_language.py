@@ -87,14 +87,25 @@ def test_scoped_models_align_with_model_examples():
     assert not errors, "Model key mismatches:\n" + "\n".join(errors)
 
 
-def test_sarvam_voice_options_split_by_model():
+# Bulbul v2's voices, kept only to prove they stay gone. v2 was retired in
+# c8b161d8 (Sarvam deprecated it); no v3 voice shares a name with these.
+_RETIRED_BULBUL_V2_VOICES = (
+    "anushka", "manisha", "vidya", "arya", "abhilash", "karun", "hitesh",
+)
+
+
+def test_sarvam_tts_offers_only_bulbul_v3_voices():
+    from apps.providers.cloud.sarvam.catalog import DEFAULT_TTS_V3_VOICE, TTS_V3_VOICES
+
     catalog = provider_schemas(Kind.TTS)["sarvam"]
     caps = catalog[CAPABILITIES_KEY]
-    v2 = caps["bulbul:v2"]["settings"]["hi"]["voice"]["options"]
-    v3 = caps["bulbul:v3"]["settings"]["hi"]["voice"]["options"]
-    assert "anushka" in v2
-    assert "shubh" in v3
-    assert "shubh" not in v2
+    assert set(caps) == {"bulbul:v3"}
+
+    voice = caps["bulbul:v3"]["settings"]["hi"]["voice"]
+    assert voice["options"] == list(TTS_V3_VOICES)
+    assert voice["default"] == DEFAULT_TTS_V3_VOICE == "shubh"
+    assert not set(voice["options"]) & set(_RETIRED_BULBUL_V2_VOICES)
+    assert catalog["fields"]["voice"]["default"] == DEFAULT_TTS_V3_VOICE
 
 
 def test_smallest_pro_voices_only_on_pro_model():

@@ -33,8 +33,8 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 
 def test_union_variant_counts_match_registry():
-    assert len(_union_variants(STTConfig)) == 14
-    assert len(_union_variants(TTSConfig)) == 17
+    assert len(_union_variants(STTConfig)) == 16
+    assert len(_union_variants(TTSConfig)) == 20
     assert len(_union_variants(LLMConfig)) == 11
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
@@ -615,6 +615,113 @@ def test_indic_orpheus_tts_registered(monkeypatch):
     assert svc._style == DEFAULT_TTS_STYLE
 
 
+def test_indic_parler_tts_registered(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.indic_parler.catalog import (
+        DEFAULT_TTS_STYLE,
+        SAMPLE_RATE,
+        TTS_CAPABILITIES,
+        TTS_STYLES,
+    )
+    from apps.providers.local.indic_parler.config import IndicParlerTTSConfig
+    from apps.providers.local.indic_parler.tts import IndicParlerTTSService
+    from apps.providers.scoped_settings import CAPABILITIES_KEY
+
+    monkeypatch.setenv("MODEL_SERVER_URL", "http://host.docker.internal:8100/v1")
+
+    schema = provider_schemas(Kind.TTS)["indic_parler"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Indic Parler"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    assert model_ids(TTS_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    codes = lang["language_codes"]["indic-parler"]
+    assert len(codes) == 25
+    assert codes["od"] == "or"
+    assert codes["bh"] == "bhb"
+    for canonical in ("hi", "en", "hne", "sd", "ur"):
+        assert canonical in lang["examples"]
+
+    settings = schema[CAPABILITIES_KEY]["indic-parler"]["settings"]
+    assert settings["hi"]["voice"]["default"] == "Divya"
+    assert settings["hi"]["voice"]["options"] == ["Rohit", "Divya", "Aman", "Rani"]
+    assert settings["hi"]["voice"]["input_type"] == "dropdown"
+    # Bhili borrows the Marathi roster, as the Bhashini adapter does.
+    assert settings["bh"]["voice"]["options"] == settings["mr"]["voice"]["options"]
+    # No named speaker on the model card: free text, empty by default.
+    assert settings["ur"]["voice"]["default"] == ""
+    assert settings["ur"]["voice"]["options"] == []
+    assert settings["ur"]["voice"]["input_type"] == "input"
+    style = settings["hi"]["style"]
+    assert style["default"] == DEFAULT_TTS_STYLE
+    assert style["options"] == list(TTS_STYLES)
+    assert style["input_type"] == "both"
+    assert style["allow_custom_input"] is True
+    assert not any("American" in s for s in TTS_STYLES)
+
+    svc = TTS_CREATORS["indic_parler"](IndicParlerTTSConfig(language="hi", voice="Rohit"))
+    assert isinstance(svc, IndicParlerTTSService)
+    assert svc._voice == "Rohit"
+    assert svc._style == DEFAULT_TTS_STYLE
+    assert svc._init_sample_rate == SAMPLE_RATE == 44100
+
+    no_speaker = TTS_CREATORS["indic_parler"](IndicParlerTTSConfig(language="ur", voice=""))
+    assert no_speaker._voice is None
+
+
+def test_indic_mio_tts_registered(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.indic_mio.catalog import (
+        SAMPLE_RATE,
+        TTS_CAPABILITIES,
+        TTS_VOICES,
+    )
+    from apps.providers.local.indic_mio.config import IndicMioTTSConfig
+    from apps.providers.local.indic_mio.tts import IndicMioTTSService
+    from apps.providers.scoped_settings import CAPABILITIES_KEY
+
+    monkeypatch.setenv("MODEL_SERVER_URL", "http://host.docker.internal:8100/v1")
+
+    schema = provider_schemas(Kind.TTS)["indic_mio"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Indic-Mio"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    # The server ignores instructions, so there is no field pretending otherwise.
+    assert "style" not in schema["fields"]
+    assert model_ids(TTS_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    codes = lang["language_codes"]["indic-mio"]
+    assert len(codes) == 23
+    assert codes["od"] == "or"
+    assert "en" in lang["examples"]
+
+    settings = schema[CAPABILITIES_KEY]["indic-mio"]["settings"]
+    # Same five voices under every language; the default follows the accent.
+    for canonical in codes:
+        assert settings[canonical]["voice"]["options"] == list(TTS_VOICES)
+        assert set(settings[canonical]) == {"voice"}
+    assert settings["hi"]["voice"]["default"] == "Aditi"
+    assert settings["ta"]["voice"]["default"] == "Meera"
+    assert settings["bn"]["voice"]["default"] == "Ananya"
+    assert settings["te"]["voice"]["default"] == "Arjun"
+    assert settings["mr"]["voice"]["default"] == "Aditi"
+
+    svc = TTS_CREATORS["indic_mio"](IndicMioTTSConfig(language="ta", voice="Meera"))
+    assert isinstance(svc, IndicMioTTSService)
+    assert svc._voice == "Meera"
+    assert svc._style is None
+    assert "instructions" not in svc._request_params("नमस्ते")
+    assert svc._init_sample_rate == SAMPLE_RATE == 44100
+
+
 def test_indic_nemotron_stt_registered(monkeypatch):
     from apps.providers.capabilities import model_ids
     from apps.providers.local.indic_nemotron.catalog import (
@@ -661,6 +768,113 @@ def test_indic_nemotron_stt_creator(monkeypatch):
     svc = STT_CREATORS["indic_nemotron"](IndicNemotronSTTConfig(language="od"))
     assert isinstance(svc, IndicNemotronSTTService)
     assert svc._language == "or"
+
+
+def test_indic_conformer_stt_registered(monkeypatch):
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.indic_conformer.catalog import (
+        STT_CAPABILITIES,
+        resolve_realtime_url,
+        resolve_wire_language,
+    )
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime/"
+    )
+
+    schema = provider_schemas(Kind.STT)["indic_conformer"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Indic Conformer"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    assert model_ids(STT_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    assert lang["language_codes"]["indic-conformer"]["od"] == "or"
+    assert lang["language_codes"]["indic-conformer"]["bh"] == "bhb"
+    assert "hi" in lang["examples"]
+    assert "sd" in lang["examples"]
+    # Indic-only checkpoint: no English, and no auto-detect.
+    assert "en" not in lang["examples"]
+    assert "multi" not in lang["examples"]
+
+    assert resolve_wire_language("indic-conformer", "od") == "or"
+    assert resolve_wire_language("indic-conformer", "bh") == "bhb"
+    # Trailing slash stripped: Pipecat appends ?intent=transcription itself.
+    assert resolve_realtime_url() == "ws://host.docker.internal:8100/v1/realtime"
+
+
+def test_indic_conformer_stt_creator(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.local.indic_conformer.config import IndicConformerSTTConfig
+    from apps.providers.local.indic_conformer.stt import IndicConformerSTTService
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
+    )
+
+    svc = STT_CREATORS["indic_conformer"](IndicConformerSTTConfig(language="od"))
+    assert isinstance(svc, IndicConformerSTTService)
+    assert svc._base_url == "ws://host.docker.internal:8100/v1/realtime"
+    assert svc._wire_language == "or"
+    assert str(svc._settings.language) == "or"
+    assert svc._settings.model == "indic-conformer"
+    assert svc._server_vad_enabled is False
+
+
+def test_indic_transcribe_stt_registered(monkeypatch):
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.indic_transcribe.catalog import (
+        STT_CAPABILITIES,
+        resolve_realtime_url,
+        resolve_wire_language,
+    )
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
+    )
+
+    schema = provider_schemas(Kind.STT)["indic_transcribe"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Indic Transcribe"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    assert model_ids(STT_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    codes = lang["language_codes"]["indic-transcribe"]
+    assert len(codes) == 25
+    assert codes["od"] == "or"
+    assert codes["bh"] == "bhb"
+    for canonical in ("hi", "bho", "en", "sd"):
+        assert canonical in lang["examples"]
+    # Advertised upstream but absent from the checkpoint's vocabulary.
+    assert "hne" not in lang["examples"]
+    assert "bgc" not in lang["examples"]
+    assert "multi" not in lang["examples"]
+
+    assert resolve_wire_language("indic-transcribe", "od") == "or"
+    assert resolve_realtime_url() == "ws://host.docker.internal:8100/v1/realtime"
+
+
+def test_indic_transcribe_stt_creator(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.local.indic_transcribe.config import IndicTranscribeSTTConfig
+    from apps.providers.local.indic_transcribe.stt import IndicTranscribeSTTService
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
+    )
+
+    svc = STT_CREATORS["indic_transcribe"](IndicTranscribeSTTConfig(language="bh"))
+    assert isinstance(svc, IndicTranscribeSTTService)
+    assert svc._base_url == "ws://host.docker.internal:8100/v1/realtime"
+    assert svc._wire_language == "bhb"
+    assert str(svc._settings.language) == "bhb"
+    assert svc._settings.model == "indic-transcribe"
+    assert svc._server_vad_enabled is False
 
 
 def test_sarvam_stt_auto_detect_vendor_code_is_unknown():
