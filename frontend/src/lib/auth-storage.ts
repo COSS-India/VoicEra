@@ -4,6 +4,7 @@ const SESSION_KEY = "voicera_session";
 export interface AuthSession {
   accessToken: string;
   email: string;
+  name?: string;
   orgId: string;
   orgName?: string;
   role: string;

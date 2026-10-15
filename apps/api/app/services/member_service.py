@@ -123,7 +123,13 @@ def invite_member(
         return {"status": "fail", "message": f"Error inviting member: {exc}"}
 
 
-def join_organisation(email: str, password: str, org_id: str) -> dict[str, Any]:
+def join_organisation(
+    email: str,
+    password: str,
+    org_id: str,
+    *,
+    name: str | None = None,
+) -> dict[str, Any]:
     """Public self-serve join: create account or verify existing password, add member role."""
     try:
         if not org_service.get_organisation(org_id):
@@ -142,6 +148,7 @@ def join_organisation(email: str, password: str, org_id: str) -> dict[str, Any]:
         existing_user = users.find_one({"email": email})
         now = datetime.now(timezone.utc).isoformat()
         is_new_user = existing_user is None
+        display_name = (name or "").strip() or None
 
         if existing_user:
             stored = existing_user.get("password")
@@ -150,11 +157,14 @@ def join_organisation(email: str, password: str, org_id: str) -> dict[str, Any]:
                     "status": "fail",
                     "message": "That password doesn't match your existing account.",
                 }
+            if display_name and not existing_user.get("name"):
+                users.update_one({"email": email}, {"$set": {"name": display_name}})
         else:
             users.insert_one(
                 {
                     "email": email,
                     "password": get_password_hash(password),
+                    "name": display_name,
                     "created_at": now,
                     "default_org_id": org_id,
                 }
@@ -169,10 +179,12 @@ def join_organisation(email: str, password: str, org_id: str) -> dict[str, Any]:
             }
         )
         logger.info("User %s joined org %s via public join", email, org_id)
+        user = users.find_one({"email": email}) or {}
         return {
             "status": "success",
             "message": "Joined organisation successfully",
             "email": email,
+            "name": user.get("name"),
             "org_id": org_id,
             "role": ROLE_MEMBER,
             "is_first_login": is_new_user,

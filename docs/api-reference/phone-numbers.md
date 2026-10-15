@@ -9,6 +9,10 @@ description: Organisation number inventory, and attaching numbers to agents.
 
 Bearer. Array of `PhoneNumberResponse` for the active organisation: `phone_number`, `provider`, `org_id`, `agent_id`, timestamps, and the four `last_link_*` audit fields.
 
+## `GET /phone-numbers/activity`
+
+Bearer. Paginated append-only activity log for the active organisation (`?limit=&offset=`). Returns `PhoneNumberActivityResponse`: `{events, total, limit, offset}`. Each event has `phone_number`, `provider`, `action` (`imported` / `attached` / `detached` / `removed`), optional `agent_id` / `agent_name`, `by_email`, and `at`. Newest first. On first list for an org with no events, seeds one event per inventory row from existing `last_link_*` fields when present.
+
 ## `GET /phone-numbers/agent/{agent_id}`
 
 Bearer. The single `PhoneNumberResponse` bound to that agent.
@@ -34,6 +38,10 @@ The uniqueness index on `phone_number` has no `org_id` component, so a number al
 ## `DELETE /phone-numbers/detach`
 
 Bearer. Body `{ "phone_number": "+15551234567" }`. Unlinks at the provider and clears the agent association. The inventory row survives. Returns `SuccessResponse`.
+
+## `DELETE /phone-numbers/remove`
+
+Bearer. Body `{ "phone_number": "+15551234567" }`. Detaches first if the number is attached to an agent, then deletes the inventory row. Does not release the number at the telephony provider — you can import it again later. Returns `SuccessResponse`.
 
 ## `GET /phone-numbers/providers/{provider}/inventory`
 

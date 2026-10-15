@@ -20,12 +20,7 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.utils.tracing.service_decorators import traced_llm
 
-from .call_ending import (
-    KenpathCallEndingMixin,
-    response_requests_end_call,
-    schedule_end_call,
-    strip_goodbye_for_tts,
-)
+from .call_ending import KenpathCallEndingMixin, response_requests_end_call, strip_goodbye_for_tts
 from .catalog import generate_jwt
 
 
@@ -55,10 +50,18 @@ def yield_word_chunks_from_text(text: str) -> Iterator[str]:
 
 
 def extract_last_user_message(context: LLMContext) -> str:
+    """Text for Vistaar ``query=``: trailing user turns since last assistant reply."""
+    parts: list[str] = []
     for message in reversed(context.get_messages()):
-        if message.get("role") == "user":
-            return str(message.get("content") or "").strip()
-    return ""
+        role = message.get("role")
+        if role == "user":
+            text = str(message.get("content") or "").strip()
+            if text:
+                parts.append(text)
+        elif role == "assistant":
+            break
+    parts.reverse()
+    return " ".join(parts)
 
 
 class KenpathLLMService(KenpathCallEndingMixin, LLMService):
@@ -92,7 +95,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         self._is_prod = "vistaar-prod" in model
         self._call_id: str | None = None
         self._client: httpx.AsyncClient | None = None
-        self._init_call_ending()
+        self._kenpath_init_call_ending()
 
         if self._use_voice_bhili and not self._voice_bhili_url:
             raise ValueError("Kenpath Voice Bhili requires voice_bhili_url from catalog")
@@ -135,6 +138,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
+        await self._kenpath_on_call_ending_frame(frame)
 
         context = None
         if isinstance(frame, LLMContextFrame):
@@ -162,12 +166,9 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
             finally:
                 await self.stop_processing_metrics()
                 await self.push_frame(LLMFullResponseEndFrame())
-                if response_requests_end_call(spoken_text):
-                    await schedule_end_call(
-                        self,
-                        self._call_ending_controller,
-                        had_spoken_output=self._response_had_spoken_output,
-                    )
+                await self._kenpath_finish_turn_if_end(
+                    end_requested=response_requests_end_call(spoken_text),
+                )
 
     @traced_llm
     async def _process_context(self, context: LLMContext) -> str:
@@ -182,7 +183,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         first_chunk = True
         chunk_count = 0
         parts: list[str] = []
-        self._response_had_spoken_output = False
+        self._kenpath_begin_assistant_turn()
         async for chunk in self._iter_completions(user_message):
             if first_chunk:
                 first_chunk = False
@@ -190,7 +191,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
             parts.append(chunk)
             tts_text = strip_goodbye_for_tts(chunk)
             if tts_text:
-                self._response_had_spoken_output = True
+                self._kenpath_had_tts = True
                 await self._push_llm_text(tts_text)
             chunk_count += 1
 
@@ -340,6 +341,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         return "".join(parts) if parts else None
 
     async def cleanup(self) -> None:
+        self._kenpath_cleanup_call_ending()
         await super().cleanup()
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()

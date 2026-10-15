@@ -89,18 +89,25 @@ export function Select({
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    function close() {
+    // Capture-phase scroll fires for overflow scrolling inside the menu too —
+    // only close when the page (or an ancestor outside the menu) scrolls.
+    function onScroll(e: Event) {
+      const target = e.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onResize() {
       setOpen(false);
     }
     document.addEventListener("mousedown", onDocMouseDown);
     document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("mousedown", onDocMouseDown);
       document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
     };
   }, [open]);
 
@@ -112,7 +119,7 @@ export function Select({
   function toggle() {
     if (disabled) return;
     if (!open && btnRef.current) {
-      setCoords(dropdownMenuCoords(btnRef.current.getBoundingClientRect(), 288, 6));
+      setCoords(dropdownMenuCoords(btnRef.current.getBoundingClientRect(), 320, 6));
     }
     setOpen((v) => !v);
   }
@@ -170,7 +177,7 @@ export function Select({
                 maxHeight: coords.maxHeight,
                 ...(coords.top !== undefined ? { top: coords.top } : { bottom: coords.bottom }),
               }}
-              className="z-[1000] overflow-y-auto rounded-v-sm border border-v-line bg-white py-1 shadow-[0_8px_24px_rgba(11,11,12,0.12)]"
+              className="z-[1000] overflow-y-auto overscroll-contain rounded-v-sm border border-v-line bg-white py-1 shadow-[0_8px_24px_rgba(11,11,12,0.12)]"
             >
               {options.length === 0 ? (
                 <div className="px-3.5 py-2.5 text-sm text-v-muted">No options</div>

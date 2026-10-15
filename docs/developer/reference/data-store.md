@@ -136,7 +136,7 @@ Leave the authentication database blank.
 
 `apps/api/app/database_init.py` runs on every API start. It is idempotent: it creates any missing collection and ensures every index, so a fresh volume becomes a working database with no migration step.
 
-Collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, `QueuedRuns`.
+Collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `PhoneNumberEvents`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, `QueuedRuns`.
 
 Fields and indexes are documented in [Data model](data-model).
 

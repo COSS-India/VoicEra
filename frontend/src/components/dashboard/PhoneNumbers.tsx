@@ -1,14 +1,14 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Check, Copy, HelpCircle, Link2, Phone, Search, Trash2, Unlink } from "lucide-react";
+import { Check, Copy, HelpCircle, History, Link2, Phone, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { Dialog, DialogHeader } from "@/components/ui/Dialog";
 import { usePhoneNumbers } from "@/hooks/usePhoneNumbers";
 import { listProviderInventory } from "@/lib/api/phone-numbers";
-import type { AgentApiResponse, PhoneNumberItem } from "@/lib/api-types";
+import type { AgentApiResponse, PhoneNumberActivityItem, PhoneNumberItem } from "@/lib/api-types";
 import type { ProviderList } from "@/lib/catalog-types";
 
 function formatDateTime(iso?: string | null): string {
@@ -354,9 +354,117 @@ function AttachDialog({
   );
 }
 
+function activityActionLabel(action: string): string {
+  switch (action) {
+    case "imported":
+      return "Added";
+    case "attached":
+      return "Attached";
+    case "detached":
+      return "Detached";
+    case "removed":
+      return "Removed";
+    default:
+      return action;
+  }
+}
+
+function activityActionTone(action: string): "accent" | "live" | "warn" | "danger" | "neutral" {
+  switch (action) {
+    case "imported":
+      return "accent";
+    case "attached":
+      return "live";
+    case "detached":
+      return "warn";
+    case "removed":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+function ActivityDialog({
+  events,
+  refreshing,
+  onRefresh,
+  onClose,
+}: {
+  events: PhoneNumberActivityItem[];
+  refreshing: boolean;
+  onRefresh: () => Promise<void> | void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onClose={onClose} widthClassName="max-w-4xl">
+      <DialogHeader
+        title="Phone number activities"
+        subtitle="Who added, attached, detached, or removed numbers in this organisation."
+        onClose={onClose}
+        titleEnd={
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={refreshing}
+            aria-label="Refresh activity"
+            onClick={() => void onRefresh()}
+          >
+            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
+            Refresh
+          </Button>
+        }
+      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {refreshing && events.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm text-v-muted">
+            <Spinner light={false} /> Loading activity…
+          </div>
+        ) : events.length === 0 ? (
+          <div className="px-5 py-12 text-center text-sm font-light text-v-muted">
+            No activity yet. Actions on numbers will show up here.
+          </div>
+        ) : (
+          <div className="max-h-[min(60vh,520px)] overflow-auto overscroll-contain">
+            <table className="w-full min-w-[640px] border-collapse text-sm">
+              <thead className="sticky top-0 z-[1] border-b border-v-line bg-v-surface-sunk">
+                <tr className="text-left font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">
+                  <th className="px-4 py-3 font-medium">Time</th>
+                  <th className="px-4 py-3 font-medium">Action</th>
+                  <th className="px-4 py-3 font-medium">Number</th>
+                  <th className="px-4 py-3 font-medium">Agent</th>
+                  <th className="px-4 py-3 font-medium">By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((e, i) => (
+                  <tr
+                    key={`${e.at}-${e.phone_number}-${e.action}-${e.by_email ?? ""}-${i}`}
+                    className="border-b border-v-line last:border-b-0"
+                  >
+                    <td className="px-4 py-3 text-v-muted">{formatDateTime(e.at)}</td>
+                    <td className="px-4 py-3">
+                      <Badge tone={activityActionTone(e.action)}>{activityActionLabel(e.action)}</Badge>
+                    </td>
+                    <td className="px-4 py-3 font-medium">{e.phone_number}</td>
+                    <td className="px-4 py-3">
+                      {e.agent_name ?? (e.agent_id ? e.agent_id : <span className="text-v-muted">–</span>)}
+                    </td>
+                    <td className="px-4 py-3 text-v-muted">{e.by_email ?? "–"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
 export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: string) => void }) {
   const {
     numbers,
+    activity: activityEvents,
     agents,
     providers,
     configuredProviders,
@@ -366,13 +474,25 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
     importNumber,
     attachToAgent,
     detach,
-    deleteNumber,
+    remove,
+    reload,
   } = usePhoneNumbers(onNotify);
   const [query, setQuery] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityRefreshing, setActivityRefreshing] = useState(false);
   const [attachTarget, setAttachTarget] = useState<PhoneNumberItem | null>(null);
   const [detachTarget, setDetachTarget] = useState<PhoneNumberItem | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<PhoneNumberItem | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<PhoneNumberItem | null>(null);
+
+  async function refreshActivity() {
+    setActivityRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setActivityRefreshing(false);
+    }
+  }
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.agent_id, a])), [agents]);
   const existingNumbers = useMemo(() => new Set(numbers.map((n) => n.phone_number)), [numbers]);
@@ -404,10 +524,16 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
             Import numbers from your telephony provider and attach them to agents.
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <Phone className="size-4" strokeWidth={1.75} />
-          Add New Number
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setActivityOpen(true)}>
+            <History className="size-4" strokeWidth={2} />
+            Phone Number Activities
+          </Button>
+          <Button onClick={() => setAddOpen(true)}>
+            <Phone className="size-4" strokeWidth={1.75} />
+            Add New Number
+          </Button>
+        </div>
       </div>
 
       {loadError ? (
@@ -470,28 +596,29 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
                       </td>
                       <td className="px-4 py-3">{agentName ?? <span className="text-v-muted">–</span>}</td>
                       <td className="px-4 py-3 text-right">
-                        {n.agent_id ? (
-                          <Button variant="danger-outline" size="sm" disabled={busy} onClick={() => setDetachTarget(n)}>
-                            {busy ? <Spinner light={false} /> : <Unlink className="size-3.5" strokeWidth={1.75} />}
-                            Detach
-                          </Button>
-                        ) : (
-                          <div className="flex justify-end gap-2">
+                        <div className="inline-flex items-center justify-end gap-2">
+                          {n.agent_id ? (
+                            <Button variant="danger-outline" size="sm" disabled={busy} onClick={() => setDetachTarget(n)}>
+                              {busy ? <Spinner light={false} /> : <Unlink className="size-3.5" strokeWidth={1.75} />}
+                              Detach
+                            </Button>
+                          ) : (
                             <Button variant="primary" size="sm" disabled={busy} onClick={() => setAttachTarget(n)}>
                               {busy ? <Spinner /> : <Link2 className="size-3.5" strokeWidth={1.75} />}
                               Attach
                             </Button>
-                            <Button
-                              variant="danger-outline"
-                              size="sm"
-                              disabled={busy}
-                              onClick={() => setDeleteTarget(n)}
-                            >
-                              <Trash2 className="size-3.5" strokeWidth={1.75} />
-                              Delete
-                            </Button>
-                          </div>
-                        )}
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            aria-label={`Remove ${n.phone_number}`}
+                            onClick={() => setRemoveTarget(n)}
+                          >
+                            <Trash2 className="size-3.5" strokeWidth={1.75} />
+                            Remove
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                     {activity ? (
@@ -511,6 +638,15 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
           </table>
         </div>
       )}
+
+      {activityOpen ? (
+        <ActivityDialog
+          events={activityEvents}
+          refreshing={activityRefreshing}
+          onRefresh={refreshActivity}
+          onClose={() => setActivityOpen(false)}
+        />
+      ) : null}
 
       {addOpen ? (
         <AddNumberDialog
@@ -560,29 +696,31 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
         </Dialog>
       ) : null}
 
-      {deleteTarget ? (
-        <Dialog open onClose={() => setDeleteTarget(null)} widthClassName="max-w-md">
-          <DialogHeader title="Delete this number?" onClose={() => setDeleteTarget(null)} />
+      {removeTarget ? (
+        <Dialog open onClose={() => setRemoveTarget(null)} widthClassName="max-w-md">
+          <DialogHeader title="Remove this number?" onClose={() => setRemoveTarget(null)} />
           <div className="flex flex-col gap-4 p-5">
             <p className="text-sm font-light text-v-body">
-              Remove {deleteTarget.phone_number} from this workspace&rsquo;s inventory? This does
-              not release it at the telephony provider.
+              {removeTarget.agent_id
+                ? `${removeTarget.phone_number} will be detached from its agent and removed from your inventory.`
+                : `${removeTarget.phone_number} will be removed from your inventory.`}{" "}
+              It stays on your telephony provider account and can be added again later.
             </p>
             <div className="flex justify-end gap-2 border-t border-v-line pt-4">
-              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
+              <Button variant="ghost" size="sm" onClick={() => setRemoveTarget(null)}>
                 Cancel
               </Button>
               <Button
                 variant="danger-outline"
                 size="sm"
-                disabled={busyNumber === deleteTarget.phone_number}
+                disabled={busyNumber === removeTarget.phone_number}
                 onClick={async () => {
-                  await deleteNumber(deleteTarget);
-                  setDeleteTarget(null);
+                  await remove(removeTarget);
+                  setRemoveTarget(null);
                 }}
               >
-                {busyNumber === deleteTarget.phone_number ? <Spinner light={false} /> : null}
-                Delete
+                {busyNumber === removeTarget.phone_number ? <Spinner light={false} /> : null}
+                Remove
               </Button>
             </div>
           </div>

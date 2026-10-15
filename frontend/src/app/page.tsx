@@ -32,6 +32,7 @@ export default function SignInPage() {
       saveSession({
         accessToken: data.access_token,
         email,
+        name: data.name?.trim() || undefined,
         orgId: data.org_id,
         role: data.role,
       });

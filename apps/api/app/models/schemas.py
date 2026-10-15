@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 Role = Literal["super_admin", "admin", "member"]
 
@@ -15,6 +15,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     organisation_name: str
+    name: Optional[str] = None
 
 
 class OrganisationSummary(BaseModel):
@@ -31,6 +32,7 @@ class UserResponse(BaseModel):
     email: str
     org_id: str
     role: Role
+    name: Optional[str] = None
     organisation_name: Optional[str] = None
     organisations: list[OrganisationSummary] = []
     created_at: Optional[str] = None
@@ -52,6 +54,7 @@ class UserLoginResponse(BaseModel):
     token_type: Optional[str] = None
     org_id: Optional[str] = None
     role: Optional[Role] = None
+    name: Optional[str] = None
     organisations: list[OrganisationSummary] = []
     is_first_login: bool = False
 
@@ -102,6 +105,7 @@ class MemberJoin(BaseModel):
     email: EmailStr
     password: str
     org_id: str
+    name: Optional[str] = None
 
 
 class MemberListItem(BaseModel):
@@ -188,6 +192,15 @@ class AutomaticCallEnding(BaseModel):
     graceful_llm_call_ending: bool = False
 
 
+class VadSettings(BaseModel):
+    """Silero VAD thresholds for turn detection (Pipecat VADParams)."""
+
+    confidence: float = Field(default=0.3, ge=0, le=1)
+    start_secs: float = Field(default=0.1, ge=0)
+    stop_secs: float = Field(default=0.4, ge=0)
+    min_volume: float = Field(default=0.5, ge=0, le=1)
+
+
 class AgentBehaviour(BaseModel):
     """Call / turn behaviour settings (aligned with mono voice-server knobs)."""
 
@@ -210,6 +223,18 @@ class AgentBehaviour(BaseModel):
                         "enabled": True,
                         "graceful_llm_call_ending": True,
                     },
+                    "vad": {
+                        "confidence": 0.3,
+                        "start_secs": 0.1,
+                        "stop_secs": 0.4,
+                        "min_volume": 0.5,
+                    },
+                    "vad_idle": {
+                        "confidence": 0.3,
+                        "start_secs": 0.1,
+                        "stop_secs": 0.4,
+                        "min_volume": 0.5,
+                    },
                 }
             ]
         }
@@ -218,7 +243,10 @@ class AgentBehaviour(BaseModel):
     interruption_min_words: int = Field(
         default=0,
         ge=0,
-        description="Minimum words before the caller can interrupt the agent.",
+        description=(
+            "Minimum STT words before the caller can interrupt the agent. "
+            "0 = Silero VAD only (no word/transcript turn-start gate)."
+        ),
     )
     user_silence_hangup_seconds: float | None = Field(
         default=None,
@@ -266,6 +294,8 @@ class AgentBehaviour(BaseModel):
         description="Spoken after the last online-detection prompt, before hangup.",
     )
     automatic_call_ending: AutomaticCallEnding = AutomaticCallEnding()
+    vad: VadSettings = VadSettings()
+    vad_idle: VadSettings = VadSettings()
 
 
 class AgentLanguage(BaseModel):
@@ -295,6 +325,22 @@ class AgentModels(BaseModel):
     llm_config: dict[str, Any]
 
 
+def _looks_like_model_stack(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and "stt_config" in value
+        and "tts_config" in value
+        and "llm_config" in value
+    )
+
+
+def _is_language_keyed_models(models: Any) -> bool:
+    """True when ``models`` is ``{lang_id: AgentModels}`` rather than a flat stack."""
+    if not isinstance(models, dict) or not models or _looks_like_model_stack(models):
+        return False
+    return any(_looks_like_model_stack(value) for value in models.values())
+
+
 class AgentConfigPayload(BaseModel):
     """Typed agent behaviour + AI config blob."""
 
@@ -302,7 +348,8 @@ class AgentConfigPayload(BaseModel):
     prompts: AgentPrompts
     behaviour: AgentBehaviour = AgentBehaviour()
     language: AgentLanguage
-    models: AgentModels
+    # Per-language STT/TTS/LLM stacks, keyed by canonical language id.
+    models: dict[str, AgentModels]
     knowledge_base: AgentKnowledgeBase = AgentKnowledgeBase()
     custom_variables: dict[str, Any] = Field(
         default_factory=dict,
@@ -311,6 +358,100 @@ class AgentConfigPayload(BaseModel):
             "overridden by per-call custom_variables on outbound calls."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_models_shape(cls, data: Any) -> Any:
+        """Accept legacy shapes and normalize to language-keyed ``models``.
+
+        * Preferred: ``models: {lang: {stt, tts, llm}}``
+        * Legacy flat: ``models: {stt, tts, llm}`` → one entry per configured language
+        * Legacy ``language_models`` map is folded into ``models``
+        """
+        if not isinstance(data, dict):
+            return data
+
+        coerced = dict(data)
+        language = coerced.get("language") or {}
+        primary = ""
+        secondary: list[str] = []
+        if isinstance(language, dict):
+            primary = str(language.get("primary") or "").strip()
+            raw_secondary = language.get("secondary") or []
+            if isinstance(raw_secondary, list):
+                secondary = [
+                    str(lang).strip()
+                    for lang in raw_secondary
+                    if str(lang or "").strip()
+                ]
+
+        def _configured_langs() -> list[str]:
+            out: list[str] = []
+            for lang in [primary, *secondary]:
+                if lang and lang not in out:
+                    out.append(lang)
+            return out
+
+        def _fill_missing(stacks: dict[str, Any]) -> dict[str, Any]:
+            """Copy primary stack into missing secondary slots (legacy docs)."""
+            filled = dict(stacks)
+            seed = filled.get(primary) or next(
+                (v for v in filled.values() if _looks_like_model_stack(v)),
+                None,
+            )
+            if seed is None:
+                return filled
+            for lang in _configured_langs():
+                if lang not in filled:
+                    filled[lang] = seed
+            return filled
+
+        language_models = coerced.pop("language_models", None)
+        models = coerced.get("models")
+
+        # Prefer a full language map over a flat primary alias when both exist
+        # (older documents stored language_models + mirrored flat models).
+        if isinstance(language_models, dict) and language_models:
+            if _looks_like_model_stack(models) or models is None:
+                coerced["models"] = _fill_missing(language_models)
+                return coerced
+            if _is_language_keyed_models(models):
+                return coerced
+
+        if _is_language_keyed_models(models):
+            return coerced
+
+        if _looks_like_model_stack(models):
+            if not primary:
+                raise ValueError("language.primary is required to normalize flat models")
+            coerced["models"] = {lang: models for lang in _configured_langs()}
+            return coerced
+
+        return coerced
+
+    @model_validator(mode="after")
+    def normalize_models(self) -> AgentConfigPayload:
+        """Require a stack for every configured language (primary + secondary)."""
+        primary = (self.language.primary or "").strip()
+        if not primary:
+            return self
+
+        if primary not in self.models:
+            raise ValueError(
+                f"models must include an entry for primary language {primary!r}"
+            )
+
+        missing = [
+            lang
+            for lang in [primary, *self.language.secondary]
+            if (lang or "").strip() and (lang or "").strip() not in self.models
+        ]
+        if missing:
+            raise ValueError(
+                "models missing entries for configured languages: "
+                + ", ".join(missing)
+            )
+        return self
 
 
 class AgentCreateRequest(BaseModel):
@@ -348,23 +489,25 @@ class AgentCreateRequest(BaseModel):
                         },
                         "language": {"primary": "en", "secondary": []},
                         "models": {
-                            "stt_config": {
-                                "provider": "deepgram",
-                                "model": "nova-3-general",
-                                "language": "en",
-                            },
-                            "tts_config": {
-                                "provider": "cartesia",
-                                "model": "sonic-3.5",
-                                "language": "en",
-                                "voice": "3faa81ae-d3d8-4ab1-9e44-e50e46d33c30",
-                                "speed": 1.0,
-                                "volume": 1.0,
-                            },
-                            "llm_config": {
-                                "provider": "openai",
-                                "model": "gpt-4.1",
-                            },
+                            "en": {
+                                "stt_config": {
+                                    "provider": "deepgram",
+                                    "model": "nova-3-general",
+                                    "language": "en",
+                                },
+                                "tts_config": {
+                                    "provider": "cartesia",
+                                    "model": "sonic-3.5",
+                                    "language": "en",
+                                    "voice": "3faa81ae-d3d8-4ab1-9e44-e50e46d33c30",
+                                    "speed": 1.0,
+                                    "volume": 1.0,
+                                },
+                                "llm_config": {
+                                    "provider": "openai",
+                                    "model": "gpt-4.1",
+                                },
+                            }
                         },
                         "knowledge_base": {
                             "enabled": False,
@@ -444,11 +587,8 @@ class PhoneNumberDetachRequest(BaseModel):
     phone_number: str
 
 
-class PhoneNumberDeleteRequest(BaseModel):
-    """Permanently remove a number from the org inventory.
-
-    The number must already be detached from any agent.
-    """
+class PhoneNumberRemoveRequest(BaseModel):
+    """Remove a phone number from the org inventory (detaches first if needed)."""
 
     phone_number: str
 
@@ -473,6 +613,27 @@ class PhoneNumberInventoryResponse(BaseModel):
 
     status: str = "success"
     numbers: list[str] = []
+
+
+class PhoneNumberActivityItem(BaseModel):
+    """One append-only phone-number activity event."""
+
+    phone_number: str
+    provider: str = ""
+    action: str
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    by_email: Optional[str] = None
+    at: str
+
+
+class PhoneNumberActivityResponse(BaseModel):
+    """Paginated org phone-number activity log."""
+
+    events: list[PhoneNumberActivityItem] = []
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +795,7 @@ class CallLogResponse(BaseModel):
     transcript_url: Optional[str] = None
     error_message: Optional[str] = None
     campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
     queued_run_id: Optional[str] = None
 
 
@@ -797,6 +959,32 @@ class CampaignProgressResponse(BaseModel):
     rate_limit: Optional[int] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+
+
+class CampaignAnalyticsResponse(BaseModel):
+    """Campaign progress + CallLogs analytics (see ``get_call_analytics``)."""
+
+    campaign_id: str
+    state: CampaignState
+    total_rows: int = 0
+    processed_rows: int = 0
+    failed_rows: int = 0
+    progress_percentage: float = 0.0
+    calls_attempted: int = 0
+    calls_connected: int = 0
+    connection_rate: float = 0.0
+    total_duration_seconds: float = 0.0
+    average_duration_seconds: float = 0.0
+    by_call_response: dict[str, int] = Field(default_factory=dict)
+
+
+class CampaignRunsListResponse(BaseModel):
+    """Paginated campaign call runs."""
+
+    calls: list[CallLogResponse] = Field(default_factory=list)
+    limit: int
+    offset: int
+    total: int
 
 
 class CampaignCallStatusRequest(BaseModel):

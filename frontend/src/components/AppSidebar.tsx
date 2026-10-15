@@ -160,7 +160,7 @@ export function AppSidebar() {
             {expanded ? <span>Docs</span> : null}
           </button>
           <ProfileMenu
-            name={session?.email.split("@")[0] ?? "User"}
+            name={session?.name?.trim() || session?.email.split("@")[0] || "User"}
             email={session?.email ?? ""}
             org={session?.orgName ?? ""}
             orgId={session?.orgId ?? ""}

@@ -35,7 +35,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const orgName =
           me.organisation_name ??
           me.organisations?.find((o) => o.org_id === stored.orgId)?.name;
-        const merged: AuthSession = orgName ? { ...stored, orgName } : stored;
+        const merged: AuthSession = {
+          ...stored,
+          ...(orgName ? { orgName } : {}),
+          ...(me.name?.trim() ? { name: me.name.trim() } : {}),
+        };
         saveSession(merged);
         setSession(merged);
       })

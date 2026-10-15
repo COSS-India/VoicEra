@@ -2,33 +2,33 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
-from typing import Any
 
 from loguru import logger
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     EndWorkerFrame,
     Frame,
     InterruptionFrame,
+    UserStartedSpeakingFrame,
 )
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 
-# Kenpath sends only the word "goodbye" as the hangup signal.
 _GOODBYE = re.compile(r"\bgoodbye\b", re.IGNORECASE)
+# TTS may emit bot-stopped between segments; wait for a quiet gap before hangup.
+_FAREWELL_HANGUP_DEBOUNCE_SECS = 1.5
 
 
 def response_requests_end_call(text: str) -> bool:
-    """Return True when LLM text contains the Kenpath hangup word ``goodbye``."""
     return bool(_GOODBYE.search(text or ""))
 
 
 def strip_goodbye_for_tts(text: str) -> str:
-    """Remove ``goodbye`` so TTS never speaks the hangup signal."""
     if not text:
         return ""
-    # Keep a trailing space when the chunk was a streamed word separator.
     trailing_space = text.endswith(" ")
     stripped = _GOODBYE.sub("", text)
     stripped = " ".join(stripped.split())
@@ -37,91 +37,100 @@ def strip_goodbye_for_tts(text: str) -> str:
     return stripped
 
 
-class KenpathCallEndingController:
-    """Defer Kenpath hangup until farewell audio finishes, unless interrupted."""
-
-    def __init__(self) -> None:
-        self._pending_hangup = False
-        self._cancelled = False
-
-    def request_end_after_playback(self) -> None:
-        self._pending_hangup = True
-        self._cancelled = False
-        logger.info("Kenpath end-of-call deferred until bot stops speaking")
-
-    def cancel_pending_end(self) -> None:
-        if self._pending_hangup:
-            logger.info("Kenpath end-of-call cancelled — user interrupted farewell")
-        self._pending_hangup = False
-        self._cancelled = True
-
-    def should_end_on_bot_stopped(self) -> bool:
-        if self._pending_hangup and not self._cancelled:
-            self._pending_hangup = False
-            self._cancelled = False
-            return True
-        self._pending_hangup = False
-        self._cancelled = False
-        return False
-
-
-class KenpathDeferredCallEndingProcessor(FrameProcessor):
-    """End the call after farewell playback unless the user interrupts."""
-
-    def __init__(self, controller: KenpathCallEndingController, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._controller = controller
-
-    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
-        await super().process_frame(frame, direction)
-
-        if isinstance(frame, InterruptionFrame):
-            self._controller.cancel_pending_end()
-        elif isinstance(frame, BotStoppedSpeakingFrame):
-            if self._controller.should_end_on_bot_stopped():
-                logger.info(
-                    "Kenpath deferred end — farewell playback complete, pushing EndWorkerFrame"
-                )
-                await self.push_frame(EndWorkerFrame(), FrameDirection.DOWNSTREAM)
-
-        await self.push_frame(frame, direction)
-
-
 async def end_call(llm: LLMService) -> None:
-    """Push EndWorkerFrame so the pipeline drains and the call ends."""
     logger.info("Kenpath end-of-call signal — pushing EndWorkerFrame")
     await llm.push_frame(EndWorkerFrame(), FrameDirection.DOWNSTREAM)
 
 
-async def schedule_end_call(
-    llm: LLMService,
-    controller: KenpathCallEndingController | None,
-    *,
-    had_spoken_output: bool,
-) -> None:
-    """End immediately when there is nothing to play; otherwise defer until playback."""
-    if not had_spoken_output or controller is None:
-        await end_call(llm)
-        return
-    controller.request_end_after_playback()
-
-
 class KenpathCallEndingMixin:
-    """Kenpath LLM hook: deferred hangup processor inserted after transport output."""
+    """Defer hangup after farewell TTS; cancel if the user speaks during playback."""
 
-    def _init_call_ending(self) -> None:
-        self._response_had_spoken_output = False
-        self._call_ending_controller = KenpathCallEndingController()
-        self._call_ending_processor = KenpathDeferredCallEndingProcessor(
-            self._call_ending_controller
+    _hangup_pending: bool
+    _kenpath_had_tts: bool
+    _kenpath_bot_speaking: bool
+    _kenpath_farewell_user_barged: bool
+    _kenpath_hangup_timer_task: asyncio.Task[None] | None
+
+    def _kenpath_init_call_ending(self) -> None:
+        self._hangup_pending = False
+        self._kenpath_had_tts = False
+        self._kenpath_bot_speaking = False
+        self._kenpath_farewell_user_barged = False
+        self._kenpath_hangup_timer_task = None
+
+    def _kenpath_begin_assistant_turn(self) -> None:
+        self._kenpath_had_tts = False
+        self._kenpath_farewell_user_barged = False
+        self._kenpath_cancel_hangup_timer()
+
+    def _kenpath_cleanup_call_ending(self) -> None:
+        self._kenpath_cancel_hangup_timer()
+
+    def _kenpath_cancel_hangup_timer(self) -> None:
+        task = self._kenpath_hangup_timer_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._kenpath_hangup_timer_task = None
+
+    def _kenpath_cancel_farewell_hangup(self) -> None:
+        self._kenpath_cancel_hangup_timer()
+        if self._kenpath_bot_speaking:
+            self._kenpath_farewell_user_barged = True
+        if not self._hangup_pending:
+            return
+        logger.info("Kenpath end-of-call cancelled — user spoke during farewell")
+        self._hangup_pending = False
+
+    def _kenpath_schedule_hangup_after_quiet(self) -> None:
+        self._kenpath_cancel_hangup_timer()
+        self._kenpath_hangup_timer_task = asyncio.create_task(
+            self._kenpath_hangup_after_debounce(),
         )
 
-    def set_call_ending_controller(
-        self, controller: KenpathCallEndingController
-    ) -> None:
-        """Replace the controller, mainly for unit tests."""
-        self._call_ending_controller = controller
-        self._call_ending_processor = KenpathDeferredCallEndingProcessor(controller)
+    async def _kenpath_hangup_after_debounce(self) -> None:
+        try:
+            await asyncio.sleep(_FAREWELL_HANGUP_DEBOUNCE_SECS)
+            await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            return
+        finally:
+            self._kenpath_hangup_timer_task = None
+        if (
+            not self._hangup_pending
+            or self._kenpath_farewell_user_barged
+            or self._kenpath_bot_speaking
+        ):
+            return
+        self._hangup_pending = False
+        logger.info(
+            "Kenpath deferred end — farewell playback complete, pushing EndWorkerFrame",
+        )
+        await end_call(self)
 
-    def pipeline_processors_after_output(self) -> list[FrameProcessor]:
-        return [self._call_ending_processor]
+    async def _kenpath_on_call_ending_frame(self, frame: Frame) -> None:
+        if isinstance(frame, InterruptionFrame):
+            self._kenpath_cancel_farewell_hangup()
+        elif isinstance(frame, UserStartedSpeakingFrame):
+            self._kenpath_cancel_farewell_hangup()
+        elif isinstance(frame, BotStartedSpeakingFrame):
+            self._kenpath_bot_speaking = True
+            self._kenpath_cancel_hangup_timer()
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            self._kenpath_bot_speaking = False
+            if not self._hangup_pending or self._kenpath_farewell_user_barged:
+                return
+            await asyncio.sleep(0)
+            if not self._hangup_pending or self._kenpath_farewell_user_barged:
+                return
+            self._kenpath_schedule_hangup_after_quiet()
+
+    async def _kenpath_finish_turn_if_end(self, *, end_requested: bool) -> None:
+        if not end_requested:
+            return
+        if self._kenpath_farewell_user_barged:
+            return
+        if self._kenpath_had_tts:
+            self._hangup_pending = True
+            logger.info("Kenpath end-of-call deferred until bot stops speaking")
+        else:
+            await end_call(self)

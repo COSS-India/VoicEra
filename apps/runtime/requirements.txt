@@ -8,6 +8,7 @@ cryptography>=42.0.0
 loguru>=0.7.0
 pydantic>=2.0.0
 pipecat-ai[deepgram,cartesia,openai,silero,websocket,sarvam]==1.8.1
+svara-voice[pipecat]
 minio>=7.2.0
 grpcio>=1.60.0
 protobuf>=4.25.0

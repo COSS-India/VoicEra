@@ -19,6 +19,7 @@ export async function signup(
   email: string,
   password: string,
   organisationName: string,
+  name?: string,
 ): Promise<LoginResponse> {
   return apiFetch<LoginResponse>(
     "/users/signup",
@@ -28,6 +29,7 @@ export async function signup(
         email,
         password,
         organisation_name: organisationName,
+        ...(name ? { name } : {}),
       }),
     },
     false,

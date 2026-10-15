@@ -14,9 +14,12 @@ from app.services.agent_telephony_service import (
     AgentTelephonyError,
     build_answer_urls,
     get_provider_dial_credentials,
+    load_telephony_client,
 )
 from app.services.phone_number_service import PhoneNumberNotFoundError
 from apps.telephony import initiate_outbound
+from apps.telephony.phone_format import format_e164_for_call_log
+from apps.telephony.results import provider_call_sid_from_result
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +40,17 @@ def _now_iso() -> str:
 
 
 def _normalize_phone(number: str, *, field: str) -> str:
-    cleaned = (number or "").strip().replace(" ", "").replace("-", "")
-    if not cleaned or not _PHONE_RE.match(cleaned):
+    cleaned = format_e164_for_call_log(number or "")
+    if not cleaned or cleaned.lower() == "unknown":
         raise OutboundCallError(
             f"Invalid {field}: {number!r}. Expected E.164-style digits (7–15).",
             status_code=422,
         )
-    if not cleaned.startswith("+"):
-        cleaned = f"+{cleaned}"
+    if not _PHONE_RE.match(cleaned):
+        raise OutboundCallError(
+            f"Invalid {field}: {number!r}. Expected E.164-style digits (7–15).",
+            status_code=422,
+        )
     return cleaned
 
 
@@ -69,6 +75,8 @@ def _resolve_from_number(
     agent_id: str,
     agent: dict[str, Any],
     from_number_override: str | None,
+    *,
+    provider: str | None = None,
 ) -> str:
     if from_number_override:
         return _normalize_phone(from_number_override, field="from_number")
@@ -86,26 +94,28 @@ def _resolve_from_number(
     except PhoneNumberNotFoundError:
         pass
 
+    # Optional client capability (e.g. auth-configured DNIs) when no linked number.
+    normalized_provider = (provider or "").strip().lower()
+    if not normalized_provider:
+        telephony = agent.get("telephony") or {}
+        normalized_provider = str(telephony.get("provider") or "").strip().lower()
+    if normalized_provider:
+        try:
+            client = load_telephony_client(org_id, normalized_provider)
+        except AgentTelephonyError:
+            client = None
+        else:
+            fallback = getattr(client, "default_from_number", None)
+            if callable(fallback):
+                auth_dni = fallback()
+                if auth_dni:
+                    return _normalize_phone(str(auth_dni), field="from_number")
+
     raise OutboundCallError(
         "No caller ID configured for this agent. "
         "Attach a phone number or pass from_number.",
         status_code=422,
     )
-
-
-def _extract_provider_call_sid(result: dict[str, Any]) -> str | None:
-    for key in ("call_uuid", "request_uuid", "uuid"):
-        value = result.get(key)
-        if value:
-            return str(value)
-    raw = result.get("raw") or {}
-    if isinstance(raw, dict):
-        for key in ("call_uuid", "request_uuid", "uuid"):
-            value = raw.get(key)
-            if value:
-                return str(value)
-    return None
-
 
 async def initiate_outbound_call(
     org_id: str,
@@ -123,7 +133,9 @@ async def initiate_outbound_call(
 
     provider = _require_telephony_agent(agent)
     normalized_to = _normalize_phone(to_number, field="to_number")
-    normalized_from = _resolve_from_number(org_id, agent_id, agent, from_number)
+    normalized_from = _resolve_from_number(
+        org_id, agent_id, agent, from_number, provider=provider
+    )
     variables = dict(custom_variables or {})
 
     call_id = str(uuid.uuid4())
@@ -156,7 +168,7 @@ async def initiate_outbound_call(
     answer_url, hangup_url = build_answer_urls(org_id, agent_id, call_id=call_id)
 
     try:
-        credentials = get_provider_dial_credentials(org_id, provider)
+        credentials = dict(get_provider_dial_credentials(org_id, provider))
     except AgentTelephonyError as exc:
         call_log_service.update_call_log(
             call_id,
@@ -164,16 +176,21 @@ async def initiate_outbound_call(
         )
         raise OutboundCallError(exc.message, status_code=exc.status_code) from exc
 
+    auth_id = str(credentials.pop("auth_id", "") or "")
+    auth_token = str(credentials.pop("auth_token", "") or "")
+    base_url = str(credentials.pop("base_url", "") or "")
+
     try:
         result = await initiate_outbound(
             provider,
-            auth_id=credentials["auth_id"],
-            auth_token=credentials["auth_token"],
-            base_url=credentials["base_url"],
+            auth_id=auth_id,
+            auth_token=auth_token,
+            base_url=base_url,
             from_number=normalized_from,
             to_number=normalized_to,
             answer_url=answer_url,
             hangup_url=hangup_url,
+            **credentials,
         )
     except ValueError as exc:
         message = str(exc)
@@ -198,14 +215,17 @@ async def initiate_outbound_call(
         )
         raise OutboundCallError(message, status_code=502)
 
-    provider_call_sid = _extract_provider_call_sid(result)
-    updated = call_log_service.update_call_log(
-        call_id,
-        {
-            "status": "ringing",
-            "provider_call_sid": provider_call_sid,
-        },
-    )
+    provider_call_sid = provider_call_sid_from_result(result)
+    dial_dni = result.get("dni")
+    if dial_dni is not None and str(dial_dni).strip():
+        normalized_from = format_e164_for_call_log(str(dial_dni))
+    patch: dict[str, Any] = {
+        "status": "ringing",
+        "provider_call_sid": provider_call_sid,
+    }
+    if dial_dni is not None and str(dial_dni).strip():
+        patch["from_number"] = normalized_from
+    updated = call_log_service.update_call_log(call_id, patch)
 
     return {
         "call_id": call_id,

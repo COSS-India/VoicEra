@@ -13,12 +13,14 @@ export interface LoginResponse {
   token_type: string;
   org_id: string;
   role: string;
+  name?: string | null;
   organisations: OrganisationSummary[];
   is_first_login?: boolean;
 }
 
 export interface UserProfile {
   email: string;
+  name?: string | null;
   org_id: string;
   role: UserRole;
   organisation_name?: string;
@@ -50,6 +52,16 @@ export interface CheckEmailResult {
   can_join: boolean;
 }
 
+/** One language's STT / TTS / LLM provider settings. */
+export interface AgentModelStack {
+  stt_config: Record<string, unknown>;
+  tts_config: Record<string, unknown>;
+  llm_config: Record<string, unknown>;
+}
+
+/** Per-language stacks keyed by canonical language id. */
+export type AgentLanguageModels = Record<string, AgentModelStack>;
+
 export interface AgentApiResponse {
   agent_id: string;
   org_id: string;
@@ -76,13 +88,11 @@ export interface AgentApiResponse {
       primary: string;
       secondary: string[];
     };
-    models: {
-      stt_config: Record<string, unknown>;
-      tts_config: Record<string, unknown>;
-      llm_config: Record<string, unknown>;
-    };
+    /** Per-language STT/TTS/LLM stacks (keyed by canonical language id). */
+    models: AgentLanguageModels;
     knowledge_base: {
       enabled: boolean;
+      mode?: "tool" | "context";
       document_ids: string[];
       top_k: number;
     };
@@ -116,6 +126,25 @@ export interface PhoneNumberItem {
 export interface PhoneNumberInventoryResponse {
   status: string;
   numbers: string[];
+}
+
+export type PhoneNumberActivityAction = "imported" | "attached" | "detached" | "removed" | string;
+
+export interface PhoneNumberActivityItem {
+  phone_number: string;
+  provider: string;
+  action: PhoneNumberActivityAction;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  by_email?: string | null;
+  at: string;
+}
+
+export interface PhoneNumberActivityResponse {
+  events: PhoneNumberActivityItem[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export type CallLogStatus = "initiated" | "ringing" | "failed" | "in_progress" | "completed";
@@ -191,6 +220,7 @@ export interface CallLogItem {
   transcript_url?: string | null;
   error_message?: string | null;
   campaign_id?: string | null;
+  campaign_name?: string | null;
   queued_run_id?: string | null;
 }
 
@@ -344,11 +374,52 @@ export interface CreateCampaignPayload {
 export interface CampaignRunItem {
   call_id?: string;
   to_number?: string;
+  from_number?: string;
   status?: string;
   call_response?: string | null;
   duration?: number | null;
   created_at?: string | null;
+  agent_id?: string;
+  agent_name?: string | null;
+  campaign_id?: string | null;
+  campaign_name?: string | null;
+  recording_url?: string | null;
+  transcript_url?: string | null;
   [key: string]: unknown;
+}
+
+export interface CampaignRunsListResponse {
+  calls: CampaignRunItem[];
+  limit: number;
+  offset: number;
+  total: number;
+}
+
+export interface CampaignProgressResponse {
+  campaign_id: string;
+  state: CampaignState;
+  total_rows: number;
+  processed_rows: number;
+  failed_rows: number;
+  progress_percentage: number;
+  rate_limit?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface CampaignAnalyticsResponse {
+  campaign_id: string;
+  state: CampaignState;
+  total_rows: number;
+  processed_rows: number;
+  failed_rows: number;
+  progress_percentage: number;
+  calls_attempted: number;
+  calls_connected: number;
+  connection_rate: number;
+  total_duration_seconds: number;
+  average_duration_seconds: number;
+  by_call_response: Record<string, number>;
 }
 
 export interface AgentCallCount {
