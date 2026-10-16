@@ -59,9 +59,18 @@ class Go2MarketClient:
         )
 
     async def link_number(
-        self, phone_number: str, application_id: str
+        self,
+        phone_number: str,
+        application_id: str,
+        *,
+        stream_url: str = "",
     ) -> Dict[str, Any]:
-        return await application.link_number(self, phone_number, application_id)
+        return await application.link_number(
+            self,
+            phone_number,
+            application_id,
+            stream_url=stream_url,
+        )
 
     async def unlink_number(self, phone_number: str) -> Dict[str, Any]:
         return await application.unlink_number(self, phone_number)

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from apps.telephony.base import fail, success
 
 from .auth_helpers import Go2MarketAuthError, resolve_obd_profile
+from .did_websocket_client import deactivate_did_websocket, replace_did_websocket
 from .helpers import answer_url_to_agent_wss, extract_query_param, format_serviceno_e164
 from .obd_client import Go2MarketObdClient, Go2MarketObdError
 
@@ -62,19 +63,90 @@ async def link_number(
     client: "Go2MarketClient",
     phone_number: str,
     application_id: str,
+    *,
+    stream_url: str = "",
 ) -> Dict[str, Any]:
-    del client, application_id
-    logger.info("Go2Market link_number no-op: phone=%s", phone_number)
+    """Register DID → agent WSS via Go To Market DID-WebSocket API."""
+    del application_id
+    wss = (stream_url or "").strip()
+    if not wss:
+        return fail(
+            "Go To Market attach requires agent telephony.answer_url (WSS)",
+            phone_number=phone_number,
+        )
+    try:
+        profile = resolve_obd_profile(client.obd_profiles, phone_number)
+    except Go2MarketAuthError as exc:
+        return fail(str(exc), phone_number=phone_number)
+
+    def _run() -> Any:
+        # List + deactivate any existing DID mapping, then POST the agent WSS.
+        return replace_did_websocket(
+            client.base_url,
+            ukey=profile["ukey"],
+            did=profile["serviceno"],
+            websocketurl=wss,
+        )
+
+    try:
+        body = await asyncio.to_thread(_run)
+    except Go2MarketObdError as exc:
+        logger.error(
+            "Go2Market DID-WebSocket link failed: did=%s error=%s",
+            profile["serviceno"],
+            exc,
+        )
+        return fail(str(exc), phone_number=phone_number)
+
+    logger.info(
+        "Go2Market DID-WebSocket linked: did=%s wss=%s",
+        profile["serviceno"],
+        wss,
+    )
     return success(
-        "Go To Market number link is a no-op (configure profiles in Integrations)",
+        "Go To Market DID linked to WebSocket",
         phone_number=phone_number,
+        did=profile["serviceno"],
+        websocketurl=wss,
+        raw=body,
     )
 
 
 async def unlink_number(client: "Go2MarketClient", phone_number: str) -> Dict[str, Any]:
-    del client
-    logger.info("Go2Market unlink_number no-op: phone=%s", phone_number)
-    return success("Go To Market number unlink is a no-op", phone_number=phone_number)
+    """Deactivate DID → WSS mapping (idempotent if no mapping exists)."""
+    try:
+        profile = resolve_obd_profile(client.obd_profiles, phone_number)
+    except Go2MarketAuthError as exc:
+        return fail(str(exc), phone_number=phone_number)
+
+    def _run() -> bool:
+        return deactivate_did_websocket(
+            client.base_url,
+            ukey=profile["ukey"],
+            did=profile["serviceno"],
+        )
+
+    try:
+        deactivated = await asyncio.to_thread(_run)
+    except Go2MarketObdError as exc:
+        logger.error(
+            "Go2Market DID-WebSocket unlink failed: did=%s error=%s",
+            profile["serviceno"],
+            exc,
+        )
+        return fail(str(exc), phone_number=phone_number)
+
+    message = (
+        "Go To Market DID WebSocket deactivated"
+        if deactivated
+        else "Go To Market DID WebSocket mapping not found (already detached)"
+    )
+    return success(
+        message,
+        phone_number=phone_number,
+        did=profile["serviceno"],
+        deactivated=deactivated,
+    )
 
 
 async def list_numbers(client: "Go2MarketClient") -> Dict[str, Any]:

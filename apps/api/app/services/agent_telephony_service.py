@@ -257,11 +257,20 @@ async def link_number(
     provider: str,
     phone_number: str,
     application_id: str,
+    *,
+    stream_url: str | None = None,
 ) -> None:
     """Bind a phone number to a provider application."""
     provider = _require_provider(provider)
     client = load_telephony_client(org_id, provider)
-    result = await client.link_number(phone_number, application_id)
+    if provider == "go2market":
+        result = await client.link_number(
+            phone_number,
+            application_id,
+            stream_url=(stream_url or "").strip(),
+        )
+    else:
+        result = await client.link_number(phone_number, application_id)
     _raise_on_fail(result, "link number")
 
 

@@ -332,8 +332,13 @@ async def attach(
         await _unlink_previous_owner_if_needed(
             existing, org_id, phone_number, agent_id
         )
+        stream_url = str(telephony.get("answer_url") or "").strip() or None
         await agent_telephony_service.link_number(
-            org_id, provider, phone_number, application_id
+            org_id,
+            provider,
+            phone_number,
+            application_id,
+            stream_url=stream_url,
         )
     else:
         await _unlink_previous_owner_if_needed(existing, org_id, phone_number, None)
