@@ -167,6 +167,10 @@ def transform_call_log_urls(
         return result
     if str(result.get("recording_url") or "").startswith("minio://"):
         result["recording_url"] = f"{api_prefix}/calls/{call_id}/recording"
+    if str(result.get("provider_recording_url") or "").startswith("minio://"):
+        result["provider_recording_url"] = (
+            f"{api_prefix}/calls/{call_id}/provider-recording"
+        )
     if str(result.get("transcript_url") or "").startswith("minio://"):
         result["transcript_url"] = f"{api_prefix}/calls/{call_id}/transcript"
     return result
@@ -194,6 +198,17 @@ def get_call_log_by_provider_sid(
     doc = get_database()[COLLECTION].find_one(
         {"org_id": org_id, "provider_call_sid": provider_call_sid}
     )
+    return _to_response(doc)
+
+
+def find_call_log_by_provider_sid(
+    provider_call_sid: str,
+) -> dict[str, Any] | None:
+    """Fetch a call log by provider SID across orgs (internal voice-server use)."""
+    sid = str(provider_call_sid or "").strip()
+    if not sid:
+        return None
+    doc = get_database()[COLLECTION].find_one({"provider_call_sid": sid})
     return _to_response(doc)
 
 

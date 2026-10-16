@@ -177,10 +177,13 @@ export function useCampaignAnalytics(
     downloadReport: () => runExport("report", exportCampaignReport),
     downloadTranscriptsZip: () => runExport("transcripts", exportCampaignTranscriptsZip),
     downloadRecordingsZip: () => runExport("recordings", exportCampaignRecordingsZip),
-    downloadRowRecording: async (callId: string) => {
-      setRowBusy(`rec:${callId}`);
+    downloadRowRecording: async (
+      callId: string,
+      kind: "system" | "provider" = "system",
+    ) => {
+      setRowBusy(`rec:${kind}:${callId}`);
       try {
-        await downloadCallRecording(callId);
+        await downloadCallRecording(callId, kind);
       } catch (err) {
         onNotify("Download failed", err instanceof Error ? err.message : "Recording unavailable.");
       } finally {
