@@ -118,6 +118,17 @@ function isViAgent(agent: AgentApiResponse | undefined): boolean {
   return (agent?.telephony?.provider || "").toLowerCase() === "vi";
 }
 
+/** OBD / bulk-provider campaigns (e.g. VI). */
+function isObdCampaign(
+  campaign: CampaignApiResponse,
+  agentById: Record<string, AgentApiResponse>,
+): boolean {
+  const meta = campaign.orchestrator_metadata;
+  if (meta && typeof meta === "object" && meta.obd_config) return true;
+  if ((campaign.telephony_provider || "").toLowerCase() === "vi") return true;
+  return isViAgent(agentById[campaign.agent_id]);
+}
+
 // --- Upload → preview → details dialog -------------------------------------
 
 type UploadStep = "select" | "preview" | "details";
@@ -824,6 +835,12 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
     return map;
   }, [agents]);
 
+  const agentById = useMemo(() => {
+    const map: Record<string, AgentApiResponse> = {};
+    for (const a of agents) map[a.agent_id] = a;
+    return map;
+  }, [agents]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { All: campaigns.length };
     for (const camp of campaigns) c[camp.state] = (c[camp.state] ?? 0) + 1;
@@ -968,9 +985,11 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
         </div>
       ) : layout === "cards" ? (
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((c) => (
+          {rows.map((c) => {
+            const obd = isObdCampaign(c, agentById);
+            return (
             <div key={c.campaign_id} className="flex flex-col gap-3.5 rounded-v-md border border-v-line bg-white p-4.5">
-              <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge>
+              {!obd ? <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge> : null}
               <span className="flex flex-col gap-1 min-w-0">
                 <span className="truncate text-[15px] font-semibold">{c.name}</span>
                 <span className="text-xs font-light text-v-muted">
@@ -1013,11 +1032,14 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
                 </span>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="flex flex-col rounded-v-md border border-v-line bg-white">
-          {rows.map((c) => (
+          {rows.map((c) => {
+            const obd = isObdCampaign(c, agentById);
+            return (
             <button
               key={c.campaign_id}
               type="button"
@@ -1037,10 +1059,11 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
                 <span className="font-mono text-[10.5px] w-16 text-right text-v-muted">
                   {Math.round(progressPct(c))}%
                 </span>
-                <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge>
+                {!obd ? <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge> : null}
               </span>
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
 

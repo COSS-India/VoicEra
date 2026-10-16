@@ -69,6 +69,7 @@ def _to_campaign_response(doc: dict[str, Any]) -> CampaignResponse:
         org_id=str(doc["org_id"]),
         name=str(doc["name"]),
         agent_id=str(doc["agent_id"]),
+        telephony_provider=doc.get("telephony_provider"),
         source_type=str(doc.get("source_type") or "csv"),
         source_id=str(doc["source_id"]),
         state=doc.get("state", "created"),
@@ -87,18 +88,26 @@ def _to_campaign_response(doc: dict[str, Any]) -> CampaignResponse:
     )
 
 
+def _agent_from_numbers(org_id: str, agent_id: str, agent: dict[str, Any]) -> list[str]:
+    """CLI numbers attached to the agent (linked + inventory)."""
+    numbers: list[str] = []
+    linked = agent.get("linked_phone_number")
+    if linked:
+        numbers.append(str(linked))
+    for doc in phone_number_service.list_by_org(org_id):
+        if doc.get("agent_id") == agent_id:
+            num = doc.get("phone_number")
+            if num and str(num) not in numbers:
+                numbers.append(str(num))
+    return numbers
+
+
 def _count_agent_from_numbers(org_id: str, agent_id: str) -> int:
-    count = 0
     try:
         agent = agent_service.get_agent(org_id, agent_id)
-        if agent.get("linked_phone_number"):
-            count += 1
     except AgentNotFoundError:
-        pass
-    for doc in phone_number_service.list_by_org(org_id):
-        if doc.get("agent_id") == agent_id and doc.get("phone_number"):
-            count += 1
-    return count
+        agent = {}
+    return len(_agent_from_numbers(org_id, agent_id, agent))
 
 
 def _validate_telephony_agent(org_id: str, agent_id: str) -> dict[str, Any]:
@@ -108,12 +117,39 @@ def _validate_telephony_agent(org_id: str, agent_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if str(agent.get("agent_category") or "") != "telephony":
         raise HTTPException(status_code=422, detail="Campaign requires a telephony agent")
-    if _count_agent_from_numbers(org_id, agent_id) == 0:
+    if not _agent_from_numbers(org_id, agent_id, agent):
         raise HTTPException(
             status_code=422,
             detail="Attach a phone number to this agent before creating a campaign",
         )
     return agent
+
+
+def _snapshot_telephony_binding(
+    org_id: str,
+    agent: dict[str, Any],
+    from_number_override: str | None,
+) -> tuple[str, str]:
+    """Freeze provider + CLI on the campaign so dial-time does not re-resolve agent."""
+    telephony = agent.get("telephony") or {}
+    provider = str(telephony.get("provider") or "").strip().lower()
+    if not provider:
+        raise HTTPException(
+            status_code=422,
+            detail="Agent has no telephony provider configured",
+        )
+    agent_id = str(agent["agent_id"])
+    attached = _agent_from_numbers(org_id, agent_id, agent)
+    if from_number_override:
+        from_number = str(from_number_override).strip()
+        if from_number not in attached:
+            raise HTTPException(
+                status_code=422,
+                detail="from_number must be a phone number attached to this agent",
+            )
+    else:
+        from_number = attached[0]
+    return provider, from_number
 
 
 def _validate_max_concurrency(org_id: str, agent_id: str, max_concurrency: int) -> None:
@@ -199,8 +235,14 @@ async def create_campaign(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignResponse:
     org_id = _require_org(current_user)
-    _validate_telephony_agent(org_id, body.agent_id)
-    _validate_max_concurrency(org_id, body.agent_id, body.max_concurrency)
+    agent = _validate_telephony_agent(org_id, body.agent_id)
+    provider, from_number = _snapshot_telephony_binding(
+        org_id, agent, body.from_number
+    )
+    # VI / OBD bulk campaigns are paced by the provider, not VoicERA concurrency.
+    is_obd = bool(body.obd_config) or provider == "vi"
+    if not is_obd:
+        _validate_max_concurrency(org_id, body.agent_id, body.max_concurrency)
 
     sync_service = get_sync_service(body.source_type)
     validation = await sync_service.validate_source(body.source_id, org_id)
@@ -210,15 +252,16 @@ async def create_campaign(
             detail=validation.error.message if validation.error else "Invalid source",
         )
 
-    orchestrator_metadata: dict[str, Any] = {
-        "max_concurrency": body.max_concurrency,
-    }
-    if body.schedule_config:
-        orchestrator_metadata["schedule_config"] = body.schedule_config.model_dump()
-    if body.circuit_breaker:
-        orchestrator_metadata["circuit_breaker"] = body.circuit_breaker.model_dump()
-    if body.obd_config:
-        orchestrator_metadata["obd_config"] = body.obd_config.model_dump()
+    orchestrator_metadata: dict[str, Any] = {}
+    if is_obd:
+        if body.obd_config:
+            orchestrator_metadata["obd_config"] = body.obd_config.model_dump()
+    else:
+        orchestrator_metadata["max_concurrency"] = body.max_concurrency
+        if body.schedule_config:
+            orchestrator_metadata["schedule_config"] = body.schedule_config.model_dump()
+        if body.circuit_breaker:
+            orchestrator_metadata["circuit_breaker"] = body.circuit_breaker.model_dump()
 
     retry_config = (
         body.retry_config.model_dump()
@@ -231,12 +274,15 @@ async def create_campaign(
             "org_id": org_id,
             "name": body.name,
             "agent_id": body.agent_id,
+            "telephony_provider": provider,
             "source_type": body.source_type,
             "source_id": body.source_id,
-            "rate_limit_per_second": body.rate_limit_per_second,
-            "retry_config": retry_config,
+            "rate_limit_per_second": 1 if is_obd else body.rate_limit_per_second,
+            "retry_config": (
+                dict(DEFAULT_CAMPAIGN_RETRY_CONFIG) if is_obd else retry_config
+            ),
             "orchestrator_metadata": orchestrator_metadata,
-            "from_number": body.from_number,
+            "from_number": from_number,
             "created_by": current_user.get("email"),
         }
     )
@@ -473,6 +519,7 @@ async def redial_campaign(
             "org_id": org_id,
             "name": body.name,
             "agent_id": parent["agent_id"],
+            "telephony_provider": parent.get("telephony_provider"),
             "source_type": parent.get("source_type", "csv"),
             "source_id": parent["source_id"],
             "rate_limit_per_second": parent.get("rate_limit_per_second", 1),

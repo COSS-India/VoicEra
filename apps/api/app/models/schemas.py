@@ -972,6 +972,10 @@ class CampaignResponse(BaseModel):
     org_id: str
     name: str
     agent_id: str
+    telephony_provider: Optional[str] = Field(
+        default=None,
+        description="Snapshot of agent telephony provider at campaign create",
+    )
     source_type: str
     source_id: str
     state: CampaignState
@@ -981,7 +985,10 @@ class CampaignResponse(BaseModel):
     rate_limit_per_second: int = 1
     retry_config: dict[str, Any] = Field(default_factory=dict)
     orchestrator_metadata: dict[str, Any] = Field(default_factory=dict)
-    from_number: Optional[str] = None
+    from_number: Optional[str] = Field(
+        default=None,
+        description="CLI / DNI frozen at create (override or agent's attached number)",
+    )
     created_by: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None

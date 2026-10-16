@@ -124,6 +124,10 @@ class CampaignCallDispatcher:
         return acquired, True
 
     def _telephony_provider(self, campaign: dict[str, Any]) -> str:
+        stored = str(campaign.get("telephony_provider") or "").strip().lower()
+        if stored:
+            return stored
+        # Legacy campaigns created before telephony_provider was snapshotted.
         org_id = str(campaign["org_id"])
         agent_id = str(campaign["agent_id"])
         try:

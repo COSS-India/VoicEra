@@ -309,6 +309,8 @@ export interface CampaignApiResponse {
   org_id: string;
   name: string;
   agent_id: string;
+  /** Snapshot of agent telephony provider at campaign create. */
+  telephony_provider?: string | null;
   source_type: string;
   source_id: string;
   state: CampaignState;

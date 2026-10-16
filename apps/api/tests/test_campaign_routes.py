@@ -105,7 +105,10 @@ def test_create_campaign_stores_obd_config(client: TestClient) -> None:
                 "linked_phone_number": "+919876543210",
             },
         ),
-        patch("app.routers.campaign._count_agent_from_numbers", return_value=1),
+        patch(
+            "app.routers.campaign.phone_number_service.list_by_org",
+            return_value=[],
+        ),
         patch("app.routers.campaign.get_org_concurrent_limit", return_value=20),
         patch("app.routers.campaign.get_sync_service") as sync_factory,
         patch("app.routers.campaign.repo.create_campaign", side_effect=_create),
@@ -137,7 +140,11 @@ def test_create_campaign_stores_obd_config(client: TestClient) -> None:
             },
         )
     assert response.status_code == 201
-    obd = captured.get("orchestrator_metadata", {}).get("obd_config")
+    assert captured.get("telephony_provider") == "vi"
+    assert captured.get("from_number") == "+919876543210"
+    meta = captured.get("orchestrator_metadata") or {}
+    assert "max_concurrency" not in meta
+    obd = meta.get("obd_config")
     assert obd is not None
     assert obd["description"] == "Kharif OBD"
     assert obd["fromdate"] == "2026-10-15"
