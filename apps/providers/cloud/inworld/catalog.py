@@ -5,6 +5,9 @@ from ...capabilities import expand_settings
 TTS_VOICES: tuple[str, ...] = ("Ashley",)
 DEFAULT_TTS_VOICE = "Ashley"
 
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://api.inworld.ai/tts/v1/voice"
+
 _TTS_LANGS = {
     "en-US": "en-US",
 }
