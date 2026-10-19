@@ -45,6 +45,9 @@ TTS_PRO_VOICES: tuple[str, ...] = (
 TTS_SAMPLE_RATES: tuple[int, ...] = (8000, 16000, 24000, 44100)
 DEFAULT_TTS_SAMPLE_RATE = 16000
 
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://api.smallest.ai/waves/v1/tts"
+
 _LIGHTNING_LANGUAGES = {
     "en": "en",
     "hi": "hi",

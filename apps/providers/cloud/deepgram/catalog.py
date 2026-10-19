@@ -85,6 +85,9 @@ TTS_AURA1_VOICES: tuple[str, ...] = (
 TTS_VOICES: tuple[str, ...] = TTS_AURA2_VOICES
 
 DEFAULT_TTS_VOICE = "aura-2-helena-en"
+
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://api.deepgram.com/v1/speak"
 DEFAULT_TTS_AURA1_VOICE = "aura-asteria-en"
 
 _TTS_LANGUAGES = {"en": "en"}
