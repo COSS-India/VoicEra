@@ -18,6 +18,7 @@ export function LanguageProvidersStep({ form, catalogs, onChange }: LanguageProv
         onChange={(key, value) => onChange(key, value as AgentForm[typeof key])}
         catalogs={catalogs}
         sections={["languages", "llm", "stt", "tts"]}
+        welcome={form.welcome}
       />
     </div>
   );
