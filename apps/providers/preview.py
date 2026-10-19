@@ -105,20 +105,30 @@ def resolve_wire_language(capabilities: dict[str, dict], model: str, canonical: 
     return languages.get(canonical, canonical)
 
 
-async def post_for_audio(client: httpx.AsyncClient, vendor: str, url: str, **kwargs) -> httpx.Response:
-    """POST to a vendor TTS endpoint and return the response with a non-empty body.
+async def send_to_vendor(client: httpx.AsyncClient, vendor: str, request: httpx.Request) -> httpx.Response:
+    """Send one request to a vendor and return any 2xx response, even an empty one.
 
-    Any transport error, non-2xx status or empty body becomes a
-    :class:`PreviewProviderError`. Only the status code or the error class is
-    put in the message, never the request, so text and keys stay out of logs.
+    Any transport error or non-2xx status becomes a :class:`PreviewProviderError`.
+    Only the status code or the error class is put in the message, never the
+    request, so text and keys stay out of logs.
     """
     try:
-        response = await client.post(url, **kwargs)
+        response = await client.send(request)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         raise PreviewProviderError(f"{vendor} preview failed: {exc.response.status_code}") from exc
     except httpx.HTTPError as exc:
         raise PreviewProviderError(f"{vendor} preview request failed: {type(exc).__name__}") from exc
+    return response
+
+
+async def post_for_audio(client: httpx.AsyncClient, vendor: str, url: str, **kwargs) -> httpx.Response:
+    """POST to a vendor TTS endpoint and return the response with a non-empty body.
+
+    Errors as in :func:`send_to_vendor`; an empty body is also a
+    :class:`PreviewProviderError`.
+    """
+    response = await send_to_vendor(client, vendor, client.build_request("POST", url, **kwargs))
     if not response.content:
         raise PreviewProviderError(f"{vendor} preview returned no audio")
     return response
