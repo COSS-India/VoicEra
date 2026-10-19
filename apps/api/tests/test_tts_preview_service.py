@@ -256,6 +256,18 @@ def test_generate_preview_maps_provider_error_to_upstream_reason():
     assert "vendor exploded" not in str(exc_info.value)  # detail stays in the log
 
 
+def test_generate_preview_maps_unexpected_adapter_error_to_upstream_reason():
+    # Arrange: e.g. registry.api_key raising ValueError on an empty key list.
+    with _patch_synthesis(side_effect=ValueError("secret-key-value")):
+        # Act
+        with pytest.raises(TtsPreviewError) as exc_info:
+            _preview()
+
+    # Assert
+    assert exc_info.value.reason == TtsPreviewErrorReason.UPSTREAM
+    assert "secret-key-value" not in str(exc_info.value)
+
+
 # --- rate limit ---
 
 
