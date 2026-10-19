@@ -218,6 +218,33 @@ class BackendClient:
             )
         return response.json()
 
+    async def get_call_by_provider_sid(
+        self,
+        provider_call_sid: str,
+    ) -> dict[str, Any]:
+        """Resolve a CallLog by provider SID (internal API key; no org JWT)."""
+        internal_api_key = os.getenv("INTERNAL_API_KEY", "")
+        if not internal_api_key:
+            raise BackendError("INTERNAL_API_KEY is not configured")
+        sid = quote(str(provider_call_sid or "").strip(), safe="")
+        url = f"{self._base()}/calls/by-provider-sid/{sid}"
+        headers = {
+            "X-API-Key": internal_api_key,
+            "Accept": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+        if response.status_code == 404:
+            raise BackendError(
+                f"Call log not found for provider sid: {provider_call_sid}"
+            )
+        if response.status_code >= 400:
+            raise BackendError(
+                f"GET calls/by-provider-sid failed ({response.status_code}): "
+                f"{response.text}"
+            )
+        return response.json()
+
     async def update_call(
         self,
         call_id: str,

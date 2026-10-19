@@ -134,15 +134,30 @@ export async function exportCampaignRecordingsZip(
   campaign: CampaignApiResponse,
 ): Promise<CampaignExportResult> {
   const allRuns = await listAllCampaignRuns(campaign.campaign_id);
-  const candidates = allRuns.filter((r) => r.call_id && hasArtifactUrl(r.recording_url));
-  const entries = await collectZipEntries(candidates, async (run) => {
-    const callId = String(run.call_id);
-    const blob = await fetchCallRecordingBlob(callId);
-    return {
-      path: `recordings/${callId}.${audioExtension(blob.type)}`,
-      data: await blob.arrayBuffer(),
-    };
-  });
+  const entries: Array<{ path: string; data: ArrayBuffer }> = [];
+  let callWithRecording = 0;
+
+  for (const run of allRuns) {
+    const callId = run.call_id ? String(run.call_id) : "";
+    if (!callId) continue;
+    const kinds: Array<"system" | "provider"> = [];
+    if (hasArtifactUrl(run.recording_url)) kinds.push("system");
+    if (hasArtifactUrl(run.provider_recording_url)) kinds.push("provider");
+    if (kinds.length === 0) continue;
+    callWithRecording += 1;
+    for (const kind of kinds) {
+      try {
+        const blob = await fetchCallRecordingBlob(callId, kind);
+        const folder = kind === "provider" ? "provider_recordings" : "recordings";
+        entries.push({
+          path: `${folder}/${callId}.${audioExtension(blob.type)}`,
+          data: await blob.arrayBuffer(),
+        });
+      } catch {
+        /* skip missing / failed artifact */
+      }
+    }
+  }
 
   if (entries.length === 0) {
     return {
@@ -156,14 +171,22 @@ export async function exportCampaignRecordingsZip(
   return {
     kind: "recordings",
     title: "Recordings downloaded",
-    note: `${entries.length} of ${candidates.length} recordings in ZIP.`,
+    note: `${entries.length} file(s) from ${callWithRecording} call(s) in ZIP.`,
   };
 }
 
-export async function downloadCallRecording(callId: string): Promise<void> {
-  const blob = await fetchCallRecordingBlob(callId);
+export async function downloadCallRecording(
+  callId: string,
+  kind: "system" | "provider" = "system",
+): Promise<void> {
+  const blob = await fetchCallRecordingBlob(callId, kind);
   const type = blob.type?.trim() ? blob.type : "audio/wav";
-  downloadBlob(await blob.arrayBuffer(), type, `${callId}.${audioExtension(blob.type)}`);
+  const suffix = kind === "provider" ? "-provider" : "";
+  downloadBlob(
+    await blob.arrayBuffer(),
+    type,
+    `${callId}${suffix}.${audioExtension(blob.type)}`,
+  );
 }
 
 export async function downloadCallTranscript(callId: string): Promise<void> {

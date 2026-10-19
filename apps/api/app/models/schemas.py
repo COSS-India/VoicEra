@@ -770,6 +770,10 @@ class CallLogUpdateRequest(BaseModel):
 
     transcript_url: Optional[str] = None
     recording_url: Optional[str] = None
+    provider_recording_url: Optional[str] = Field(
+        default=None,
+        description="Carrier / provider recording (system AudioBuffer uses recording_url)",
+    )
     end_time_utc: Optional[str] = None
     status: Optional[CallLogStatus] = None
     call_response: Optional[CallResponse] = None
@@ -817,6 +821,10 @@ class CallLogResponse(BaseModel):
     end_time_utc: Optional[str] = None
     duration: Optional[float] = None
     recording_url: Optional[str] = None
+    provider_recording_url: Optional[str] = Field(
+        default=None,
+        description="Carrier / provider recording URL (parallel to system recording_url)",
+    )
     transcript_url: Optional[str] = None
     error_message: Optional[str] = None
     campaign_id: Optional[str] = None

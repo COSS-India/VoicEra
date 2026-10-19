@@ -9,7 +9,11 @@ from loguru import logger
 from apps.runtime.services.backend import backend_client
 from apps.runtime.services.storage.object_storage import upload_bytes
 
-ArtifactUrlField = Literal["transcript_url", "recording_url"]
+ArtifactUrlField = Literal[
+    "transcript_url",
+    "recording_url",
+    "provider_recording_url",
+]
 
 
 async def save_and_link(

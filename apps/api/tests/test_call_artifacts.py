@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.auth import get_current_user
+from app.auth import get_current_user, verify_api_key
 from app.routers import calls
 from app.storage.minio_client import MinIOStorage
 
@@ -63,6 +63,7 @@ def _make_client(user_fn=_admin_user) -> TestClient:
     app = FastAPI()
     app.include_router(calls.router, prefix="/api/v1")
     app.dependency_overrides[get_current_user] = user_fn
+    app.dependency_overrides[verify_api_key] = lambda: True
     return TestClient(app)
 
 
@@ -100,6 +101,9 @@ def test_patch_call_sets_minio_urls(_calls_db: MagicMock) -> None:
         json={
             "transcript_url": "minio://voicera-calls/org-1/call-abc-123/transcript.txt",
             "recording_url": "minio://voicera-calls/org-1/call-abc-123/recording.wav",
+            "provider_recording_url": (
+                "minio://voicera-calls/org-1/call-abc-123/provider_recording.wav"
+            ),
         },
     )
 
@@ -107,9 +111,14 @@ def test_patch_call_sets_minio_urls(_calls_db: MagicMock) -> None:
     body = response.json()
     assert body["transcript_url"] == "/api/v1/calls/call-abc-123/transcript"
     assert body["recording_url"] == "/api/v1/calls/call-abc-123/recording"
+    assert (
+        body["provider_recording_url"]
+        == "/api/v1/calls/call-abc-123/provider-recording"
+    )
     stored = _CALL_STORE["call-abc-123"]
     assert stored["transcript_url"].startswith("minio://")
     assert stored["recording_url"].startswith("minio://")
+    assert stored["provider_recording_url"].startswith("minio://")
 
 
 @_patch_db("app.services.call_log_service.get_database")
@@ -269,4 +278,61 @@ def test_get_call_recording_missing_object(
     storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
     client = _make_client()
     response = client.get("/api/v1/calls/call-abc-123/recording")
+    assert response.status_code == 404
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_get_call_provider_recording_proxies_minio(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc(
+        provider_recording_url=(
+            "minio://voicera-calls/org-1/call-abc-123/provider_recording.wav"
+        ),
+    )
+    storage = storage_cls.return_value
+    storage.object_exists.return_value = True
+    storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
+
+    response_obj = MagicMock()
+    response_obj.stream.return_value = [b"PROV", b"REC"]
+    storage.client.get_object.return_value = response_obj
+
+    client = _make_client()
+    response = client.get("/api/v1/calls/call-abc-123/provider-recording")
+
+    assert response.status_code == 200
+    assert response.content == b"PROVREC"
+    storage.object_exists.assert_called_once_with(
+        "voicera-calls",
+        "org-1/call-abc-123/provider_recording.wav",
+    )
+
+
+@_patch_db("app.services.call_log_service.get_database")
+def test_get_call_by_provider_sid_internal(_calls_db: MagicMock) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc(
+        provider_call_sid="vi-stream-1",
+        provider_recording_url=(
+            "minio://voicera-calls/org-1/call-abc-123/provider_recording.wav"
+        ),
+    )
+    client = _make_client()
+    response = client.get("/api/v1/calls/by-provider-sid/vi-stream-1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["call_id"] == "call-abc-123"
+    assert body["org_id"] == "org-1"
+    assert (
+        body["provider_recording_url"]
+        == "/api/v1/calls/call-abc-123/provider-recording"
+    )
+
+
+@_patch_db("app.services.call_log_service.get_database")
+def test_get_call_by_provider_sid_not_found(_calls_db: MagicMock) -> None:
+    client = _make_client()
+    response = client.get("/api/v1/calls/by-provider-sid/missing-sid")
     assert response.status_code == 404

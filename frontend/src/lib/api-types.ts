@@ -217,7 +217,10 @@ export interface CallLogItem {
   start_time_utc?: string | null;
   end_time_utc?: string | null;
   duration?: number | null;
+  /** System (Pipecat AudioBuffer) recording. */
   recording_url?: string | null;
+  /** Carrier / provider recording (parallel artifact). */
+  provider_recording_url?: string | null;
   transcript_url?: string | null;
   error_message?: string | null;
   campaign_id?: string | null;
@@ -396,6 +399,7 @@ export interface CampaignRunItem {
   campaign_id?: string | null;
   campaign_name?: string | null;
   recording_url?: string | null;
+  provider_recording_url?: string | null;
   transcript_url?: string | null;
   [key: string]: unknown;
 }

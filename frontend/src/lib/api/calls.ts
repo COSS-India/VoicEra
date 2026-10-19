@@ -93,9 +93,19 @@ export async function getCall(callId: string): Promise<CallLogItem> {
 
 /** Recording is a bearer-authenticated MinIO proxy — fetch as a blob, since
  * <audio src> can't send auth headers. Callers derive an object URL for playback
- * and decode the same blob for waveform peaks. */
-export async function fetchCallRecordingBlob(callId: string): Promise<Blob> {
-  return apiFetchBlob(`/calls/${encodeURIComponent(callId)}/recording`);
+ * and decode the same blob for waveform peaks.
+ *
+ * ``kind`` selects system vs carrier/provider artifact (default: system).
+ */
+export async function fetchCallRecordingBlob(
+  callId: string,
+  kind: "system" | "provider" = "system",
+): Promise<Blob> {
+  const path =
+    kind === "provider"
+      ? `/calls/${encodeURIComponent(callId)}/provider-recording`
+      : `/calls/${encodeURIComponent(callId)}/recording`;
+  return apiFetchBlob(path);
 }
 
 export async function fetchCallTranscriptText(callId: string): Promise<string> {

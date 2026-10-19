@@ -314,24 +314,52 @@ export function CampaignAnalyticsDialog({
                                 <Tooltip
                                   text={
                                     hasArtifactUrl(r.recording_url)
-                                      ? "Download recording"
-                                      : "No recording"
+                                      ? "Download system recording"
+                                      : "No system recording"
                                   }
                                 >
                                   <IconButton
-                                    aria-label="Download recording"
+                                    aria-label="Download system recording"
                                     disabled={
                                       !callId ||
                                       !hasArtifactUrl(r.recording_url) ||
                                       rowBusy !== null
                                     }
-                                    onClick={() => callId && void downloadRowRecording(callId)}
+                                    onClick={() =>
+                                      callId && void downloadRowRecording(callId, "system")
+                                    }
                                     className="bg-v-soft hover:border-v-accent hover:bg-v-pale hover:text-v-accent disabled:opacity-40"
                                   >
-                                    {rowBusy === `rec:${callId}` ? (
+                                    {rowBusy === `rec:system:${callId}` ? (
                                       <Spinner light={false} />
                                     ) : (
                                       <FileAudio className="size-3.5" strokeWidth={1.75} />
+                                    )}
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip
+                                  text={
+                                    hasArtifactUrl(r.provider_recording_url)
+                                      ? "Download provider recording"
+                                      : "No provider recording"
+                                  }
+                                >
+                                  <IconButton
+                                    aria-label="Download provider recording"
+                                    disabled={
+                                      !callId ||
+                                      !hasArtifactUrl(r.provider_recording_url) ||
+                                      rowBusy !== null
+                                    }
+                                    onClick={() =>
+                                      callId && void downloadRowRecording(callId, "provider")
+                                    }
+                                    className="bg-v-soft hover:border-v-accent hover:bg-v-pale hover:text-v-accent disabled:opacity-40"
+                                  >
+                                    {rowBusy === `rec:provider:${callId}` ? (
+                                      <Spinner light={false} />
+                                    ) : (
+                                      <FileAudio className="size-3.5 opacity-80" strokeWidth={1.75} />
                                     )}
                                   </IconButton>
                                 </Tooltip>
