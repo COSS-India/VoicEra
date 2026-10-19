@@ -29,12 +29,21 @@ _ERROR_STATUS: dict[TtsPreviewErrorReason, int] = {
 }
 
 
+# Status codes are shared by several reasons (400, 422), so preview errors carry
+# a machine-readable ``code`` the frontend keys its user-facing message on.
+_NO_ACTIVE_ORG_CODE = "no_active_org"
+
+
+def _error_detail(code: str, message: str) -> dict[str, str]:
+    return {"code": code, "message": message}
+
+
 def _require_active_org(current_user: dict[str, Any]) -> str:
     org_id = current_user.get("org_id")
     if not org_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active organisation in token",
+            detail=_error_detail(_NO_ACTIVE_ORG_CODE, "No active organisation in token"),
         )
     return str(org_id)
 
@@ -43,7 +52,7 @@ def _to_http_error(exc: TtsPreviewError) -> HTTPException:
     headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
     return HTTPException(
         status_code=_ERROR_STATUS[exc.reason],
-        detail=str(exc),
+        detail=_error_detail(exc.reason.value, str(exc)),
         headers=headers,
     )
 

@@ -63,6 +63,7 @@ def test_preview_maps_each_error_reason_to_its_status(mock_generate, reason, exp
 
     # Assert
     assert response.status_code == expected_status
+    assert response.json()["detail"] == {"code": reason.value, "message": "boom"}
 
 
 @patch("app.routers.tts_preview.generate_preview", new_callable=AsyncMock)
@@ -91,3 +92,4 @@ def test_preview_requires_active_org(monkeypatch):
 
     # Assert
     assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "no_active_org"

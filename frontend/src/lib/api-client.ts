@@ -1,4 +1,4 @@
-import { apiFetch, langQuery } from "@/lib/api/http";
+import { apiFetch, apiFetchBlob, langQuery } from "@/lib/api/http";
 import type {
   AgentApiResponse,
   AgentCreatePayload,
@@ -126,4 +126,24 @@ export async function getLlmSettings(provider: string): Promise<ProviderSettings
   return apiFetch<ProviderSettingsCatalog>(
     `/configuration/llm/setting/${encodeURIComponent(provider)}`,
   );
+}
+
+// --- Voice preview ---
+
+/** Same shape as the API's `TtsPreviewRequest`. */
+export interface TtsPreviewBody {
+  tts_config: Record<string, unknown>;
+  language: string;
+  text: string;
+}
+
+/** Returns a WAV clip of the unsaved TTS config speaking `text`. */
+export async function previewTts(body: TtsPreviewBody, signal?: AbortSignal): Promise<Blob> {
+  // apiFetchBlob doesn't default Content-Type like apiFetch does.
+  return apiFetchBlob("/tts/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
 }
