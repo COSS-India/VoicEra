@@ -153,6 +153,40 @@ def list_did_websockets(obd_base_url: str, *, ukey: str) -> Any:
     return _raise_for_status(response, action="list")
 
 
+def update_did_websocket(
+    obd_base_url: str,
+    *,
+    ukey: str,
+    did: str,
+    websocketurl: str,
+) -> Any:
+    """PUT /obd/api/did-websocket/{did} — replace the WSS URL on an existing DID."""
+    ukey_value = (ukey or "").strip()
+    did_value = normalize_phoneno(did)
+    wss = (websocketurl or "").strip()
+    if not ukey_value:
+        raise Go2MarketObdError("ukey is required")
+    if not did_value:
+        raise Go2MarketObdError("did is required")
+    if not wss:
+        raise Go2MarketObdError("websocketurl is required")
+
+    url = f"{did_websocket_root(obd_base_url)}/{quote(did_value, safe='')}"
+    payload = {"ukey": ukey_value, "websocketurl": wss}
+    logger.info(
+        "Go2Market DID-WebSocket update: did=%s wss=%s",
+        did_value,
+        wss,
+    )
+    with httpx.Client(timeout=REQUEST_TIMEOUT_SECS) as client:
+        response = client.put(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+    return _raise_for_status(response, action="update")
+
+
 def set_did_websocket_active(
     obd_base_url: str,
     *,
@@ -243,16 +277,33 @@ def replace_did_websocket(
     did: str,
     websocketurl: str,
 ) -> Any:
-    """List any existing DID mapping, deactivate it, then POST the new WSS URL.
+    """Create or update the DID → WSS mapping.
 
-    Go2Market rejects duplicate DID creates with HTTP 400 ``DID already exists``.
-    Attach therefore clears the prior mapping first, then registers the agent WSS.
+    An existing DID is updated with ``PUT /did-websocket/{did}`` and marked
+    active. A new DID is created with POST. Deactivate does not free a DID
+    for another create (Go2Market returns ``DID already exists``).
     """
-    deactivated = deactivate_did_websocket(
-        obd_base_url, ukey=ukey, did=did
-    )
+    listed = list_did_websockets(obd_base_url, ukey=ukey)
+    entry = find_mapping_for_did(listed, did)
+    if entry:
+        body = update_did_websocket(
+            obd_base_url,
+            ukey=ukey,
+            did=did,
+            websocketurl=websocketurl,
+        )
+        mapping_id = _mapping_id(entry)
+        if mapping_id is not None:
+            set_did_websocket_active(
+                obd_base_url,
+                ukey=ukey,
+                mapping_id=mapping_id,
+                isactive=True,
+            )
+        return body
+
     try:
-        body = set_did_websocket(
+        return set_did_websocket(
             obd_base_url,
             ukey=ukey,
             did=did,
@@ -260,26 +311,15 @@ def replace_did_websocket(
             isactive=True,
         )
     except Go2MarketObdError as exc:
-        if not deactivated and _is_did_already_exists_error(exc):
-            # Race / stale list: force another list+deactivate, then retry once.
-            logger.warning(
-                "Go2Market DID-WebSocket set hit already-exists; retrying after deactivate did=%s",
-                normalize_phoneno(did),
-            )
-            deactivate_did_websocket(obd_base_url, ukey=ukey, did=did)
-            body = set_did_websocket(
-                obd_base_url,
-                ukey=ukey,
-                did=did,
-                websocketurl=websocketurl,
-                isactive=True,
-            )
-        elif deactivated and _is_did_already_exists_error(exc):
-            raise Go2MarketObdError(
-                f"DID {normalize_phoneno(did)} still exists after deactivate; "
-                f"Go2Market may require admin deletion before re-attach. "
-                f"Original error: {exc}"
-            ) from exc
-        else:
+        if not _is_did_already_exists_error(exc):
             raise
-    return body
+        logger.warning(
+            "Go2Market DID-WebSocket create hit already-exists; updating did=%s",
+            normalize_phoneno(did),
+        )
+        return update_did_websocket(
+            obd_base_url,
+            ukey=ukey,
+            did=did,
+            websocketurl=websocketurl,
+        )

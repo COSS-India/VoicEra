@@ -8,7 +8,6 @@ Spec: go2market Audio Streaming Integration Guide v2.0
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import time
@@ -45,7 +44,7 @@ from .wire import (
 )
 
 # Bumped when wire/serializer behavior changes — visible in runtime logs after rebuild.
-GO2MARKET_SERIALIZER_BUILD = "20261013-stream320"
+GO2MARKET_SERIALIZER_BUILD = "20261022-drain4000"
 
 class Go2MarketFrameSerializer(FrameSerializer):
     """go2market bi-directional streaming (µ-law 8 kHz on the wire)."""
@@ -59,11 +58,13 @@ class Go2MarketFrameSerializer(FrameSerializer):
         self,
         stream_sid: str,
         call_sid: Optional[str] = None,
+        websocket=None,
         params: Optional[InputParams] = None,
     ):
         super().__init__(params or Go2MarketFrameSerializer.InputParams())
         self._stream_sid = (stream_sid or "").strip()
         self._call_sid = call_sid
+        self._websocket = websocket
         self._pipeline_rate = int(
             self._params.pipeline_sample_rate or WIRE_SAMPLE_RATE
         )
@@ -73,8 +74,6 @@ class Go2MarketFrameSerializer(FrameSerializer):
         self._encode_resampler = create_file_resampler()
         self._mulaw_out_buffer = bytearray()
         self._outbound_media_index = 0
-        # Real-time wire clock: one µ-law byte == 1/8000 s on the PSTN leg.
-        self._mulaw_send_deadline = 0.0
         self._debug_encode_logged = False
 
     def _debug_log(self, hypothesis_id: str, location: str, message: str, data: dict) -> None:
@@ -115,28 +114,14 @@ class Go2MarketFrameSerializer(FrameSerializer):
             MULAW_PREFERRED_SEND_BYTES,
             self._stream_sid if self._stream_sid_ready() else "pending",
         )
-        self._mulaw_send_deadline = 0.0
 
-    async def _await_mulaw_wire_time(self, mulaw_bytes: int) -> float:
-        """Block until ``mulaw_bytes`` may be sent at 8 kHz wire rate."""
-        if mulaw_bytes <= 0:
-            return 0.0
-        duration = mulaw_bytes / WIRE_SAMPLE_RATE
-        now = time.monotonic()
-        if self._mulaw_send_deadline <= 0:
-            self._mulaw_send_deadline = now
-        wait = self._mulaw_send_deadline - now
-        slept_ms = 0.0
-        if wait > 0:
-            await asyncio.sleep(wait)
-            slept_ms = wait * 1000
-            now = time.monotonic()
-        self._mulaw_send_deadline = max(self._mulaw_send_deadline, now) + duration
-        return slept_ms
-
-    async def _emit_timed_mulaw(self, chunk: bytes, *, force: bool) -> str:
-        await self._await_mulaw_wire_time(len(chunk))
-        return self._json_media_out(chunk)
+    async def _send_ws(self, payload: str) -> None:
+        """Send a media event that ``serialize`` cannot return (one payload per call)."""
+        ws = self._websocket
+        if ws is None:
+            logger.warning("Go2Market media not sent; websocket is not attached")
+            return
+        await ws.send_text(payload)
 
     def update_stream_sid(self, stream_sid: str) -> None:
         value = (stream_sid or "").strip()
@@ -144,25 +129,22 @@ class Go2MarketFrameSerializer(FrameSerializer):
             self._stream_sid = value
 
     def _take_outbound_mulaw(self, *, force: bool = False) -> Optional[bytes]:
-        buf_len = len(self._mulaw_out_buffer)
-        if not force and buf_len < MULAW_PREFERRED_SEND_BYTES:
-            return None
-        if buf_len < MULAW_FRAME_BYTES and not force:
-            return None
+        """Take one wire chunk: 160 bytes or a multiple, at most 4000.
 
-        target = align_mulaw_buffer(buf_len)
-        if target >= MULAW_PREFERRED_SEND_BYTES:
-            target = min(target, MULAW_PREFERRED_SEND_BYTES)
-        elif target < MULAW_FRAME_BYTES:
-            if not force:
-                return None
-            target = align_mulaw_buffer(buf_len) or buf_len
+        Go2Market plays payloads that are not 160-byte aligned as noise, and
+        rejects nothing above 4000 bytes cleanly. Send everything encoded so
+        far instead of holding all but the first 40 ms.
+        """
+        if force and self._mulaw_out_buffer:
+            padded = pad_mulaw_to_frame(bytes(self._mulaw_out_buffer))
+            self._mulaw_out_buffer.clear()
+            self._mulaw_out_buffer.extend(padded)
 
-        target = min(target, MULAW_MAX_SEND_BYTES)
+        aligned = align_mulaw_buffer(len(self._mulaw_out_buffer))
+        if aligned < MULAW_FRAME_BYTES:
+            return None
+        target = min(aligned, MULAW_MAX_SEND_BYTES)
         target = align_mulaw_buffer(target) or target
-        if target <= 0:
-            return None
-
         chunk = bytes(self._mulaw_out_buffer[:target])
         del self._mulaw_out_buffer[:target]
         return chunk
@@ -183,22 +165,25 @@ class Go2MarketFrameSerializer(FrameSerializer):
         return json.dumps({"event": "clear", "streamSid": self._stream_sid})
 
     async def _flush_mulaw_out(self, *, force: bool) -> Optional[str]:
+        """Emit every ready µ-law chunk. The transport can send only one return value."""
         if not self._stream_sid_ready():
             return None
-        if force and self._mulaw_out_buffer:
-            padded = pad_mulaw_to_frame(bytes(self._mulaw_out_buffer))
-            self._mulaw_out_buffer.clear()
-            if padded:
-                return await self._emit_timed_mulaw(padded, force=force)
-        chunk = self._take_outbound_mulaw(force=force)
-        if chunk:
-            return await self._emit_timed_mulaw(chunk, force=force)
-        return None
+        messages: list[str] = []
+        while True:
+            chunk = self._take_outbound_mulaw(force=force and not messages)
+            if not chunk:
+                break
+            messages.append(self._json_media_out(chunk))
+            force = False
+        if not messages:
+            return None
+        for extra in messages[:-1]:
+            await self._send_ws(extra)
+        return messages[-1]
 
     async def serialize(self, frame: Frame) -> str | bytes | None:
         if isinstance(frame, InterruptionFrame):
             self._mulaw_out_buffer.clear()
-            self._mulaw_send_deadline = time.monotonic()
             if not self._stream_sid_ready():
                 return None
             return self._json_clear_out()

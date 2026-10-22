@@ -20,11 +20,11 @@ def create_frame_serializer(
     sample_rate: int = WIRE_SAMPLE_RATE,
     **kwargs: Any,
 ):
-    del kwargs
     # ``sample_rate`` is the Pipecat pipeline PCM rate; wire µ-law is always 8 kHz.
     return Go2MarketFrameSerializer(
         stream_sid=stream_sid,
         call_sid=call_sid,
+        websocket=kwargs.get("websocket"),
         params=Go2MarketFrameSerializer.InputParams(
             pipeline_sample_rate=sample_rate,
         ),

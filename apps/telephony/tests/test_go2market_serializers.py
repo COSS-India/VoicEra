@@ -61,6 +61,62 @@ async def test_deserialize_media_mulaw() -> None:
 
 
 @pytest.mark.asyncio
+async def test_serialize_sends_full_mulaw_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A TTS frame larger than 40 ms must leave as one aligned payload, not the first slice."""
+    from pipecat.frames.frames import AudioRawFrame
+
+    mulaw = bytes([0xFF] * 1600)
+
+    async def fake_encode(pcm, *, pcm_rate, resampler):
+        del pcm, pcm_rate, resampler
+        return mulaw
+
+    monkeypatch.setattr(
+        "apps.telephony.providers.go2market.serializers.encode_wire_mulaw",
+        fake_encode,
+    )
+    ser = Go2MarketFrameSerializer(stream_sid="MZ1")
+    out = await ser.serialize(
+        AudioRawFrame(audio=b"\x00\x00" * 800, sample_rate=8000, num_channels=1)
+    )
+    assert out is not None
+    payload = base64.b64decode(json.loads(str(out))["media"]["payload"])
+    assert len(payload) == 1600
+    assert len(payload) % 160 == 0
+    assert ser._mulaw_out_buffer == bytearray()
+
+
+@pytest.mark.asyncio
+async def test_serialize_splits_above_4000_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pipecat.frames.frames import AudioRawFrame
+
+    sent: list[int] = []
+
+    class FakeSocket:
+        async def send_text(self, payload: str) -> None:
+            sent.append(len(base64.b64decode(json.loads(payload)["media"]["payload"])))
+
+    mulaw = bytes([0x7F] * 4800)
+
+    async def fake_encode(pcm, *, pcm_rate, resampler):
+        del pcm, pcm_rate, resampler
+        return mulaw
+
+    monkeypatch.setattr(
+        "apps.telephony.providers.go2market.serializers.encode_wire_mulaw",
+        fake_encode,
+    )
+    ser = Go2MarketFrameSerializer(stream_sid="MZ1", websocket=FakeSocket())
+    out = await ser.serialize(
+        AudioRawFrame(audio=b"\x00\x00" * 100, sample_rate=8000, num_channels=1)
+    )
+    returned = len(base64.b64decode(json.loads(str(out))["media"]["payload"]))
+    assert sent == [4000]
+    assert returned == 800
+    assert ser._mulaw_out_buffer == bytearray()
+
+
+@pytest.mark.asyncio
 async def test_serialize_clear_on_interruption() -> None:
     from pipecat.frames.frames import InterruptionFrame
 

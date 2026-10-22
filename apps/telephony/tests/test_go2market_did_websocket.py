@@ -13,6 +13,7 @@ from apps.telephony.providers.go2market.did_websocket_client import (
     replace_did_websocket,
     set_did_websocket,
     set_did_websocket_active,
+    update_did_websocket,
 )
 from apps.telephony.providers.go2market.obd_client import Go2MarketObdError
 
@@ -196,23 +197,97 @@ async def test_link_number_posts_did_websocket(monkeypatch: pytest.MonkeyPatch) 
     )
 
 
-def test_replace_did_websocket_deactivates_then_sets(
+def test_update_did_websocket_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "{}"
+
+        @staticmethod
+        def json() -> dict:
+            return {"ok": True}
+
+    def fake_put(self, url: str, **kw):
+        captured["url"] = url
+        captured["json"] = kw["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx.Client, "put", fake_put)
+    body = update_did_websocket(
+        _OBD_BASE,
+        ukey="ukey-test",
+        did="+917971504853",
+        websocketurl="wss://voice.example.com/agent/o/a",
+    )
+    assert body == {"ok": True}
+    assert captured["url"] == (
+        "https://obd.voicensms.in/obd/api/did-websocket/7971504853"
+    )
+    assert captured["json"] == {
+        "ukey": "ukey-test",
+        "websocketurl": "wss://voice.example.com/agent/o/a",
+    }
+
+
+def test_replace_did_websocket_updates_existing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     steps: list[str] = []
 
-    def fake_deactivate(base, *, ukey, did):
-        steps.append(f"deactivate:{did}")
-        return True
+    def fake_list(base, *, ukey):
+        steps.append(f"list:{ukey}")
+        return [{"id": 4, "did": "7971504853", "websocketurl": "wss://old"}]
 
-    def fake_set(base, *, ukey, did, websocketurl, isactive=True):
-        steps.append(f"set:{did}:{websocketurl}:{isactive}")
+    def fake_update(base, *, ukey, did, websocketurl):
+        steps.append(f"update:{did}:{websocketurl}")
+        return {"updated": True}
+
+    def fake_active(base, *, ukey, mapping_id, isactive):
+        steps.append(f"active:{mapping_id}:{isactive}")
         return {"ok": True}
 
     monkeypatch.setattr(
-        "apps.telephony.providers.go2market.did_websocket_client.deactivate_did_websocket",
-        fake_deactivate,
+        "apps.telephony.providers.go2market.did_websocket_client.list_did_websockets",
+        fake_list,
     )
+    monkeypatch.setattr(
+        "apps.telephony.providers.go2market.did_websocket_client.update_did_websocket",
+        fake_update,
+    )
+    monkeypatch.setattr(
+        "apps.telephony.providers.go2market.did_websocket_client.set_did_websocket_active",
+        fake_active,
+    )
+
+    body = replace_did_websocket(
+        _OBD_BASE,
+        ukey="ukey-test",
+        did="7971504853",
+        websocketurl="wss://voice.example.com/agent/o/a",
+    )
+    assert body == {"updated": True}
+    assert steps == [
+        "list:ukey-test",
+        "update:7971504853:wss://voice.example.com/agent/o/a",
+        "active:4:True",
+    ]
+
+
+def test_replace_did_websocket_creates_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    steps: list[str] = []
+
+    monkeypatch.setattr(
+        "apps.telephony.providers.go2market.did_websocket_client.list_did_websockets",
+        lambda base, *, ukey: [],
+    )
+
+    def fake_set(base, *, ukey, did, websocketurl, isactive=True):
+        steps.append(f"set:{did}:{isactive}")
+        return {"created": True}
+
     monkeypatch.setattr(
         "apps.telephony.providers.go2market.did_websocket_client.set_did_websocket",
         fake_set,
@@ -224,11 +299,8 @@ def test_replace_did_websocket_deactivates_then_sets(
         did="7971504853",
         websocketurl="wss://voice.example.com/agent/o/a",
     )
-    assert body == {"ok": True}
-    assert steps == [
-        "deactivate:7971504853",
-        "set:7971504853:wss://voice.example.com/agent/o/a:True",
-    ]
+    assert body == {"created": True}
+    assert steps == ["set:7971504853:True"]
 
 
 @pytest.mark.asyncio

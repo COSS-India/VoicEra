@@ -80,7 +80,7 @@ async def link_number(
         return fail(str(exc), phone_number=phone_number)
 
     def _run() -> Any:
-        # List + deactivate any existing DID mapping, then POST the agent WSS.
+        # Update an existing DID mapping, or POST when the DID is new.
         return replace_did_websocket(
             client.base_url,
             ukey=profile["ukey"],
