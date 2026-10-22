@@ -34,11 +34,10 @@ async def run_telephony_bot(
         rates = resolve_pipeline_rates(provider, tts)
         assert rates is not None
         logger.info(
-            "Telephony sample rates ({}): wire={}Hz pipeline={}Hz recording={}Hz tts={}",
+            "Telephony sample rates ({}): wire={}Hz pipeline={}Hz tts={}",
             provider,
             rates.wire_rate,
             rates.pipeline_rate,
-            rates.recording_rate,
             type(tts).__name__,
         )
         serializer = create_frame_serializer(
@@ -61,7 +60,6 @@ async def run_telephony_bot(
             stt=stt,
             tts=tts,
             llm=llm,
-            recording_sample_rate=rates.recording_rate,
         )
         return
 

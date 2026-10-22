@@ -8,7 +8,7 @@ from apps.telephony.providers.vi.rates import (
     pipeline_sample_rate,
     tts_native_sample_rate,
 )
-from apps.telephony.rates import resolve_pipeline_rates
+from apps.telephony.rates import PipelineRates, resolve_pipeline_rates
 from apps.telephony.registry import load_providers
 
 
@@ -38,14 +38,28 @@ def test_tts_native_sample_rate_reads_switcher_services() -> None:
     assert tts_native_sample_rate(switcher, fallback=8000) == 24000
 
 
-def test_resolve_pipeline_rates_vi_registered() -> None:
+def test_resolve_pipeline_rates_vi_8k_tts() -> None:
+    load_providers()
+    tts = SimpleNamespace(_init_sample_rate=8000, sample_rate=8000)
+    rates = resolve_pipeline_rates("vi", tts)
+    assert rates == PipelineRates(wire_rate=8000, pipeline_rate=8000)
+
+
+def test_resolve_pipeline_rates_vi_16k_tts() -> None:
+    load_providers()
+    tts = SimpleNamespace(_init_sample_rate=16000, sample_rate=16000)
+    rates = resolve_pipeline_rates("vi", tts)
+    assert rates == PipelineRates(wire_rate=8000, pipeline_rate=16000)
+
+
+def test_resolve_pipeline_rates_vi_24k_tts_caps_pipeline() -> None:
     load_providers()
     tts = SimpleNamespace(_init_sample_rate=24000, sample_rate=24000)
     rates = resolve_pipeline_rates("vi", tts)
     assert rates is not None
     assert rates.wire_rate == 8000
     assert rates.pipeline_rate == 16000
-    assert rates.recording_rate == 24000
+    assert not hasattr(rates, "recording_rate")
 
 
 def test_resolve_pipeline_rates_unknown_provider() -> None:

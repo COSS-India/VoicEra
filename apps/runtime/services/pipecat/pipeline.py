@@ -31,7 +31,6 @@ async def run_pipeline(
     stt: Any | None = None,
     tts: Any | None = None,
     llm: Any | None = None,
-    recording_sample_rate: int | None = None,
 ) -> None:
     """Shared Pipecat pipeline for telephony and browser WebSocket agents."""
     if stt is None or tts is None or llm is None:
@@ -65,7 +64,6 @@ async def run_pipeline(
         agent=agent,
         org_id=org_id,
         behaviour=behaviour,
-        recording_sample_rate=recording_sample_rate,
     )
 
     if call_id:

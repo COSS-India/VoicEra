@@ -35,11 +35,12 @@ def tts_native_sample_rate(tts: Any, fallback: int) -> int:
 
 
 def pipeline_sample_rate(tts: Any, wire_rate: int) -> int:
-    """Pick a pipeline rate that keeps VAD, STT, TTS, and recording aligned.
+    """Pick a pipeline rate that keeps VAD, STT, and TTS aligned.
 
     VI media stays at ``wire_rate`` (8 kHz); the serializer resamples at the
     boundary. Inside the pipeline we prefer the TTS native rate when Silero
-    allows it, otherwise cap at 16 kHz so Pipecat resamplers handle Orpheus 24 kHz.
+    allows it, otherwise cap at 16 kHz so transport resamples higher-rate TTS
+    (e.g. Orpheus 24 kHz → 16 kHz) before the wire and the audio buffer.
     """
     tts_rate = tts_native_sample_rate(tts, wire_rate)
     if tts_rate <= wire_rate:
@@ -53,11 +54,7 @@ def pipeline_sample_rate(tts: Any, wire_rate: int) -> int:
 def resolve_vi_pipeline_rates(tts: Any) -> PipelineRates:
     """Registered VI pipeline rates (wire 8 kHz + Silero-capped pipeline)."""
     wire_rate = WIRE_SAMPLE_RATE
-    tts_rate = tts_native_sample_rate(tts, wire_rate)
-    pipeline_rate = pipeline_sample_rate(tts, wire_rate)
-    recording_rate = tts_rate if tts_rate > pipeline_rate else pipeline_rate
     return PipelineRates(
         wire_rate=wire_rate,
-        pipeline_rate=pipeline_rate,
-        recording_rate=recording_rate,
+        pipeline_rate=pipeline_sample_rate(tts, wire_rate),
     )
