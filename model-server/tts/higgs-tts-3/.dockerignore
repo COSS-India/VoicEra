@@ -5,3 +5,4 @@ scripts/
 __pycache__/
 *.pyc
 README.md
+tools/

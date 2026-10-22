@@ -113,6 +113,10 @@ services:
       HIGGS_HOST: ${HIGGS_HOST:-0.0.0.0}
       HIGGS_LOG_LEVEL: ${HIGGS_LOG_LEVEL:-INFO}
       HIGGS_CORS_ORIGINS: ${HIGGS_CORS_ORIGINS:-}
+      # Bearer key for /v1/*. Empty (default) = none: inside the stack only the
+      # gateway reaches this service, and the gateway has no auth either.
+      HIGGS_API_KEY: ${HIGGS_API_KEY:-}
+      HIGGS_REQUIRE_API_KEY: ${HIGGS_REQUIRE_API_KEY:-false}
       # ~30 s of speech at 12-15 characters a second; the context is 8192
       # tokens. A longer input is a 400 saying so, not audio cut off mid-word.
       HIGGS_MAX_INPUT_CHARS: ${HIGGS_MAX_INPUT_CHARS:-400}

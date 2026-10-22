@@ -4,6 +4,7 @@
     GET  /health             503 until the sidecar is up and a voice is usable
     GET  /v1/voices          the speaker roster and the instructions vocabulary
     GET  /v1/models          OpenAI-compatible single-model list
+    GET  /demo, /demo/tts    a page to try it in a browser
 
 This is an adapter, not an engine. Generation runs in the SGLang-Omni sidecar
 this folder brings in compose.extra.yml; that sidecar already speaks an
@@ -28,8 +29,10 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import hmac
 import json
 import logging
+from pathlib import Path
 from typing import Literal
 
 import audio as audio_fmt
@@ -38,7 +41,7 @@ from config import Config
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -55,6 +58,8 @@ from upstream import PcmStream, SidecarClient, SidecarError, StreamStats
 from voices import Roster, VoiceError
 
 log = logging.getLogger("higgs.server")
+
+DEMO_PAGE = Path(__file__).resolve().parent / "static" / "demo.html"
 
 ResponseFormat = Literal["pcm", "wav", "mp3", "flac", "opus"]
 StreamFormat = Literal["audio", "sse"]
@@ -166,6 +171,21 @@ def create_app(config: Config | None = None, sidecar: SidecarClient | None = Non
         message = first.get("msg", "invalid request")
         return openai_error(400, f"{message} (at '{param}')" if param else message, param)
 
+    if cfg.api_key:
+        expected = f"Bearer {cfg.api_key}"
+
+        @app.middleware("http")
+        async def _require_key(request: Request, call_next):
+            # Only the model routes. /health stays open so Docker's healthcheck
+            # and a load balancer can probe it without the key. OpenAI clients
+            # send their api_key exactly this way, so `OpenAI(api_key=...)`
+            # just works.
+            if request.url.path.startswith("/v1/") and not hmac.compare_digest(
+                request.headers.get("authorization", ""), expected
+            ):
+                return openai_error(401, "missing or wrong API key (Authorization: Bearer ...)")
+            return await call_next(request)
+
     if cfg.cors_origins:
         app.add_middleware(
             CORSMiddleware, allow_origins=list(cfg.cors_origins),
@@ -222,8 +242,21 @@ def create_app(config: Config | None = None, sidecar: SidecarClient | None = Non
             "object": "list",
             "data": data,
             "default": cfg.default_voice,
+            "zero_shot": cfg.allow_zero_shot,
             "instructions": [NONE, *instruction_options()],
         }
+
+    @app.get("/demo", include_in_schema=False)
+    @app.get("/demo/tts", include_in_schema=False)
+    async def demo():
+        """A page to try it in a browser.
+
+        /demo is the slot convention: the gateway serves it to the world as
+        /demo/tts. The standalone test stack has no gateway, so the adapter
+        answers /demo/tts itself too, and the URL is the same either way.
+        Outside /v1/, so it loads without the API key; the page asks for it.
+        """
+        return FileResponse(DEMO_PAGE, media_type="text/html")
 
     # ------------------------------------------------------------- synthesis
     @app.post("/v1/audio/speech")

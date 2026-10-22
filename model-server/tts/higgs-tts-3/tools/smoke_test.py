@@ -2,8 +2,14 @@
 
 Standard library only, so it runs on the GPU host as is:
 
-    python3 tts/higgs-tts-3/scripts/smoke_test.py                     # standalone stack
-    python3 tts/higgs-tts-3/scripts/smoke_test.py --url http://127.0.0.1:8202 --gpu 1
+    # the standalone stack through its tunnel (key read from HIGGS_TEST_API_KEY)
+    python3 tts/higgs-tts-3/tools/smoke_test.py --url https://<name>.trycloudflare.com --gpu 1
+    # or through the localhost-port overlay
+    python3 tts/higgs-tts-3/tools/smoke_test.py --url http://127.0.0.1:18202 --gpu 1
+
+--gpu and the abort check read nvidia-smi and `docker logs` on the machine it
+runs on, so run it on the GPU box for a full report (from elsewhere, pass
+--gpu -1; the rest still works).
 
 What it checks, in order, each a question the first hardware run has to answer
 (see the folder README, "Not yet run on hardware"):
@@ -25,6 +31,7 @@ import argparse
 import base64
 import http.client
 import json
+import os
 import shutil
 import statistics
 import subprocess
@@ -51,19 +58,32 @@ LONG = ("यह एक लंबा वाक्य है जिसे बी�
 
 
 class Client:
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, api_key: str = "") -> None:
         u = urllib.parse.urlparse(url)
-        self.host, self.port = u.hostname, u.port or 80
+        self.https = u.scheme == "https"
+        self.host, self.port = u.hostname, u.port or (443 if self.https else 80)
+        self.auth = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     def _conn(self, timeout=180):
-        return http.client.HTTPConnection(self.host, self.port, timeout=timeout)
+        cls = http.client.HTTPSConnection if self.https else http.client.HTTPConnection
+        return cls(self.host, self.port, timeout=timeout)
 
     def get(self, path: str):
         c = self._conn(10)
         try:
-            c.request("GET", path)
+            c.request("GET", path, headers=self.auth)
             r = c.getresponse()
             return r.status, json.loads(r.read() or b"{}")
+        finally:
+            c.close()
+
+    def get_status(self, path: str) -> int:
+        c = self._conn(10)
+        try:
+            c.request("GET", path)
+            r = c.getresponse()
+            r.read()
+            return r.status
         finally:
             c.close()
 
@@ -72,7 +92,7 @@ class Client:
         c = self._conn()
         t0 = time.perf_counter()
         c.request("POST", "/v1/audio/speech", json.dumps(body).encode(),
-                  {"Content-Type": "application/json"})
+                  {"Content-Type": "application/json", **self.auth})
         r = c.getresponse()
         out = {"status": r.status, "headers": {k.lower(): v for k, v in r.getheaders()}}
         if r.status != 200:
@@ -132,7 +152,10 @@ def sidecar_log(container: str, since: str) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--url", default="http://127.0.0.1:8202")
+    ap.add_argument("--url", required=True,
+                    help="the tunnel URL, or http://127.0.0.1:<HIGGS_TEST_PORT>")
+    ap.add_argument("--api-key", default=os.environ.get("HIGGS_TEST_API_KEY", ""),
+                    help="default: $HIGGS_TEST_API_KEY")
     ap.add_argument("--gpu", type=int, default=1, help="GPU index for nvidia-smi (-1 to skip)")
     ap.add_argument("--sidecar-container", default="voicera_higgs_test_sglang")
     ap.add_argument("--out", default="higgs-smoke-out")
@@ -141,7 +164,7 @@ def main() -> None:
     gpu = None if args.gpu < 0 else args.gpu
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    cli = Client(args.url)
+    cli = Client(args.url, args.api_key)
     report: dict = {"url": args.url, "started": time.strftime("%Y-%m-%d %H:%M:%S")}
 
     def say(*a):
@@ -168,6 +191,15 @@ def main() -> None:
         time.sleep(10)
     report["health"] = health
     say(f"    ready: voices with clips={health.get('voices')} zero_shot={health.get('zero_shot')}")
+    key_status, _ = cli.get("/v1/voices")
+    if key_status == 401:
+        sys.exit("    the API key was refused: pass --api-key or export HIGGS_TEST_API_KEY")
+    try:
+        demo_status = cli.get_status("/demo/tts")
+    except OSError:
+        demo_status = 0
+    report["demo_page"] = demo_status
+    say(f"    /v1/voices: HTTP {key_status}; /demo/tts: HTTP {demo_status}")
     voice = (health.get("voices") or ["default"])[0]
     report["voice"] = voice
 

@@ -389,17 +389,81 @@ def test_the_standalone_sidecar_is_the_slot_sidecar():
     measure a deployment nobody runs, so the parts that matter must be equal."""
     import yaml
 
-    slot = yaml.safe_load((MODEL / "compose.extra.yml").read_text())["services"]["higgs-sglang"]
-    alone = yaml.safe_load((MODEL / "compose.standalone.yml").read_text())["services"]["higgs-sglang"]
-    for key in ("command", "image", "environment", "volumes", "ipc", "shm_size", "ulimits",
+    def sidecar(name):
+        return yaml.safe_load((MODEL / name).read_text())["services"]["higgs-sglang"]
+
+    slot, alone = sidecar("compose.extra.yml"), sidecar("compose.standalone.yml")
+    # `image` is deliberately different: the test stack must never retag an image
+    # the slot -- or anything else on the box -- runs.
+    for key in ("command", "environment", "volumes", "ipc", "shm_size", "ulimits",
                 "healthcheck", "deploy"):
         assert slot[key] == alone[key], f"higgs-sglang `{key}` differs between the two files"
     assert slot["build"]["args"] == alone["build"]["args"]
 
 
-def test_the_standalone_adapter_is_reachable_on_localhost_only():
+def test_the_standalone_stack_cannot_collide_with_the_box():
+    """It runs beside production. Every name is its own and nothing binds the host."""
     import yaml
 
-    tts = yaml.safe_load((MODEL / "compose.standalone.yml").read_text())["services"]["tts"]
-    assert all(str(p).startswith("127.0.0.1:") for p in tts["ports"]), tts["ports"]
+    doc = yaml.safe_load((MODEL / "compose.standalone.yml").read_text())
+    assert doc["name"] == "voicera-higgs-test"
+    for name, svc in doc["services"].items():
+        assert "ports" not in svc, f"{name} publishes a host port by default"
+        assert svc["container_name"].startswith("voicera_higgs_test_"), name
+        if name != "tunnel":   # the tunnel reuses the box's cached cloudflared image
+            assert svc["image"].startswith("voicera-higgs-test/"), svc["image"]
+    assert doc["services"]["tunnel"]["profiles"] == ["tunnel"], "the tunnel must be opt-in"
+    assert doc["services"]["tunnel"]["pull_policy"] == "missing"
+    assert "voicera-higgs-test" in doc["volumes"]["hf_cache"]["name"]
+    tts = doc["services"]["tts"]
     assert "deploy" not in tts, "the adapter never touches the GPU; it should not reserve one"
+    assert tts["environment"]["HIGGS_REQUIRE_API_KEY"] == "true"
+
+    local = yaml.safe_load((MODEL / "compose.standalone.localport.yml").read_text())
+    assert all(str(p).startswith("127.0.0.1:") for p in local["services"]["tts"]["ports"])
+
+
+# ------------------------------------------------------------------ auth, demo
+def test_a_key_guards_the_model_routes_but_not_health_or_demo(voices_dir, monkeypatch):
+    side = Sidecar()
+    sp = free_port()
+    side_srv = serve(side.app, sp)
+    monkeypatch.setenv("HIGGS_SIDECAR_URL", f"http://127.0.0.1:{sp}")
+    monkeypatch.setenv("HIGGS_VOICES_DIR", str(voices_dir))
+    monkeypatch.setenv("HIGGS_API_KEY", "s3cret")
+    port = free_port()
+    srv = serve(server.create_app(config_mod.Config.from_env()), port)
+    base = f"http://127.0.0.1:{port}"
+    try:
+        body = {"input": "नमस्ते", "voice": "Aditi", "response_format": "pcm"}
+        r = httpx.post(f"{base}/v1/audio/speech", json=body)
+        assert r.status_code == 401 and r.json()["error"]["message"]
+        assert side.requests == []
+        bad = httpx.post(f"{base}/v1/audio/speech", json=body,
+                         headers={"Authorization": "Bearer nope"})
+        assert bad.status_code == 401
+        ok = httpx.post(f"{base}/v1/audio/speech", json=body,
+                        headers={"Authorization": "Bearer s3cret"})
+        assert ok.status_code == 200
+        assert httpx.get(f"{base}/v1/voices").status_code == 401
+        assert httpx.get(f"{base}/health").status_code == 200
+        for path in ("/demo", "/demo/tts"):
+            page = httpx.get(base + path)
+            assert page.status_code == 200 and "Higgs TTS 3" in page.text
+    finally:
+        srv.should_exit = side_srv.should_exit = True
+
+
+def test_required_key_refuses_to_start_without_one(monkeypatch):
+    monkeypatch.setenv("HIGGS_REQUIRE_API_KEY", "true")
+    monkeypatch.delenv("HIGGS_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="HIGGS_API_KEY"):
+        config_mod.Config.from_env()
+
+
+def test_the_demo_page_only_calls_routes_that_exist():
+    """The page is served directly (standalone) and through the gateway; the
+    paths it calls must work on both or it fails silently in a browser."""
+    page = (MODEL / "static" / "demo.html").read_text(encoding="utf-8")
+    assert "'/v1/voices'" in page and "'/tts/v1/voices'" in page
+    assert "'/v1/audio/speech'" in page

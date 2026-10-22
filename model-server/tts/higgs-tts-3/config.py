@@ -69,6 +69,12 @@ class Config:
     log_level: str
     cors_origins: tuple[str, ...]
     max_input_chars: int
+    #: Empty = no auth, which is right behind the gateway (it has none either).
+    #: Set it whenever this server is reachable from outside, e.g. a tunnel.
+    api_key: str
+    #: Refuse to start without api_key. The standalone stack sets this, so a
+    #: public tunnel can never front an open GPU by accident.
+    require_api_key: bool
 
     # ---- synthesis defaults ---------------------------------------------
     default_voice: str
@@ -96,6 +102,8 @@ class Config:
             log_level=_text(os.getenv("HIGGS_LOG_LEVEL"), "INFO").upper(),
             cors_origins=_csv(os.getenv("HIGGS_CORS_ORIGINS")),
             max_input_chars=int(_number(os.getenv("HIGGS_MAX_INPUT_CHARS"), 400, int)),
+            api_key=_text(os.getenv("HIGGS_API_KEY"), ""),
+            require_api_key=_flag(os.getenv("HIGGS_REQUIRE_API_KEY"), False),
             default_voice=_text(os.getenv("HIGGS_DEFAULT_VOICE"), "Aditi"),
             default_instructions=_text(os.getenv("HIGGS_DEFAULT_INSTRUCTIONS"), ""),
             allow_zero_shot=_flag(os.getenv("HIGGS_ALLOW_ZERO_SHOT"), False),
@@ -110,6 +118,11 @@ class Config:
         )
 
     def __post_init__(self) -> None:
+        if self.require_api_key and not self.api_key:
+            raise ValueError(
+                "HIGGS_REQUIRE_API_KEY is set but HIGGS_API_KEY is empty. Generate one with "
+                "`openssl rand -hex 24` and export it as HIGGS_TEST_API_KEY before `up`."
+            )
         if self.max_new_tokens_default > self.max_new_tokens_limit:
             raise ValueError(
                 "HIGGS_MAX_NEW_TOKENS_DEFAULT must not exceed HIGGS_MAX_NEW_TOKENS_LIMIT "

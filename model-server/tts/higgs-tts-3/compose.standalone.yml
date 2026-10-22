@@ -4,16 +4,25 @@
 # TTS slot, which replaces whatever that slot is running. This file runs the
 # same two containers as a separate Compose project instead -- own containers,
 # own network, adapter published on LOCALHOST only -- so a model can be tried on
-# a shared box without taking anything else down:
+# a shared box without taking anything else down. Nothing here is named like,
+# or binds anything used by, another stack: containers voicera_higgs_test_*,
+# images voicera-higgs-test/*, network and cache volume voicera-higgs-test_*,
+# and NO HOST PORT. It is reached one of two opt-in ways:
+#
+#   --profile tunnel                         a Cloudflare quick tunnel: a temporary
+#                                            https://*.trycloudflare.com URL, no
+#                                            account; find it in the tunnel's log
+#   -f compose.standalone.localport.yml      127.0.0.1:${HIGGS_TEST_PORT:-18202}
 #
 #   cd model-server
+#   export HIGGS_TEST_API_KEY=$(openssl rand -hex 24)   # required: the adapter
+#                                                        # will not start without it
 #   docker compose -p voicera-higgs-test --project-directory . \
 #       -f tts/higgs-tts-3/compose.standalone.yml \
 #       -f tts/higgs-tts-3/compose.mps.yml \      # only on a host with an MPS daemon
-#       up -d --build
+#       --profile tunnel up -d --build
 #
 # Paths resolve against --project-directory (model-server/), as in the overlay.
-# No gateway: talk to the adapter directly on 127.0.0.1:${HIGGS_TEST_PORT}.
 #
 # The higgs-sglang service MUST match compose.extra.yml's -- same image, same
 # command, same memory caps -- or this tests a different deployment from the
@@ -30,7 +39,9 @@ services:
       args:
         SGLANG_BASE_IMAGE: ${HIGGS_SGLANG_BASE_IMAGE:-lmsysorg/sglang-omni:dev}
         SGLANG_OMNI_VERSION: ${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
-    image: voicera/model-tts-higgs-sglang:${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
+    # Its own image name, not the slot's: nothing built here can retag an image
+    # another stack runs.
+    image: voicera-higgs-test/sglang:${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
     container_name: voicera_higgs_test_sglang
     restart: unless-stopped
     stop_grace_period: 60s
@@ -73,19 +84,21 @@ services:
               device_ids: ["${TTS_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}"]
               capabilities: [gpu]
 
-  # The adapter. Same image and code as the slot's `tts` service, but no GPU
-  # reservation -- it never creates a CUDA context -- and a localhost port.
+  # The adapter. Same code as the slot's `tts` service, but no GPU reservation
+  # (it never creates a CUDA context), no host port, and an API key it will not
+  # start without.
   tts:
     build:
       context: ./tts/higgs-tts-3
-    image: voicera/model-tts:higgs-tts-3
+    image: voicera-higgs-test/adapter:local
     container_name: voicera_higgs_test_tts
     restart: unless-stopped
     stop_grace_period: 60s
-    ports:
-      # 127.0.0.1 only: a test endpoint, not something to expose on the network.
-      - "127.0.0.1:${HIGGS_TEST_PORT:-8202}:8002"
     environment:
+      # Bearer key on /v1/* (/health stays open for the healthcheck). OpenAI
+      # clients send it as their api_key.
+      HIGGS_API_KEY: ${HIGGS_TEST_API_KEY:-}
+      HIGGS_REQUIRE_API_KEY: "true"
       PORT: 8002
       HIGGS_SIDECAR_URL: http://higgs-sglang:8000
       HIGGS_SIDECAR_TIMEOUT_S: ${HIGGS_SIDECAR_TIMEOUT_S:-60}
@@ -117,6 +130,23 @@ services:
       start_period: 1200s
     depends_on:
       - higgs-sglang
+
+  # Opt-in (--profile tunnel): a Cloudflare quick tunnel to the adapter, over
+  # this project's own network -- so no host port is involved. The URL is
+  # temporary and changes on every start; read it with
+  #   docker logs voicera_higgs_test_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com'
+  # The image is the one the box's other tunnels already run; pull_policy
+  # missing means it is not re-pulled, so they are never touched.
+  tunnel:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    pull_policy: missing
+    container_name: voicera_higgs_test_tunnel
+    restart: "no"
+    command: ["tunnel", "--no-autoupdate", "--url", "http://tts:8002"]
+    networks: [higgs_net]
+    depends_on:
+      - tts
 
 networks:
   higgs_net:

@@ -22,6 +22,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # ./tts/${TTS_MODEL} over /app, so editing server.py needs a restart, not a
 # rebuild -- and voices/ added later is picked up the same way.
 COPY *.py ./
+COPY static ./static
 COPY voices ./voices
 
 # Non-root: the adapter touches no GPU, so the MPS rule that forces sidecars to
