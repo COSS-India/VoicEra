@@ -38,7 +38,7 @@
 &middot; 24&nbsp;kHz &middot; streamed as it generates &middot;
 <strong>research &amp; non-commercial licence</strong></p>
 
-<div id="keyrow">
+<div id="keyrow" hidden>
   <label for="key">API key</label>
   <input id="key" type="password" autocomplete="off" placeholder="HIGGS_TEST_API_KEY">
   <p class="hint">Sent as <code>Authorization: Bearer …</code>, kept only in this tab.</p>
@@ -147,8 +147,11 @@ async function loadVoices() {
   const voice = els('voice'), delivery = els('delivery');
   // Reloading (a new key) keeps what was chosen, where it still exists.
   const keepVoice = voice.value, keepDelivery = delivery.value;
+  // The key field is shown only when the server asks for one (or a key is
+  // already saved in this tab); an open server needs none.
+  els('keyrow').hidden = !(refused || els('key').value);
   if (!body) {
-    status(refused ? 'Enter the API key to load the voices.'
+    status(refused ? 'This server requires an API key: enter it above.'
                    : 'Could not load the voice list — is the model up?');
     return;
   }
@@ -215,6 +218,7 @@ async function run() {
       }),
     });
     if (!response.ok) {
+      if (response.status === 401) els('keyrow').hidden = false;
       const body = await response.json().catch(() => ({}));
       throw new Error(body?.error?.message || `HTTP ${response.status}`);
     }

@@ -11,12 +11,13 @@
 #
 #   --profile tunnel                         a Cloudflare quick tunnel: a temporary
 #                                            https://*.trycloudflare.com URL, no
-#                                            account; find it in the tunnel's log
+#                                            account; find it in the tunnel's log.
+#                                            OPEN by default: anyone with the URL
+#                                            can use the model. Export
+#                                            HIGGS_TEST_API_KEY to require a key.
 #   -f compose.standalone.localport.yml      127.0.0.1:${HIGGS_TEST_PORT:-18202}
 #
 #   cd model-server
-#   export HIGGS_TEST_API_KEY=$(openssl rand -hex 24)   # required: the adapter
-#                                                        # will not start without it
 #   docker compose -p voicera-higgs-test --project-directory . \
 #       -f tts/higgs-tts-3/compose.standalone.yml \
 #       -f tts/higgs-tts-3/compose.mps.yml \      # only on a host with an MPS daemon
@@ -101,8 +102,7 @@ services:
               capabilities: [gpu]
 
   # The adapter. Same code as the slot's `tts` service, but no GPU reservation
-  # (it never creates a CUDA context), no host port, and an API key it will not
-  # start without.
+  # (it never creates a CUDA context) and no host port.
   tts:
     build:
       context: ./tts/higgs-tts-3
@@ -111,10 +111,13 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
     environment:
-      # Bearer key on /v1/* (/health stays open for the healthcheck). OpenAI
-      # clients send it as their api_key.
+      # No key by default (decided 22 Oct 2026): the demo is meant to be shared
+      # by URL, and the URL is random and changes on every tunnel start. Export
+      # HIGGS_TEST_API_KEY before `up` to require `Authorization: Bearer <key>`
+      # on /v1/* -- OpenAI clients send their api_key that way; the demo page
+      # asks for it when the server says 401.
       HIGGS_API_KEY: ${HIGGS_TEST_API_KEY:-}
-      HIGGS_REQUIRE_API_KEY: "true"
+      HIGGS_REQUIRE_API_KEY: "false"
       PORT: 8002
       HIGGS_SIDECAR_URL: http://higgs-sglang:8000
       HIGGS_SIDECAR_TIMEOUT_S: ${HIGGS_SIDECAR_TIMEOUT_S:-60}

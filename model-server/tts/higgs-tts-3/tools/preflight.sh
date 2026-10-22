@@ -8,7 +8,7 @@
 # Checks: the GPU has room for the sidecar's memory caps, the MPS situation
 # (and so whether compose.mps.yml is needed), that none of the test stack's
 # names are taken by something else, the optional localhost port, disk space
-# for the images and checkpoint, and that an API key is set.
+# for the images and checkpoint, and whether an API key will be required.
 set -u
 
 GPU=${TTS_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}
@@ -107,8 +107,8 @@ else
 fi
 
 echo "API key"
-if [ -n "${HIGGS_TEST_API_KEY:-}" ]; then ok "HIGGS_TEST_API_KEY is set"
-else bad "export HIGGS_TEST_API_KEY=\$(openssl rand -hex 24) first; the adapter will not start without it"; fi
+if [ -n "${HIGGS_TEST_API_KEY:-}" ]; then ok "HIGGS_TEST_API_KEY is set: /v1/* will require it"
+else note "no HIGGS_TEST_API_KEY: the demo and API are OPEN to anyone with the tunnel URL"; fi
 
 echo
 if [ "$fail" -ne 0 ]; then echo "NO-GO: fix the STOP lines above."; exit 1; fi

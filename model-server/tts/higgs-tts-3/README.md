@@ -137,8 +137,9 @@ Nothing it creates is named like anything else on the box: containers
 `voicera_higgs_test_*`, images `voicera-higgs-test/*`, and its own network and
 cache volume. It **publishes no host port**. It is reached through an opt-in
 Cloudflare quick tunnel (a temporary `https://*.trycloudflare.com` URL with no
-account) over its own Docker network. The adapter won't start without an API
-key, because that URL is public.
+account) over its own Docker network. **It is open by default:** anyone with
+the URL can use the model on the GPU. The URL is random and changes on every
+tunnel start. To require a key, export `HIGGS_TEST_API_KEY` before `up`.
 
 ```bash
 mkdir -p ~/higgs-tts-test && cd ~/higgs-tts-test
@@ -147,7 +148,7 @@ cd VoicEra/model-server
 
 export GPU_DEVICE_IDS=1                                    # the team's card; GPU 0 is production's
 export HIGGS_HF_CACHE_VOLUME=voicera-higgs-test_hf_cache   # its own cache
-export HIGGS_TEST_API_KEY=$(openssl rand -hex 24); echo "$HIGGS_TEST_API_KEY"   # keep it
+# optional -- require a key on /v1/*:  export HIGGS_TEST_API_KEY=$(openssl rand -hex 24)
 
 sh tts/higgs-tts-3/tools/preflight.sh      # read-only: GPU room, MPS, names, disk -> GO / NO-GO
 sudo -E sh tts/higgs-tts-3/fetch.sh          # ~10 GB, public repo, no token
@@ -163,10 +164,10 @@ sudo docker logs voicera_higgs_test_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.t
 Then:
 
 - **Demo page:** open `https://<name>.trycloudflare.com/demo/tts` in a browser
-  and paste the key. It plays audio while it is being generated and shows
+  (it asks for the key only if one is set). It plays audio while it is being generated and shows
   time-to-first-audio and RTF.
 - **API:** any OpenAI client with `base_url=https://<name>.trycloudflare.com/v1`
-  and `api_key=$HIGGS_TEST_API_KEY`.
+  and any `api_key` (or `$HIGGS_TEST_API_KEY` if you set one).
 - **Smoke test** (on the box, so it can read nvidia-smi and the sidecar log):
   `sudo -E python3 tts/higgs-tts-3/tools/smoke_test.py --url https://<name>.trycloudflare.com --gpu 1`.
   It measures speech in six languages and at 1/4/8 concurrent streams, checks

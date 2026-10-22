@@ -417,7 +417,9 @@ def test_the_standalone_stack_cannot_collide_with_the_box():
     assert "voicera-higgs-test" in doc["volumes"]["hf_cache"]["name"]
     tts = doc["services"]["tts"]
     assert "deploy" not in tts, "the adapter never touches the GPU; it should not reserve one"
-    assert tts["environment"]["HIGGS_REQUIRE_API_KEY"] == "true"
+    # Open by default (the owner's call, 22 Oct 2026); a key is opt-in.
+    assert tts["environment"]["HIGGS_REQUIRE_API_KEY"] == "false"
+    assert tts["environment"]["HIGGS_API_KEY"] == "${HIGGS_TEST_API_KEY:-}"
 
     local = yaml.safe_load((MODEL / "compose.standalone.localport.yml").read_text())
     assert all(str(p).startswith("127.0.0.1:") for p in local["services"]["tts"]["ports"])
