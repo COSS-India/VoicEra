@@ -58,6 +58,8 @@ class Config:
     # ---- sidecar --------------------------------------------------------
     sidecar_url: str
     sidecar_timeout_s: float
+    #: Most simultaneous streams to the sidecar; each holds one connection.
+    sidecar_max_connections: int
     #: Where the sidecar sees voices/ (its --allowed-local-media-path).
     sidecar_voices_dir: str
 
@@ -94,6 +96,9 @@ class Config:
                 os.getenv("HIGGS_SIDECAR_URL"), "http://higgs-sglang:8000"
             ).rstrip("/"),
             sidecar_timeout_s=float(_number(os.getenv("HIGGS_SIDECAR_TIMEOUT_S"), 60.0, float)),
+            sidecar_max_connections=int(
+                _number(os.getenv("HIGGS_SIDECAR_MAX_CONNECTIONS"), 512, int)
+            ),
             sidecar_voices_dir=_text(os.getenv("HIGGS_SIDECAR_VOICES_DIR"), "/voices").rstrip("/"),
             model_name=_text(os.getenv("HIGGS_MODEL_NAME"), "higgs-tts-3"),
             voices_dir=_text(os.getenv("HIGGS_VOICES_DIR"), "/app/voices"),

@@ -64,6 +64,13 @@ services:
       - --tts_engine.gpu_memory_fraction=${HIGGS_ENGINE_GPU_MEMORY_FRACTION:-0.12}
       - --vocoder.gpu_memory_fraction=${HIGGS_VOCODER_GPU_MEMORY_FRACTION:-0.03}
       - --audio_encoder.gpu_memory_fraction=${HIGGS_ENCODER_GPU_MEMORY_FRACTION:-0.02}
+      # Concurrency. Upstream's v0.1.9 defaults (64/64): at most 64 utterances
+      # generate at once, CUDA graphs are captured up to batch 64, and anything
+      # beyond waits in SGLang's queue. Raising them needs engine memory to hold
+      # the extra sequences (HIGGS_ENGINE_GPU_MEMORY_FRACTION) and lengthens the
+      # first start, which autotunes kernels for every captured batch size.
+      - --tts_engine.factory.max_running_requests=${HIGGS_MAX_RUNNING_REQUESTS:-64}
+      - --tts_engine.factory.cuda_graph_max_bs=${HIGGS_CUDA_GRAPH_MAX_BS:-64}
       - --log-level=${HIGGS_SIDECAR_LOG_LEVEL:-info}
     environment:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -118,6 +125,9 @@ services:
       # Longest wait for the next byte from the sidecar. The first byte is the
       # first audio chunk, so this bounds time-to-first-audio under load too.
       HIGGS_SIDECAR_TIMEOUT_S: ${HIGGS_SIDECAR_TIMEOUT_S:-60}
+      # Connections to the sidecar = most simultaneous streams. httpx's default
+      # (100) capped the adapter below the model; see upstream.py.
+      HIGGS_SIDECAR_MAX_CONNECTIONS: ${HIGGS_SIDECAR_MAX_CONNECTIONS:-512}
       # Where the SIDECAR sees voices/ -- must match the mount above.
       HIGGS_SIDECAR_VOICES_DIR: ${HIGGS_SIDECAR_VOICES_DIR:-/voices}
 

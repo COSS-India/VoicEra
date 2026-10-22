@@ -130,13 +130,23 @@ class PcmStream:
 
 
 class SidecarClient:
-    def __init__(self, base_url: str, timeout_s: float) -> None:
+    def __init__(self, base_url: str, timeout_s: float, max_connections: int = 512) -> None:
         self.base_url = base_url
         # read= is the wait between bytes, and the first byte is the first
         # audio chunk, so it has to cover time-to-first-audio under load.
+        #
+        # The pool is sized explicitly. httpx's default is 100 connections with
+        # a 5 s wait for one, so stream 101 queued HERE and then failed with a
+        # PoolTimeout -- a ceiling of this adapter's, not the model's, and one a
+        # concurrency bench would have reported as the model's limit. Every
+        # stream holds a connection for its whole utterance, so the pool must be
+        # at least the concurrency you intend to serve; the sidecar queues
+        # anything beyond its own max_running_requests itself.
         self._http = httpx.AsyncClient(
             base_url=base_url,
-            timeout=httpx.Timeout(connect=5.0, read=timeout_s, write=10.0, pool=5.0),
+            timeout=httpx.Timeout(connect=5.0, read=timeout_s, write=10.0, pool=timeout_s),
+            limits=httpx.Limits(max_connections=max_connections,
+                                max_keepalive_connections=min(max_connections, 128)),
         )
 
     async def aclose(self) -> None:

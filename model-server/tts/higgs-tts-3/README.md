@@ -188,6 +188,29 @@ sudo docker image rm voicera-higgs-test/adapter:local voicera-higgs-test/sglang:
 rm -rf ~/higgs-tts-test
 ```
 
+## Concurrency bench
+
+`tools/run_bench.sh` runs the repo's TTS concurrency bench
+(`tests/concurrency-bench/tts_load.py`: Test A sends all N at once, Test B
+spreads them randomly over 1 s, with 3 rounds each, and a level passes at p95
+RTF < 1) against the standalone stack. It runs on the GPU host, in a throwaway
+container on the stack's own network, so neither a host port nor the tunnel is
+involved. Alongside it records GPU 1 (nvidia-smi) and the adapter's and
+sidecar's CPU (`docker stats`), so a limit can be pinned on the model, the GPU
+or the adapter.
+
+Upstream's v0.1.9 defaults generate at most 64 utterances at once and capture
+CUDA graphs only up to batch 64. To measure beyond that, restart the sidecar
+with higher caps and more engine memory first:
+
+```bash
+export HIGGS_MAX_RUNNING_REQUESTS=256 HIGGS_CUDA_GRAPH_MAX_BS=256 HIGGS_ENGINE_GPU_MEMORY_FRACTION=0.25
+sudo -E docker compose -p voicera-higgs-test --project-directory . \
+  -f tts/higgs-tts-3/compose.standalone.yml --profile tunnel up -d   # recreates the sidecar
+# wait for healthy (the new batch sizes are autotuned), then:
+sudo -E sh tts/higgs-tts-3/tools/run_bench.sh      # LEVELS=1,2,4 ROUNDS=1 for a smoke run
+```
+
 ## Not yet run on hardware
 
 Nothing here has been built or started on a GPU. The adapter is covered by

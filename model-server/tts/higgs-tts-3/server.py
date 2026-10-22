@@ -134,7 +134,8 @@ def create_app(config: Config | None = None, sidecar: SidecarClient | None = Non
     logging.basicConfig(
         level=cfg.log_level, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s"
     )
-    client = sidecar or SidecarClient(cfg.sidecar_url, cfg.sidecar_timeout_s)
+    client = sidecar or SidecarClient(cfg.sidecar_url, cfg.sidecar_timeout_s,
+                                      cfg.sidecar_max_connections)
     roster = Roster.load(cfg.voices_dir)
 
     @contextlib.asynccontextmanager

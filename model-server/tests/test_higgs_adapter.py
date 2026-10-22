@@ -469,3 +469,60 @@ def test_the_demo_page_only_calls_routes_that_exist():
     page = (MODEL / "static" / "demo.html").read_text(encoding="utf-8")
     assert "'/v1/voices'" in page and "'/tts/v1/voices'" in page
     assert "'/v1/audio/speech'" in page
+
+
+# ------------------------------------------------------------------ concurrency
+def test_more_streams_than_httpx_default_pool(voices_dir, monkeypatch):
+    """150 utterances in flight at once must all be served.
+
+    httpx's default pool is 100 connections with a 5 s wait, and every stream
+    holds its connection for the whole utterance -- so the 101st stream used to
+    queue inside the adapter and fail with a PoolTimeout after 5 s, a limit a
+    concurrency bench would have blamed on the model.
+    """
+    import asyncio as aio
+
+    app = FastAPI()
+
+    @app.get("/health")
+    async def health():
+        return {"status": "healthy"}
+
+    @app.get("/v1/audio/speech/{sid}")
+    async def outcome(sid: str):
+        return {"finish_reason": "stop"}
+
+    @app.post("/v1/audio/speech")
+    async def speech(request: Request):
+        await request.json()
+
+        async def gen():
+            yield b"\x00\x00" * 240
+            await aio.sleep(6.5)        # hold the connection past the old 5 s pool wait
+            yield b"\x00\x00" * 240
+
+        return StreamingResponse(gen(), media_type="audio/pcm", headers={"X-Sample-Rate": "24000"})
+
+    sp = free_port()
+    side_srv = serve(app, sp)
+    monkeypatch.setenv("HIGGS_SIDECAR_URL", f"http://127.0.0.1:{sp}")
+    monkeypatch.setenv("HIGGS_VOICES_DIR", str(voices_dir))
+    port = free_port()
+    srv = serve(server.create_app(config_mod.Config.from_env()), port)
+
+    async def one(client):
+        r = await client.post(f"http://127.0.0.1:{port}/v1/audio/speech",
+                              json={"input": "नमस्ते", "voice": "Aditi", "response_format": "pcm"})
+        return r.status_code, len(r.content)
+
+    async def burst():
+        limits = httpx.Limits(max_connections=200)
+        async with httpx.AsyncClient(timeout=30, limits=limits) as client:
+            return await aio.gather(*(one(client) for _ in range(150)))
+
+    try:
+        results = aio.run(burst())
+        assert [s for s, _ in results].count(200) == 150, sorted({s for s, _ in results})
+        assert all(n == 960 for _, n in results)
+    finally:
+        srv.should_exit = side_srv.should_exit = True
