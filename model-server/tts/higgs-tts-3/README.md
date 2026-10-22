@@ -40,12 +40,14 @@ The sidecar is always asked for streamed PCM. So `response_format: "pcm"`
 (what the voice pipeline uses) passes through byte for byte, with nothing
 decoded or re-encoded on the way.
 
-**Why the sidecar is built, not pulled.** Upstream publishes only a moving
-`:dev` tag, and that image's entrypoint `git clone`s sglang-omni `main` on
-every container start. `sidecar/Dockerfile` keeps the image, turns the clone
-off (`SGLANG_OMNI_AUTO_CLONE=0`) and installs the released `sglang-omni==0.1.9`.
-**Pin the base by digest after the first good pull**; the steps are in
-`sidecar/Dockerfile`.
+**Why the sidecar is built, not pulled.** No published image fits.
+`lmsysorg/sglang-omni:dev` has been frozen since June (sglang-omni 0.1.0) and
+can't cap per-stage memory. `hongccc/sglang-omni:dev` is a moving tag in a
+personal namespace that clones `main` on every start. So `sidecar/Dockerfile`
+follows upstream's own Dockerfile **at the v0.1.9 tag**: the official SGLang
+base pinned by digest, its UCX build, and the v0.1.9 dependency list and
+package, with the commit checked. It leaves out the extras Higgs doesn't
+import. The first build is long.
 
 ## The API
 

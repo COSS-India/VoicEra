@@ -1,40 +1,90 @@
-# SGLang-Omni serving Higgs TTS 3 -- the sidecar the higgs-tts-3 adapter talks to.
+# syntax=docker/dockerfile:1.7
 #
-# Why build at all instead of naming the upstream image directly: upstream
-# publishes only a moving `dev` tag, and that image's entrypoint git-clones
-# sglang-omni `main` and pip-installs it EVERY TIME THE CONTAINER STARTS. That is
-# a network dependency on every restart and a different server on every restart.
-# This file keeps the image (CUDA, SGLang, UCX, flash-attn -- the hard parts) and
-# replaces the moving part with a released, pinned sglang-omni:
+# SGLang-Omni v0.1.9 serving Higgs TTS 3 -- the sidecar the higgs-tts-3 adapter
+# talks to. Follows upstream's own docker/Dockerfile AT THE v0.1.9 TAG, minus
+# what Higgs does not use.
 #
-#   * SGLANG_OMNI_AUTO_CLONE=0 turns the clone-on-start off;
-#   * sglang-omni is installed from PyPI at SGLANG_OMNI_VERSION, --no-deps so
-#     the image's own CUDA stack is never re-resolved.
+# Why not a published image (both tried on ace-h200, 22 Oct 2026):
+#   * lmsysorg/sglang-omni:dev is frozen at 16 Jun 2026 (sglang-omni 0.1.0,
+#     SGLang 0.5.12, torch 2.11) -- no per-stage gpu_memory_fraction, so no way
+#     to stop Higgs reserving ~98% of a card shared with production, and no
+#     --allowed-local-media-path. Installing 0.1.9 on top cannot work either:
+#     0.1.9 pins torch 2.14.1 / SGLang 0.5.22 / transformers 5.19.
+#   * hongccc/sglang-omni:dev is current, but a personal namespace and a
+#     moving tag, and its entrypoint git-clones `main` on every start.
 #
-# PIN THE BASE BY DIGEST after the first good pull. `dev` moves with upstream
-# main, so a rebuild next month gets a different CUDA/SGLang underneath the same
-# sglang-omni release:
+# So: the official SGLang base upstream pins BY DIGEST at v0.1.9, upstream's UCX
+# build, the dependency list from the v0.1.9 pyproject, and the package itself
+# from the v0.1.9 tag -- commit checked, so a moved tag fails the build rather
+# than silently building something else.
 #
-#   docker inspect --format '{{index .RepoDigests 0}}' lmsysorg/sglang-omni:dev
-#   # then in model-server/.env:
-#   HIGGS_SGLANG_BASE_IMAGE=lmsysorg/sglang-omni@sha256:<digest>
-#
-# 0.1.9 (21 Oct 2026) is the release whose source this folder was written
-# against: its Higgs pipeline, the per-stage gpu_memory_fraction flags in
-# compose.extra.yml, and the disconnect-abort on streaming /v1/audio/speech were
-# all read in that release, not assumed.
-ARG SGLANG_BASE_IMAGE=lmsysorg/sglang-omni:dev
-FROM ${SGLANG_BASE_IMAGE}
+# Left out on purpose: the audar-tts / fun-cosyvoice3 / minicpm-o extras (one
+# compiles llama.cpp with CUDA) and qwen-tts. Higgs imports none of them.
+# Expect a long first build: a large base image and a UCX compile.
 
-ARG SGLANG_OMNI_VERSION=0.1.9
+ARG SGLANG_IMAGE=lmsysorg/sglang@sha256:5fc09edb6a0bb1d5b6992b543723c66d08f86d7a507e951e87e0d05db4ac766e
+FROM ${SGLANG_IMAGE}
 
-ENV SGLANG_OMNI_AUTO_CLONE=0 \
-    PYTHONUNBUFFERED=1
+ARG SGLANG_OMNI_REF=v0.1.9
+ARG SGLANG_OMNI_COMMIT=8200f49934d66de591c035cab1c626c0600905fa
+ARG UCX_COMMIT=d8e50df6651b9ea5b76f23aee0aefbf053a4137a
 
-RUN python3 -m pip install --no-cache-dir --no-deps --no-build-isolation \
-        "sglang-omni==${SGLANG_OMNI_VERSION}" \
-    && sgl-omni --help >/dev/null
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends sox git \
+    && rm -rf /var/lib/apt/lists/*
 
-# Upstream's entrypoint is kept: with AUTO_CLONE off it only runs NVIDIA's own
-# entrypoint and then the command. The command (sgl-omni serve ...) is in
-# compose.extra.yml, where every flag sits beside the reason for its value.
+# UCX with CUDA, as upstream builds it: SGLang-Omni's inter-stage transport.
+RUN git clone --filter=blob:none https://github.com/openucx/ucx.git /tmp/ucx \
+    && git -C /tmp/ucx checkout "${UCX_COMMIT}" \
+    && cd /tmp/ucx \
+    && ./autogen.sh \
+    && ./contrib/configure-release-mt \
+        --enable-shared --disable-static --disable-doxygen-doc \
+        --enable-optimizations --enable-cma --enable-devel-headers \
+        --with-cuda=/usr/local/cuda --with-verbs --with-dm --prefix=/usr/local \
+    && make -j"$(nproc)" \
+    && make install-strip \
+    && ldconfig \
+    && rm -rf /tmp/ucx
+
+# The release itself, verified. Kept in the image (not cloned at start), so a
+# restart never needs the network and never changes what runs.
+RUN git clone --depth 1 --branch "${SGLANG_OMNI_REF}" \
+        https://github.com/sgl-project/sglang-omni.git /opt/sglang-omni \
+    && test "$(git -C /opt/sglang-omni rev-parse HEAD)" = "${SGLANG_OMNI_COMMIT}" \
+    || { echo "sglang-omni ${SGLANG_OMNI_REF} is not commit ${SGLANG_OMNI_COMMIT}"; exit 1; }
+
+# Dependencies exactly as upstream's Dockerfile installs them -- into the base
+# image's /opt/sglang virtualenv, which PATH resolves (uv needs it named) --
+# then the package, without letting it re-resolve that stack. The FlashInfer
+# reinstall is upstream's too: the base's AOT kernels stay, the Python package
+# matches the pin.
+RUN cd /opt/sglang-omni \
+    && python3 -c 'import tomllib; print("\n".join(tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["override-dependencies"]))' > /tmp/omni-overrides.txt \
+    && uv pip install --python /opt/sglang/bin/python3 --no-build-isolation \
+        --overrides /tmp/omni-overrides.txt -r pyproject.toml \
+        descript-audiotools==0.7.2 descript-audio-codec==1.0.0 \
+    && uv pip install --python /opt/sglang/bin/python3 --no-deps --reinstall flashinfer-python==0.7.1 \
+    && uv pip install --python /opt/sglang/bin/python3 --no-deps --no-build-isolation . \
+    && rm /tmp/omni-overrides.txt
+
+ENV FLASHINFER_WORKSPACE_BASE=/root \
+    FLASHINFER_JIT_DEBUG=0 \
+    PYTHONUNBUFFERED=1 \
+    LD_LIBRARY_PATH=/opt/sglang/lib/python3.12/site-packages/nvidia/nccl/lib:${LD_LIBRARY_PATH}
+
+# Fail the BUILD, not the first start, if the flags compose.extra.yml relies on
+# are missing. If the CLI cannot even print help here (no GPU is visible during
+# `docker build`, and some imports probe for one), say so and let the first
+# start be the check, rather than failing a build that may be fine.
+RUN if sgl-omni serve --help > /tmp/help.txt 2>&1; then \
+        for flag in --allowed-local-media-path --model-name --log-level; do \
+            grep -q -- "$flag" /tmp/help.txt || { echo "sgl-omni serve lacks $flag"; exit 1; }; \
+        done; echo "sgl-omni CLI ok"; \
+    else \
+        echo "note: 'sgl-omni serve --help' did not run at build time:"; tail -5 /tmp/help.txt; \
+    fi; rm -f /tmp/help.txt
+
+WORKDIR /opt/sglang-omni
+# The command (sgl-omni serve ...) is in compose.extra.yml / compose.standalone.yml,
+# where every flag sits beside the reason for its value.

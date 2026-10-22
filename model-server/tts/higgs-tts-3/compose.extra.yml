@@ -24,9 +24,11 @@ services:
     build:
       context: ./tts/higgs-tts-3/sidecar
       args:
-        # Pin by digest after the first good pull -- see sidecar/Dockerfile.
-        SGLANG_BASE_IMAGE: ${HIGGS_SGLANG_BASE_IMAGE:-lmsysorg/sglang-omni:dev}
-        SGLANG_OMNI_VERSION: ${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
+        # Defaults are upstream's v0.1.9 pins (see sidecar/Dockerfile); override
+        # only to move to another release, all three together.
+        SGLANG_IMAGE: ${HIGGS_SGLANG_BASE_IMAGE:-lmsysorg/sglang@sha256:5fc09edb6a0bb1d5b6992b543723c66d08f86d7a507e951e87e0d05db4ac766e}
+        SGLANG_OMNI_REF: v${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
+        SGLANG_OMNI_COMMIT: ${HIGGS_SGLANG_OMNI_COMMIT:-8200f49934d66de591c035cab1c626c0600905fa}
     image: voicera/model-tts-higgs-sglang:${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
     container_name: voicera_model_tts_higgs_sglang
     restart: unless-stopped
