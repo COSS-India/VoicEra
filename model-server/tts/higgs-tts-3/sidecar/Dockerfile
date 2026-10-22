@@ -73,17 +73,29 @@ ENV FLASHINFER_WORKSPACE_BASE=/root \
     PYTHONUNBUFFERED=1 \
     LD_LIBRARY_PATH=/opt/sglang/lib/python3.12/site-packages/nvidia/nccl/lib:${LD_LIBRARY_PATH}
 
-# Fail the BUILD, not the first start, if the flags compose.extra.yml relies on
-# are missing. If the CLI cannot even print help here (no GPU is visible during
-# `docker build`, and some imports probe for one), say so and let the first
-# start be the check, rather than failing a build that may be fine.
-RUN if sgl-omni serve --help > /tmp/help.txt 2>&1; then \
-        for flag in --allowed-local-media-path --model-name --log-level; do \
-            grep -q -- "$flag" /tmp/help.txt || { echo "sgl-omni serve lacks $flag"; exit 1; }; \
-        done; echo "sgl-omni CLI ok"; \
-    else \
-        echo "note: 'sgl-omni serve --help' did not run at build time:"; tail -5 /tmp/help.txt; \
-    fi; rm -f /tmp/help.txt
+# Fail the BUILD, not the first start, if the options compose.extra.yml passes
+# do not exist in this sglang-omni. Read from the `serve` command's own
+# signature, not its --help: the help is a Rich table laid out for a terminal a
+# build does not have, and grepping it reported a flag missing that is there
+# (ace-h200, 22 Oct 2026). If the module cannot be imported at all here (no GPU
+# is visible during `docker build`, and some imports probe for one), say so and
+# let the first start be the check, rather than fail a build that may be fine.
+RUN /opt/sglang/bin/python3 - <<'PY'
+import inspect, sys
+try:
+    from sglang_omni.cli.serve import serve
+except Exception as exc:  # noqa: BLE001 -- reported, not fatal; see above
+    print(f"note: could not import sglang_omni.cli.serve at build time: {exc!r}")
+    sys.exit(0)
+import sglang_omni
+print("sglang_omni", getattr(sglang_omni, "__version__", "?"), "from", sglang_omni.__file__)
+have = set(inspect.signature(serve).parameters)
+need = {"model_path", "model_name", "host", "port", "allowed_local_media_path", "log_level"}
+missing = sorted(need - have)
+if missing:
+    sys.exit(f"sgl-omni serve lacks: {missing}")
+print("sgl-omni serve options ok:", ", ".join(sorted(need)))
+PY
 
 WORKDIR /opt/sglang-omni
 # The command (sgl-omni serve ...) is in compose.extra.yml / compose.standalone.yml,
