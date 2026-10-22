@@ -67,11 +67,24 @@ services:
       - --log-level=${HIGGS_SIDECAR_LOG_LEVEL:-info}
     environment:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      # sglang-omni stops the whole pipeline when any process reports no
+      # startup progress for this long (default 600 s). The first start
+      # autotunes GPU kernels for every CUDA-graph batch size, and on ace-h200
+      # (22 Oct 2026) the reference-encoder process sat silent past 600 s while
+      # the engine tuned. Later starts reuse the compile cache below and are
+      # far shorter; this only has to cover the first.
+      SGLANG_OMNI_STARTUP_TIMEOUT: ${HIGGS_STARTUP_TIMEOUT_S:-3600}
+      # PyTorch Inductor's and Triton's caches default to /tmp in the
+      # container, so every recreate (a rebuild, `down`/`up`) re-ran that
+      # whole autotune. Kept in a volume, it is paid once per host.
+      TORCHINDUCTOR_CACHE_DIR: /compile-cache/inductor
+      TRITON_CACHE_DIR: /compile-cache/triton
       # Not required (the repo is public); passed through for the rate limit.
       HF_TOKEN: ${TTS_HF_TOKEN:-${HF_TOKEN:-}}
     volumes:
       - hf_cache:/root/.cache/huggingface
       - ./tts/higgs-tts-3/voices:/voices:ro
+      - higgs_compile_cache:/compile-cache
     networks: [model_net]
     # SGLang wants the host IPC namespace and a large shm for its inter-stage
     # transport, whether or not MPS is in play.
@@ -147,3 +160,8 @@ services:
       HIGGS_INITIAL_CHUNK_FRAMES: ${HIGGS_INITIAL_CHUNK_FRAMES:-}
     depends_on:
       - higgs-sglang
+
+volumes:
+  # Compiled GPU kernels for the sidecar (Inductor + Triton), so the long
+  # first-start autotune is paid once per host, not once per container.
+  higgs_compile_cache:

@@ -62,10 +62,23 @@ services:
       - --log-level=${HIGGS_SIDECAR_LOG_LEVEL:-info}
     environment:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      # sglang-omni stops the whole pipeline when any process reports no
+      # startup progress for this long (default 600 s). The first start
+      # autotunes GPU kernels for every CUDA-graph batch size, and on ace-h200
+      # (22 Oct 2026) the reference-encoder process sat silent past 600 s while
+      # the engine tuned. Later starts reuse the compile cache below and are
+      # far shorter; this only has to cover the first.
+      SGLANG_OMNI_STARTUP_TIMEOUT: ${HIGGS_STARTUP_TIMEOUT_S:-3600}
+      # PyTorch Inductor's and Triton's caches default to /tmp in the
+      # container, so every recreate (a rebuild, `down`/`up`) re-ran that
+      # whole autotune. Kept in a volume, it is paid once per host.
+      TORCHINDUCTOR_CACHE_DIR: /compile-cache/inductor
+      TRITON_CACHE_DIR: /compile-cache/triton
       HF_TOKEN: ${TTS_HF_TOKEN:-${HF_TOKEN:-}}
     volumes:
       - hf_cache:/root/.cache/huggingface
       - ./tts/higgs-tts-3/voices:/voices:ro
+      - higgs_compile_cache:/compile-cache
     networks: [higgs_net]
     ipc: host
     shm_size: 16gb
@@ -160,3 +173,7 @@ volumes:
   # name (HIGGS_HF_CACHE_VOLUME=voicera-higgs-test_hf_cache).
   hf_cache:
     name: ${HIGGS_HF_CACHE_VOLUME:-voicera-higgs-test_hf_cache}
+  # Compiled GPU kernels (Inductor + Triton). Safe to delete: the next start
+  # just autotunes again.
+  higgs_compile_cache:
+    name: voicera-higgs-test_compile_cache
