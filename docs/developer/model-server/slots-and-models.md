@@ -28,6 +28,7 @@ flowchart TB
     T1["indic-parler"]
     T2["indic-mio"]
     T3["orpheus"]
+    T4["higgs-tts-3"]
   end
   subgraph L["llm slot · service llm · :8003"]
     L1["qwen3.5-4b"]
