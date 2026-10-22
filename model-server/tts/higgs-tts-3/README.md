@@ -127,6 +127,50 @@ docker compose logs -f higgs-sglang tts                  # first start: ~10 GB d
 `fetch.sh` downloads the checkpoint into the stack's `hf_cache` volume before
 the build, so a network problem shows up first and not twenty minutes in.
 
+## Testing it on its own (ace-h200)
+
+`compose.standalone.yml` runs the same two containers as a **separate Compose
+project** (`voicera-higgs-test`). It has its own containers, network and
+HuggingFace cache volume, and it publishes the adapter on `127.0.0.1:8202`
+only, so nothing the model-server stack owns is touched. Zero-shot is on by
+default there because the voice clips aren't committed yet.
+
+Run it from a fresh clone in a directory of its own:
+
+```bash
+mkdir -p ~/higgs-tts-test && cd ~/higgs-tts-test
+git clone --branch feat/higgs-tts-3 --depth 1 https://github.com/COSS-India/VoicEra.git
+cd VoicEra/model-server
+
+export GPU_DEVICE_IDS=1                                    # the team's card; GPU 0 is production's
+export HIGGS_HF_CACHE_VOLUME=voicera-higgs-test_hf_cache   # its own cache, not the stack's
+nvidia-smi -i 1                                            # note memory.used before
+sh tts/higgs-tts-3/fetch.sh                                # ~10 GB, public repo, no token
+
+docker compose -p voicera-higgs-test --project-directory . \
+  -f tts/higgs-tts-3/compose.standalone.yml \
+  -f tts/higgs-tts-3/compose.mps.yml \
+  up -d --build                              # drop the mps line on a host without MPS
+docker logs -f voicera_higgs_test_sglang     # until it reports ready
+
+python3 tts/higgs-tts-3/scripts/smoke_test.py --gpu 1
+```
+
+The smoke test waits for `/health`, then measures time-to-first-audio and RTF
+in six languages and at 1/4/8 concurrent streams. It also checks the tags,
+speed, formats, SSE and refusals, hangs up mid-utterance and looks for the
+sidecar's abort, and records GPU memory. It writes `.wav` files to listen to
+and `higgs-smoke-out/report.json`.
+
+To remove everything it created (containers, network, images, cache volume):
+
+```bash
+docker compose -p voicera-higgs-test --project-directory . \
+  -f tts/higgs-tts-3/compose.standalone.yml down --rmi local --volumes
+docker image rm voicera/model-tts:higgs-tts-3 voicera/model-tts-higgs-sglang:0.1.9
+rm -rf ~/higgs-tts-test
+```
+
 ## Not yet run on hardware
 
 Nothing here has been built or started on a GPU. The adapter is covered by

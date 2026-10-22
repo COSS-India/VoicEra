@@ -379,3 +379,27 @@ def test_a_hang_up_closes_the_sidecar_request(stack):
         time.sleep(0.05)
     assert side.aborted.is_set(), "the sidecar kept generating after the caller hung up"
     assert side.completed == 0
+
+
+# ------------------------------------------------------------ standalone stack
+def test_the_standalone_sidecar_is_the_slot_sidecar():
+    """compose.standalone.yml repeats the sidecar (Compose `extends:` resolves
+    paths against the overlay's folder, which breaks its build context). A test
+    stack that differs from the slot -- other memory caps, other image -- would
+    measure a deployment nobody runs, so the parts that matter must be equal."""
+    import yaml
+
+    slot = yaml.safe_load((MODEL / "compose.extra.yml").read_text())["services"]["higgs-sglang"]
+    alone = yaml.safe_load((MODEL / "compose.standalone.yml").read_text())["services"]["higgs-sglang"]
+    for key in ("command", "image", "environment", "volumes", "ipc", "shm_size", "ulimits",
+                "healthcheck", "deploy"):
+        assert slot[key] == alone[key], f"higgs-sglang `{key}` differs between the two files"
+    assert slot["build"]["args"] == alone["build"]["args"]
+
+
+def test_the_standalone_adapter_is_reachable_on_localhost_only():
+    import yaml
+
+    tts = yaml.safe_load((MODEL / "compose.standalone.yml").read_text())["services"]["tts"]
+    assert all(str(p).startswith("127.0.0.1:") for p in tts["ports"]), tts["ports"]
+    assert "deploy" not in tts, "the adapter never touches the GPU; it should not reserve one"
