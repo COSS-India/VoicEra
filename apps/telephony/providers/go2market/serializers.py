@@ -44,7 +44,7 @@ from .wire import (
 )
 
 # Bumped when wire/serializer behavior changes — visible in runtime logs after rebuild.
-GO2MARKET_SERIALIZER_BUILD = "20261022-drain4000"
+GO2MARKET_SERIALIZER_BUILD = "20261023-callid-stream"
 
 class Go2MarketFrameSerializer(FrameSerializer):
     """go2market bi-directional streaming (µ-law 8 kHz on the wire)."""
@@ -62,8 +62,12 @@ class Go2MarketFrameSerializer(FrameSerializer):
         params: Optional[InputParams] = None,
     ):
         super().__init__(params or Go2MarketFrameSerializer.InputParams())
+        self._call_sid = (call_sid or "").strip()
+        # Some Go2Market legs send only a call id. That id is the provider call
+        # id we store, and it is also what we echo as streamSid on media.
         self._stream_sid = (stream_sid or "").strip()
-        self._call_sid = call_sid
+        if not self._usable_sid(self._stream_sid) and self._usable_sid(self._call_sid):
+            self._stream_sid = self._call_sid
         self._websocket = websocket
         self._pipeline_rate = int(
             self._params.pipeline_sample_rate or WIRE_SAMPLE_RATE
@@ -93,9 +97,13 @@ class Go2MarketFrameSerializer(FrameSerializer):
             pass
         # endregion
 
-    def _stream_sid_ready(self) -> bool:
-        sid = (self._stream_sid or "").strip()
+    @staticmethod
+    def _usable_sid(value: str) -> bool:
+        sid = (value or "").strip()
         return bool(sid) and sid.lower() != "unknown"
+
+    def _stream_sid_ready(self) -> bool:
+        return self._usable_sid(self._stream_sid)
 
     @property
     def wire_sample_rate(self) -> int:

@@ -117,6 +117,29 @@ async def test_serialize_splits_above_4000_bytes(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
+async def test_serialize_uses_call_sid_when_stream_sid_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pipecat.frames.frames import AudioRawFrame
+
+    async def fake_encode(pcm, *, pcm_rate, resampler):
+        del pcm, pcm_rate, resampler
+        return bytes([0xFF] * 160)
+
+    monkeypatch.setattr(
+        "apps.telephony.providers.go2market.serializers.encode_wire_mulaw",
+        fake_encode,
+    )
+    call_sid = "682295a9-34f1-4251-8699-4bea0ff14d13"
+    ser = Go2MarketFrameSerializer(stream_sid="", call_sid=call_sid)
+    out = await ser.serialize(
+        AudioRawFrame(audio=b"\x00\x00" * 160, sample_rate=8000, num_channels=1)
+    )
+    assert out is not None
+    assert json.loads(str(out))["streamSid"] == call_sid
+
+
+@pytest.mark.asyncio
 async def test_serialize_clear_on_interruption() -> None:
     from pipecat.frames.frames import InterruptionFrame
 

@@ -160,6 +160,14 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
             or "unknown"
         )
         stream_sid = resolve_stream_sid(data) or ""
+        # Go2Market often omits streamSid and sends only the call id. That id
+        # is already the provider call id; echo it on outbound media.
+        if (
+            not stream_sid
+            and call_sid
+            and str(call_sid).strip().lower() != "unknown"
+        ):
+            stream_sid = str(call_sid).strip()
         _agent_debug_log(
             hypothesis_id="H1-flat-start",
             location="agent.py:telephony_start",
