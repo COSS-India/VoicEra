@@ -20,7 +20,10 @@ from pipecat.frames.frames import (
 from pipecat.observers.base_observer import FramePushed
 from pipecat.observers.startup_timing_observer import StartupTimingObserver
 from pipecat.observers.turn_tracking_observer import TurnTrackingObserver
-from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
+from pipecat.observers.user_bot_latency_observer import (
+    TTFBBreakdownMetrics,
+    UserBotLatencyObserver,
+)
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.frame_processor import FrameDirection
 
@@ -84,6 +87,13 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
     consumer gets the corrected number for free, with no schema or frontend
     change.
 
+    A hold message breaks that fix's assumption that the reply's first token
+    arrives before the bot starts speaking: the base class closes the cycle
+    on the hold message's ``BotStartedSpeakingFrame`` while the LLM is still
+    thinking. That breakdown goes out without an LLM entry, and
+    ``on_late_llm_ttfb`` delivers the corrected entry once the first content
+    token arrives.
+
     Known limitation on Bug 2: ``LLMFullResponseStartFrame``/``LLMTextFrame``
     don't carry a processor identity, so this assumes a single active LLM
     processor per call (true for every VoicERA agent today). A pipeline with
@@ -102,7 +112,10 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
         self._stt_processor_names = stt_processor_names
         self._llm_call_started_at: float | None = None
         self._pending_llm_content_ttfb: float | None = None
+        # LLM entry withheld from a breakdown closed by a hold message.
+        self._late_llm_ttfb: TTFBBreakdownMetrics | None = None
         self._turn_start_interruption = False
+        self._register_event_handler("on_late_llm_ttfb")
 
     def _reset_accumulators(self) -> None:
         if self._turn_start_interruption:
@@ -119,12 +132,14 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
             self._function_call_metrics = []
             self._llm_call_started_at = None
             self._pending_llm_content_ttfb = None
+            self._late_llm_ttfb = None
             return
 
         super()._reset_accumulators()
         # A cancelled cycle's in-flight LLM content-TTFB measurement is stale.
         self._llm_call_started_at = None
         self._pending_llm_content_ttfb = None
+        self._late_llm_ttfb = None
 
     async def on_push_frame(self, data: FramePushed) -> None:
         self._turn_start_interruption = (
@@ -133,12 +148,12 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
             and self._user_stopped_time is not None
         )
         try:
-            self._track_llm_content_ttfb(data)
+            await self._track_llm_content_ttfb(data)
             await super().on_push_frame(data)
         finally:
             self._turn_start_interruption = False
 
-    def _track_llm_content_ttfb(self, data: FramePushed) -> None:
+    async def _track_llm_content_ttfb(self, data: FramePushed) -> None:
         if data.direction == FrameDirection.DOWNSTREAM:
             if isinstance(data.frame, LLMFullResponseStartFrame):
                 self._llm_call_started_at = data.timestamp
@@ -150,10 +165,23 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
                 # Bug 2 fix: this is the first real output token — the gap
                 # from LLMFullResponseStartFrame to here is the number
                 # people mean by "LLM TTFB".
-                self._pending_llm_content_ttfb = (
-                    data.timestamp - self._llm_call_started_at
-                ) / 1_000_000_000
+                ttfb = (data.timestamp - self._llm_call_started_at) / 1_000_000_000
                 self._llm_call_started_at = None
+                late_entry = self._late_llm_ttfb
+                self._late_llm_ttfb = None
+                if late_entry is None:
+                    self._pending_llm_content_ttfb = ttfb
+                else:
+                    # A hold message already closed this turn's breakdown.
+                    await self._call_event_handler(
+                        "on_late_llm_ttfb",
+                        late_entry.model_copy(
+                            update={
+                                "duration_secs": ttfb,
+                                "start_time": time.time() - ttfb,
+                            }
+                        ),
+                    )
 
     async def _handle_bot_started_speaking(self) -> None:
         # Patch the LLM-stage TTFB entry (if any) just before the base class
@@ -163,12 +191,12 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
         # chunk, which always arrives *before* the real content chunk that
         # tells us the correct value (see class docstring, Bug 2) — so the
         # corrected number isn't known yet at the point the wrong one is
-        # appended. By BotStartedSpeakingFrame time, both have long since
-        # been processed (LLM text streaming finishes well before TTS
-        # produces audio), so self._pending_llm_content_ttfb is reliably
-        # populated here, and this observer's frames are handled strictly
-        # in pipeline order (one queue per observer — see WorkerObserver),
-        # so there's no cross-observer race to worry about either.
+        # appended. By BotStartedSpeakingFrame time, both have normally been
+        # processed (LLM text streaming finishes before TTS produces audio),
+        # so self._pending_llm_content_ttfb is populated here; a hold message
+        # is the exception, handled below. This observer's frames are
+        # handled strictly in pipeline order (one queue per observer — see
+        # WorkerObserver), so there's no cross-observer race to worry about.
         pending = self._pending_llm_content_ttfb
         if pending is not None:
             for entry in self._ttfb:
@@ -177,7 +205,35 @@ class _CorrectedUserBotLatencyObserver(UserBotLatencyObserver):
                     entry.start_time = time.time() - pending
             self._pending_llm_content_ttfb = None
 
+        # Bot speech that starts before the LLM's first content token is a
+        # hold message, not the reply, yet the base class closes the cycle on
+        # it. Withhold the stream-open LLM entry; _track_llm_content_ttfb
+        # reports the real one through on_late_llm_ttfb.
+        llm_started_at = self._llm_call_started_at
+        llm_entries = [
+            entry
+            for entry in self._ttfb
+            if entry.processor in self._llm_processor_names
+        ]
+        hold_message = (
+            bool(llm_entries)
+            and pending is None
+            and llm_started_at is not None
+            and self._user_stopped_time is not None
+        )
+        if hold_message:
+            self._ttfb = [
+                entry
+                for entry in self._ttfb
+                if entry.processor not in self._llm_processor_names
+            ]
+
         await super()._handle_bot_started_speaking()
+
+        if hold_message:
+            # The base class's reset cleared the in-flight measurement.
+            self._llm_call_started_at = llm_started_at
+            self._late_llm_ttfb = llm_entries[-1]
 
 
 def register_call_metrics(worker: PipelineWorker, writer: CallMetricsWriter) -> None:
@@ -207,6 +263,10 @@ def register_call_metrics(worker: PipelineWorker, writer: CallMetricsWriter) -> 
     @latency_observer.event_handler("on_latency_breakdown")
     async def on_latency_breakdown(_observer: Any, breakdown: Any) -> None:
         writer.record_latency_breakdown(breakdown)
+
+    @latency_observer.event_handler("on_late_llm_ttfb")
+    async def on_late_llm_ttfb(_observer: Any, ttfb: Any) -> None:
+        writer.record_late_llm_ttfb(ttfb)
 
     observers: list[Any] = [transport_observer, latency_observer]
 

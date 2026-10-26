@@ -188,3 +188,78 @@ async def test_new_user_speech_still_discards_cancelled_cycle() -> None:
 
     assert breakdowns == []
     assert latencies == []
+
+
+@pytest.mark.asyncio
+async def test_hold_message_reports_llm_ttfb_once_first_token_arrives() -> None:
+    """A hold message makes the bot speak before the LLM's first token. The
+    breakdown it closes must not carry the stream-open TTFB; the real value
+    follows through on_late_llm_ttfb."""
+    observer = _observer()
+    breakdowns = []
+    late = []
+
+    @observer.event_handler("on_latency_breakdown")
+    async def _capture_breakdown(_observer, breakdown) -> None:
+        breakdowns.append(breakdown)
+
+    @observer.event_handler("on_late_llm_ttfb")
+    async def _capture_late(_observer, ttfb) -> None:
+        late.append(ttfb)
+
+    clock = _Clock()
+    await _feed(
+        observer,
+        clock,
+        [
+            VADUserStoppedSpeakingFrame(stop_secs=0.0),
+            LLMFullResponseStartFrame(),
+            MetricsFrame(
+                data=[TTFBMetricsData(processor="MyLLM", value=0.008, model="gpt")]
+            ),
+            # The hold message is synthesized and played while the LLM thinks.
+            MetricsFrame(data=[TTFBMetricsData(processor="MyTTS", value=0.35)]),
+            BotStartedSpeakingFrame(),
+            LLMTextFrame(text="Here is your answer"),
+            BotStartedSpeakingFrame(),
+        ],
+    )
+    await asyncio.sleep(0.02)  # let the scheduled event-handler tasks run
+
+    assert len(breakdowns) == 1
+    assert [entry.processor for entry in breakdowns[0].ttfb] == ["MyTTS"]
+    assert len(late) == 1
+    assert (late[0].processor, late[0].model) == ("MyLLM", "gpt")
+    # Four 1s clock steps separate LLMFullResponseStartFrame from LLMTextFrame.
+    assert late[0].duration_secs == pytest.approx(4.0)
+
+
+@pytest.mark.asyncio
+async def test_new_user_speech_cancels_late_llm_ttfb() -> None:
+    """A caller speaking over the hold message abandons the awaited reply, so
+    no late LLM TTFB is reported against that turn."""
+    observer = _observer()
+    late = []
+
+    @observer.event_handler("on_late_llm_ttfb")
+    async def _capture_late(_observer, ttfb) -> None:
+        late.append(ttfb)
+
+    clock = _Clock()
+    await _feed(
+        observer,
+        clock,
+        [
+            VADUserStoppedSpeakingFrame(stop_secs=0.0),
+            LLMFullResponseStartFrame(),
+            MetricsFrame(
+                data=[TTFBMetricsData(processor="MyLLM", value=0.008, model="gpt")]
+            ),
+            BotStartedSpeakingFrame(),
+            VADUserStartedSpeakingFrame(),
+            LLMTextFrame(text="Here is your answer"),
+        ],
+    )
+    await asyncio.sleep(0.02)  # let any scheduled event-handler task run
+
+    assert late == []

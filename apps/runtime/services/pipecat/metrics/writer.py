@@ -103,12 +103,32 @@ class CallMetricsWriter:
             # the two lists don't line up by index — record the owning turn.
             payload["turn_number"] = self._current_turn
             for entry in payload.get("ttfb") or []:
-                if not isinstance(entry, dict):
-                    continue
-                stage = self._processor_stages.get(entry.get("processor") or "")
-                if stage:
-                    entry["stage"] = stage
+                self._stamp_stage(entry)
         self._latencies["breakdowns"].append(payload)
+
+    def record_late_llm_ttfb(self, ttfb: Any) -> None:
+        """Add an LLM TTFB that became known after its breakdown was recorded.
+
+        A hold message makes the bot speak before the LLM's first token, so the
+        observer emits that turn's breakdown without an LLM entry and reports
+        the entry here once the token arrives. A new user turn cancels the
+        report, so it always belongs to the latest breakdown.
+        """
+        breakdowns = self._latencies["breakdowns"]
+        entry = _model_to_dict(ttfb)
+        if not breakdowns or not isinstance(breakdowns[-1], dict):
+            return
+        if not isinstance(entry, dict):
+            return
+        self._stamp_stage(entry)
+        breakdowns[-1]["ttfb"] = [*(breakdowns[-1].get("ttfb") or []), entry]
+
+    def _stamp_stage(self, entry: Any) -> None:
+        if not isinstance(entry, dict):
+            return
+        stage = self._processor_stages.get(entry.get("processor") or "")
+        if stage:
+            entry["stage"] = stage
 
     def _build_summary(self) -> dict[str, Any]:
         completed_turns = [turn for turn in self._turns if "duration_secs" in turn]

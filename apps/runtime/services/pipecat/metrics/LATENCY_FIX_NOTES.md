@@ -146,6 +146,14 @@ no race between "the wrong TTFB arrived," "the right content token arrived,"
 and "the bot started speaking": they're handled in that order, synchronously,
 one queue, no cross-observer timing to reason about.
 
+> **Exception: hold messages.** When the LLM is slower than the agent's hold
+> message timeout, the hold message makes the bot speak first, so the tracked
+> value isn't known yet and the stream-open number leaked through (BlueDots'
+> 15 Oct calls: 7–10 ms on turns that took 5.4–11 s). That breakdown now goes
+> out without an LLM entry; the observer emits `on_late_llm_ttfb` when the
+> first content token arrives, and `CallMetricsWriter.record_late_llm_ttfb`
+> adds it to the turn's breakdown before the call-end flush.
+
 Nothing else changes. No new API fields, no frontend changes, no schema
 changes — every existing consumer (the dashboard tiles, the per-turn table,
 CSV export, the backend's `avg_llm_secs`) reads the same
