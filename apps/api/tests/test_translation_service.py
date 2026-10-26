@@ -260,6 +260,9 @@ def test_system_prompt_gives_conversation_context():
     assert "first person" in _SYSTEM_PROMPT
     assert "never 'Gee'" in _SYSTEM_PROMPT
     assert "keep every repetition" in _SYSTEM_PROMPT
+    # '...तीन दो एक है मेरा' came back as '...three, two, mine'.
+    assert "comma-separated numerals" in _SYSTEM_PROMPT
+    assert "not 'my' or 'mine'" in _SYSTEM_PROMPT
 
 
 def test_system_prompt_asks_for_light_touch_up_not_a_rewrite():
