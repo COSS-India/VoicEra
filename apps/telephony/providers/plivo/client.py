@@ -113,6 +113,10 @@ class PlivoClient:
     ) -> Optional[str]:
         return await recording.start_call_recording(self, call_uuid, time_limit_secs)
 
+    async def start_provider_recording(self, call_uuid: str) -> Optional[str]:
+        """Capability hook: Record API with the provider-recording callback."""
+        return await recording.start_provider_recording(self, call_uuid)
+
     async def fetch_recording_metadata(
         self, recording_id: str
     ) -> Optional[dict]:
