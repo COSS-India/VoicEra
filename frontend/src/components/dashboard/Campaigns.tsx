@@ -118,6 +118,12 @@ function isViAgent(agent: AgentApiResponse | undefined): boolean {
   return (agent?.telephony?.provider || "").toLowerCase() === "vi";
 }
 
+/**
+ * Temporary. Vodafone pull-report analytics is not wired yet.
+ * Set to true to show the analytics action on VI / OBD campaigns again.
+ */
+const VI_CAMPAIGN_ANALYTICS_ENABLED = false;
+
 /** OBD / bulk-provider campaigns (e.g. VI). */
 function isObdCampaign(
   campaign: CampaignApiResponse,
@@ -127,6 +133,14 @@ function isObdCampaign(
   if (meta && typeof meta === "object" && meta.obd_config) return true;
   if ((campaign.telephony_provider || "").toLowerCase() === "vi") return true;
   return isViAgent(agentById[campaign.agent_id]);
+}
+
+function showCampaignAnalytics(
+  campaign: CampaignApiResponse,
+  agentById: Record<string, AgentApiResponse>,
+): boolean {
+  if (VI_CAMPAIGN_ANALYTICS_ENABLED) return true;
+  return !isObdCampaign(campaign, agentById);
 }
 
 // --- Upload → preview → details dialog -------------------------------------
@@ -822,12 +836,6 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
   }, []);
 
   const openedFromUrl = useRef<string | null>(null);
-  useEffect(() => {
-    if (!campaignFromUrl) return;
-    if (openedFromUrl.current === campaignFromUrl) return;
-    openedFromUrl.current = campaignFromUrl;
-    openAnalytics(campaignFromUrl);
-  }, [campaignFromUrl]);
 
   const agentNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -840,6 +848,16 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
     for (const a of agents) map[a.agent_id] = a;
     return map;
   }, [agents]);
+
+  useEffect(() => {
+    if (!campaignFromUrl) return;
+    if (openedFromUrl.current === campaignFromUrl) return;
+    const match = campaigns.find((c) => c.campaign_id === campaignFromUrl);
+    if (!match) return;
+    openedFromUrl.current = campaignFromUrl;
+    if (!showCampaignAnalytics(match, agentById)) return;
+    openAnalytics(campaignFromUrl);
+  }, [campaignFromUrl, campaigns, agentById]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { All: campaigns.length };
@@ -1010,15 +1028,17 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
                   {formatDateTime(c.started_at ?? c.created_at)}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <Tooltip text="Campaign analytics">
-                    <IconButton
-                      aria-label="Campaign analytics"
-                      onClick={() => openAnalytics(c.campaign_id)}
-                      className="bg-v-soft hover:border-v-accent hover:bg-v-pale hover:text-v-accent"
-                    >
-                      <BarChart3 className="size-4" strokeWidth={1.75} />
-                    </IconButton>
-                  </Tooltip>
+                  {showCampaignAnalytics(c, agentById) ? (
+                    <Tooltip text="Campaign analytics">
+                      <IconButton
+                        aria-label="Campaign analytics"
+                        onClick={() => openAnalytics(c.campaign_id)}
+                        className="bg-v-soft hover:border-v-accent hover:bg-v-pale hover:text-v-accent"
+                      >
+                        <BarChart3 className="size-4" strokeWidth={1.75} />
+                      </IconButton>
+                    </Tooltip>
+                  ) : null}
                   <Tooltip text="Delete campaign">
                     <IconButton
                       aria-label="Delete campaign"
@@ -1039,12 +1059,17 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
         <div className="flex flex-col rounded-v-md border border-v-line bg-white">
           {rows.map((c) => {
             const obd = isObdCampaign(c, agentById);
+            const analyticsOn = showCampaignAnalytics(c, agentById);
             return (
             <button
               key={c.campaign_id}
               type="button"
-              onClick={() => openAnalytics(c.campaign_id)}
-              className="flex flex-wrap items-center justify-between gap-3 border-b border-v-line px-4.5 py-3 text-left last:border-0 hover:bg-v-soft/60"
+              onClick={() => {
+                if (analyticsOn) openAnalytics(c.campaign_id);
+              }}
+              className={`flex flex-wrap items-center justify-between gap-3 border-b border-v-line px-4.5 py-3 text-left last:border-0 ${
+                analyticsOn ? "hover:bg-v-soft/60" : "cursor-default"
+              }`}
             >
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-[13.5px] font-medium">{c.name}</span>
@@ -1091,7 +1116,7 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
       <CampaignAnalyticsDialog
         open={analyticsOpen}
         initialCampaignId={analyticsCampaignId}
-        campaignOptions={campaigns}
+        campaignOptions={campaigns.filter((c) => showCampaignAnalytics(c, agentById))}
         onClose={() => {
           setAnalyticsOpen(false);
           setAnalyticsCampaignId(null);
