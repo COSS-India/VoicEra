@@ -1,0 +1,30 @@
+apps/runtime/tests/test_call_metrics_observers.py
+  s_0c574ca57c78e1::t_05698eab813950 191-265
+apps/runtime/services/pipecat/metrics/writer.py
+  s_0c574ca57c78e1::t_3f977688779ac7 106,109-131
+  s_0c574ca57c78e1::t_5197f9871cb438 132
+apps/runtime/services/pipecat/metrics/observers.py
+  s_0c574ca57c78e1::t_3f977688779ac7 23-26,90-96,115-116,118,135,142,151,156,168,170-184,194-199,208-230,233-237,267-269
+  s_0c574ca57c78e1::t_5b99674c95ee63 270
+apps/runtime/services/pipecat/metrics/LATENCY_FIX_NOTES.md
+  s_0c574ca57c78e1::t_66d8a17dfb96b9 149-156
+apps/runtime/tests/test_call_metrics_writer.py
+  s_0c574ca57c78e1::t_9c4cdb90338ba8 8
+  s_0c574ca57c78e1::t_9fee3293f64523 102-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7fb8ec5c66ed2b75f714c62cacad4b02ec34a95a",
+  "prompts": {},
+  "sessions": {
+    "s_0c574ca57c78e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd9808c9-e5b2-4a43-96be-9ed44ee40c88",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
