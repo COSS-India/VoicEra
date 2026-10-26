@@ -401,10 +401,8 @@ export function CallDetailSheet({
   }
 
   /** Translates the whole transcript in one LLM request so every line is
-   * translated with the full conversation as context. (The on-device Chrome
-   * Translator is skipped here: it can only translate lines in isolation,
-   * which QA found mistranslates honorifics, fillers, idioms, and who is
-   * speaking.) A response that doesn't parse back into the same number of
+   * translated with the full conversation as context. A response that
+   * doesn't parse back into the same number of
    * transcript lines surfaces an explicit error rather than silently
    * reverting to the original transcript, since a spinner that stops with
    * nothing visibly different looks exactly like the app doing nothing. */
@@ -413,11 +411,9 @@ export function CallDetailSheet({
 
     await translation.translate(targetLang, {
       originalLines: transcript,
-      zipOnDeviceLine: (original, translatedText) => ({ ...original, content: translatedText }),
       callId: call.call_id,
       resolveExpectedLineCount: async () => transcript.length,
       fromParsedLine: (line) => line,
-      onDevice: false,
     });
   }
 

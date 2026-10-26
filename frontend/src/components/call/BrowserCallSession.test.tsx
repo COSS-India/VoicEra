@@ -9,18 +9,10 @@ vi.mock("@pipecat-ai/client-react", () => import("@/test-utils/pipecatMock"));
 
 const {
   connectBrowserCall,
-  isChromeTranslationAvailable,
-  detectTextLanguage,
-  isTranslationPairAvailable,
-  translateLines,
   translateCallTranscriptViaLlm,
   fetchCallTranscriptText,
 } = vi.hoisted(() => ({
   connectBrowserCall: vi.fn(),
-  isChromeTranslationAvailable: vi.fn(() => false),
-  detectTextLanguage: vi.fn(),
-  isTranslationPairAvailable: vi.fn(),
-  translateLines: vi.fn(),
   translateCallTranscriptViaLlm: vi.fn(),
   fetchCallTranscriptText: vi.fn().mockResolvedValue("[00:00] user: Hola"),
 }));
@@ -36,13 +28,6 @@ vi.mock("@/lib/pipecat/createBrowserClient", async () => {
     connectBrowserCall,
   };
 });
-
-vi.mock("@/lib/chrome-translation", () => ({
-  isChromeTranslationAvailable,
-  detectTextLanguage,
-  isTranslationPairAvailable,
-  translateLines,
-}));
 
 vi.mock("@/lib/api/calls", () => ({
   translateCallTranscriptViaLlm,
@@ -264,10 +249,6 @@ describe("CallStage — Translate", () => {
   beforeEach(() => {
     connectBrowserCall.mockReset();
     connectBrowserCall.mockResolvedValue("call-1");
-    isChromeTranslationAvailable.mockReset().mockReturnValue(false);
-    detectTextLanguage.mockReset();
-    isTranslationPairAvailable.mockReset();
-    translateLines.mockReset();
     translateCallTranscriptViaLlm.mockReset();
     fetchCallTranscriptText.mockReset().mockResolvedValue("[00:00] user: Hola");
     pipecatTestStore.reset();
@@ -295,10 +276,7 @@ describe("CallStage — Translate", () => {
     expect(screen.queryByRole("button", { name: /^translate$/i })).not.toBeInTheDocument();
   });
 
-  it("uses the backend LLM even when on-device translation is available", async () => {
-    // Regression guard: Chrome's on-device Translator translates lines in
-    // isolation (e.g. 'जी' -> 'Gee'); the LLM sees the whole conversation.
-    isChromeTranslationAvailable.mockReturnValue(true);
+  it("translates via the backend LLM and toggles back to the original", async () => {
     translateCallTranscriptViaLlm.mockResolvedValue({
       translated_text: "[00:00] user: Hello",
       target_lang: "en",
@@ -309,31 +287,13 @@ describe("CallStage — Translate", () => {
 
     await waitFor(() => expect(screen.getByText(/Hello/)).toBeInTheDocument());
     expect(translateCallTranscriptViaLlm).toHaveBeenCalledWith("call-1", expect.any(String));
-    expect(translateLines).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Show original" }));
     expect(screen.getByText(/Hola/)).toBeInTheDocument();
   });
 
-  it("falls back to the backend LLM path when on-device translation is unavailable", async () => {
-    isChromeTranslationAvailable.mockReturnValue(false);
-    translateCallTranscriptViaLlm.mockResolvedValue({
-      translated_text: "[00:00] user: Hello",
-      target_lang: "en",
-    });
-
-    const user = await endedCallWithTranscript();
-    await user.click(screen.getByRole("button", { name: /^translate$/i }));
-
-    await waitFor(() =>
-      expect(translateCallTranscriptViaLlm).toHaveBeenCalledWith("call-1", expect.any(String)),
-    );
-    await waitFor(() => expect(screen.getByText(/Hello/)).toBeInTheDocument());
-  });
-
   it("shows a clear error when the backend transcript isn't saved yet (404 race)", async () => {
     const { ApiError } = await import("@/lib/api/http");
-    isChromeTranslationAvailable.mockReturnValue(false);
     translateCallTranscriptViaLlm.mockRejectedValue(new ApiError("Not found", 404));
 
     const user = await endedCallWithTranscript();
@@ -346,7 +306,6 @@ describe("CallStage — Translate", () => {
 
   it("surfaces the still-being-saved error when the transcript fetch itself 404s", async () => {
     const { ApiError } = await import("@/lib/api/http");
-    isChromeTranslationAvailable.mockReturnValue(false);
     translateCallTranscriptViaLlm.mockResolvedValue({
       translated_text: "[00:00] user: Hello",
       target_lang: "en",
@@ -361,7 +320,6 @@ describe("CallStage — Translate", () => {
   });
 
   it("shows a corrupted-format error when the LLM response has no parseable lines", async () => {
-    isChromeTranslationAvailable.mockReturnValue(false);
     translateCallTranscriptViaLlm.mockResolvedValue({
       translated_text: "not a parseable transcript at all",
       target_lang: "en",
@@ -374,7 +332,6 @@ describe("CallStage — Translate", () => {
   });
 
   it("invalidates an in-flight translate when a new call starts before it resolves", async () => {
-    isChromeTranslationAvailable.mockReturnValue(false);
     let resolveTranslate: (v: { translated_text: string; target_lang: string }) => void;
     translateCallTranscriptViaLlm.mockReturnValue(
       new Promise((resolve) => {

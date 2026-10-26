@@ -1,9 +1,8 @@
-"""LLM-backed fallback translation for call transcripts.
+"""LLM-backed translation for call transcripts.
 
-Used only when the client's on-device Chrome Translator API is unavailable
-or doesn't support the requested language pair (see
-frontend/src/lib/chrome-translation.ts). Stateless — the result is computed
-and returned, never persisted.
+The whole transcript is sent in one request so each line is translated with
+the full conversation as context. Stateless — the result is computed and
+returned, never persisted.
 
 Provider selection reuses apps.providers.one_shot_llm — the same
 "which LLM is this org actually configured to use" check GET /configuration/llm
