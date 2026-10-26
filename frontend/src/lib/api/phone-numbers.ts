@@ -33,3 +33,12 @@ export async function detachPhoneNumber(phoneNumber: string): Promise<{ status: 
     body: JSON.stringify({ phone_number: phoneNumber }),
   });
 }
+
+/** Permanently removes the number from the org inventory. The backend
+ *  rejects this (409) while the number is still attached to an agent. */
+export async function deletePhoneNumber(phoneNumber: string): Promise<{ status: string; message: string }> {
+  return apiFetch("/phone-numbers/delete", {
+    method: "DELETE",
+    body: JSON.stringify({ phone_number: phoneNumber }),
+  });
+}

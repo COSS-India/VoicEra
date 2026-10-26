@@ -444,6 +444,15 @@ class PhoneNumberDetachRequest(BaseModel):
     phone_number: str
 
 
+class PhoneNumberDeleteRequest(BaseModel):
+    """Permanently remove a number from the org inventory.
+
+    The number must already be detached from any agent.
+    """
+
+    phone_number: str
+
+
 class PhoneNumberResponse(BaseModel):
     """Phone number inventory document."""
 
@@ -863,4 +872,3 @@ class CallTranslateResponse(BaseModel):
 
     translated_text: str
     target_lang: str
-    source_lang: Optional[str] = None

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Check, Copy, HelpCircle, Link2, Phone, Search, Unlink } from "lucide-react";
+import { Check, Copy, HelpCircle, Link2, Phone, Search, Trash2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
@@ -366,11 +366,13 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
     importNumber,
     attachToAgent,
     detach,
+    deleteNumber,
   } = usePhoneNumbers(onNotify);
   const [query, setQuery] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [attachTarget, setAttachTarget] = useState<PhoneNumberItem | null>(null);
   const [detachTarget, setDetachTarget] = useState<PhoneNumberItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PhoneNumberItem | null>(null);
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.agent_id, a])), [agents]);
   const existingNumbers = useMemo(() => new Set(numbers.map((n) => n.phone_number)), [numbers]);
@@ -474,10 +476,21 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
                             Detach
                           </Button>
                         ) : (
-                          <Button variant="primary" size="sm" disabled={busy} onClick={() => setAttachTarget(n)}>
-                            {busy ? <Spinner /> : <Link2 className="size-3.5" strokeWidth={1.75} />}
-                            Attach
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="primary" size="sm" disabled={busy} onClick={() => setAttachTarget(n)}>
+                              {busy ? <Spinner /> : <Link2 className="size-3.5" strokeWidth={1.75} />}
+                              Attach
+                            </Button>
+                            <Button
+                              variant="danger-outline"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => setDeleteTarget(n)}
+                            >
+                              <Trash2 className="size-3.5" strokeWidth={1.75} />
+                              Delete
+                            </Button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -541,6 +554,35 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
               >
                 {busyNumber === detachTarget.phone_number ? <Spinner light={false} /> : null}
                 Detach
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      ) : null}
+
+      {deleteTarget ? (
+        <Dialog open onClose={() => setDeleteTarget(null)} widthClassName="max-w-md">
+          <DialogHeader title="Delete this number?" onClose={() => setDeleteTarget(null)} />
+          <div className="flex flex-col gap-4 p-5">
+            <p className="text-sm font-light text-v-body">
+              Remove {deleteTarget.phone_number} from this workspace&rsquo;s inventory? This does
+              not release it at the telephony provider.
+            </p>
+            <div className="flex justify-end gap-2 border-t border-v-line pt-4">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger-outline"
+                size="sm"
+                disabled={busyNumber === deleteTarget.phone_number}
+                onClick={async () => {
+                  await deleteNumber(deleteTarget);
+                  setDeleteTarget(null);
+                }}
+              >
+                {busyNumber === deleteTarget.phone_number ? <Spinner light={false} /> : null}
+                Delete
               </Button>
             </div>
           </div>

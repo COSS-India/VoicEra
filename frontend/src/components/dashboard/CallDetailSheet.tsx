@@ -8,15 +8,11 @@ import { CallTypeBadge } from "@/components/ui/CallTypeBadge";
 import { Spinner } from "@/components/ui/Spinner";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tooltip } from "@/components/ui/Tooltip";
-import {
-  fetchCallRecordingBlob,
-  fetchCallTranscriptText,
-  getCallMetrics,
-  translateCallTranscriptViaLlm,
-} from "@/lib/api/calls";
+import { fetchCallRecordingBlob, fetchCallTranscriptText, getCallMetrics } from "@/lib/api/calls";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
 import type { CallLogItem } from "@/lib/api-types";
+import { useTranscriptTranslation } from "@/hooks/useTranscriptTranslation";
 
 function formatDateTime(iso?: string | null): string {
   if (!iso) return "–";
@@ -267,26 +263,22 @@ export function CallDetailSheet({
   const [hasLatencyData, setHasLatencyData] = useState(false);
 
   // Translation is computed client-side per session — never persisted, never
-  // cached across calls. `translation.lines` holds already-structured
-  // TranscriptLine[], not free text: the Chrome path builds this 1:1 from the
-  // original transcript, and the LLM fallback path parses + validates its
-  // response before ever calling setTranslation, so rendering never needs to
-  // re-parse or guess at a possibly-corrupted shape.
-  const [translation, setTranslation] = useState<{ lines: TranscriptLine[]; lang: string } | null>(null);
-  const [translating, setTranslating] = useState(false);
-  const [translateError, setTranslateError] = useState("");
-  const [showTranslated, setShowTranslated] = useState(false);
+  // cached across calls. This is a deliberate privacy/cost trade-off, not an
+  // oversight: call transcripts are sensitive data, so no cross-session or
+  // cross-reload cache is kept, even though it means re-paying the LLM cost
+  // on every view/reopen of the same call. `translation.result.lines` holds
+  // already-structured TranscriptLine[], not free text: the LLM path
+  // parses + validates its response before ever setting the result, so
+  // rendering never needs to re-parse or guess at a possibly-corrupted shape.
+  const translation = useTranscriptTranslation<TranscriptLine>();
   // Always the viewer's own browser language — no manual picker. General LLMs
   // don't reliably support low-resource
   // languages like Bhili or Dogri; letting users pick from the full catalog
   // silently produced wrong-language output (e.g. Marathi/Bhojpuri substituted
   // for Bhili) instead of a clear error. Restricting to the browser's own
-  // language avoids that gap entirely.
-  const targetLang = (navigator.language || "en").split("-")[0]!;
-  // Tracks which call an in-flight translate request belongs to, so a slow
-  // response landing after the user has switched to a different call is
-  // discarded instead of overwriting the newly-selected call's state.
-  const translateRequestCallId = useRef<string | null>(null);
+  // language avoids that gap entirely. Guarded for a future server-rendered
+  // variant of this component, though today it only ever mounts client-side.
+  const targetLang = ((typeof navigator !== "undefined" && navigator.language) || "en").split("-")[0]!;
 
   useEffect(() => {
     let cancelled = false;
@@ -335,13 +327,9 @@ export function CallDetailSheet({
     setTranscriptError("");
     // Reset translation state on call change too — a stale translation from
     // the previous call must never leak into the newly-opened one. `targetLang`
-    // is deliberately NOT reset: a user's chosen output language should
-    // persist across calls viewed in one session.
-    translateRequestCallId.current = null;
-    setTranslation(null);
-    setTranslating(false);
-    setTranslateError("");
-    setShowTranslated(false);
+    // is deliberately NOT reset here: it's derived once from the browser's
+    // locale, not a user choice, so there's nothing to re-derive per call.
+    translation.reset();
     fetchCallTranscriptText(call.call_id)
       .then((text) => {
         if (cancelled) return;
@@ -354,7 +342,10 @@ export function CallDetailSheet({
     return () => {
       cancelled = true;
     };
-  }, [call.call_id]);
+    // translation.reset is stable (useCallback with no deps inside the hook);
+    // depending on the whole translation object would rerun this on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.call_id, translation.reset]);
 
   function togglePlay() {
     const el = audioElRef.current;
@@ -411,55 +402,40 @@ export function CallDetailSheet({
 
   /** Translates the whole transcript in one LLM request so every line is
    * translated with the full conversation as context. (The on-device Chrome
-   * Translator was dropped here: it can only translate lines in isolation,
+   * Translator is skipped here: it can only translate lines in isolation,
    * which QA found mistranslates honorifics, fillers, idioms, and who is
-   * speaking.) Guards against a response landing after the user has switched
-   * to a different call (translateRequestCallId) and against a response that
-   * doesn't parse back into the same number of transcript lines — that case
-   * surfaces an explicit error rather than silently reverting to the
-   * original transcript, since a spinner that stops with nothing visibly
-   * different looks exactly like the app doing nothing. */
+   * speaking.) A response that doesn't parse back into the same number of
+   * transcript lines surfaces an explicit error rather than silently
+   * reverting to the original transcript, since a spinner that stops with
+   * nothing visibly different looks exactly like the app doing nothing. */
   async function handleTranslate() {
     if (!transcript || transcript.length === 0) return;
 
-    const requestingCallId = call.call_id;
-    translateRequestCallId.current = requestingCallId;
-    setTranslating(true);
-    setTranslateError("");
-    const isStale = () => translateRequestCallId.current !== requestingCallId;
-
-    try {
-      const response = await translateCallTranscriptViaLlm(requestingCallId, targetLang);
-      if (isStale()) return;
-      const parsedLines = parseTranscript(response.translated_text);
-      if (parsedLines.length !== transcript.length) {
-        setTranslateError("The translation model corrupted the transcript format. Please try again.");
-        return;
-      }
-      setTranslation({ lines: parsedLines, lang: response.target_lang });
-      setShowTranslated(true);
-    } catch (err) {
-      if (isStale()) return;
-      setTranslateError(err instanceof Error ? err.message : "Failed to translate transcript. Please try again.");
-    } finally {
-      if (!isStale()) setTranslating(false);
-    }
+    await translation.translate(targetLang, {
+      originalLines: transcript,
+      zipOnDeviceLine: (original, translatedText) => ({ ...original, content: translatedText }),
+      callId: call.call_id,
+      resolveExpectedLineCount: async () => transcript.length,
+      fromParsedLine: (line) => line,
+      onDevice: false,
+    });
   }
 
   // A cached translation is only valid for the language it was produced in —
-  // changing the target-language dropdown must force a fresh handleTranslate
-  // call rather than showing a stale-language result.
-  const hasCachedTranslation = translation !== null && translation.lang === targetLang;
+  // if targetLang ever changed mid-session (it currently doesn't; there's no
+  // picker, it's fixed from navigator.language), this check keys off the
+  // language so a stale-language result is never shown as current.
+  const hasCachedTranslation = translation.hasCachedTranslation(targetLang);
 
   function translateButtonLabel(): string {
-    if (showTranslated) return "Show original";
+    if (translation.showing) return "Show original";
     if (hasCachedTranslation) return "Show translation";
     return "Translate";
   }
 
   function onTranslateButtonClick(): void {
-    if (showTranslated) setShowTranslated(false);
-    else if (hasCachedTranslation) setShowTranslated(true);
+    if (translation.showing) translation.setShowing(false);
+    else if (hasCachedTranslation) translation.setShowing(true);
     else handleTranslate();
   }
 
@@ -554,10 +530,10 @@ export function CallDetailSheet({
               <button
                 type="button"
                 onClick={onTranslateButtonClick}
-                disabled={translating}
+                disabled={translation.loading}
                 className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {translating ? <Spinner light={false} /> : <Languages className="size-3.5" strokeWidth={1.75} />}
+                {translation.loading ? <Spinner light={false} /> : <Languages className="size-3.5" strokeWidth={1.75} />}
                 {translateButtonLabel()}
               </button>
               <button
@@ -583,11 +559,11 @@ export function CallDetailSheet({
             <p className="py-8 text-center text-sm text-v-muted">No transcript for this call.</p>
           ) : (
             <>
-              {translateError ? (
-                <p className="py-2 text-center text-xs text-v-muted">{translateError}</p>
+              {translation.error ? (
+                <p className="py-2 text-center text-xs text-v-danger">{translation.error}</p>
               ) : null}
               <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
-                {(showTranslated && translation ? translation.lines : transcript).map((line, i) => (
+                {(translation.showing && translation.result ? translation.result.lines : transcript).map((line, i) => (
                   <TranscriptBubble key={i} line={line} active={i === activeIndex} onSeek={seekTo} />
                 ))}
               </div>

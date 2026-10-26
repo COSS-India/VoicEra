@@ -420,3 +420,56 @@ async def test_link_number_wrapper_raises(load_client_mock: MagicMock) -> None:
 async def test_get_by_agent_not_found(_db: MagicMock) -> None:
     with pytest.raises(PhoneNumberNotFoundError):
         phone_number_service.get_by_agent("org-1", "agent-missing")
+
+
+@pytest.mark.asyncio
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_delete_removes_inventory_row(_db: MagicMock) -> None:
+    _PHONE_STORE["+15551234567"] = {
+        "phone_number": "+15551234567",
+        "provider": "vobiz",
+        "org_id": "org-1",
+    }
+    result = await phone_number_service.delete(
+        "org-1", "+15551234567", member_email="admin@example.com"
+    )
+    assert result["status"] == "success"
+    assert "+15551234567" not in _PHONE_STORE
+
+
+@pytest.mark.asyncio
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_delete_requires_detach_first(_db: MagicMock) -> None:
+    _PHONE_STORE["+15551234567"] = {
+        "phone_number": "+15551234567",
+        "provider": "vobiz",
+        "org_id": "org-1",
+        "agent_id": "agent-1",
+    }
+    with pytest.raises(PhoneNumberError, match="detach it first"):
+        await phone_number_service.delete("org-1", "+15551234567")
+    assert "+15551234567" in _PHONE_STORE
+
+
+@pytest.mark.asyncio
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+async def test_delete_not_found(_db: MagicMock) -> None:
+    with pytest.raises(PhoneNumberNotFoundError):
+        await phone_number_service.delete("org-1", "+15559999999")
+
+
+@patch("app.services.phone_number_service.get_database", side_effect=_fake_db)
+def test_delete_route(_db: MagicMock) -> None:
+    _PHONE_STORE["+15551234567"] = {
+        "phone_number": "+15551234567",
+        "provider": "vobiz",
+        "org_id": "org-1",
+    }
+    client = _make_phone_client()
+    response = client.request(
+        "DELETE",
+        "/api/v1/phone-numbers/delete",
+        json={"phone_number": "+15551234567"},
+    )
+    assert response.status_code == 200
+    assert "+15551234567" not in _PHONE_STORE

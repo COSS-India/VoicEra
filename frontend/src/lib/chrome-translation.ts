@@ -42,6 +42,12 @@ interface NormalizedDetectorApi {
 
 const DETECT_SAMPLE_MAX_CHARS = 2000;
 const UNDETERMINED_LANGUAGE = "und";
+// The on-device Translator runs a single shared local inference engine, not
+// a network call — firing hundreds of translate() calls at once (one per
+// transcript line) queues them behind that one engine anyway, just with the
+// overhead of hundreds of in-flight promises/allocations at once. Cap how
+// many run concurrently instead.
+const TRANSLATE_CONCURRENCY = 6;
 
 function getTranslatorApi(): NormalizedTranslatorApi | null {
   const g = globalThis as unknown as {
@@ -149,12 +155,22 @@ export async function translateLines(
 
   const translator = await translatorApi.createTranslator({ sourceLanguage, targetLanguage });
   try {
-    return await Promise.all(
-      lines.map((line) => {
-        const trimmed = line.trim();
-        return trimmed ? translator.translate(trimmed) : Promise.resolve(line);
-      }),
-    );
+    const results = new Array<string>(lines.length);
+    // Chunked, not a shared-counter worker pool: each chunk's translate()
+    // calls fully settle (success or throw) before the next chunk starts, so
+    // the `finally` below can never run — and destroy() the translator —
+    // while a sibling call is still in flight on it.
+    for (let start = 0; start < lines.length; start += TRANSLATE_CONCURRENCY) {
+      const chunk = lines.slice(start, start + TRANSLATE_CONCURRENCY);
+      const translated = await Promise.all(
+        chunk.map((line) => {
+          const trimmed = line.trim();
+          return trimmed ? translator.translate(trimmed) : Promise.resolve(line);
+        }),
+      );
+      results.splice(start, translated.length, ...translated);
+    }
+    return results;
   } finally {
     translator.destroy?.();
   }

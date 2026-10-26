@@ -39,9 +39,9 @@ MAX_TRANSCRIPT_CHARS = 22_000  # ~20 min call
 # can never fix.
 MAX_OUTPUT_TOKENS = MAX_TRANSCRIPT_CHARS + 2_000
 
-# BCP-47-ish language tag shape. Both target_lang and source_lang are
-# spliced unescaped into _user_prompt's instruction text — a tag can't smuggle
-# instructions if it's never more than a couple of letters and a region code.
+# BCP-47-ish language tag shape. target_lang is spliced unescaped into
+# _user_prompt's instruction text — a tag can't smuggle instructions if it's
+# never more than a couple of letters and a region code.
 # Enforced here (not just at the HTTP route) so any future caller of
 # translate_transcript stays safe too. Uses fullmatch(), not match(): Python's
 # `$` matches just before a trailing "\n" even under match(), which would let
@@ -122,7 +122,7 @@ _SYSTEM_PROMPT = " ".join(
 # Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format —
 # used to detect when the model has merged/split/dropped lines despite being
 # told to keep the same line structure, since nothing else validates that.
-_TRANSCRIPT_LINE_RE = re.compile(r"^\[[^\]]+]\s*\w+:\s*.*$")
+_TRANSCRIPT_LINE_RE = re.compile(r"^\[[^\]]+]\s*[^:\]]+:\s*.*$")
 
 
 def _count_transcript_lines(text: str) -> int:
@@ -174,31 +174,24 @@ def _strip_markdown_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _user_prompt(text: str, target_lang: str, source_lang: str | None) -> str:
-    source_note = f"from {source_lang} " if source_lang else "(auto-detect the source language) "
+def _user_prompt(text: str, target_lang: str) -> str:
     # Untrusted transcript content wrapped in explicit delimiters — a caller's
     # spoken words become untrusted input to this completion call, guarding
     # against prompt injection (e.g. "ignore previous instructions...").
     return (
-        f"Translate the following call transcript {source_note}into {target_lang}:\n\n"
+        f"Translate the following call transcript (auto-detect the source language) "
+        f"into {target_lang}:\n\n"
         f"<transcript>\n{text}\n</transcript>"
     )
 
 
-def translate_transcript(
-    raw_transcript: str, target_lang: str, org_id: str, source_lang: str | None = None
-) -> str:
+def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> str:
     text = (raw_transcript or "").strip()
     if not text:
         raise TranslationError("Transcript is empty.", reason=TranslationErrorReason.INVALID_INPUT)
     if not _LANGUAGE_TAG_RE.fullmatch(target_lang):
         raise TranslationError(
             f"target_lang {target_lang!r} is not a valid language tag.",
-            reason=TranslationErrorReason.INVALID_INPUT,
-        )
-    if source_lang is not None and not _LANGUAGE_TAG_RE.fullmatch(source_lang):
-        raise TranslationError(
-            f"source_lang {source_lang!r} is not a valid language tag.",
             reason=TranslationErrorReason.INVALID_INPUT,
         )
     if len(text) > MAX_TRANSCRIPT_CHARS:
@@ -212,7 +205,7 @@ def translate_transcript(
         dispatched = call_first_available(
             org_id,
             _SYSTEM_PROMPT,
-            _user_prompt(text, target_lang, source_lang),
+            _user_prompt(text, target_lang),
             resolve_auth=_resolve_auth,
             list_configured_providers=auth_service.list_configured_providers,
             jwt_subject=f"translate-{org_id}",
@@ -236,7 +229,10 @@ def translate_transcript(
         raise TranslationError(
             "Translation returned an empty result.", reason=TranslationErrorReason.UPSTREAM
         )
-    if _count_transcript_lines(result) != _count_transcript_lines(text):
+    # If the original transcript has zero matching lines, the count comparison
+    # can't detect corruption (0 != 0 trivially passes) — nothing to compare against.
+    original_line_count = _count_transcript_lines(text)
+    if original_line_count > 0 and _count_transcript_lines(result) != original_line_count:
         raise TranslationError(
             "The translation model changed the transcript's line structure. Please try again.",
             reason=TranslationErrorReason.UPSTREAM,
