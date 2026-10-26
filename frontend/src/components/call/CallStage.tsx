@@ -371,6 +371,7 @@ function CallStage({
       resolveExpectedLineCount: async () =>
         callId ? parseTranscript(await fetchCallTranscriptText(callId)).length : originalMessages.length,
       fromParsedLine: (line) => ({ role: roleLabel(line.role), content: line.content }),
+      onDevice: false,
     });
   }
 

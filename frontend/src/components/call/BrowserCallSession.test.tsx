@@ -295,17 +295,21 @@ describe("CallStage — Translate", () => {
     expect(screen.queryByRole("button", { name: /^translate$/i })).not.toBeInTheDocument();
   });
 
-  it("shows a translated transcript via the on-device path when available", async () => {
+  it("uses the backend LLM even when on-device translation is available", async () => {
+    // Regression guard: Chrome's on-device Translator translates lines in
+    // isolation (e.g. 'जी' -> 'Gee'); the LLM sees the whole conversation.
     isChromeTranslationAvailable.mockReturnValue(true);
-    detectTextLanguage.mockResolvedValue({ language: "es", confidence: 0.9 });
-    isTranslationPairAvailable.mockResolvedValue(true);
-    translateLines.mockResolvedValue(["Hello"]);
+    translateCallTranscriptViaLlm.mockResolvedValue({
+      translated_text: "[00:00] user: Hello",
+      target_lang: "en",
+    });
 
     const user = await endedCallWithTranscript();
     await user.click(screen.getByRole("button", { name: /^translate$/i }));
 
     await waitFor(() => expect(screen.getByText(/Hello/)).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Show original" })).toBeInTheDocument();
+    expect(translateCallTranscriptViaLlm).toHaveBeenCalledWith("call-1", expect.any(String));
+    expect(translateLines).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Show original" }));
     expect(screen.getByText(/Hola/)).toBeInTheDocument();
@@ -338,19 +342,6 @@ describe("CallStage — Translate", () => {
     await waitFor(() =>
       expect(screen.getByText(/still being saved/i)).toBeInTheDocument(),
     );
-  });
-
-  it("does not fetch the persisted transcript on the free on-device path", async () => {
-    isChromeTranslationAvailable.mockReturnValue(true);
-    detectTextLanguage.mockResolvedValue({ language: "es", confidence: 0.9 });
-    isTranslationPairAvailable.mockResolvedValue(true);
-    translateLines.mockResolvedValue(["Hello"]);
-
-    const user = await endedCallWithTranscript();
-    await user.click(screen.getByRole("button", { name: /^translate$/i }));
-
-    await waitFor(() => expect(screen.getByText(/Hello/)).toBeInTheDocument());
-    expect(fetchCallTranscriptText).not.toHaveBeenCalled();
   });
 
   it("surfaces the still-being-saved error when the transcript fetch itself 404s", async () => {
