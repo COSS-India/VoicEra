@@ -14,12 +14,6 @@ import {
   getCallMetrics,
   translateCallTranscriptViaLlm,
 } from "@/lib/api/calls";
-import {
-  detectTextLanguage,
-  isChromeTranslationAvailable,
-  isTranslationPairAvailable,
-  translateLines,
-} from "@/lib/chrome-translation";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
 import type { CallLogItem } from "@/lib/api-types";
@@ -283,7 +277,7 @@ export function CallDetailSheet({
   const [translateError, setTranslateError] = useState("");
   const [showTranslated, setShowTranslated] = useState(false);
   // Always the viewer's own browser language — no manual picker. General LLMs
-  // (and Chrome's on-device Translator) don't reliably support low-resource
+  // don't reliably support low-resource
   // languages like Bhili or Dogri; letting users pick from the full catalog
   // silently produced wrong-language output (e.g. Marathi/Bhojpuri substituted
   // for Bhili) instead of a clear error. Restricting to the browser's own
@@ -415,13 +409,14 @@ export function CallDetailSheet({
     URL.revokeObjectURL(url);
   }
 
-  /** Hybrid translate: tries the free, on-device Chrome Translator API first,
-   * falling back to the backend LLM endpoint only when that API is
-   * unavailable or doesn't support the requested language pair. Guards
-   * against a response landing after the user has switched to a different
-   * call (translateRequestCallId) and against the LLM fallback returning text
-   * that doesn't parse back into the same number of transcript lines — that
-   * case surfaces an explicit error rather than silently reverting to the
+  /** Translates the whole transcript in one LLM request so every line is
+   * translated with the full conversation as context. (The on-device Chrome
+   * Translator was dropped here: it can only translate lines in isolation,
+   * which QA found mistranslates honorifics, fillers, idioms, and who is
+   * speaking.) Guards against a response landing after the user has switched
+   * to a different call (translateRequestCallId) and against a response that
+   * doesn't parse back into the same number of transcript lines — that case
+   * surfaces an explicit error rather than silently reverting to the
    * original transcript, since a spinner that stops with nothing visibly
    * different looks exactly like the app doing nothing. */
   async function handleTranslate() {
@@ -434,29 +429,6 @@ export function CallDetailSheet({
     const isStale = () => translateRequestCallId.current !== requestingCallId;
 
     try {
-      if (isChromeTranslationAvailable()) {
-        const sampleText = transcript.map((line) => line.content).join("\n");
-        const detected = await detectTextLanguage(sampleText);
-        const sourceLanguage = detected?.language;
-        const pairSupported = sourceLanguage
-          ? await isTranslationPairAvailable(sourceLanguage, targetLang)
-          : false;
-
-        if (sourceLanguage && pairSupported) {
-          const originalLines = transcript.map((line) => line.content);
-          const translatedContents = await translateLines(originalLines, sourceLanguage, targetLang);
-          if (isStale()) return;
-          const structuredLines: TranscriptLine[] = transcript.map((line, i) => ({
-            ...line,
-            content: translatedContents[i] ?? line.content,
-          }));
-          setTranslation({ lines: structuredLines, lang: targetLang });
-          setShowTranslated(true);
-          return; // free on-device path — no backend call made
-        }
-      }
-
-      // Fallback: Chrome API unavailable, or language pair unsupported on-device.
       const response = await translateCallTranscriptViaLlm(requestingCallId, targetLang);
       if (isStale()) return;
       const parsedLines = parseTranscript(response.translated_text);
