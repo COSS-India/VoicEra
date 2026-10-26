@@ -76,7 +76,7 @@ _CONTEXT_POLICY = (
     "line using the whole conversation as context, by meaning rather than word-by-word, and "
     "render idioms by their meaning (e.g. 'मेरा दिमाग खराब हो गया है' expresses frustration). "
     "'assistant' lines are the voice agent speaking in the first person on behalf of the "
-    "business (e.g. 'Namaste, VoicEra se bol raha hoon' = 'Hello, this is VoicEra speaking'); "
+    "business (e.g. 'Namaste, VoicEra se bol raha hoon' = 'Hello, I am speaking from VoicEra', never 'speaking to VoicEra'); "
     "'user' lines are the caller. "
     "Translate honorifics and particles by intent, not sound (e.g. 'जी' = 'Yes'/'Sure', never "
     "'Gee'), and short follow-ups as natural questions (e.g. 'जैसे कि?' = 'Like what?'). "

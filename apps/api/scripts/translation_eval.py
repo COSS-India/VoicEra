@@ -26,7 +26,7 @@ TRANSCRIPT = """call_id=eval
 
 # (must contain any of, must not contain any of) per translated line, lowercase.
 EXPECTED = [
-    (["this is voicera"], ["speaking to", "speaking with"]),
+    (["i am speaking from voicera", "i'm speaking from voicera"], ["speaking to", "speaking with"]),
     (["namaste"], ["hello hello"]),
     (["sure", "yes"], ["gee"]),
     (["like what"], ["such as"]),
