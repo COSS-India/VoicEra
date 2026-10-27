@@ -319,6 +319,24 @@ describe("CallStage — Translate", () => {
     expect(fetchCallTranscriptText).not.toHaveBeenCalled();
   });
 
+  it("retries while another translation of the same call is in progress (409), then shows it", async () => {
+    const { ApiError } = await import("@/lib/api/http");
+    translateCallTranscriptViaLlm
+      .mockRejectedValueOnce(new ApiError("already being translated", 409))
+      .mockResolvedValueOnce({ translated_text: "[00:00] user: Hello", target_lang: "en" });
+
+    const user = await endedCallWithTranscript();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await user.click(screen.getByRole("button", { name: /^translate$/i }));
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+      await waitFor(() => expect(screen.getByText(/Hello/)).toBeInTheDocument());
+      expect(translateCallTranscriptViaLlm).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a corrupted-format error when the LLM response has no parseable lines", async () => {
     translateCallTranscriptViaLlm.mockResolvedValue({
       translated_text: "not a parseable transcript at all",

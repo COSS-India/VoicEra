@@ -87,6 +87,7 @@ class _FakeRedis:
 
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
+        self.locks: set[str] = set()
         self.fail = False
 
     def pipeline(self) -> "_FakeRedis":
@@ -99,12 +100,31 @@ class _FakeRedis:
     def expire(self, key: str, seconds: int) -> None:
         pass
 
+    def lock(self, name: str, timeout: int, blocking: bool) -> "_FakeLock":
+        return _FakeLock(self, name)
+
     def execute(self) -> list[int]:
         if self.fail:
             raise redis.ConnectionError("down")
         key = self._ops[0]
         self.counts[key] = self.counts.get(key, 0) + 1
         return [self.counts[key], True]
+
+
+class _FakeLock:
+    def __init__(self, redis_: _FakeRedis, name: str) -> None:
+        self._redis, self.name = redis_, name
+
+    def acquire(self) -> bool:
+        if self._redis.fail:
+            raise redis.ConnectionError("down")
+        if self.name in self._redis.locks:
+            return False
+        self._redis.locks.add(self.name)
+        return True
+
+    def release(self) -> None:
+        self._redis.locks.discard(self.name)
 
 
 @pytest.fixture(autouse=True)
@@ -702,3 +722,74 @@ def test_translate_sends_normalised_language_but_echoes_request(
     assert response.status_code == 200
     assert response.json()["target_lang"] == requested
     assert mock_translate.call_args.args[1] == sent
+
+
+_LOCK_KEY = "translate_lock:org-1:call-abc-123:hi"
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_in_progress_returns_409_without_llm_or_quota(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    fake_redis: _FakeRedis,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _minio_storage_mock(storage_cls)
+    fake_redis.locks.add(_LOCK_KEY)  # another request is translating
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 409
+    mock_translate.assert_not_called()
+    assert fake_redis.counts == {}  # rate limit untouched
+    assert _LOCK_KEY in fake_redis.locks  # not ours to release
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_rechecks_cache_after_taking_the_lock(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    fake_redis: _FakeRedis,
+) -> None:
+    """The previous holder may finish between our cache miss and our lock."""
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls)
+    reads = iter([None, "[00:01] user: नमस्ते"])
+    with patch("app.routers.calls._read_cached_translation", side_effect=lambda *a: next(reads)):
+        response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    assert response.json()["translated_text"] == "[00:01] user: नमस्ते"
+    mock_translate.assert_not_called()
+    storage.client.put_object.assert_not_called()
+    assert fake_redis.locks == set()
+
+
+@pytest.mark.parametrize("llm_fails", [False, True])
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_releases_lock_on_success_and_failure(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    fake_redis: _FakeRedis,
+    llm_fails: bool,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _minio_storage_mock(storage_cls)
+    if llm_fails:
+        mock_translate.side_effect = TranslationError("boom", reason=TranslationErrorReason.UPSTREAM)
+    else:
+        mock_translate.return_value = "[00:01] user: नमस्ते"
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == (502 if llm_fails else 200)
+    assert fake_redis.locks == set()

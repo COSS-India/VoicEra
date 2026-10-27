@@ -433,6 +433,34 @@ def _enforce_translate_rate_limit(org_id: str) -> None:
         )
 
 
+def _acquire_translate_lock(org_id: str, call_id: str, lang: str):
+    """redis-py's Lock: token-safe release, auto-expiry if this worker dies.
+    180s outlasts the LLM provider fallback chain. Fails closed like the
+    rate limiter: without Redis, duplicate paid calls can't be prevented."""
+    lock = _get_redis().lock(f"translate_lock:{org_id}:{call_id}:{lang}", timeout=180, blocking=False)
+    try:
+        acquired = lock.acquire()
+    except redis.RedisError as exc:
+        logger.error("Translate lock unavailable: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Translation is temporarily unavailable. Please try again shortly.",
+        ) from exc
+    if not acquired:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This transcript is already being translated. Please wait a moment.",
+        )
+    return lock
+
+
+def _release_translate_lock(lock) -> None:
+    try:
+        lock.release()
+    except redis.RedisError:  # incl. LockError: expired or Redis blip — TTL cleans up
+        pass
+
+
 def _read_cached_translation(storage: MinIOStorage, bucket_name: str, key: str) -> str | None:
     """Best-effort cache read: any failure (miss, storage/network error,
     oversized or undecodable object) is a miss, never a failed request."""
@@ -516,57 +544,69 @@ def translate_call_transcript(
     if cached_text is not None:
         return CallTranslateResponse(translated_text=cached_text, target_lang=target_lang)
 
-    _enforce_translate_rate_limit(org_id)
-
-    # The semaphore wraps the MinIO fetch too, not just the LLM call: the
-    # limit exists to stop a burst of requests from starving unrelated sync
-    # endpoints on FastAPI's shared threadpool (see comment above
-    # _TRANSLATE_CONCURRENCY_LIMIT), and that starvation risk starts at the
-    # first blocking I/O call, not just the LLM one.
-    if not _translate_semaphore.acquire(timeout=_TRANSLATE_ACQUIRE_TIMEOUT_SECONDS):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Too many translations in progress. Please try again shortly.",
-        )
+    # One in-flight translation per (org, call, language): concurrent identical
+    # requests used to each pay for a completion. A loser gets 409 at once —
+    # no quota spent, no LLM call — and the frontend retries into the cache.
+    lock = _acquire_translate_lock(org_id, call_id, lang)
     try:
-        response = _get_object_or_404(storage, bucket_name, object_name)
+        # The previous holder may have finished between our miss and our lock.
+        cached_text = _read_cached_translation(storage, bucket_name, cache_key)
+        if cached_text is not None:
+            return CallTranslateResponse(translated_text=cached_text, target_lang=target_lang)
+
+        _enforce_translate_rate_limit(org_id)
+
+        # The semaphore wraps the MinIO fetch too, not just the LLM call: the
+        # limit exists to stop a burst of requests from starving unrelated sync
+        # endpoints on FastAPI's shared threadpool (see comment above
+        # _TRANSLATE_CONCURRENCY_LIMIT), and that starvation risk starts at the
+        # first blocking I/O call, not just the LLM one.
+        if not _translate_semaphore.acquire(timeout=_TRANSLATE_ACQUIRE_TIMEOUT_SECONDS):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Too many translations in progress. Please try again shortly.",
+            )
         try:
-            # Reject on the object's declared byte size before reading it into
-            # worker memory — translate_transcript's MAX_TRANSCRIPT_CHARS check
-            # only runs after a full read, so without this an oversized (or
-            # malicious) object would still be read whole first. UTF-8
-            # bytes-per-char is 1-4 depending on script, so this is a generous
-            # over-estimate (assume worst case); translate_transcript's own
-            # char-count check remains the precise limit. Reading content-length
-            # off the GET response (rather than a separate stat_object call)
-            # avoids a second MinIO round trip for the common case.
-            content_length = response.headers.get("Content-Length")
-            if content_length is not None and int(content_length) > MAX_TRANSCRIPT_CHARS * 4:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"Transcript is too long to translate in one request ({content_length} bytes).",
-                )
+            response = _get_object_or_404(storage, bucket_name, object_name)
             try:
-                raw_text = response.read().decode("utf-8")
-            except UnicodeDecodeError as exc:
-                # Corrupt stored data, not a transient dependency failure —
-                # retrying never fixes this. 500 error
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Stored transcript is not valid UTF-8 text.",
-                ) from exc
+                # Reject on the object's declared byte size before reading it into
+                # worker memory — translate_transcript's MAX_TRANSCRIPT_CHARS check
+                # only runs after a full read, so without this an oversized (or
+                # malicious) object would still be read whole first. UTF-8
+                # bytes-per-char is 1-4 depending on script, so this is a generous
+                # over-estimate (assume worst case); translate_transcript's own
+                # char-count check remains the precise limit. Reading content-length
+                # off the GET response (rather than a separate stat_object call)
+                # avoids a second MinIO round trip for the common case.
+                content_length = response.headers.get("Content-Length")
+                if content_length is not None and int(content_length) > MAX_TRANSCRIPT_CHARS * 4:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"Transcript is too long to translate in one request ({content_length} bytes).",
+                    )
+                try:
+                    raw_text = response.read().decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    # Corrupt stored data, not a transient dependency failure —
+                    # retrying never fixes this. 500 error
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Stored transcript is not valid UTF-8 text.",
+                    ) from exc
+            finally:
+                response.close()
+                response.release_conn()
+
+            try:
+                translated_text = translate_transcript(raw_text, lang, org_id)
+            except TranslationError as exc:
+                _raise_translation_error(exc)
         finally:
-            response.close()
-            response.release_conn()
+            _translate_semaphore.release()
 
-        try:
-            translated_text = translate_transcript(raw_text, lang, org_id)
-        except TranslationError as exc:
-            _raise_translation_error(exc)
+        _write_cached_translation(storage, bucket_name, cache_key, translated_text)
     finally:
-        _translate_semaphore.release()
-
-    _write_cached_translation(storage, bucket_name, cache_key, translated_text)
+        _release_translate_lock(lock)
     return CallTranslateResponse(translated_text=translated_text, target_lang=target_lang)
 
 
