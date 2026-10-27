@@ -626,7 +626,7 @@ def test_translate_rejects_trailing_newline_lang_before_touching_storage(
 @_patch_db("app.services.call_log_service.get_database")
 @patch("app.routers.calls.translate_transcript")
 @patch("app.routers.calls.MinIOStorage")
-def test_translate_cache_key_language_is_case_normalised(
+def test_translate_cache_key_uses_normalised_base_language(
     storage_cls: MagicMock,
     mock_translate: MagicMock,
     _calls_db: MagicMock,
@@ -638,7 +638,7 @@ def test_translate_cache_key_language_is_case_normalised(
     _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=EN-US")
 
     key = storage.client.put_object.call_args.args[1]
-    assert key == f"org-1/call-abc-123/translation.en-us.{PROMPT_VERSION}.txt"
+    assert key == f"org-1/call-abc-123/translation.en.{PROMPT_VERSION}.txt"
 
 
 @_patch_db("app.services.call_log_service.get_database")
@@ -659,3 +659,46 @@ def test_translate_does_not_cache_what_it_could_never_serve(
 
     assert response.status_code == 200
     storage.client.put_object.assert_not_called()
+
+
+@pytest.mark.parametrize("lang", ["qq", "zzz-ZZ", "fr", "multi"])
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_rejects_unsupported_language_before_storage_or_llm(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    lang: str,
+) -> None:
+    """Made-up or unserved tags used to be accepted, answered in English,
+    labelled with the bogus tag, and cached — each a paid call."""
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+
+    response = _make_client().post(f"/api/v1/calls/call-abc-123/translate?target_lang={lang}")
+
+    assert response.status_code == 422
+    storage_cls.return_value.client.get_object.assert_not_called()
+    mock_translate.assert_not_called()
+
+
+@pytest.mark.parametrize(("requested", "sent"), [("hi-IN", "hi"), ("OR", "or"), ("od", "or")])
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_sends_normalised_language_but_echoes_request(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    requested: str,
+    sent: str,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _minio_storage_mock(storage_cls)
+    mock_translate.return_value = "[00:01] user: x"
+
+    response = _make_client().post(f"/api/v1/calls/call-abc-123/translate?target_lang={requested}")
+
+    assert response.status_code == 200
+    assert response.json()["target_lang"] == requested
+    assert mock_translate.call_args.args[1] == sent
