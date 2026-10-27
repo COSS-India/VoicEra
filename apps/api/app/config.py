@@ -89,6 +89,10 @@ class Settings(BaseSettings):
         default=10,
         description="Default max concurrent calls per organisation",
     )
+    TRANSLATE_RATE_LIMIT_PER_MIN: int = Field(
+        default=20,
+        description="Max uncached transcript translations per organisation per minute",
+    )
     CAMPAIGN_BATCH_SIZE: int = Field(
         default=10,
         description="Default queued runs processed per campaign batch",
