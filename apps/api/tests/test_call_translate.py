@@ -793,3 +793,25 @@ def test_translate_releases_lock_on_success_and_failure(
 
     assert response.status_code == (502 if llm_fails else 200)
     assert fake_redis.locks == set()
+@pytest.mark.parametrize(
+    "cached_bytes",
+    [b"\xff\xfe not utf-8", None],  # None: oversized body with no Content-Length
+)
+def test_read_cached_translation_treats_bad_objects_as_miss(cached_bytes, monkeypatch) -> None:
+    monkeypatch.setattr(calls, "_MAX_CACHED_TRANSLATION_BYTES", 5)
+    obj = MagicMock()
+    obj.headers = {}
+    obj.read.return_value = cached_bytes if cached_bytes is not None else b"123456"
+    storage = MagicMock()
+    storage.client.get_object.return_value = obj
+
+    assert calls._read_cached_translation(storage, "bucket", "key") is None
+    obj.release_conn.assert_called_once()
+
+
+def test_route_rejects_invalid_lang_even_if_query_validation_is_bypassed() -> None:
+    """Defense in depth: the route itself refuses a tag that would be unsafe
+    in an object key, independent of the FastAPI Query pattern."""
+    with pytest.raises(calls.HTTPException) as excinfo:
+        calls.translate_call_transcript("call-abc-123", "en/../x", _admin_user())
+    assert excinfo.value.status_code == 422
