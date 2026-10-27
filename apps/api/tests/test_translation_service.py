@@ -297,9 +297,12 @@ def test_system_prompt_gives_conversation_context():
     hoon' reversed to 'I'm speaking to VoicEra', 'जी' rendered as 'Gee', and
     'हाँ हाँ' collapsed to a single 'yes'."""
     assert "first person" in _SYSTEM_PROMPT
-    assert "this is <Name> speaking" in _SYSTEM_PROMPT
+    assert "I am speaking from <Name>" in _SYSTEM_PROMPT
+    assert "must not reframe a sentence" in _SYSTEM_PROMPT
+    # 'हलो नमस्ते' came back as 'Hello Hello'.
+    assert "write it once" in _SYSTEM_PROMPT
     assert "never 'Gee'" in _SYSTEM_PROMPT
-    assert "keep every repetition" in _SYSTEM_PROMPT
+    assert "repeats stays repeated" in _SYSTEM_PROMPT
     # '...तीन दो एक है मेरा' came back as '...three, two, mine'.
     assert "comma-separated numerals" in _SYSTEM_PROMPT
     assert "not 'my' or 'mine'" in _SYSTEM_PROMPT
