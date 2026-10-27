@@ -11,7 +11,12 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/components/AuthProvider";
 import Link from "next/link";
 import { listAgents } from "@/lib/api-client";
-import { listAllOrgCalls, listOrgCalls, fetchCallTranscriptText } from "@/lib/api/calls";
+import {
+  getCall,
+  listAllOrgCalls,
+  listOrgCalls,
+  fetchCallTranscriptText,
+} from "@/lib/api/calls";
 import { listCampaigns } from "@/lib/api/campaigns";
 import { parseTranscript } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
@@ -330,13 +335,44 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   const [agentFilterId, setAgentFilterId] = useState(agentFromUrl);
   const [exportCalls, setExportCalls] = useState<CallLogItem[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
+  const [callIdInput, setCallIdInput] = useState("");
+  const [callIdSearch, setCallIdSearch] = useState<string | null>(null);
 
   const hasActiveFilters =
     dateFilter.hasDateFilter ||
     typeFilter !== "all" ||
     statusFilter !== "all" ||
     Boolean(agentFilterId) ||
-    campaignScope.mode !== "all";
+    campaignScope.mode !== "all" ||
+    Boolean(callIdSearch);
+
+  function clearCallIdSearch() {
+    setCallIdSearch(null);
+    setCallIdInput("");
+    setReloadToken((n) => n + 1);
+  }
+
+  async function searchByCallId() {
+    const id = callIdInput.trim();
+    if (!id) return;
+    setLoading(true);
+    setLoadError("");
+    try {
+      const call = await getCall(id);
+      setCalls([call]);
+      setTotal(1);
+      setOffset(0);
+      setCallIdSearch(id);
+      setLastUpdated(new Date());
+    } catch (err) {
+      setCalls([]);
+      setTotal(0);
+      setCallIdSearch(null);
+      setLoadError(err instanceof Error ? err.message : "No call found with that ID.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const listFilters = useMemo(
     () =>
@@ -415,7 +451,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   );
 
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId || callIdSearch) return;
     const id = orgId;
     let cancelled = false;
 
@@ -445,12 +481,12 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     return () => {
       cancelled = true;
     };
-  }, [orgId, listFilters, reloadToken]);
+  }, [orgId, listFilters, reloadToken, callIdSearch]);
 
   // Keep a full filtered set for PDF print export.
   useEffect(() => {
-    if (!orgId) {
-      setExportCalls([]);
+    if (!orgId || callIdSearch) {
+      if (!orgId) setExportCalls([]);
       return;
     }
     let cancelled = false;
@@ -465,7 +501,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     return () => {
       cancelled = true;
     };
-  }, [orgId, listFilters, reloadToken]);
+  }, [orgId, listFilters, reloadToken, callIdSearch]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 30_000);
@@ -478,6 +514,10 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   const canNext = offset + pageCalls.length < displayTotal;
 
   function refresh() {
+    if (callIdSearch) {
+      void searchByCallId();
+      return;
+    }
     setReloadToken((n) => n + 1);
   }
 
@@ -591,6 +631,33 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
               </option>
             ))}
           </Select>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[13px] font-medium text-v-body">Call ID</span>
+          <input
+            type="text"
+            value={callIdInput}
+            onChange={(e) => setCallIdInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void searchByCallId();
+            }}
+            placeholder="Paste call ID"
+            aria-label="Search by call ID"
+            className="h-9 min-w-[10rem] max-w-[14rem] rounded-v-sm border border-v-line bg-white px-2.5 text-[13px] focus:border-v-accent focus:outline-none"
+          />
+          <Button type="button" size="sm" variant="outline" onClick={() => void searchByCallId()}>
+            Search
+          </Button>
+          {callIdSearch ? (
+            <button
+              type="button"
+              onClick={clearCallIdSearch}
+              className="cursor-pointer text-xs font-medium text-v-muted hover:text-v-fg"
+            >
+              Clear
+            </button>
+          ) : null}
         </div>
 
         <span className="ml-auto flex shrink-0 items-center gap-2.5">
