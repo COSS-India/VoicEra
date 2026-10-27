@@ -1,8 +1,8 @@
 """LLM-backed translation for call transcripts.
 
 The whole transcript is sent in one request so each line is translated with
-the full conversation as context. Stateless — the result is computed and
-returned, never persisted.
+the full conversation as context. The service itself is stateless; the
+router caches results in object storage beside the transcript.
 
 Provider selection reuses apps.providers.one_shot_llm — the same
 "which LLM is this org actually configured to use" check GET /configuration/llm
@@ -14,6 +14,7 @@ error rather than silently using a shared credential.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from enum import Enum
 
@@ -76,16 +77,18 @@ _CONTEXT_POLICY = (
     "line using the whole conversation as context, by meaning rather than word-by-word, and "
     "render idioms by their meaning (e.g. 'मेरा दिमाग खराब हो गया है' expresses frustration). "
     "'assistant' lines are the voice agent speaking in the first person on behalf of the "
-    "business (e.g. 'Namaste, VoicEra se bol raha hoon' = 'Hello, I am speaking from VoicEra', never 'speaking to VoicEra'); "
+    "business (e.g. '<Name> se bol raha/rahi hoon' = 'this is <Name> speaking', never 'speaking to <Name>'); "
     "'user' lines are the caller. "
     "Translate honorifics and particles by intent, not sound (e.g. 'जी' = 'Yes'/'Sure', never "
     "'Gee'), and short follow-ups as natural questions (e.g. 'जैसे कि?' = 'Like what?'). "
     "Stay faithful: keep every repetition and greeting the speaker said (e.g. 'हाँ हाँ' = "
-    "'yes, yes'; 'हलो नमस्ते' = 'Hello, Namaste'); never merge or drop words. "
+    "'yes, yes'; 'हलो नमस्ते' = 'Hello, Namaste'); never merge or drop words, and never add, "
+    "omit, or alter numbers or dates. "
     "Write spoken digit sequences as comma-separated numerals, keeping every digit in order "
     "(e.g. 'मेरा नंबर नौ आठ सात है मेरा' = 'My number is 9, 8, 7'); speech recognition may "
     "join words without spaces (e.g. 'एकहैमेरा' = 'एक है मेरा'), so split them first, and "
-    "drop a trailing repeated 'मेरा' after a number — it is filler, not 'my' or 'mine'. "
+    "drop a 'मेरा' (or 'है मेरा') that trails a digit sequence — it is filler, not 'my' or "
+    "'mine', even when that line doesn't itself start with 'my number'. "
     "Keep brand, agent, person, and place names exactly as written. "
     "Fix punctuation for readability; never leave a stray ',' or ':' at the start of a sentence. "
     "Resolve ambiguous words from the conversation's topic rather than the most literal "
@@ -120,6 +123,10 @@ _SYSTEM_PROMPT = " ".join(
         _OUTPUT_FORMAT_POLICY,
     ]
 )
+
+# Part of the translation cache key (see routers/calls.py) — a prompt change
+# yields a new key, so translations made under an older prompt aren't served.
+PROMPT_VERSION = hashlib.sha256(_SYSTEM_PROMPT.encode()).hexdigest()[:12]
 
 # Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format —
 # used to detect when the model has merged/split/dropped lines despite being

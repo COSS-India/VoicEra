@@ -304,19 +304,19 @@ describe("CallStage — Translate", () => {
     );
   });
 
-  it("surfaces the still-being-saved error when the transcript fetch itself 404s", async () => {
+  it("doesn't refetch the transcript after the LLM call, so a saved-transcript 404 can't discard a paid translation", async () => {
     const { ApiError } = await import("@/lib/api/http");
     translateCallTranscriptViaLlm.mockResolvedValue({
       translated_text: "[00:00] user: Hello",
       target_lang: "en",
-      source_lang: "es",
     });
     fetchCallTranscriptText.mockRejectedValue(new ApiError("Not found", 404));
 
     const user = await endedCallWithTranscript();
     await user.click(screen.getByRole("button", { name: /^translate$/i }));
 
-    await waitFor(() => expect(screen.getByText(/still being saved/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Hello/)).toBeInTheDocument());
+    expect(fetchCallTranscriptText).not.toHaveBeenCalled();
   });
 
   it("shows a corrupted-format error when the LLM response has no parseable lines", async () => {

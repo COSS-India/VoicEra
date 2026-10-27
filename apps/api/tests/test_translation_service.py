@@ -258,7 +258,7 @@ def test_system_prompt_gives_conversation_context():
     hoon' reversed to 'I'm speaking to VoicEra', 'जी' rendered as 'Gee', and
     'हाँ हाँ' collapsed to a single 'yes'."""
     assert "first person" in _SYSTEM_PROMPT
-    assert "I am speaking from VoicEra" in _SYSTEM_PROMPT
+    assert "this is <Name> speaking" in _SYSTEM_PROMPT
     assert "never 'Gee'" in _SYSTEM_PROMPT
     assert "keep every repetition" in _SYSTEM_PROMPT
     # '...तीन दो एक है मेरा' came back as '...three, two, mine'.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -13,7 +13,11 @@ from minio.error import S3Error
 
 from app.auth import get_current_user
 from app.routers import calls
-from app.services.translation_service import TranslationError, TranslationErrorReason
+from app.services.translation_service import (
+    PROMPT_VERSION,
+    TranslationError,
+    TranslationErrorReason,
+)
 from app.storage.minio_client import MinIOStorage
 
 _CALL_STORE: dict[str, dict[str, Any]] = {}
@@ -77,13 +81,42 @@ def clear_store() -> None:
     _CALL_STORE.clear()
 
 
-def _minio_storage_mock(storage_cls: MagicMock, raw_transcript: bytes = b"[00:01] user: hello") -> MagicMock:
+def _s3_error(code: str) -> S3Error:
+    return S3Error(
+        code=code,
+        message=code,
+        resource="/voicera-calls/org-1/call-abc-123/x",
+        request_id="req-1",
+        host_id="host-1",
+        response=MagicMock(),
+    )
+
+
+def _minio_storage_mock(
+    storage_cls: MagicMock,
+    raw_transcript: bytes = b"[00:01] user: hello",
+    cached: bytes | None = None,
+    cache_error: str = "NoSuchKey",
+) -> MagicMock:
+    """get_object returns the transcript for transcript.txt; for the
+    translation cache key it returns `cached`, or raises `cache_error`."""
     storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
     storage = storage_cls.return_value
     response_obj = MagicMock()
     response_obj.read.return_value = raw_transcript
     response_obj.headers = {"Content-Length": str(len(raw_transcript))}
     storage.client.get_object.return_value = response_obj
+
+    def get_object(_bucket: str, object_name: str):
+        if "/translation." not in object_name:
+            return DEFAULT
+        if cached is None:
+            raise _s3_error(cache_error)
+        cached_obj = MagicMock()
+        cached_obj.read.return_value = cached
+        return cached_obj
+
+    storage.client.get_object.side_effect = get_object
     return storage
 
 
@@ -357,3 +390,69 @@ def test_translate_requires_authentication() -> None:
 
     response = client.post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
     assert response.status_code in (401, 403)
+
+
+_CACHE_KEY = f"org-1/call-abc-123/translation.hi.{PROMPT_VERSION}.txt"
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_serves_cached_translation_without_llm_call(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls, cached="[00:01] user: नमस्ते".encode())
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    assert response.json()["translated_text"] == "[00:01] user: नमस्ते"
+    mock_translate.assert_not_called()
+    storage.client.put_object.assert_not_called()
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_cache_miss_translates_and_stores_beside_transcript(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls)
+    mock_translate.return_value = "[00:01] user: नमस्ते"
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    mock_translate.assert_called_once()
+    bucket, key, data, length = storage.client.put_object.call_args.args
+    assert (bucket, key) == ("voicera-calls", _CACHE_KEY)
+    assert data.read() == "[00:01] user: नमस्ते".encode()
+    assert length == len("[00:01] user: नमस्ते".encode())
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_cache_errors_never_fail_the_request(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    """A cache read failure other than a miss falls through to the LLM, and a
+    cache write failure still returns the translation."""
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls, cache_error="AccessDenied")
+    storage.client.put_object.side_effect = _s3_error("AccessDenied")
+    mock_translate.return_value = "[00:01] user: नमस्ते"
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    assert response.json()["translated_text"] == "[00:01] user: नमस्ते"
+    mock_translate.assert_called_once()
