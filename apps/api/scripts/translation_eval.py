@@ -26,8 +26,8 @@ PROMPT_EXAMPLES = """call_id=eval
 
 # (must contain any of, must not contain any of) per translated line, lowercase.
 PROMPT_EXAMPLES_EXPECTED = [
-    (["this is voicera"], ["speaking to", "speaking with"]),
-    (["namaste"], ["hello hello"]),
+    (["i am speaking from voicera"], ["this is", "speaking to", "speaking with"]),
+    (["hello"], ["hello, hello", "hello hello", "namaste"]),
     (["sure", "yes"], ["gee"]),
     (["like what"], ["such as"]),
     (["9, 8, 7, 5, 4, 3, 2, 1"], ["mine", "1 my", "1, my"]),
@@ -41,6 +41,7 @@ PROMPT_EXAMPLES_EXPECTED = [
 HELD_OUT = """call_id=eval-held-out
 ---
 [2026-10-20T11:00:00.000+00:00] assistant: Namaste, KisanMitra se bol rahi hoon
+[2026-10-20T11:00:02.000+00:00] user: हैलो नमस्कार
 [2026-10-20T11:00:04.000+00:00] user: जी हाँ, बोलिए
 [2026-10-20T11:00:08.000+00:00] user: मेरा नंबर छह शून्य चार दो पाँच है मेरा
 [2026-10-20T11:00:12.000+00:00] user: छह शून्य चार दोहैमेरा
@@ -48,7 +49,8 @@ HELD_OUT = """call_id=eval-held-out
 [2026-10-20T11:00:20.000+00:00] user: नहीं नहीं, अभी नहीं"""
 
 HELD_OUT_EXPECTED = [
-    (["this is kisanmitra"], ["speaking to", "speaking with"]),
+    (["i am speaking from kisanmitra"], ["this is", "speaking to", "speaking with"]),
+    (["hello"], ["hello, hello", "hello hello"]),
     (["yes"], ["gee"]),
     (["6, 0, 4, 2, 5"], ["mine", "5 my", "5, my"]),
     (["6, 0, 4, 2"], ["mine", "2 my", "2, my"]),
