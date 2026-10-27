@@ -7,6 +7,7 @@ import io
 import os
 from datetime import timedelta
 
+import urllib3
 from minio import Minio
 from minio.error import S3Error
 
@@ -14,12 +15,14 @@ from minio.error import S3Error
 class MinIOStorage:
     """Thin async wrapper around the MinIO Python client."""
 
-    def __init__(self) -> None:
+    def __init__(self, http_client: urllib3.PoolManager | None = None) -> None:
+        # http_client overrides the SDK's default pool (5-min timeouts, 5 retries).
         self.client = Minio(
             os.getenv("MINIO_ENDPOINT", "localhost:9000"),
             access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
             secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin123"),
             secure=os.getenv("MINIO_SECURE", "false").lower() in ("true", "1", "yes"),
+            http_client=http_client,
         )
         self.default_bucket = os.getenv("MINIO_BUCKET", "voicera-calls")
 
@@ -31,8 +34,14 @@ class MinIOStorage:
         )
 
     async def get_object_bytes(self, object_key: str, bucket_name: str | None = None) -> bytes:
+        """Return the whole object's bytes, reading it off the event loop."""
         bucket = bucket_name or self.default_bucket
-        response = await self.get_object(bucket, object_key)
+        # Read and close in the thread too: the response streams, so read()
+        # is blocking network I/O that would otherwise stall the event loop.
+        return await asyncio.to_thread(self._read_object, bucket, object_key)
+
+    def _read_object(self, bucket_name: str, object_name: str) -> bytes:
+        response = self.client.get_object(bucket_name, object_name)
         try:
             return response.read()
         finally:

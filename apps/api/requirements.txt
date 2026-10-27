@@ -20,6 +20,7 @@ pypdf>=4.0.0
 numpy>=1.26.0
 websockets>=12.0
 grpcio>=1.60.0
+google-auth[requests]>=2.20.0
 protobuf>=4.25.0
 arq>=0.26.0
 redis[hiredis]>=5.0.0

@@ -40,8 +40,13 @@ TTS_PRO_VOICES: tuple[str, ...] = (
     "cressida", "willow", "maverick",
 )
 
-TTS_SAMPLE_RATES: tuple[int, ...] = (8000, 16000, 24000)
+# Vendor-documented set for both lightning_v3.1 and lightning_v3.1_pro
+# (docs.smallest.ai model cards; 44.1 kHz is their native rate).
+TTS_SAMPLE_RATES: tuple[int, ...] = (8000, 16000, 24000, 44100)
 DEFAULT_TTS_SAMPLE_RATE = 16000
+
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://api.smallest.ai/waves/v1/tts"
 
 _LIGHTNING_LANGUAGES = {
     "en": "en",

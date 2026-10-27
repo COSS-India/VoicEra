@@ -151,7 +151,7 @@ Three stores, each with a different job.
 | Store | Client | Holds |
 | --- | --- | --- |
 | FerretDB | `pymongo` via `app/database.py` | Every document. Collections include `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`. |
-| MinIO | `minio` SDK via `app/storage/minio_client.py` | Call recordings, transcripts, knowledge PDFs. Bucket `MINIO_BUCKET`, default `voicera-calls`. |
+| MinIO | `minio` SDK via `app/storage/minio_client.py` | Call recordings, transcripts, knowledge PDFs. Bucket `MINIO_BUCKET`, default `voicera-calls`. Cached voice-preview clips live in a separate bucket, `TTS_PREVIEW_BUCKET` (default `voicera-tts-preview`), with a 7-day expiry. |
 | Chroma | `chromadb`, on-disk | Per-organisation vector store under `CHROMA_BASE_DIR`, `/app/app/rag/chroma_data` in Docker. |
 
 `app/database.py` builds the connection URI from `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USER`, `MONGODB_PASSWORD`, and `MONGODB_DATABASE`. `MONGODB_AUTH_SOURCE` and `MONGODB_AUTH_MECHANISM` default to empty strings because FerretDB authenticates with PostgreSQL users over SCRAM-SHA-256. Connections use `serverSelectionTimeoutMS=5000`.

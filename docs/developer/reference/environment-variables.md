@@ -66,6 +66,9 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `FRONTEND_URL` | `http://localhost:3000` | No | Base URL used to build the password-reset link. |
 | `VOICE_SERVER_BASE_URL` | empty | Yes for telephony | Public base URL of the runtime. Required when creating or updating a telephony agent. |
 | `ENABLE_CAMPAIGN_ORCHESTRATOR` | `True` | No | Lets API startup spawn the orchestrator. Docker runs it as a separate service instead. |
+| `TTS_PREVIEW_MAX_CHARS` | `300` | No | Longest text a voice preview accepts. Longer requests get 413. |
+| `TTS_PREVIEW_RATE_LIMIT_PER_MINUTE` | `20` | No | Voice previews per organisation per minute that call the vendor. Cache hits don't count. |
+| `TTS_PREVIEW_TIMEOUT_S` | `15` | No | Seconds to wait for the vendor on one preview before returning 504. |
 
 Rotating `PROVIDER_AUTH_ENCRYPTION_KEY` makes every stored `ProviderAuth` blob undecryptable. Existing provider credentials must be re-entered after a rotation.
 
@@ -131,6 +134,7 @@ MinIO holds call recordings, transcripts, campaign source CSVs, and knowledge-ba
 | `MINIO_SECRET_KEY` | `minioadmin123` | No | Secret key. |
 | `MINIO_SECURE` | `false` | No | Whether to use TLS to reach MinIO. Compose pins it to `false` inside the stack. |
 | `MINIO_BUCKET` | `voicera-calls` | No | Bucket for call artifacts and knowledge-base objects. |
+| `TTS_PREVIEW_BUCKET` | `voicera-tts-preview` | No | Dedicated bucket for cached voice-preview clips. `minio-init` creates it with a 7-day expiry rule. Outside Compose, create the bucket and rule yourself, or the cache silently never hits. Never point it at `MINIO_BUCKET`: the expiry rule would delete call recordings. |
 
 `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` configure the MinIO server; `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` are what the applications authenticate with. `.env.example` ships them as the same pair, so changing only one half locks the applications out.
 

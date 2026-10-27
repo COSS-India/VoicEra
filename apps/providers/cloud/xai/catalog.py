@@ -12,6 +12,9 @@ TTS_MODEL_INTERNAL = "xai-tts"
 
 DEFAULT_TTS_VOICE = "eve"
 
+# Voice preview calls this directly (URL allowlist: never built from request data).
+TTS_ENDPOINT = "https://api.x.ai/v1/tts"
+
 _TTS_LANGS = {
     "en": "en",
     "hi": "hi",
