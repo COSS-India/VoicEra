@@ -27,6 +27,8 @@ class ViClient:
         base_url: str,
         *,
         dni_flows: str | list = "",
+        pull_username: str = "",
+        pull_password: str = "",
     ) -> None:
         creds = require_credentials(
             auth_id, auth_token, provider_label=self.PROVIDER_LABEL
@@ -41,6 +43,8 @@ class ViClient:
             raise ValueError(f"{self.PROVIDER_LABEL} {exc}") from exc
         self.credentials: Credentials = creds
         self.base_url = base_url.rstrip("/")
+        self.pull_username = (pull_username or "").strip()
+        self.pull_password = (pull_password or "").strip()
 
     # --- Application ---
 
@@ -145,6 +149,29 @@ class ViClient:
             provider_call_sid=provider_call_sid,
             provider_handles=provider_handles,
         )
+
+    async def get_obd_report(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        from_number: Optional[str] = None,
+        started_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Outbound pull report for campaigns submitted through this provider."""
+        return await application.get_obd_report(
+            self,
+            metadata=metadata or {},
+            from_number=from_number,
+            started_at=started_at,
+        )
+
+    async def get_obd_status(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """On-demand OBD campaignstatus for stored provider campaign ids."""
+        return await application.get_obd_status(self, metadata=metadata or {})
 
     # --- Recording (carrier APIs unused; Pipecat AudioBuffer only) ---
 

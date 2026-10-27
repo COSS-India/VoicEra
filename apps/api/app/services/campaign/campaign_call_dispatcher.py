@@ -306,6 +306,16 @@ class CampaignCallDispatcher:
         metadata["bulk_from_number"] = bulk_from
         metadata["bulk_provider"] = provider
         metadata["bulk_current_status"] = "running"
+        campain_key = str(provider_handles.get("campain_key") or "").strip()
+        if campain_key:
+            existing = [
+                str(item).strip()
+                for item in (metadata.get("bulk_obd_campaign_ids") or [])
+                if str(item).strip()
+            ]
+            if campain_key not in existing:
+                existing.append(campain_key)
+            metadata["bulk_obd_campaign_ids"] = existing
         repo.update_campaign(campaign_id, orchestrator_metadata=metadata)
 
         processed_count = 0

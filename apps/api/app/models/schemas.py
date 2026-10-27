@@ -1041,6 +1041,56 @@ class CampaignAnalyticsResponse(BaseModel):
     by_call_response: dict[str, int] = Field(default_factory=dict)
 
 
+class ObdReportSummary(BaseModel):
+    attempted: int = 0
+    connected: int = 0
+    timeout: int = 0
+    line_drop: int = 0
+    connection_rate: float = 0.0
+    average_duration_seconds: float = 0.0
+
+
+class ObdReportRow(BaseModel):
+    provider_call_id: Optional[str] = None
+    phone: Optional[str] = None
+    dial_status: Optional[str] = None
+    when: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    recording_url: Optional[str] = None
+    circle: Optional[str] = None
+    operator: Optional[str] = None
+    campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
+
+
+class ObdReportResponse(BaseModel):
+    summary: ObdReportSummary
+    rows: list[ObdReportRow] = Field(default_factory=list)
+
+
+class ObdCampaignStatus(BaseModel):
+    campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
+    campaign_type: Optional[str] = None
+    current_status: Optional[str] = None
+    total_base_received: Optional[int] = None
+    total_call_initiated: Optional[int] = None
+    total_calls_connected: Optional[int] = None
+    total_calls_not_connected: Optional[int] = None
+    remaining_in_queue: Optional[int] = None
+    success_rate_percentage: Optional[float] = None
+    retry_interval: Optional[str] = None
+    retry_within: Optional[int] = None
+    retry_attempts: Optional[int] = None
+    created_time: Optional[str] = None
+    window: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class ObdCampaignStatusResponse(BaseModel):
+    statuses: list[ObdCampaignStatus] = Field(default_factory=list)
+
+
 class CampaignRunsListResponse(BaseModel):
     """Paginated campaign call runs."""
 

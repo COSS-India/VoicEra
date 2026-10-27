@@ -67,7 +67,13 @@ def test_plivo_secrets_and_integration_models():
 def test_vi_secrets_and_dni_flow_fields():
     schema = provider_schemas()["vi"]
     assert schema["name"] == "Vodafone Idea"
-    assert set(schema["secrets"]) == {"auth_id", "auth_token", "dni_flows"}
+    assert set(schema["secrets"]) == {
+        "auth_id",
+        "auth_token",
+        "dni_flows",
+        "pull_username",
+        "pull_password",
+    }
     fields = schema["fields"]
     assert fields["auth_id"]["integration_model"] == "ViAuthId"
     assert fields["auth_token"]["integration_model"] == "ViAuthToken"
@@ -150,7 +156,13 @@ def test_telephony_settings_and_auth_split():
     assert auth["fields"]["auth_id"]["integration_model"] == "VobizAuthId"
 
     vi_auth = provider_auth("vi")
-    assert set(vi_auth["secrets"]) == {"auth_id", "auth_token", "dni_flows"}
+    assert set(vi_auth["secrets"]) == {
+        "auth_id",
+        "auth_token",
+        "dni_flows",
+        "pull_username",
+        "pull_password",
+    }
     assert "dni_flows" in vi_auth["fields"]
     assert vi_auth["fields"]["dni_flows"]["pair_fields"][0]["key"] == "dni"
 

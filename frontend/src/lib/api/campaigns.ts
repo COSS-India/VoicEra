@@ -2,6 +2,8 @@ import { apiFetch, apiFetchBlob } from "@/lib/api/http";
 import type {
   CampaignAnalyticsResponse,
   CampaignApiResponse,
+  ObdCampaignStatusResponse,
+  ObdReportResponse,
   CampaignCsvUploadResponse,
   CampaignProgressResponse,
   CampaignRunItem,
@@ -112,6 +114,24 @@ export async function getCampaignProgress(campaignId: string): Promise<CampaignP
 export async function getCampaignAnalytics(campaignId: string): Promise<CampaignAnalyticsResponse> {
   return apiFetch<CampaignAnalyticsResponse>(
     `/campaign/${encodeURIComponent(campaignId)}/analytics`,
+  );
+}
+
+export async function getObdReport(campaignId: string): Promise<ObdReportResponse> {
+  return apiFetch<ObdReportResponse>(
+    `/campaign/${encodeURIComponent(campaignId)}/obd-report`,
+  );
+}
+
+export async function downloadObdReportCsv(campaignId: string): Promise<Blob> {
+  return apiFetchBlob(
+    `/campaign/${encodeURIComponent(campaignId)}/obd-report?format=csv`,
+  );
+}
+
+export async function getObdStatus(campaignId: string): Promise<ObdCampaignStatusResponse> {
+  return apiFetch<ObdCampaignStatusResponse>(
+    `/campaign/${encodeURIComponent(campaignId)}/obd-status`,
   );
 }
 

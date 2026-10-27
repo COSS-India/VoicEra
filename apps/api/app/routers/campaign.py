@@ -22,9 +22,15 @@ from app.models.schemas import (
     CampaignResponse,
     CampaignRunsListResponse,
     CreateCampaignRequest,
+    ObdCampaignStatusResponse,
+    ObdReportResponse,
     RedialCampaignRequest,
     SuccessResponse,
     UpdateCampaignRequest,
+)
+from app.services.agent_telephony_service import (
+    AgentTelephonyError,
+    load_telephony_client,
 )
 from app.services import agent_service
 from app.services.agent_service import AgentNotFoundError
@@ -53,6 +59,41 @@ def _require_org(current_user: dict[str, Any]) -> str:
     if not org_id:
         raise HTTPException(status_code=400, detail="No active organisation in token")
     return str(org_id)
+
+
+_OBD_CONFLICTS = frozenset({"missing_credentials", "missing_campaign", "missing_dni"})
+
+
+def _load_campaign_client(org_id: str, campaign: dict[str, Any]) -> Any:
+    provider = str(campaign.get("telephony_provider") or "").strip().lower()
+    if not provider:
+        raise HTTPException(
+            status_code=404,
+            detail="Provider report is not available for this campaign",
+        )
+    try:
+        return load_telephony_client(org_id, provider)
+    except AgentTelephonyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+async def _call_obd_method(client: Any, method_name: str, **kwargs: Any) -> dict[str, Any]:
+    method = getattr(client, method_name, None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=404,
+            detail="Provider report is not available for this campaign",
+        )
+    result = await method(**kwargs)
+    if not isinstance(result, dict) or result.get("status") != "success":
+        message = "Provider request failed"
+        code = ""
+        if isinstance(result, dict):
+            message = str(result.get("message") or message)
+            code = str(result.get("code") or "")
+        status_code = 409 if code in _OBD_CONFLICTS else 502
+        raise HTTPException(status_code=status_code, detail=message)
+    return result
 
 
 def _require_delete_role(current_user: dict[str, Any]) -> None:
@@ -493,6 +534,109 @@ async def get_campaign_analytics_route(
         progress_percentage=(processed_rows / total_rows * 100) if total_rows > 0 else 0.0,
         **stats,
     )
+
+
+def _obd_campaign_kwargs(campaign: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "metadata": campaign.get("orchestrator_metadata") or {},
+        "from_number": campaign.get("from_number"),
+        "started_at": campaign.get("started_at"),
+    }
+
+
+def _obd_report_csv(campaign_id: str, rows: list[dict[str, Any]]) -> StreamingResponse:
+    def generate():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(
+            [
+                "phone",
+                "dial_status",
+                "when",
+                "duration_seconds",
+                "recording_url",
+                "provider_call_id",
+                "circle",
+                "operator",
+                "campaign_id",
+                "campaign_name",
+            ]
+        )
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+        for row in rows:
+            writer.writerow(
+                [
+                    row.get("phone") or "",
+                    row.get("dial_status") or "",
+                    row.get("when") or "",
+                    "" if row.get("duration_seconds") is None else row.get("duration_seconds"),
+                    row.get("recording_url") or "",
+                    row.get("provider_call_id") or "",
+                    row.get("circle") or "",
+                    row.get("operator") or "",
+                    row.get("campaign_id") or "",
+                    row.get("campaign_name") or "",
+                ]
+            )
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="obd-report-{campaign_id}.csv"'
+        },
+    )
+
+
+@router.get("/{campaign_id}/obd-report")
+async def get_obd_report_route(
+    campaign_id: str,
+    report_format: str = Query(default="json", alias="format"),
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    if report_format not in {"json", "csv"}:
+        raise HTTPException(status_code=400, detail="format must be json or csv")
+    org_id = _require_org(current_user)
+    try:
+        campaign = repo.get_campaign_for_org(org_id, campaign_id)
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    client = _load_campaign_client(org_id, campaign)
+    result = await _call_obd_method(
+        client, "get_obd_report", **_obd_campaign_kwargs(campaign)
+    )
+    rows = result.get("rows") if isinstance(result.get("rows"), list) else []
+    if report_format == "csv":
+        return _obd_report_csv(campaign_id, rows)
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    return ObdReportResponse(summary=summary, rows=rows)
+
+
+@router.get("/{campaign_id}/obd-status", response_model=ObdCampaignStatusResponse)
+async def get_obd_status_route(
+    campaign_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> ObdCampaignStatusResponse:
+    org_id = _require_org(current_user)
+    try:
+        campaign = repo.get_campaign_for_org(org_id, campaign_id)
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    client = _load_campaign_client(org_id, campaign)
+    result = await _call_obd_method(
+        client,
+        "get_obd_status",
+        metadata=campaign.get("orchestrator_metadata") or {},
+    )
+    statuses = result.get("statuses") if isinstance(result.get("statuses"), list) else []
+    return ObdCampaignStatusResponse(statuses=statuses)
 
 
 @router.post("/{campaign_id}/redial", response_model=CampaignResponse, status_code=201)
