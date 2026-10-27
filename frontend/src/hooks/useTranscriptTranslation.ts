@@ -5,6 +5,14 @@ import { translateCallTranscriptViaLlm } from "@/lib/api/calls";
 import { parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { ApiError } from "@/lib/api-client";
 
+// The backend allows one in-flight translation per call + language and
+// answers duplicates with 409 (no LLM call, no quota). Retrying lands on the
+// cached result once the first request finishes; 20 × 3s outlasts a slow LLM.
+const IN_PROGRESS_RETRY_MS = 3_000;
+const IN_PROGRESS_MAX_RETRIES = 20;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 interface TranslationResult<TLine> {
   lines: TLine[];
   lang: string;
@@ -62,7 +70,19 @@ export function useTranscriptTranslation<TLine>() {
       if (!callId) {
         throw new Error("Transcript is still being saved — try again in a few seconds.");
       }
-      const response = await translateCallTranscriptViaLlm(callId, targetLang);
+      let response: Awaited<ReturnType<typeof translateCallTranscriptViaLlm>> | undefined;
+      for (let attempt = 0; response === undefined; attempt += 1) {
+        try {
+          response = await translateCallTranscriptViaLlm(callId, targetLang);
+        } catch (err) {
+          if (!(err instanceof ApiError && err.status === 409)) throw err;
+          if (attempt >= IN_PROGRESS_MAX_RETRIES) {
+            throw new Error("Translation is taking longer than expected. Please try again.");
+          }
+          await sleep(IN_PROGRESS_RETRY_MS);
+          if (isStale()) return;
+        }
+      }
       if (isStale()) return;
       const parsedLines = parseTranscript(response.translated_text);
       if (parsedLines.length === 0) {
