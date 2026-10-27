@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import DEFAULT, MagicMock, patch
 
 import pytest
+import redis
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -81,6 +82,38 @@ def clear_store() -> None:
     _CALL_STORE.clear()
 
 
+class _FakeRedis:
+    """Just enough of redis.Redis for the translate rate limiter."""
+
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+        self.fail = False
+
+    def pipeline(self) -> "_FakeRedis":
+        self._ops: list[str] = []
+        return self
+
+    def incr(self, key: str) -> None:
+        self._ops.append(key)
+
+    def expire(self, key: str, seconds: int) -> None:
+        pass
+
+    def execute(self) -> list[int]:
+        if self.fail:
+            raise redis.ConnectionError("down")
+        key = self._ops[0]
+        self.counts[key] = self.counts.get(key, 0) + 1
+        return [self.counts[key], True]
+
+
+@pytest.fixture(autouse=True)
+def fake_redis(monkeypatch) -> _FakeRedis:
+    fake = _FakeRedis()
+    monkeypatch.setattr(calls, "_get_redis", lambda: fake)
+    return fake
+
+
 def _s3_error(code: str) -> S3Error:
     return S3Error(
         code=code,
@@ -114,6 +147,7 @@ def _minio_storage_mock(
             raise _s3_error(cache_error)
         cached_obj = MagicMock()
         cached_obj.read.return_value = cached
+        cached_obj.headers = {"Content-Length": str(len(cached))}
         return cached_obj
 
     storage.client.get_object.side_effect = get_object
@@ -456,3 +490,172 @@ def test_translate_cache_errors_never_fail_the_request(
     assert response.status_code == 200
     assert response.json()["translated_text"] == "[00:01] user: नमस्ते"
     mock_translate.assert_called_once()
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_cache_connection_errors_never_fail_the_request(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    """Non-S3 failures (MinIO unreachable) on the cache read or write must not
+    turn a paid translation into a 500."""
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls)
+    transcript_get = storage.client.get_object.side_effect
+
+    def get_object(bucket: str, name: str):
+        if "/translation." in name:
+            raise ConnectionError("minio unreachable")
+        return transcript_get(bucket, name)
+
+    storage.client.get_object.side_effect = get_object
+    storage.client.put_object.side_effect = ConnectionError("minio unreachable")
+    mock_translate.return_value = "[00:01] user: नमस्ते"
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    mock_translate.assert_called_once()
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_ignores_oversized_cached_object(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls, cached=b"x")
+    transcript_get = storage.client.get_object.side_effect
+
+    def get_object(bucket: str, name: str):
+        obj = transcript_get(bucket, name)
+        if "/translation." in name:
+            obj.headers = {"Content-Length": str(calls._MAX_CACHED_TRANSLATION_BYTES + 1)}
+        return obj
+
+    storage.client.get_object.side_effect = get_object
+    mock_translate.return_value = "[00:01] user: नमस्ते"
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    assert response.json()["translated_text"] == "[00:01] user: नमस्ते"
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_rate_limits_uncached_translations_per_org(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(calls.settings, "TRANSLATE_RATE_LIMIT_PER_MIN", 2)
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _minio_storage_mock(storage_cls)
+    mock_translate.return_value = "[00:01] user: नमस्ते"
+    client = _make_client()
+
+    codes = [client.post("/api/v1/calls/call-abc-123/translate?target_lang=hi") for _ in range(3)]
+
+    assert [r.status_code for r in codes] == [200, 200, 429]
+    assert 1 <= int(codes[2].headers["Retry-After"]) <= 60
+    assert mock_translate.call_count == 2
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_cache_hits_are_not_rate_limited(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(calls.settings, "TRANSLATE_RATE_LIMIT_PER_MIN", 0)
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _minio_storage_mock(storage_cls, cached="[00:01] user: नमस्ते".encode())
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    mock_translate.assert_not_called()
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_fails_closed_when_rate_limiter_unavailable(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    fake_redis: _FakeRedis,
+) -> None:
+    fake_redis.fail = True
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _minio_storage_mock(storage_cls)
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 503
+    mock_translate.assert_not_called()
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_rejects_trailing_newline_lang_before_touching_storage(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=en%0A")
+
+    assert response.status_code == 422
+    storage_cls.return_value.client.get_object.assert_not_called()
+    storage_cls.return_value.client.put_object.assert_not_called()
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_cache_key_language_is_case_normalised(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls)
+    mock_translate.return_value = "[00:01] user: Hello"
+
+    _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=EN-US")
+
+    key = storage.client.put_object.call_args.args[1]
+    assert key == f"org-1/call-abc-123/translation.en-us.{PROMPT_VERSION}.txt"
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_does_not_cache_what_it_could_never_serve(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(calls, "_MAX_CACHED_TRANSLATION_BYTES", 10)
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    storage = _minio_storage_mock(storage_cls)
+    mock_translate.return_value = "[00:01] user: a long translation"
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    storage.client.put_object.assert_not_called()
