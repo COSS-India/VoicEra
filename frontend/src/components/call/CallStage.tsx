@@ -22,8 +22,6 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Spinner } from "@/components/ui/Spinner";
 import { connectBrowserCall, createBrowserPipecatClient } from "@/lib/pipecat/createBrowserClient";
 import { useTranscriptTranslation } from "@/hooks/useTranscriptTranslation";
-import { fetchCallTranscriptText } from "@/lib/api/calls";
-import { parseTranscript } from "@/lib/transcript";
 
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -351,11 +349,8 @@ function CallStage({
 
   /** Translates the server-persisted transcript via the backend LLM, not
    * the client's local message list — the two can have a different
-   * number/segmentation of turns, so parsed backend lines are validated
-   * against the transcript's own persisted line count. That count is fetched
-   * lazily (inside the hook's own try/catch) so a not-yet-persisted
-   * transcript surfaces the hook's normal "still being saved" error instead
-   * of throwing ahead of it. */
+   * number/segmentation of turns; the backend validates the line count
+   * against the persisted transcript. */
   async function handleTranslate() {
     const originalMessages: TranslatedLine[] = visibleMessages.map((m) => ({
       role: roleLabel(m.role),
@@ -366,8 +361,6 @@ function CallStage({
     await translation.translate(targetLang, {
       originalLines: originalMessages,
       callId,
-      resolveExpectedLineCount: async () =>
-        callId ? parseTranscript(await fetchCallTranscriptText(callId)).length : originalMessages.length,
       fromParsedLine: (line) => ({ role: roleLabel(line.role), content: line.content }),
     });
   }

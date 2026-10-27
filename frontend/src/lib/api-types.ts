@@ -263,7 +263,7 @@ export interface CallMetricsResponse {
   };
 }
 
-/** LLM-backed transcript translation result. Computed on demand, never persisted. */
+/** LLM-backed transcript translation result. Cached server-side beside the transcript. */
 export interface CallTranslateResponse {
   translated_text: string;
   target_lang: string;

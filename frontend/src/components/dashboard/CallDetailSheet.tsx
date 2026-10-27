@@ -262,11 +262,9 @@ export function CallDetailSheet({
   const audioElRef = useRef<HTMLAudioElement>(null);
   const [hasLatencyData, setHasLatencyData] = useState(false);
 
-  // Translation is computed client-side per session — never persisted, never
-  // cached across calls. This is a deliberate privacy/cost trade-off, not an
-  // oversight: call transcripts are sensitive data, so no cross-session or
-  // cross-reload cache is kept, even though it means re-paying the LLM cost
-  // on every view/reopen of the same call. `translation.result.lines` holds
+  // The backend caches each translation beside the call's transcript in the
+  // org's own storage (keyed by language + prompt version), so reopening a
+  // call doesn't re-pay the LLM cost. `translation.result.lines` holds
   // already-structured TranscriptLine[], not free text: the LLM path
   // parses + validates its response before ever setting the result, so
   // rendering never needs to re-parse or guess at a possibly-corrupted shape.
@@ -412,7 +410,6 @@ export function CallDetailSheet({
     await translation.translate(targetLang, {
       originalLines: transcript,
       callId: call.call_id,
-      resolveExpectedLineCount: async () => transcript.length,
       fromParsedLine: (line) => line,
     });
   }
