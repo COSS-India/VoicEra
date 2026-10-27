@@ -56,7 +56,7 @@ from app.services.translation_service import (
     PROMPT_VERSION,
     TranslationError,
     TranslationErrorReason,
-    is_valid_language_tag,
+    normalize_target_lang,
     translate_transcript,
 )
 from app.services.web_call_service import WebCallError, register_web_call
@@ -493,13 +493,14 @@ def translate_call_transcript(
     blocking I/O inside it would freeze the entire process for the duration
     of the LLM call, blocking every other request on the server.
     """
-    # Re-checked here (the Query pattern already enforces it) because
-    # target_lang becomes part of an object key before the service's own
-    # check would run.
-    if not is_valid_language_tag(target_lang):
+    # Shape is also enforced by the Query pattern; this adds the supported-
+    # language allowlist and runs before target_lang becomes part of an
+    # object key or the service is reached.
+    lang = normalize_target_lang(target_lang)
+    if lang is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="target_lang is not a valid language tag.",
+            detail="Unsupported target language.",
         )
     org_id = _require_active_org(current_user)
     bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
@@ -509,7 +510,7 @@ def translate_call_transcript(
     # transcript, so the same isolation applies — and any future call
     # deletion must remove the whole prefix, not just transcript.txt.
     cache_key = posixpath.join(
-        posixpath.dirname(object_name), f"translation.{target_lang.lower()}.{PROMPT_VERSION}.txt"
+        posixpath.dirname(object_name), f"translation.{lang}.{PROMPT_VERSION}.txt"
     )
     cached_text = _read_cached_translation(storage, bucket_name, cache_key)
     if cached_text is not None:
@@ -559,7 +560,7 @@ def translate_call_transcript(
             response.release_conn()
 
         try:
-            translated_text = translate_transcript(raw_text, target_lang, org_id)
+            translated_text = translate_transcript(raw_text, lang, org_id)
         except TranslationError as exc:
             _raise_translation_error(exc)
     finally:

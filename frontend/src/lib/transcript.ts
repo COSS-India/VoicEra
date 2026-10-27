@@ -56,3 +56,21 @@ export function parseTranscript(raw: string): TranscriptLine[] {
     offsetSeconds: r.ms === null ? 0 : Math.max(0, (r.ms - base) / 1000),
   }));
 }
+
+/** Base codes the backend translates into — mirrors SUPPORTED_TARGET_LANGS in
+ * apps/api/app/services/translation_service.py (built from
+ * apps/providers/languages.py; 'or' is the ISO code for Odia). The backend
+ * rejects anything else with 422, so an unsupported browser language falls
+ * back to English rather than making the Translate button fail. */
+export const SUPPORTED_TRANSLATION_LANGS: ReadonlySet<string> = new Set([
+  "hi", "bn", "ta", "te", "gu", "kn", "ml", "mr", "pa", "or", "as", "ur", "ne", "sa",
+  "brx", "doi", "kok", "ks", "mai", "mni", "sat", "sd", "bh", "bho", "bgc", "hne", "en",
+]);
+
+/** The viewer's browser language as a translation target, or "en" if the
+ * backend doesn't serve it. */
+export function translationTargetLang(browserLang?: string): string {
+  const raw = browserLang ?? (typeof navigator !== "undefined" ? navigator.language : "") ?? "";
+  const base = (raw || "en").split("-")[0]!.toLowerCase();
+  return SUPPORTED_TRANSLATION_LANGS.has(base) ? base : "en";
+}

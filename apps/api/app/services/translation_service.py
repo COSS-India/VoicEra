@@ -21,6 +21,7 @@ import secrets
 from enum import Enum
 
 from app.services import auth_service
+from apps.providers.languages import LANGUAGES
 from apps.providers.one_shot_llm import OneShotLLMError, call_first_available
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,30 @@ def _new_delimiter_tag() -> str:
 def is_valid_language_tag(target_lang: str) -> bool:
     return _LANGUAGE_TAG_RE.fullmatch(target_lang) is not None
 
+
+# Languages the product serves (apps/providers/languages.py), as base codes.
+# The regex above only checks shape — without this, made-up tags like 'qq'
+# were accepted, silently answered in English, and each cost a paid call
+# and a cached object. 'or' is the ISO code browsers send for Odia; the
+# catalog uses 'od'. frontend/src/lib/transcript.ts mirrors this set.
+_LANG_ALIASES = {"od": "or"}
+SUPPORTED_TARGET_LANGS = frozenset(
+    _LANG_ALIASES.get(base, base)
+    for base in (code.split("-")[0].lower() for code in LANGUAGES)
+    if base != "multi"
+)
+
+
+def normalize_target_lang(target_lang: str) -> str | None:
+    """Lowercased base code ('en-US' -> 'en', 'od' -> 'or') if the product
+    supports it, else None. Used for both the prompt and the cache key, so
+    'en', 'EN' and 'en-US' share one cached translation."""
+    if not is_valid_language_tag(target_lang):
+        return None
+    base = target_lang.split("-")[0].lower()
+    base = _LANG_ALIASES.get(base, base)
+    return base if base in SUPPORTED_TARGET_LANGS else None
+
 # Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format.
 # Only lines in this format are sent to the model; anything else (the
 # call_id header, a malformed line) is passed through untouched, so one odd
@@ -215,9 +240,10 @@ def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> 
     text = (raw_transcript or "").strip()
     if not text:
         raise TranslationError("Transcript is empty.", reason=TranslationErrorReason.INVALID_INPUT)
-    if not is_valid_language_tag(target_lang):
+    lang = normalize_target_lang(target_lang)
+    if lang is None:
         raise TranslationError(
-            f"target_lang {target_lang!r} is not a valid language tag.",
+            f"target_lang {target_lang!r} is not a supported language.",
             reason=TranslationErrorReason.INVALID_INPUT,
         )
     if len(text) > MAX_TRANSCRIPT_CHARS:
@@ -239,7 +265,7 @@ def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> 
         dispatched = call_first_available(
             org_id,
             _SYSTEM_PROMPT.replace("{tag}", tag),
-            _user_prompt("\n".join(lines[i] for i in slots), target_lang, tag),
+            _user_prompt("\n".join(lines[i] for i in slots), lang, tag),
             resolve_auth=_resolve_auth,
             list_configured_providers=auth_service.list_configured_providers,
             jwt_subject=f"translate-{org_id}",

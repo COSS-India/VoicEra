@@ -22,6 +22,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Spinner } from "@/components/ui/Spinner";
 import { connectBrowserCall, createBrowserPipecatClient } from "@/lib/pipecat/createBrowserClient";
 import { useTranscriptTranslation } from "@/hooks/useTranscriptTranslation";
+import { translationTargetLang } from "@/lib/transcript";
 
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -188,7 +189,7 @@ function CallStage({
 
   const isConnected = transportState === "ready" || transportState === "connected";
   const showDetails = isLive || hasEnded;
-  const targetLang = ((typeof navigator !== "undefined" && navigator.language) || "en").split("-")[0]!;
+  const targetLang = translationTargetLang();
 
   useEffect(() => {
     if (!isConnected) return;

@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { fetchCallRecordingBlob, fetchCallTranscriptText, getCallMetrics } from "@/lib/api/calls";
-import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
+import { formatClockLabel, parseTranscript, translationTargetLang, type TranscriptLine } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
 import type { CallLogItem } from "@/lib/api-types";
 import { useTranscriptTranslation } from "@/hooks/useTranscriptTranslation";
@@ -276,7 +276,7 @@ export function CallDetailSheet({
   // for Bhili) instead of a clear error. Restricting to the browser's own
   // language avoids that gap entirely. Guarded for a future server-rendered
   // variant of this component, though today it only ever mounts client-side.
-  const targetLang = ((typeof navigator !== "undefined" && navigator.language) || "en").split("-")[0]!;
+  const targetLang = translationTargetLang();
 
   useEffect(() => {
     let cancelled = false;
