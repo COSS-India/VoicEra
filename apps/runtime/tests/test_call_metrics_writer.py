@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pipecat.observers.user_bot_latency_observer import TTFBBreakdownMetrics
 
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
 
@@ -96,6 +97,36 @@ def test_writer_stamps_breakdown_with_owning_turn() -> None:
 
     breakdowns = writer.to_dict()["latencies"]["breakdowns"]
     assert [b["turn_number"] for b in breakdowns] == [1, 3]
+
+
+def test_writer_adds_late_llm_ttfb_to_latest_breakdown() -> None:
+    """A hold message closes the breakdown before the LLM answers; the LLM
+    TTFB reported afterwards joins that breakdown with its stage stamped."""
+    writer = CallMetricsWriter(
+        org_id="org-1",
+        call_id="call-1",
+        session_label="s",
+        processor_stages={"MyLLM": "llm", "MyTTS": "tts"},
+    )
+    payload = {
+        "ttfb": [{"processor": "MyTTS", "duration_secs": 0.35}],
+        "user_turn_start_time": 1.0,
+    }
+    writer.record_turn_started(2)
+    writer.record_latency_breakdown(
+        type("Breakdown", (), {"model_dump": lambda self: payload})()
+    )
+    writer.record_late_llm_ttfb(
+        TTFBBreakdownMetrics(
+            processor="MyLLM", model="gpt", start_time=1.5, duration_secs=5.4
+        )
+    )
+
+    entries = writer.to_dict()["latencies"]["breakdowns"][0]["ttfb"]
+    assert [(e["stage"], e["duration_secs"]) for e in entries] == [
+        ("tts", 0.35),
+        ("llm", 5.4),
+    ]
 
 
 @pytest.mark.asyncio
