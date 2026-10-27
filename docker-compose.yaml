@@ -284,6 +284,7 @@ services:
         condition: service_healthy
     networks:
       - app-network
+      - dpg_net
 
   frontend:
     build:
@@ -338,3 +339,5 @@ volumes:
 networks:
   app-network:
     driver: bridge
+  dpg_net:
+    external: true
