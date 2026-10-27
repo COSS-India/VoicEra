@@ -39,7 +39,7 @@ MAX_TRANSCRIPT_CHARS = 22_000  # ~20 min call
 # for the occasional bracketed [note: ...] the model appends to garbled
 # lines. Must stay ahead of MAX_TRANSCRIPT_CHARS's worst-case token-
 # equivalent, or completions get silently truncated mid-transcript and
-# _count_transcript_lines() rejects the result with an error that a retry
+# translate_transcript's line-count check rejects the result with an error that a retry
 # can never fix.
 MAX_OUTPUT_TOKENS = MAX_TRANSCRIPT_CHARS + 2_000
 
@@ -148,14 +148,11 @@ def _new_delimiter_tag() -> str:
 def is_valid_language_tag(target_lang: str) -> bool:
     return _LANGUAGE_TAG_RE.fullmatch(target_lang) is not None
 
-# Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format —
-# used to detect when the model has merged/split/dropped lines despite being
-# told to keep the same line structure, since nothing else validates that.
+# Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format.
+# Only lines in this format are sent to the model; anything else (the
+# call_id header, a malformed line) is passed through untouched, so one odd
+# line can't make the model "fix" it and break the line-count check forever.
 _TRANSCRIPT_LINE_RE = re.compile(r"^\[[^\]]+]\s*[^:\]]+:\s*.*$")
-
-
-def _count_transcript_lines(text: str) -> int:
-    return sum(1 for line in text.split("\n") if _TRANSCRIPT_LINE_RE.match(line))
 
 
 class TranslationErrorReason(str, Enum):
@@ -230,12 +227,19 @@ def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> 
             reason=TranslationErrorReason.OVERSIZED,
         )
 
+    lines = text.split("\n")
+    slots = [i for i, line in enumerate(lines) if _TRANSCRIPT_LINE_RE.match(line)]
+    if not slots:
+        raise TranslationError(
+            "Transcript has no translatable lines.", reason=TranslationErrorReason.INVALID_INPUT
+        )
+
     tag = _new_delimiter_tag()
     try:
         dispatched = call_first_available(
             org_id,
             _SYSTEM_PROMPT.replace("{tag}", tag),
-            _user_prompt(text, target_lang, tag),
+            _user_prompt("\n".join(lines[i] for i in slots), target_lang, tag),
             resolve_auth=_resolve_auth,
             list_configured_providers=auth_service.list_configured_providers,
             jwt_subject=f"translate-{org_id}",
@@ -264,12 +268,16 @@ def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> 
         raise TranslationError(
             "Translation returned an empty result.", reason=TranslationErrorReason.UPSTREAM
         )
-    # If the original transcript has zero matching lines, the count comparison
-    # can't detect corruption (0 != 0 trivially passes) — nothing to compare against.
-    original_line_count = _count_transcript_lines(text)
-    if original_line_count > 0 and _count_transcript_lines(result) != original_line_count:
+    # Non-transcript chatter the model adds (a preamble, a blank line) is
+    # dropped; a merged/split/dropped line still fails the count check.
+    translated = [
+        line.strip() for line in result.split("\n") if _TRANSCRIPT_LINE_RE.match(line.strip())
+    ]
+    if len(translated) != len(slots):
         raise TranslationError(
             "The translation model changed the transcript's line structure. Please try again.",
             reason=TranslationErrorReason.UPSTREAM,
         )
-    return result
+    for i, line in zip(slots, translated):
+        lines[i] = line
+    return "\n".join(lines)
