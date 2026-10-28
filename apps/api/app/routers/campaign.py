@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import uuid
+import zipfile
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.auth import get_current_user, verify_api_key
 from app.constants.campaign import DEFAULT_CAMPAIGN_RETRY_CONFIG
@@ -38,6 +40,7 @@ from app.services.call_log_service import (
     CallLogListFilters,
     count_call_logs,
     get_call_analytics,
+    get_call_log_by_provider_sid,
     list_call_logs_by_campaign,
     transform_call_log_urls,
 )
@@ -48,6 +51,8 @@ from app.services.campaign.source_sync_factory import get_sync_service
 from app.services.campaign.status_processor import handle_call_terminal
 from app.services import phone_number_service
 from app.storage.minio_client import MinIOStorage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 
@@ -544,51 +549,166 @@ def _obd_campaign_kwargs(campaign: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _obd_report_csv(campaign_id: str, rows: list[dict[str, Any]]) -> StreamingResponse:
-    def generate():
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
+_OBD_CSV_FIELDS = (
+    "phone",
+    "dial_status",
+    "when",
+    "duration_seconds",
+    "recording_url",
+    "provider_call_id",
+    "system_call_id",
+    "circle",
+    "operator",
+    "campaign_id",
+    "campaign_name",
+)
+
+
+def _provider_call_id(row: dict[str, Any]) -> str:
+    return str(row.get("provider_call_id") or "").strip()
+
+
+def _call_logs_for_rows(
+    org_id: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """History rows keyed by provider call id."""
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        sid = _provider_call_id(row)
+        if not sid or sid in found:
+            continue
+        log = get_call_log_by_provider_sid(org_id, sid)
+        if log:
+            found[sid] = log
+    return found
+
+
+def _system_call_id(log: dict[str, Any] | None) -> str:
+    if not log:
+        return ""
+    return str(log.get("call_id") or "").strip()
+
+
+def _obd_report_csv_text(
+    rows: list[dict[str, Any]],
+    logs: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    saved = logs or {}
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_OBD_CSV_FIELDS)
+    for row in rows:
+        sid = _provider_call_id(row)
         writer.writerow(
             [
-                "phone",
-                "dial_status",
-                "when",
-                "duration_seconds",
-                "recording_url",
-                "provider_call_id",
-                "circle",
-                "operator",
-                "campaign_id",
-                "campaign_name",
+                row.get("phone") or "",
+                row.get("dial_status") or "",
+                row.get("when") or "",
+                "" if row.get("duration_seconds") is None else row.get("duration_seconds"),
+                row.get("recording_url") or "",
+                sid,
+                _system_call_id(saved.get(sid)),
+                row.get("circle") or "",
+                row.get("operator") or "",
+                row.get("campaign_id") or "",
+                row.get("campaign_name") or "",
             ]
         )
-        yield buffer.getvalue()
-        buffer.seek(0)
-        buffer.truncate(0)
-        for row in rows:
-            writer.writerow(
-                [
-                    row.get("phone") or "",
-                    row.get("dial_status") or "",
-                    row.get("when") or "",
-                    "" if row.get("duration_seconds") is None else row.get("duration_seconds"),
-                    row.get("recording_url") or "",
-                    row.get("provider_call_id") or "",
-                    row.get("circle") or "",
-                    row.get("operator") or "",
-                    row.get("campaign_id") or "",
-                    row.get("campaign_name") or "",
-                ]
-            )
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate(0)
+    return buffer.getvalue()
 
+
+def _obd_report_csv(
+    campaign_id: str,
+    rows: list[dict[str, Any]],
+    logs: dict[str, dict[str, Any]],
+) -> StreamingResponse:
     return StreamingResponse(
-        generate(),
+        iter([_obd_report_csv_text(rows, logs)]),
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="obd-report-{campaign_id}.csv"'
+        },
+    )
+
+
+def _call_filename(call_id: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in call_id.strip())
+    return f"calls/{cleaned or 'call'}.txt"
+
+
+async def _transcript_text(log: dict[str, Any] | None) -> str:
+    if not log:
+        return ""
+    parsed = MinIOStorage.parse_minio_url(str(log.get("transcript_url") or ""))
+    if not parsed:
+        return ""
+    bucket, key = parsed
+    try:
+        data = await MinIOStorage().get_object_bytes(key, bucket_name=bucket)
+    except Exception:
+        logger.warning(
+            "OBD transcript read failed call_id=%s",
+            log.get("call_id"),
+            exc_info=True,
+        )
+        return ""
+    return data.decode("utf-8", errors="replace").strip()
+
+
+def _call_file(
+    provider_call_id: str,
+    system_call_id: str,
+    recording_url: str,
+    transcript: str,
+) -> str:
+    body = (
+        f"provider_call_id: {provider_call_id}\n"
+        f"system_call_id: {system_call_id}\n"
+        f"recording_url: {recording_url}\n"
+    )
+    if transcript:
+        body = f"{body}\n{transcript}\n"
+    return body
+
+
+async def _obd_report_zip(
+    campaign_id: str,
+    rows: list[dict[str, Any]],
+    logs: dict[str, dict[str, Any]],
+) -> Response:
+    """Full CSV in ``csv/``, and one file per call in ``calls/``."""
+    buffer = io.BytesIO()
+    seen: set[str] = set()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            f"csv/obd-report-{campaign_id}.csv",
+            _obd_report_csv_text(rows, logs),
+        )
+        for row in rows:
+            sid = _provider_call_id(row)
+            if not sid:
+                continue
+            log = logs.get(sid)
+            system_id = _system_call_id(log)
+            name = _call_filename(system_id or sid)
+            if name in seen:
+                continue
+            seen.add(name)
+            archive.writestr(
+                name,
+                _call_file(
+                    sid,
+                    system_id,
+                    str(row.get("recording_url") or "").strip(),
+                    await _transcript_text(log),
+                ),
+            )
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="obd-report-{campaign_id}.zip"'
         },
     )
 
@@ -599,8 +719,8 @@ async def get_obd_report_route(
     report_format: str = Query(default="json", alias="format"),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
-    if report_format not in {"json", "csv"}:
-        raise HTTPException(status_code=400, detail="format must be json or csv")
+    if report_format not in {"json", "csv", "zip"}:
+        raise HTTPException(status_code=400, detail="format must be json, csv, or zip")
     org_id = _require_org(current_user)
     try:
         campaign = repo.get_campaign_for_org(org_id, campaign_id)
@@ -612,8 +732,11 @@ async def get_obd_report_route(
         client, "get_obd_report", **_obd_campaign_kwargs(campaign)
     )
     rows = result.get("rows") if isinstance(result.get("rows"), list) else []
-    if report_format == "csv":
-        return _obd_report_csv(campaign_id, rows)
+    if report_format in {"csv", "zip"}:
+        logs = _call_logs_for_rows(org_id, rows)
+        if report_format == "csv":
+            return _obd_report_csv(campaign_id, rows, logs)
+        return await _obd_report_zip(campaign_id, rows, logs)
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     return ObdReportResponse(summary=summary, rows=rows)
 

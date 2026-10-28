@@ -7,7 +7,7 @@ import { StatCard } from "@/components/ui/Card";
 import { Dialog, DialogHeader } from "@/components/ui/Dialog";
 import { Spinner } from "@/components/ui/Spinner";
 import {
-  downloadObdReportCsv,
+  downloadObdReport,
   getObdReport,
   getObdStatus,
 } from "@/lib/api/campaigns";
@@ -57,8 +57,8 @@ export function ObdReportDialog({ campaignId, campaignName, onClose }: ReportPro
     setDownloading(true);
     setError("");
     try {
-      const blob = await downloadObdReportCsv(campaignId);
-      downloadBlob(blob, "text/csv", `obd-report-${campaignId}.csv`);
+      const blob = await downloadObdReport(campaignId);
+      downloadBlob(blob, "application/zip", `obd-report-${campaignId}.zip`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't download the report.");
     } finally {
@@ -84,7 +84,7 @@ export function ObdReportDialog({ campaignId, campaignName, onClose }: ReportPro
             onClick={() => void downloadCsv()}
           >
             {downloading ? <Spinner light={false} /> : <Download className="size-3.5" strokeWidth={1.75} />}
-            Download CSV
+            Download report
           </Button>
         </div>
         {error ? <p className="text-sm text-v-danger">{error}</p> : null}

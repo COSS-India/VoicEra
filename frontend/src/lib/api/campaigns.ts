@@ -123,9 +123,9 @@ export async function getObdReport(campaignId: string): Promise<ObdReportRespons
   );
 }
 
-export async function downloadObdReportCsv(campaignId: string): Promise<Blob> {
+export async function downloadObdReport(campaignId: string): Promise<Blob> {
   return apiFetchBlob(
-    `/campaign/${encodeURIComponent(campaignId)}/obd-report?format=csv`,
+    `/campaign/${encodeURIComponent(campaignId)}/obd-report?format=zip`,
   );
 }
 
