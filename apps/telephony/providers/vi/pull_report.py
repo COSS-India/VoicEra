@@ -234,17 +234,28 @@ def campaign_dni(metadata: Mapping[str, Any], from_number: str | None) -> str:
     return normalize_msisdn(str(raw))
 
 
+def _numeric_campaign_id(value: Any) -> str | None:
+    """Pull report and campaignstatus take the numeric campaign ref, not campainKey."""
+    text = str(value or "").strip()
+    if text.isdigit():
+        return text
+    return None
+
+
 def obd_campaign_ids(metadata: Mapping[str, Any]) -> list[str]:
     ids: list[str] = []
+
+    def add(value: Any) -> None:
+        text = _numeric_campaign_id(value)
+        if text and text not in ids:
+            ids.append(text)
+
     raw = metadata.get("bulk_obd_campaign_ids")
     if isinstance(raw, list):
         for item in raw:
-            text = str(item or "").strip()
-            if text and text not in ids:
-                ids.append(text)
+            add(item)
     handles = metadata.get("bulk_provider_handles")
     if isinstance(handles, dict):
-        key = str(handles.get("campain_key") or "").strip()
-        if key and key not in ids:
-            ids.append(key)
+        add(handles.get("campaign_ref_id"))
+    add(metadata.get("bulk_provider_call_sid"))
     return ids

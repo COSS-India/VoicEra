@@ -88,14 +88,18 @@ def test_resolve_pull_window_uses_start_through_today() -> None:
     assert end == "27/10/2026"
 
 
-def test_obd_campaign_ids_appends_handle() -> None:
+def test_obd_campaign_ids_uses_numeric_ref_not_campain_key() -> None:
     ids = obd_campaign_ids(
         {
-            "bulk_obd_campaign_ids": ["761022"],
-            "bulk_provider_handles": {"campain_key": "761099"},
+            "bulk_obd_campaign_ids": ["Fga9WKYZFIiTdBavkp3MKw==", "762193"],
+            "bulk_provider_handles": {
+                "campain_key": "Fga9WKYZFIiTdBavkp3MKw==",
+                "campaign_ref_id": 762194,
+            },
+            "bulk_provider_call_sid": "762194",
         }
     )
-    assert ids == ["761022", "761099"]
+    assert ids == ["762193", "762194"]
 
 
 def test_map_obd_status_body() -> None:
