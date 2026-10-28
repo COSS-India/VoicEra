@@ -39,8 +39,9 @@
 <p class="hint" id="voice-hint"></p>
 
 <label for="input">Text (<code>input</code>)</label>
-<textarea id="input" rows="4">नमस्ते, आपका ऑर्डर कल पहुँच जाएगा। आपका OTP 482913 है।</textarea>
-<p class="hint">Numbers, currency, dates and URLs are spoken in the chosen language by
+<textarea id="input" rows="4"></textarea>
+<p class="hint">Changing the language swaps in that language's sample unless you have typed
+your own text. Numbers, currency, dates and URLs are spoken in the chosen language by
 the server's text normaliser.</p>
 
 <div class="row">
@@ -78,6 +79,32 @@ const LANGUAGE_NAMES = { as: 'Assamese', bn: 'Bengali', en: 'English', gu: 'Guja
   kn: 'Kannada', ml: 'Malayalam', mr: 'Marathi', or: 'Odia', pa: 'Punjabi', ta: 'Tamil', te: 'Telugu' };
 let roster = [];
 
+// One sample per language, each with a number so the normaliser is audible.
+const SAMPLES = {
+  as: 'নমস্কাৰ, আপোনাৰ অৰ্ডাৰ কাইলৈ আহি পাব। আপোনাৰ OTP 482913।',
+  bn: 'নমস্কার, আপনার অর্ডার কাল পৌঁছে যাবে। আপনার OTP 482913।',
+  en: 'Hello, your order will arrive tomorrow. Your OTP is 482913.',
+  gu: 'નમસ્તે, તમારો ઓર્ડર કાલે પહોંચી જશે. તમારો OTP 482913 છે.',
+  hi: 'नमस्ते, आपका ऑर्डर कल पहुँच जाएगा। आपका OTP 482913 है।',
+  kn: 'ನಮಸ್ಕಾರ, ನಿಮ್ಮ ಆರ್ಡರ್ ನಾಳೆ ತಲುಪುತ್ತದೆ. ನಿಮ್ಮ OTP 482913.',
+  ml: 'നമസ്കാരം, നിങ്ങളുടെ ഓർഡർ നാളെ എത്തും. നിങ്ങളുടെ OTP 482913 ആണ്.',
+  mr: 'नमस्कार, तुमची ऑर्डर उद्या पोहोचेल. तुमचा OTP 482913 आहे.',
+  or: 'ନମସ୍କାର, ଆପଣଙ୍କ ଅର୍ଡର କାଲି ପହଞ୍ଚିବ। ଆପଣଙ୍କ OTP 482913।',
+  pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਤੁਹਾਡਾ ਆਰਡਰ ਕੱਲ੍ਹ ਪਹੁੰਚ ਜਾਵੇਗਾ। ਤੁਹਾਡਾ OTP 482913 ਹੈ।',
+  ta: 'வணக்கம், உங்கள் ஆர்டர் நாளை வந்து சேரும். உங்கள் OTP 482913.',
+  te: 'నమస్కారం, మీ ఆర్డర్ రేపు చేరుకుంటుంది. మీ OTP 482913.',
+};
+
+// Swap the text for the new language's sample -- but only while the box still
+// holds a sample (or nothing), so text someone typed is never thrown away.
+function showSample() {
+  const box = els('input');
+  const current = box.value.trim();
+  if (current === '' || Object.values(SAMPLES).includes(current)) {
+    box.value = SAMPLES[els('language').value] || '';
+  }
+}
+
 function showVoiceLanguages() {
   const v = roster.find(x => x.id === els('voice').value);
   const lang = els('language').value;
@@ -95,6 +122,7 @@ async function loadVoices() {
     if (code === 'hi') opt.selected = true;
     els('language').append(opt);
   }
+  showSample();
   try {
     const r = await fetch(VOICES_URL);
     const body = await r.json();
@@ -203,7 +231,7 @@ async function run() {
 
 els('go').addEventListener('click', run);
 els('voice').addEventListener('change', showVoiceLanguages);
-els('language').addEventListener('change', showVoiceLanguages);
+els('language').addEventListener('change', () => { showSample(); showVoiceLanguages(); });
 loadVoices();
 </script>
 </body>
