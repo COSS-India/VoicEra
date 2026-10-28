@@ -88,6 +88,7 @@ class _FakeRedis:
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
         self.locks: set[str] = set()
+        self.renewals = 0
         self.fail = False
 
     def pipeline(self) -> "_FakeRedis":
@@ -122,6 +123,9 @@ class _FakeLock:
             return False
         self._redis.locks.add(self.name)
         return True
+
+    def reacquire(self) -> None:
+        self._redis.renewals += 1
 
     def release(self) -> None:
         self._redis.locks.discard(self.name)
@@ -730,7 +734,7 @@ _LOCK_KEY = "translate_lock:org-1:call-abc-123:hi"
 @_patch_db("app.services.call_log_service.get_database")
 @patch("app.routers.calls.translate_transcript")
 @patch("app.routers.calls.MinIOStorage")
-def test_translate_in_progress_returns_409_without_llm_or_quota(
+def test_translate_in_progress_returns_423_without_llm_or_quota(
     storage_cls: MagicMock,
     mock_translate: MagicMock,
     _calls_db: MagicMock,
@@ -742,7 +746,9 @@ def test_translate_in_progress_returns_409_without_llm_or_quota(
 
     response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
 
-    assert response.status_code == 409
+    # 423, not 409: 409 means "no LLM provider configured", which the
+    # frontend must show at once rather than retry.
+    assert response.status_code == 423
     mock_translate.assert_not_called()
     assert fake_redis.counts == {}  # rate limit untouched
     assert _LOCK_KEY in fake_redis.locks  # not ours to release
@@ -815,3 +821,35 @@ def test_route_rejects_invalid_lang_even_if_query_validation_is_bypassed() -> No
     with pytest.raises(calls.HTTPException) as excinfo:
         calls.translate_call_transcript("call-abc-123", "en/../x", _admin_user())
     assert excinfo.value.status_code == 422
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.translate_transcript")
+@patch("app.routers.calls.MinIOStorage")
+def test_translate_keeps_lock_alive_during_slow_translation(
+    storage_cls: MagicMock,
+    mock_translate: MagicMock,
+    _calls_db: MagicMock,
+    fake_redis: _FakeRedis,
+    monkeypatch,
+) -> None:
+    """A slow provider chain must not outlive the lock (a duplicate request
+    would then pay for a second completion): it's renewed while working and
+    released afterwards."""
+    import time as _time
+
+    monkeypatch.setattr(calls, "_LOCK_RENEW_SECONDS", 0.01)
+    _CALL_STORE["call-abc-123"] = _sample_call_doc()
+    _minio_storage_mock(storage_cls)
+
+    def slow_translate(*_args):
+        _time.sleep(0.1)
+        return "[00:01] user: नमस्ते"
+
+    mock_translate.side_effect = slow_translate
+
+    response = _make_client().post("/api/v1/calls/call-abc-123/translate?target_lang=hi")
+
+    assert response.status_code == 200
+    assert fake_redis.renewals >= 1
+    assert fake_redis.locks == set()

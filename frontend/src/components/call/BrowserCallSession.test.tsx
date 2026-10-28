@@ -319,10 +319,10 @@ describe("CallStage — Translate", () => {
     expect(fetchCallTranscriptText).not.toHaveBeenCalled();
   });
 
-  it("retries while another translation of the same call is in progress (409), then shows it", async () => {
+  it("retries while another translation of the same call is in progress (423), then shows it", async () => {
     const { ApiError } = await import("@/lib/api/http");
     translateCallTranscriptViaLlm
-      .mockRejectedValueOnce(new ApiError("already being translated", 409))
+      .mockRejectedValueOnce(new ApiError("already being translated", 423))
       .mockResolvedValueOnce({ translated_text: "[00:00] user: Hello", target_lang: "en" });
 
     const user = await endedCallWithTranscript();
@@ -335,6 +335,19 @@ describe("CallStage — Translate", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows 'no provider configured' (409) at once instead of retrying", async () => {
+    const { ApiError } = await import("@/lib/api/http");
+    translateCallTranscriptViaLlm.mockRejectedValue(
+      new ApiError("No LLM provider is configured for this organisation.", 409),
+    );
+
+    const user = await endedCallWithTranscript();
+    await user.click(screen.getByRole("button", { name: /^translate$/i }));
+
+    await waitFor(() => expect(screen.getByText(/No LLM provider is configured/i)).toBeInTheDocument());
+    expect(translateCallTranscriptViaLlm).toHaveBeenCalledTimes(1);
   });
 
   it("shows a corrupted-format error when the LLM response has no parseable lines", async () => {
