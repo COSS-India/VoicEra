@@ -47,6 +47,13 @@ RUN useradd -m -u 1000 maya && \
     chown -R maya:maya /home/maya /app /hf-cache
 USER maya
 
+# Upstream points Triton's kernel cache inside its own package
+# (serve/fast_backbone.py: os.environ.setdefault('TRITON_CACHE_DIR',
+# <site-packages>/serve/scratch/triton)), which is root-owned here, so the first
+# kernel compile failed with PermissionError. setdefault means this wins. It is
+# in the user's home, which stays writable under compose.mps.yml's root user too.
+ENV TRITON_CACHE_DIR=/home/maya/.triton/cache
+
 # The slot contract is one service on 8002, and PORT is how the slot says so.
 ENV PORT=8002
 EXPOSE 8002
