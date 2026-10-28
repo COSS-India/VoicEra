@@ -26,6 +26,8 @@ TOKEN_REFRESH_MARGIN_SECS = 3600
 REQUEST_TIMEOUT_SECS = 30
 BULK_INGEST_CHUNK_SIZE = 500
 DEFAULT_DIAL_TIMEOUT = 30
+# Test and other single calls. Bulk campaigns keep their own window.
+SINGLE_CALL_WINDOW_HOURS = 5 / 60
 IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -142,7 +144,7 @@ class ViObdClient:
         end = now + timedelta(hours=window_hours)
         return {
             "fromdate": now.strftime("%Y-%m-%d"),
-            "todate": now.strftime("%Y-%m-%d"),
+            "todate": end.strftime("%Y-%m-%d"),
             "fromtime": now.strftime("%H:%M:%S"),
             "totime": end.strftime("%H:%M:%S"),
         }
@@ -539,7 +541,7 @@ class ViObdClient:
         *,
         from_number: str | None = None,
         agent_id: str | None = None,
-        window_hours: float = 1.0,
+        window_hours: float = SINGLE_CALL_WINDOW_HOURS,
     ) -> dict[str, Any]:
         """Auth → resolve flow → live DNI → createCampaign → ingest one MSISDN.
 
