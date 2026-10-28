@@ -433,11 +433,21 @@ def _enforce_translate_rate_limit(org_id: str) -> None:
         )
 
 
+# Short TTL, renewed while the request works (_keep_lock_alive): the lock
+# lives exactly as long as the work, however slow the provider fallback chain
+# is, and a crashed worker frees it within _LOCK_TTL_SECONDS.
+_LOCK_TTL_SECONDS = 60
+_LOCK_RENEW_SECONDS = 20
+
+
 def _acquire_translate_lock(org_id: str, call_id: str, lang: str):
-    """redis-py's Lock: token-safe release, auto-expiry if this worker dies.
-    180s outlasts the LLM provider fallback chain. Fails closed like the
-    rate limiter: without Redis, duplicate paid calls can't be prevented."""
-    lock = _get_redis().lock(f"translate_lock:{org_id}:{call_id}:{lang}", timeout=180, blocking=False)
+    """redis-py's Lock: token-safe release and renewal. Fails closed like the
+    rate limiter: without Redis, duplicate paid calls can't be prevented.
+    Conflict is 423, not 409 — 409 already means "no LLM provider configured",
+    and the frontend retries only the in-progress case."""
+    lock = _get_redis().lock(
+        f"translate_lock:{org_id}:{call_id}:{lang}", timeout=_LOCK_TTL_SECONDS, blocking=False
+    )
     try:
         acquired = lock.acquire()
     except redis.RedisError as exc:
@@ -448,17 +458,30 @@ def _acquire_translate_lock(org_id: str, call_id: str, lang: str):
         ) from exc
     if not acquired:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
+            status_code=status.HTTP_423_LOCKED,
             detail="This transcript is already being translated. Please wait a moment.",
         )
     return lock
 
 
+def _keep_lock_alive(lock, stop: threading.Event) -> None:
+    while not stop.wait(_LOCK_RENEW_SECONDS):
+        try:
+            lock.reacquire()  # resets TTL to _LOCK_TTL_SECONDS; token-checked
+        except redis.RedisError as exc:  # incl. LockNotOwnedError
+            logger.warning("Translate lock renewal failed: %s", type(exc).__name__)
+            return
+
+
 def _release_translate_lock(lock) -> None:
     try:
         lock.release()
-    except redis.RedisError:  # incl. LockError: expired or Redis blip — TTL cleans up
-        pass
+    except redis.exceptions.LockError:
+        # Renewal stopped (Redis blip) and the TTL ran out mid-work — a
+        # duplicate request may have paid for a second completion.
+        logger.warning("Translate lock expired before release")
+    except redis.RedisError:
+        pass  # Redis blip on release — the TTL cleans up
 
 
 def _read_cached_translation(storage: MinIOStorage, bucket_name: str, key: str) -> str | None:
@@ -545,9 +568,12 @@ def translate_call_transcript(
         return CallTranslateResponse(translated_text=cached_text, target_lang=target_lang)
 
     # One in-flight translation per (org, call, language): concurrent identical
-    # requests used to each pay for a completion. A loser gets 409 at once —
+    # requests used to each pay for a completion. A loser gets 423 at once —
     # no quota spent, no LLM call — and the frontend retries into the cache.
     lock = _acquire_translate_lock(org_id, call_id, lang)
+    stop_renewal = threading.Event()
+    keeper = threading.Thread(target=_keep_lock_alive, args=(lock, stop_renewal), daemon=True)
+    keeper.start()
     try:
         # The previous holder may have finished between our miss and our lock.
         cached_text = _read_cached_translation(storage, bucket_name, cache_key)
@@ -606,6 +632,8 @@ def translate_call_transcript(
 
         _write_cached_translation(storage, bucket_name, cache_key, translated_text)
     finally:
+        stop_renewal.set()
+        keeper.join(timeout=5)  # never touch the lock from two threads at once
         _release_translate_lock(lock)
     return CallTranslateResponse(translated_text=translated_text, target_lang=target_lang)
 

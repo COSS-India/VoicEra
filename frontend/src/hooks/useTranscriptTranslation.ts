@@ -1,15 +1,19 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { translateCallTranscriptViaLlm } from "@/lib/api/calls";
 import { parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { ApiError } from "@/lib/api-client";
 
 // The backend allows one in-flight translation per call + language and
-// answers duplicates with 409 (no LLM call, no quota). Retrying lands on the
-// cached result once the first request finishes; 20 × 3s outlasts a slow LLM.
+// answers duplicates with 423 (no LLM call, no quota) — not 409, which means
+// "no LLM provider configured" and must surface at once. Retrying lands on
+// the cached result once the first request finishes. The server renews its
+// lock for as long as the work runs, so the budget (~5 min) covers a slow
+// provider fallback chain rather than a fixed lock TTL.
+const IN_PROGRESS_STATUS = 423;
 const IN_PROGRESS_RETRY_MS = 3_000;
-const IN_PROGRESS_MAX_RETRIES = 20;
+const IN_PROGRESS_MAX_RETRIES = 100;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -44,6 +48,14 @@ export function useTranscriptTranslation<TLine>() {
   const [error, setError] = useState("");
   const [showing, setShowing] = useState(false);
   const requestIdRef = useRef(0);
+  // Unmounting marks any in-flight request stale, so a 423 retry loop stops
+  // after its current sleep instead of polling for minutes.
+  useEffect(
+    () => () => {
+      requestIdRef.current += 1;
+    },
+    [],
+  );
 
   const reset = useCallback(() => {
     requestIdRef.current += 1;
@@ -75,7 +87,7 @@ export function useTranscriptTranslation<TLine>() {
         try {
           response = await translateCallTranscriptViaLlm(callId, targetLang);
         } catch (err) {
-          if (!(err instanceof ApiError && err.status === 409)) throw err;
+          if (!(err instanceof ApiError && err.status === IN_PROGRESS_STATUS)) throw err;
           if (attempt >= IN_PROGRESS_MAX_RETRIES) {
             throw new Error("Translation is taking longer than expected. Please try again.");
           }
