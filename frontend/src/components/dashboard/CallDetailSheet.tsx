@@ -14,21 +14,8 @@ import {
   type CallRecordingSource,
 } from "@/lib/call-recordings";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
-import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
+import { displayFromNumber, displayToNumber, formatDateTime, formatDuration } from "@/lib/format";
 import type { CallLogItem } from "@/lib/api-types";
-
-function formatDateTime(iso?: string | null): string {
-  if (!iso) return "–";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "–";
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function fmtClock(t: number): string {
   if (!Number.isFinite(t)) return "0:00";

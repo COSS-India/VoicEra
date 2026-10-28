@@ -10,19 +10,7 @@ import { usePhoneNumbers } from "@/hooks/usePhoneNumbers";
 import { listProviderInventory } from "@/lib/api/phone-numbers";
 import type { AgentApiResponse, PhoneNumberActivityItem, PhoneNumberItem } from "@/lib/api-types";
 import type { ProviderList } from "@/lib/catalog-types";
-
-function formatDateTime(iso?: string | null): string {
-  if (!iso) return "–";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "–";
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
+import { formatDateTime } from "@/lib/format";
 
 function providerLabel(providers: ProviderList, provider: string): string {
   return providers[provider]?.name ?? provider;
@@ -136,7 +124,7 @@ function AddNumberDialog({
     <Dialog open onClose={onClose} widthClassName="max-w-lg">
       <DialogHeader
         title="Add a new number"
-        subtitle="List your telephony provider's account and import one into this workspace."
+        subtitle="Choose a number from your telephony provider account to import into this workspace."
         onClose={onClose}
         titleEnd={
           docsUrl ? (
@@ -424,11 +412,11 @@ function ActivityDialog({
             No activity yet. Actions on numbers will show up here.
           </div>
         ) : (
-          <div className="max-h-[min(60vh,520px)] overflow-auto overscroll-contain">
+          <div className="scrollbar-thin max-h-[min(60vh,520px)] overflow-auto overscroll-contain">
             <table className="w-full min-w-[640px] border-collapse text-sm">
               <thead className="sticky top-0 z-[1] border-b border-v-line bg-v-surface-sunk">
                 <tr className="text-left font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">
-                  <th className="px-4 py-3 font-medium">Time</th>
+                  <th className="min-w-[11.5rem] whitespace-nowrap px-4 py-3 font-medium">Time</th>
                   <th className="px-4 py-3 font-medium">Action</th>
                   <th className="px-4 py-3 font-medium">Number</th>
                   <th className="px-4 py-3 font-medium">Agent</th>
@@ -441,7 +429,7 @@ function ActivityDialog({
                     key={`${e.at}-${e.phone_number}-${e.action}-${e.by_email ?? ""}-${i}`}
                     className="border-b border-v-line last:border-b-0"
                   >
-                    <td className="px-4 py-3 text-v-muted">{formatDateTime(e.at)}</td>
+                    <td className="min-w-[11.5rem] whitespace-nowrap px-4 py-3 text-v-muted">{formatDateTime(e.at)}</td>
                     <td className="px-4 py-3">
                       <Badge tone={activityActionTone(e.action)}>{activityActionLabel(e.action)}</Badge>
                     </td>
@@ -527,11 +515,11 @@ export function PhoneNumbers({ onNotify }: { onNotify: (title: string, note: str
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => setActivityOpen(true)}>
             <History className="size-4" strokeWidth={2} />
-            Phone Number Activities
+            Phone number activities
           </Button>
           <Button onClick={() => setAddOpen(true)}>
             <Phone className="size-4" strokeWidth={1.75} />
-            Add New Number
+            Add new number
           </Button>
         </div>
       </div>

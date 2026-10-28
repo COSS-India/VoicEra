@@ -104,6 +104,35 @@ export function buildHistoryListQuery(opts: {
   return query;
 }
 
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+/** Partial match on to_number / from_number (ignores formatting). */
+export function callMatchesPhoneSearch(call: CallLogItem, query: string): boolean {
+  const q = query.trim();
+  if (!q) return true;
+  const numbers = [call.to_number, call.from_number]
+    .filter((n): n is string => Boolean(n))
+    .map(String);
+  if (numbers.length === 0) return false;
+
+  const qDigits = digitsOnly(q);
+  if (qDigits.length >= 2) {
+    return numbers.some((n) => digitsOnly(n).includes(qDigits));
+  }
+  const lower = q.toLowerCase();
+  return numbers.some((n) => n.toLowerCase().includes(lower));
+}
+
+const CALL_ID_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when the query should resolve a single call by id (exact UUID). */
+export function isCallIdSearchQuery(query: string): boolean {
+  return CALL_ID_UUID_RE.test(query.trim());
+}
+
 export function filterAndSortCalls(
   calls: CallLogItem[],
   opts: {
@@ -112,6 +141,7 @@ export function filterAndSortCalls(
     status: string;
     agentId: string;
     campaignScope?: CampaignScope;
+    phoneSearch?: string | null;
   },
 ): CallLogItem[] {
   const fromMs = opts.range?.from?.getTime() ?? null;
@@ -124,6 +154,7 @@ export function filterAndSortCalls(
     if (opts.agentId && c.agent_id !== opts.agentId) return false;
     if (scope.mode === "one_off" && c.campaign_id) return false;
     if (scope.mode === "campaign" && c.campaign_id !== scope.campaignId) return false;
+    if (opts.phoneSearch && !callMatchesPhoneSearch(c, opts.phoneSearch)) return false;
     if (fromMs === null || toMs === null) return true;
     const ts = callTimeMs(c);
     if (!ts) return false;

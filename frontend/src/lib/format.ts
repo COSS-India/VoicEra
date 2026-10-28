@@ -24,6 +24,71 @@ export function displayUserName(name?: string | null): string {
   return name?.trim() ?? "";
 }
 
+function titleCaseWord(part: string): string {
+  if (!part) return "";
+  return part[0]!.toUpperCase() + part.slice(1).toLowerCase();
+}
+
+/** First segment of an email local part or dotted username, title-cased. */
+function firstNameSegment(raw: string): string {
+  const segment = raw.split(/[._-]+/).filter(Boolean)[0] ?? "";
+  return titleCaseWord(segment);
+}
+
+/**
+ * First name for the dashboard greeting. Email-shaped names
+ * (`bhargavi.prakash`) become "Bhargavi"; multi-word names use the first word.
+ */
+export function greetingFirstName(name?: string | null, email?: string | null): string {
+  const trimmed = name?.trim() ?? "";
+  const local = (email?.split("@")[0] ?? "").trim();
+
+  if (!trimmed) return local ? firstNameSegment(local) : "";
+
+  const looksLikeLocalPart =
+    !/\s/.test(trimmed) &&
+    (trimmed.toLowerCase() === local.toLowerCase() || /[._-]/.test(trimmed));
+
+  if (looksLikeLocalPart) return firstNameSegment(trimmed);
+
+  const firstWord = trimmed.split(/\s+/).filter(Boolean)[0] ?? "";
+  return firstWord ? titleCaseWord(firstWord) : "";
+}
+
+const TRAILING_COPY_SUFFIX = /\s*\(copy(?:\s+\d+)?\)\s*$/i;
+
+/**
+ * Next unused duplicate name: "Name (copy)", then "Name (copy 2)", …
+ * Strips an existing copy suffix so copies of copies don't nest "(copy) (copy)".
+ */
+export function nextDuplicateAgentName(
+  sourceName: string,
+  existingNames: readonly string[],
+  maxLength = 65,
+): string {
+  const taken = new Set(existingNames.map((n) => n.trim().toLowerCase()));
+  let base = sourceName.trim();
+  while (TRAILING_COPY_SUFFIX.test(base)) {
+    base = base.replace(TRAILING_COPY_SUFFIX, "").trim();
+  }
+  if (!base) base = "Agent";
+
+  const fit = (suffix: string) => {
+    const room = Math.max(1, maxLength - suffix.length);
+    const trimmed = (base.slice(0, room).trimEnd() || "Agent").slice(0, room);
+    return `${trimmed}${suffix}`.slice(0, maxLength);
+  };
+
+  const first = fit(" (copy)");
+  if (!taken.has(first.toLowerCase())) return first;
+
+  for (let n = 2; n < 1000; n++) {
+    const next = fit(` (copy ${n})`);
+    if (!taken.has(next.toLowerCase())) return next;
+  }
+  return fit(" (copy)");
+}
+
 /** Display label for org membership roles (super_admin → "Super Admin"). */
 export function formatUserRole(role: string): string {
   return role
@@ -54,13 +119,19 @@ export function formatDateTime(iso?: string | null): string {
   if (!iso) return "–";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "–";
-  return d.toLocaleString(undefined, {
+  const date = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+  }).format(d);
+  const time = new Intl.DateTimeFormat("en-GB", {
     hour: "numeric",
     minute: "2-digit",
-  });
+    hour12: true,
+  })
+    .format(d)
+    .replace(/\s*(am|pm)\s*$/i, (_, meridiem: string) => ` ${meridiem.toUpperCase()}`);
+  return `${date}, ${time}`;
 }
 
 export function formatBytes(bytes?: number | null): string {
