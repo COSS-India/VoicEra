@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maya2-native — TTS slot</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; background:#0b1020; color:#eef2ff;
+         max-width: 780px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color:#94a3b8; font-size: 13px; margin: 0 0 24px; }
+  label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+          color:#94a3b8; margin: 16px 0 6px; }
+  select, input, textarea, button {
+    box-sizing:border-box; width:100%; padding:10px 12px; font: inherit;
+    background:#151d33; color:#fff; border:1px solid #34405f; border-radius:8px; }
+  textarea { resize: vertical; }
+  button { background:#22c55e; color:#04130a; border:0; font-weight:650; cursor:pointer; margin-top:20px; }
+  button:disabled { opacity:.5; cursor:wait; }
+  .row { display:grid; grid-template-columns: repeat(2, 1fr); gap:12px; }
+  #status { min-height:22px; margin-top:14px; font-size:13px; color:#fbbf24; }
+  table { width:100%; border-collapse:collapse; margin-top:18px; font-size:13px; }
+  td { padding:5px 0; border-bottom:1px solid #1f2940; }
+  td:last-child { text-align:right; color:#a5b4fc; font-variant-numeric: tabular-nums; }
+  .hint { color:#64748b; font-size:12px; margin-top:6px; }
+  @media (max-width:520px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>maya2-native</h1>
+<p class="sub">11 Indic languages + English &middot; 20 named voices &middot;
+24&nbsp;kHz Mimi codec &middot; streamed as it generates</p>
+
+<div class="row">
+  <div><label for="voice">Voice</label><select id="voice"></select></div>
+  <div><label for="language">Language</label><select id="language"></select></div>
+</div>
+<p class="hint" id="voice-hint"></p>
+
+<label for="input">Text (<code>input</code>)</label>
+<textarea id="input" rows="4">नमस्ते, आपका ऑर्डर कल पहुँच जाएगा। आपका OTP 482913 है।</textarea>
+<p class="hint">Numbers, currency, dates and URLs are spoken in the chosen language by
+the server's text normaliser.</p>
+
+<div class="row">
+  <div><label for="temperature">Temperature (empty = model default)</label>
+       <input id="temperature" type="number" step="0.1" min="0.1" max="1.5" placeholder="0.9"></div>
+  <div><label for="seed">Seed (empty = random)</label>
+       <input id="seed" type="number" min="0" placeholder=""></div>
+</div>
+
+<button id="go">Synthesize</button>
+<div id="status"></div>
+<table id="timings" hidden>
+  <tr><td>Time to first audio</td><td id="t-ttfa"></td></tr>
+  <tr><td>Audio received</td><td id="t-audio"></td></tr>
+  <tr><td>Wall clock</td><td id="t-wall"></td></tr>
+  <tr><td>Realtime factor</td><td id="t-rtf"></td></tr>
+</table>
+
+<script>
+// Raw PCM is requested so the page shows what the slot does: audio plays while
+// the model is still generating it.
+const els = id => document.getElementById(id);
+const status = msg => { els('status').textContent = msg; };
+
+// Direct on the TTS container this page is at /demo and the routes sit at the
+// root; through the gateway it is at /demo/tts and everything except
+// /v1/audio/speech is reachable only under the slot prefix. Relative URLs
+// cannot straddle the two, so both are named absolutely.
+const VIA_GATEWAY = /\/demo\/(stt|tts|llm)\/?$/.test(location.pathname);
+const API = VIA_GATEWAY ? '/tts' : '';
+const VOICES_URL = API + '/v1/voices';
+const SPEECH_URL = '/v1/audio/speech';
+
+const LANGUAGE_NAMES = { as: 'Assamese', bn: 'Bengali', en: 'English', gu: 'Gujarati', hi: 'Hindi',
+  kn: 'Kannada', ml: 'Malayalam', mr: 'Marathi', or: 'Odia', pa: 'Punjabi', ta: 'Tamil', te: 'Telugu' };
+let roster = [];
+
+function showVoiceLanguages() {
+  const v = roster.find(x => x.id === els('voice').value);
+  const lang = els('language').value;
+  if (!v) { els('voice-hint').textContent = ''; return; }
+  const trained = v.languages.includes(lang);
+  els('voice-hint').textContent = (v.description ? v.description + '. ' : '') +
+    'Trained on: ' + v.languages.map(l => LANGUAGE_NAMES[l] || l).join(', ') +
+    (trained ? '.' : ` — ${LANGUAGE_NAMES[lang] || lang} will be cross-lingual.`);
+}
+
+async function loadVoices() {
+  for (const [code, name] of Object.entries(LANGUAGE_NAMES)) {
+    const opt = document.createElement('option');
+    opt.value = code; opt.textContent = name;
+    if (code === 'hi') opt.selected = true;
+    els('language').append(opt);
+  }
+  try {
+    const r = await fetch(VOICES_URL);
+    const body = await r.json();
+    if (!r.ok) throw new Error(body?.error?.message || `HTTP ${r.status}`);
+    roster = body.data;
+    for (const v of roster) {
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = v.gender ? `${v.id} (${v.gender})` : v.id;
+      if (v.id === body.default) opt.selected = true;
+      els('voice').append(opt);
+    }
+    showVoiceLanguages();
+  } catch (err) {
+    status(`Could not load voices from ${VOICES_URL}: ${err.message} — the model may still be loading.`);
+  }
+}
+
+async function run() {
+  const button = els('go');
+  button.disabled = true;
+  button.textContent = 'Generating…';
+  els('timings').hidden = true;
+  status('Connecting…');
+
+  const t0 = performance.now();
+  let ctx = null, playAt = 0, firstAudioAt = null, samples = 0, rate = 24000;
+  // A chunk boundary can fall inside a 16-bit sample; carry the odd byte over.
+  let carry = new Uint8Array(0);
+
+  const request = {
+    input: els('input').value,
+    voice: els('voice').value,
+    language: els('language').value,
+    response_format: 'pcm',
+  };
+  if (els('temperature').value !== '') request.temperature = Number(els('temperature').value);
+  if (els('seed').value !== '') request.seed = Number(els('seed').value);
+
+  try {
+    const response = await fetch(SPEECH_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `HTTP ${response.status}`);
+    }
+
+    // The server says what it sent; nothing here assumes a rate or a width.
+    if (response.headers.get('X-Audio-Format') !== 'pcm') {
+      throw new Error(`expected pcm, server sent ${response.headers.get('X-Audio-Format')}`);
+    }
+    rate = Number(response.headers.get('X-Sample-Rate')) || 24000;
+    ctx = new AudioContext({ sampleRate: rate });
+    playAt = ctx.currentTime + 0.08;
+    status('Receiving audio…');
+
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.length) continue;
+
+      const merged = new Uint8Array(carry.length + value.length);
+      merged.set(carry, 0);
+      merged.set(value, carry.length);
+      const usable = merged.length - (merged.length % 2);
+      carry = merged.slice(usable);
+      if (!usable) continue;
+
+      const pcm = new Int16Array(merged.buffer, merged.byteOffset, usable / 2);
+      const buffer = ctx.createBuffer(1, pcm.length, rate);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(Math.max(playAt, ctx.currentTime));
+      playAt = Math.max(playAt, ctx.currentTime) + buffer.duration;
+
+      samples += pcm.length;
+      if (firstAudioAt === null) {
+        firstAudioAt = performance.now() - t0;
+        status('Playing while the model is still generating…');
+      }
+    }
+
+    const wall = performance.now() - t0;
+    const audioMs = (samples / rate) * 1000;
+    els('t-ttfa').textContent = firstAudioAt === null ? '—' : `${firstAudioAt.toFixed(0)} ms`;
+    els('t-audio').textContent = `${(audioMs / 1000).toFixed(2)} s`;
+    els('t-wall').textContent = `${(wall / 1000).toFixed(2)} s`;
+    els('t-rtf').textContent = audioMs ? (wall / audioMs).toFixed(2) : '—';
+    els('timings').hidden = false;
+    status(samples ? 'Done.' : 'The stream ended without audio — check the server log.');
+  } catch (err) {
+    status(err.message || String(err));
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Synthesize';
+  }
+}
+
+els('go').addEventListener('click', run);
+els('voice').addEventListener('change', showVoiceLanguages);
+els('language').addEventListener('change', showVoiceLanguages);
+loadVoices();
+</script>
+</body>
+</html>

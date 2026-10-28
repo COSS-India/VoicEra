@@ -18,13 +18,20 @@ several subsystems are new.
 
 ### Added
 
+- **Maya 2 Native in the TTS slot** (`model-server/tts/maya2-native`, provider
+  `maya2_native`) — Maya Research's 12-language, 20-voice streaming TTS on
+  OpenAI's `/v1/audio/speech`. Wraps upstream's own OpenAI-compatible server and
+  continuous-batching engine (pinned commit) and adds only the slot contract:
+  `X-Audio-Format`, `pcm` by default, `od` for Odia, OpenAI voice names mapped to
+  a fixed default voice. The provider sends `language` on every request, since
+  the script cannot tell Marathi from Hindi. Not yet run on hardware.
 - **Provider registry** (`apps/providers`) — a self-describing catalogue of STT,
   TTS, and LLM vendors. Providers register themselves with decorators; a
   discriminated union in `factory.py` and a readable schema dump in `schema.py`
   drive the `/configuration/*` endpoints, so adding a vendor never means editing
   a central if/elif chain. 22 cloud vendors, the Bhashini (STT/TTS) and Kenpath
   (LLM) adapters, and local providers — `indic_orpheus`, `rumik_oss`,
-  `indic_parler` and `indic_mio` (TTS),
+  `indic_parler`, `indic_mio` and `maya2_native` (TTS),
   `indic_nemotron`, `indic_conformer` and
   `indic_transcribe` (STT) — reached through the model
   server gateway instead of stored credentials. Kenpath and its Bharat Vistaar variant detect their own

@@ -182,6 +182,38 @@ tts:
       conv state, a fixed cost per chunk, audio equal to a one-shot decode. The
       windowed decode it replaced was measured 6.7% off at its 32-frame default.
 
+  - id: maya2-native
+    name: Maya Research Maya 2 Native
+    status: ready
+    runtime: maya3                 # upstream's own engine: continuous batching + CUDA graphs, not vLLM
+    sample_rate: 24000
+    audio_format: pcm              # OpenAI's 16-bit LE mono; also wav, mp3, opus, flac on request
+    streaming: true                # chunked while generating, and SSE audio deltas
+    license: apache-2.0            # Mimi codec CC-BY-4.0; keep its notice when redistributing
+    voice: {presets: [Ahana, Vaidehi, Malini, Charvi, Jahnavi, Anirban, Nakul, Vasant, Siddhant, Satvik, Abhay, Nivedita, Ishwari, Ritvik, Vrinda, Sreekar, Kayal, Shaunak, Akshat, Tanushree], free_text_description: false, cloning: false}
+    languages: [as, bn, en, gu, hi, kn, ml, mr, or, pa, ta, te]
+    notes: >-
+      Qwen3-1.7B-Base backbone predicting Mimi codebook 0 plus a 555M depth
+      decoder for codebooks 1-31; one 80 ms frame per step at 24 kHz. Upstream
+      ships an OpenAI-compatible server over its own continuous-batching,
+      CUDA-graphed engine, so the folder wraps that server (pinned commit)
+      and adds only the slot contract -- X-Audio-Format, pcm by default, `od`
+      for Odia, OpenAI voice names mapped to the default voice rather than to
+      upstream's random `plain` speaker. See the folder README.
+      The voice does NOT select the language, but it is not free of it either:
+      each of the 20 voices lists the languages it had >= 1 h of data in, from
+      all eleven down to Hindi alone, and no voice lists Assamese. Outside its
+      list a voice is cross-lingual, reported in X-Voice-Untrained-Language.
+      The client must send `language`: Marathi shares Hindi's script and
+      Assamese shares Bengali's, so detection from the script cannot tell them
+      apart.
+      Memory is allocated per seat at startup: 7.7 GB at 1 seat, 11.7 GB at
+      16 (the default, MAYA_MAX_SEATS), 15.8 GB at 32. Upstream measured, on
+      one H100 NVL, 224 concurrent streams at 323 s of audio per second with
+      steady-state TTFA p50/p99 111/242 ms. Public repo, not gated. Voice
+      cloning is supported upstream and disabled here (MAYA_VOICE_CLONING).
+      Not yet run on hardware.
+
   - id: omnivoice
     name: k2-fsa OmniVoice 0.6B
     status: planned
