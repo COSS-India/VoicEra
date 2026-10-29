@@ -24,7 +24,7 @@ several subsystems are new.
   drive the `/configuration/*` endpoints, so adding a vendor never means editing
   a central if/elif chain. 22 cloud vendors, the Bhashini (STT/TTS) and Kenpath
   (LLM) adapters, and local providers — `indic_orpheus`, `rumik_oss`,
-  `indic_parler` and `indic_mio` (TTS),
+  `indic_parler`, `indic_mio` and `higgs_tts` (TTS),
   `indic_nemotron`, `indic_conformer` and
   `indic_transcribe` (STT) — reached through the model
   server gateway instead of stored credentials. Kenpath and its Bharat Vistaar variant detect their own
@@ -50,10 +50,18 @@ several subsystems are new.
 - **Model server** — every self-hosted model behind one gateway on `:8100`, with
   three fixed slots (STT, TTS, LLM) filled by model folders named in `.env`.
   Ships `indic-conformer` and `indic-transcribe` for STT, `indic-parler`,
-  `orpheus`, and `indic-mio` for TTS, and `qwen3.5-4b` for LLM. The
+  `orpheus`, `indic-mio` and `higgs-tts-3` for TTS, and `qwen3.5-4b` for LLM. The
   `indic_orpheus` provider catalog moved to Orpheus's v2 voice roster — 24
   languages (up from 17) and a new set of lowercase style names replacing the
   old all-caps ones, default style `news`.
+- **Higgs TTS 3** (`tts/higgs-tts-3`, `higgs_tts` provider) — Boson AI's 4B
+  TTS, served by an SGLang-Omni sidecar behind a torch-free adapter that owns
+  the OpenAI contract: five reference-clip voices (the Rasa speakers indic-mio
+  uses), `instructions` limited to the model's fixed control tags (free text is
+  a 400), `speed` as a speed tag rather than a pitch-shifting resample, every
+  OpenAI format but `aac`, and SSE. 13 languages. Non-commercial licence.
+  Not yet run on hardware, and the voices' clips still have to be fetched once
+  from the gated Rasa dataset and committed.
 - **Real-time transcription** — both STT models standardised on `WS /v1/realtime`
   with incremental partial transcripts.
 - **Knowledge base (RAG)** — PDF ingestion, chunking, embeddings, and per-org

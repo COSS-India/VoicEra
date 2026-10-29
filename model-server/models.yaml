@@ -182,6 +182,39 @@ tts:
       conv state, a fixed cost per chunk, audio equal to a one-shot decode. The
       windowed decode it replaced was measured 6.7% off at its 32-frame default.
 
+  - id: higgs-tts-3
+    name: Boson AI Higgs TTS 3 4B
+    status: ready
+    runtime: sglang-omni           # a sidecar this folder brings; tts is an adapter
+    sample_rate: 24000
+    audio_format: pcm              # OpenAI's 16-bit LE mono, like orpheus and rumik
+    streaming: true                # chunked while generating, and SSE audio deltas
+    license: boson-higgs-tts-3-research-non-commercial   # NON-COMMERCIAL. See the note below.
+    voice: {presets: [Aditi, Meera, Ananya, Rahul, Arjun], free_text_description: false, cloning: false}
+    languages: [hi, bn, ta, te, kn, ml, mr, gu, as, ne, ur, pa, en]
+    notes: >-
+      ~4B autoregressive decoder emitting 8-codebook Higgs tokenizer codes at
+      25 fps, served by SGLang-Omni 0.1.9 in a sidecar (compose.extra.yml); the
+      slot's tts container is a torch-free adapter that owns the contract.
+      A voice is a reference clip plus its transcript, cloned zero-shot per
+      request -- the same five AI4Bharat Rasa speakers as indic-mio. THE CLIPS
+      ARE NOT IN THE REPO YET: Rasa is gated, so they are fetched once with
+      scripts/fetch_voices.py and committed (CC-BY-4.0 allows it); until then
+      /health is 503 unless HIGGS_ALLOW_ZERO_SHOT is set.
+      `instructions` takes the model's fixed control tags only (emotion,
+      style, prosody pitch/expressive/speed) and anything else is a 400;
+      `speed` is honoured by rounding to Higgs's four speed tags rather than
+      resampling. Languages are Boson's tier 1 Indic set plus en, and pa from
+      tier 2; sd (tier 2) is left out until someone has listened to it, and
+      or, sa, brx, doi, kok, ks, mai, mni, sat are not supported at all.
+      LICENCE: Boson Higgs TTS 3 Research and Non-Commercial License --
+      research and non-commercial use only; a product, hosted API or resale
+      needs a commercial licence from Boson. Deployed here as part of a DPG,
+      not sold. Non-consensual voice cloning is prohibited.
+      NOT YET RUN ON HARDWARE. Upstream's layout reserves 98% of the card; the
+      overlay caps it at 0.12 + 0.03 + 0.02 of an H200, unmeasured. Boson
+      reports 617 ms latency and RTF 0.147 on one H100 at concurrency 1.
+
   - id: omnivoice
     name: k2-fsa OmniVoice 0.6B
     status: planned

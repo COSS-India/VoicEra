@@ -3,7 +3,7 @@ title: TTS models
 description: Text-to-speech models, voices, and audio format negotiation.
 ---
 
-Four models can fill the TTS slot. They differ in backbone, in how a voice is chosen, and — the part that matters most to a client — in what they put on the wire. This page covers all four and the format negotiation that lets one client decode any of them.
+Five models can fill the TTS slot. They differ in backbone, in how a voice is chosen, and — the part that matters most to a client — in what they put on the wire. This page covers all five and the format negotiation that lets one client decode any of them.
 
 ## Available models
 
@@ -13,12 +13,13 @@ Four models can fill the TTS slot. They differ in backbone, in how a voice is ch
 | `indic-mio` | SPRINGLab Indic-Mio 0.6B | `ready` | 44100 | `pcm_f32le`, also `pcm` on request | preset speaker, plus cloning |
 | `orpheus` | AI4Bharat Orpheus Indic TTS | `ready` | 24000 | `pcm` | speaker name from a roster |
 | `rumik-oss-1` | Rumik OSS-1 3B | `ready` | 24000 | `pcm` | any of four voices, in any language |
+| `higgs-tts-3` | Boson AI Higgs TTS 3 4B | `ready` | 24000 | `pcm` | five reference voices, plus fixed control tags |
 | `omnivoice` | k2-fsa OmniVoice 0.6B | `planned` | — | — | cloning |
 
 Set the one you want with `TTS_MODEL` in `model-server/.env`. Statuses are from `model-server/models.yaml`.
 
 <Note>
-Only `indic-parler` has been run on VoicEra's hardware. `models.yaml` records "Not yet run on hardware" against `orpheus`, `indic-mio` and `rumik-oss-1`, and their folder READMEs repeat it: for `indic-mio`, "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here.
+Only `indic-parler` has been run on VoicEra's hardware. `models.yaml` records "Not yet run on hardware" against `orpheus`, `indic-mio`, `rumik-oss-1` and `higgs-tts-3`, and their folder READMEs repeat it: for `indic-mio`, "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here.
 </Note>
 
 `omnivoice` is `planned` and needs its own runtime — it is diffusion-style, so not vLLM-servable.
@@ -130,17 +131,45 @@ Inputs are capped at 400 characters and generation at 3072 tokens (~30 s, the ca
 
 **Mimi runs as a streaming codec.** `transformers` keeps no state between `decode()` calls, and decoding each chunk with a window of past frames was measured 6.7% off a whole decode at 32 frames and 49% at 8, because Mimi's decoder transformer attends 250 steps back. `streaming.py` carries each stream's upsample, KV and SEANet state instead, so every chunk costs the same and the audio equals a one-shot decode. The folder README has the details and the check to run.
 
+## higgs-tts-3
+
+Boson AI's [Higgs TTS 3](https://huggingface.co/bosonai/higgs-tts-3-4b): a ~4B autoregressive decoder emitting 8-codebook Higgs tokenizer codes at 25 frames a second, decoded to 24 kHz mono. Voices are cloned zero-shot from a reference clip, and delivery is steered by control tags the model reads in the text itself.
+
+<Warning>
+**Licence: Boson Higgs TTS 3 Research and Non-Commercial License.** Research and non-commercial use only; a product, a hosted API or a resale needs a commercial licence from Boson. VoicEra deploys it as a DPG and sells nothing with it. Non-consensual voice cloning is prohibited by the licence. Like `rumik-oss-1`, its `models.yaml` entry carries `license:`; nothing in the stack enforces it.
+</Warning>
+
+**Two containers, like `indic-mio`.** Generation runs in an [SGLang-Omni](https://github.com/sgl-project/sglang-omni) sidecar (`higgs-sglang`) that the folder's `compose.extra.yml` brings; the slot's `tts` container is a torch-free adapter in front of it. SGLang-Omni already serves Higgs on an OpenAI-shaped `/v1/audio/speech` with streamed PCM, so the adapter only adds what the slot contract needs: roster voices instead of a random speaker, the fixed tag vocabulary on `instructions`, `speed` as a tag rather than a pitch-shifting resample, `X-Audio-Format`, every OpenAI `response_format` but `aac`, and SSE. The sidecar is always asked for raw PCM, so `pcm` is a byte-for-byte pass-through.
+
+The sidecar image is **built, not pulled**. `lmsysorg/sglang-omni:dev` has been frozen since June (sglang-omni 0.1.0, no per-stage memory caps), and the current `dev` image is a moving tag that clones `main` on every start. `sidecar/Dockerfile` follows upstream's own Dockerfile at the `v0.1.9` tag: the official SGLang base pinned by digest and the tagged release, commit-checked, without the extras Higgs doesn't use.
+
+**A voice is a clip plus its transcript.** Higgs has no built-in speakers. The five voices are the same AI4Bharat Rasa speakers as `indic-mio`, and each request sends the clip and its transcript as the cloning reference. **The clips are not committed yet:** Rasa is gated, so someone with access fetches them once with `scripts/fetch_voices.py` — which keeps whole utterances, never trimmed, so they still match their transcripts — and commits them; CC-BY-4.0 allows that, and afterwards no deployment needs a token. Until then `/health` is 503, unless `HIGGS_ALLOW_ZERO_SHOT=true` lets `voice: "default"` (a random speaker per request) through for bring-up.
+
+**`instructions` takes a fixed list and refuses free text.** The vocabulary is the model's own: 21 emotions, three styles (singing, shouting, whispering), and prosody speed, pitch and expressiveness, written as `emotion:elation`, `<|emotion:elation|>` or just `elation`, one per kind, plus `none`. The adapter writes them as leading tags, which is where the model wants them. Anything else is a 400, because the model reads unknown tags aloud. Inline tags — `<|prosody:pause|>`, `<|sfx:laughter|>Haha` — go into `input` at the point they apply, and an unknown one there is a 400 too.
+
+**Fewer languages than the other Indic models.** Boson's tier 1 Indic set (hi, bn, ta, te, kn, ml, mr, gu, as, ne, ur) plus English, and Punjabi from tier 2. Odia, Sanskrit, Bodo, Dogri, Konkani, Kashmiri, Maithili, Manipuri and Santali are not supported; Sindhi is held back until someone has listened to it.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/audio/speech` | OpenAI-compatible; `stream_format` `audio` or `sse` |
+| `GET /health` | 503 until the sidecar is healthy **and** a voice has its clip |
+| `GET /v1/voices` | the roster, which voices have clips, and the `instructions` vocabulary |
+
+**GPU memory has to be capped.** Upstream's layout reserves 0.03 + 0.85 + 0.10 = 98% of the card for the encoder, engine and vocoder. The overlay sets them per stage with `HIGGS_ENCODER_GPU_MEMORY_FRACTION` / `HIGGS_ENGINE_GPU_MEMORY_FRACTION` / `HIGGS_VOCODER_GPU_MEMORY_FRACTION`, defaulting to 0.02 / 0.12 / 0.03 of a 143 GB H200. Those numbers are unmeasured — see [Running on GPUs](gpu-operations).
+
+`fetch.sh` downloads the public checkpoint (no token) into the stack's `hf_cache` volume before the build. Nothing in this folder has been built or started on a GPU; Boson reports 617 ms latency and RTF 0.147 on one H100 at concurrency 1.
+
 ## Format negotiation
 
 The models in this slot disagree on the wire, and none of them is wrong:
 
-| | Indic Parler | Indic-Mio | Orpheus | Rumik OSS-1 |
-| --- | --- | --- | --- | --- |
-| sample rate | 44,100 Hz | 44,100 Hz | 24,000 Hz | 24,000 Hz |
-| sample width | float32 | float32 (16-bit on request) | signed 16-bit | signed 16-bit |
-| format name | `pcm_f32le` | `pcm_f32le` | `pcm` | `pcm` |
+| | Indic Parler | Indic-Mio | Orpheus | Rumik OSS-1 | Higgs TTS 3 |
+| --- | --- | --- | --- | --- | --- |
+| sample rate | 44,100 Hz | 44,100 Hz | 24,000 Hz | 24,000 Hz | 24,000 Hz |
+| sample width | float32 | float32 (16-bit on request) | signed 16-bit | signed 16-bit | signed 16-bit |
+| format name | `pcm_f32le` | `pcm_f32le` | `pcm` | `pcm` | `pcm` |
 
-OpenAI's `response_format` vocabulary is `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm` — so Orpheus and Rumik are the compliant ones, and `pcm_f32le` is an extension Indic Parler serves because float32 is what its engine produces. Two models agreeing is not the same as the question going away: the client still decodes by what the response declares, never by which model it thinks it reached.
+OpenAI's `response_format` vocabulary is `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm` — so Orpheus, Rumik and Higgs are the compliant ones, and `pcm_f32le` is an extension Indic Parler serves because float32 is what its engine produces. Two models agreeing is not the same as the question going away: the client still decodes by what the response declares, never by which model it thinks it reached.
 
 The client therefore cannot assume a width or a rate. It reads `X-Audio-Format` and `X-Sample-Rate` off the response and decodes accordingly, which is why the contract requires a model to declare them. Getting this wrong does not raise an error — it produces plausible bytes that sound like noise on a phone line. A format the client cannot decode produces a clear error naming it, never silence.
 
@@ -150,7 +179,7 @@ The client therefore cannot assume a width or a rate. It reads `X-Audio-Format` 
 
 TTS moved *off* WebSockets to plain HTTP, which gave cancellation for free. Direction of travel decides the transport: TTS is one-directional — text in, audio out — so HTTP does the same job with less machinery.
 
-When the caller interrupts, Pipecat stops reading the response, the connection drops, and that drop travels through the gateway to the TTS server, which frees the GPU slot. For `indic-parler` the server evicts the request from the batch; for `indic-mio` the async generator's `GeneratorExit` aborts the vLLM request; for `rumik-oss-1` the same `GeneratorExit` aborts the vLLM request, or, on the transformers engine, trips a flag that the sampling tap raises on at the next token, unwinding the model's own generation loop from the inside — a blocking loop in a worker thread cannot be stopped any other way. Either way generation stops rather than finishing a sentence nobody is listening to.
+When the caller interrupts, Pipecat stops reading the response, the connection drops, and that drop travels through the gateway to the TTS server, which frees the GPU slot. For `indic-parler` the server evicts the request from the batch; for `indic-mio` the async generator's `GeneratorExit` aborts the vLLM request; for `rumik-oss-1` the same `GeneratorExit` aborts the vLLM request, or, on the transformers engine, trips a flag that the sampling tap raises on at the next token, unwinding the model's own generation loop from the inside — a blocking loop in a worker thread cannot be stopped any other way; for `higgs-tts-3` the adapter closes its connection to the SGLang-Omni sidecar, which aborts a streaming request in the engine when its client disconnects. Either way generation stops rather than finishing a sentence nobody is listening to.
 
 That propagation is what `tests/test_gateway_streaming.py` checks: the gateway streams rather than buffers, and a client disconnect reaches the upstream. The stopping-work-on-hangup row of the [container contract](adding-a-model) exists for exactly this.
 
@@ -179,6 +208,8 @@ voices/
 At startup the server derives each voice's embedding from its ref clip once and caches it under `MIO_VOICES_CACHE_DIR` (default inside the HuggingFace cache volume, so it persists). If `manifest.json` is absent or no ref clip is usable, the server falls back to a single legacy embedding rather than failing.
 
 To add a voice, add an entry `{name, gender, ref}` to `manifest.json` and a matching mono wav in `refs/`. `name` is the voice id shown to users and stored in the agent's `tts_model.speaker`, so keep it stable once shipped. `scripts/build_voices.py` pre-bakes the embeddings so first boot is instant; `scripts/fetch_rasa_refs.py` curates new candidates from the gated `ai4bharat/Rasa` dataset (CC-BY-4.0 — see `voices/NOTICE`).
+
+**higgs-tts-3** — the same five Rasa speakers as `indic-mio` (Aditi default, Meera, Ananya, Rahul, Arjun), but as reference clips **plus transcripts** in `voices/manifest.json`, cloned on every request rather than baked into embeddings. Each voice carries the accent of the language its clip was recorded in. A voice listed in the manifest without its clip is shown as unavailable at `GET /v1/voices` and answered with a 503 naming the fetch script. To add one, put a clean mono WAV in `voices/refs/` and its exact transcript in the manifest's `text`, and restart `tts`.
 
 ## Related
 

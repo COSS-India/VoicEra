@@ -1,0 +1,27 @@
+# MPS attachment for this model's SGLang-Omni sidecar.
+#
+# model-server/compose.mps.yml covers the slot services, but it cannot mention
+# `higgs-sglang`: that service exists only when this folder's compose.extra.yml
+# is layered in, and naming an undefined service is a Compose error. So, as with
+# tts/indic-mio, a model that brings a GPU sidecar brings its MPS wiring too.
+# compose-files.sh adds this file only when TTS_MODEL=higgs-tts-3 AND an MPS
+# daemon is detected -- both found by existence.
+#
+# `user: "0:0"`: an MPS client must run as the daemon's user, and on ace-h200
+# the daemon is root's. A uid-1000 CUDA init there does not fail, it BLOCKS in
+# the handshake with no log line -- tts/rumik-oss-1/compose.mps.yml has the
+# story. The upstream SGLang image already runs as root; this says so out loud
+# so a future non-root base cannot silently hang.
+#
+# The `tts` adapter needs none of this: it never creates a CUDA context, so it
+# keeps its unprivileged user even behind a daemon.
+
+services:
+  higgs-sglang:
+    user: "0:0"
+    environment:
+      CUDA_MPS_PIPE_DIRECTORY: /tmp/nvidia-mps
+      CUDA_MPS_LOG_DIRECTORY: /tmp/nvidia-mps-log
+    volumes:
+      - "${TTS_MPS_PIPE_DIR:-${MPS_PIPE_DIR:-/tmp/nvidia-mps-gpu${TTS_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}}}:/tmp/nvidia-mps"
+      - "${TTS_MPS_LOG_DIR:-${MPS_LOG_DIR:-/tmp/nvidia-mps-log-gpu${TTS_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}}}:/tmp/nvidia-mps-log"
