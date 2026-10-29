@@ -22,7 +22,7 @@ The model server is **optional**. VoicEra runs fine against cloud providers alon
 | Page | Covers |
 | --- | --- |
 | [STT models](stt-models) | `indic-conformer`, `indic-transcribe`, and partial transcripts versus streaming. |
-| [TTS models](tts-models) | `indic-parler`, `orpheus`, `indic-mio`, `higgs-tts-3`, and audio format negotiation. |
+| [TTS models](tts-models) | `indic-parler`, `orpheus`, `indic-mio`, `rumik-oss-1`, `higgs-tts-3`, `maya2-native`, and audio format negotiation. |
 | [LLM models](llm-models) | `qwen3.5-4b` and the model-id agreement across files. |
 
 ## Operating it

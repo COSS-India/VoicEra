@@ -106,7 +106,7 @@ class DeepgramSTTConfig(DeepgramAuth, DeepgramSTTSettings, BaseSTTConfig):
 | --- | --- | --- |
 | `cloud` | `apps/providers/cloud/` | A hosted vendor reached over its own API, wired through Pipecat. |
 | `adapter` | `apps/providers/adapters/` | A first-party service class implementing a Pipecat `STTService` / `TTSService`. |
-| `local` | `apps/providers/local/` | Talks to VoicEra's own [model server](../model-server/overview) gateway instead of a third-party API. Eight providers today: `indic_orpheus` (TTS), `rumik_oss` (TTS), `indic_parler` (TTS), `indic_mio` (TTS), `higgs_tts` (TTS), `indic_nemotron` (STT), `indic_conformer` (STT) and `indic_transcribe` (STT). |
+| `local` | `apps/providers/local/` | Talks to VoicEra's own [model server](../model-server/overview) gateway instead of a third-party API. Nine providers today: `indic_orpheus` (TTS), `rumik_oss` (TTS), `indic_parler` (TTS), `indic_mio` (TTS), `higgs_tts` (TTS), `maya2_native` (TTS), `indic_nemotron` (STT), `indic_conformer` (STT) and `indic_transcribe` (STT). |
 
 A config class outside all three raises `ValueError`, which keeps the layout honest.
 
@@ -254,6 +254,7 @@ python3 -c "from apps.providers import Kind, provider_schemas; [print(k, sorted(
 | `kenpath` | Kenpath | **adapter** | LLM |
 | `inworld` | Inworld | cloud | TTS |
 | `lmnt` | LMNT | cloud | TTS |
+| `maya2_native` | Maya 2 Native | **local** | TTS |
 | `openai` | OpenAI | cloud | STT, TTS, LLM |
 | `openrouter` | OpenRouter | cloud | LLM |
 | `rime` | Rime | cloud | TTS |
@@ -263,7 +264,7 @@ python3 -c "from apps.providers import Kind, provider_schemas; [print(k, sorted(
 | `speechmatics` | Speechmatics | cloud | STT |
 | `xai` | xAI | cloud | TTS |
 
-That is 15 STT providers, 18 TTS providers, and 10 LLM providers. No local LLM provider exists yet — see [Adding an AI provider](../guides/adding-a-provider#local-providers-one-extra-registration-call).
+That is 15 STT providers, 19 TTS providers, and 10 LLM providers. No local LLM provider exists yet — see [Adding an AI provider](../guides/adding-a-provider#local-providers-one-extra-registration-call).
 
 <Note>
 Bhashini covers **STT** (Dhruva WebSocket ASR, `api_key`) and **TTS** (NVCF gRPC, `auth_token` + `function_id`) — different transports and different credentials under one provider id. Kenpath is **LLM only**, and authenticates with an RSA private key rather than an API key — see [Providers](../services/providers#kenpath).

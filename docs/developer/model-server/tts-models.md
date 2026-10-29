@@ -3,7 +3,7 @@ title: TTS models
 description: Text-to-speech models, voices, and audio format negotiation.
 ---
 
-Five models can fill the TTS slot. They differ in backbone, in how a voice is chosen, and — the part that matters most to a client — in what they put on the wire. This page covers all five and the format negotiation that lets one client decode any of them.
+Six models can fill the TTS slot. They differ in backbone, in how a voice is chosen, and — the part that matters most to a client — in what they put on the wire. This page covers all six and the format negotiation that lets one client decode any of them.
 
 ## Available models
 
@@ -14,12 +14,13 @@ Five models can fill the TTS slot. They differ in backbone, in how a voice is ch
 | `orpheus` | AI4Bharat Orpheus Indic TTS | `ready` | 24000 | `pcm` | speaker name from a roster |
 | `rumik-oss-1` | Rumik OSS-1 3B | `ready` | 24000 | `pcm` | any of four voices, in any language |
 | `higgs-tts-3` | Boson AI Higgs TTS 3 4B | `ready` | 24000 | `pcm` | five reference voices, plus fixed control tags |
+| `maya2-native` | Maya Research Maya 2 Native | `ready` | 24000 | `pcm`, also `wav`/`mp3`/`opus`/`flac` | one of 20 named voices, each with its trained languages |
 | `omnivoice` | k2-fsa OmniVoice 0.6B | `planned` | — | — | cloning |
 
 Set the one you want with `TTS_MODEL` in `model-server/.env`. Statuses are from `model-server/models.yaml`.
 
 <Note>
-Only `indic-parler` has been run on VoicEra's hardware. `models.yaml` records "Not yet run on hardware" against `orpheus`, `indic-mio`, `rumik-oss-1` and `higgs-tts-3`, and their folder READMEs repeat it: for `indic-mio`, "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here.
+Only `indic-parler` has been run on VoicEra's hardware. `models.yaml` records "Not yet run on hardware" against `orpheus`, `indic-mio`, `rumik-oss-1`, `higgs-tts-3` and `maya2-native`, and their folder READMEs repeat it: for `indic-mio`, "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here.
 </Note>
 
 `omnivoice` is `planned` and needs its own runtime — it is diffusion-style, so not vLLM-servable.
@@ -159,17 +160,48 @@ The sidecar image is **built, not pulled**. `lmsysorg/sglang-omni:dev` has been 
 
 `fetch.sh` downloads the public checkpoint (no token) into the stack's `hf_cache` volume before the build. Nothing in this folder has been built or started on a GPU; Boson reports 617 ms latency and RTF 0.147 on one H100 at concurrency 1.
 
+## maya2-native
+
+[Maya 2 Native](https://huggingface.co/maya-research/maya2-native): a Qwen3-1.7B-Base backbone that predicts [Mimi](https://huggingface.co/kyutai/mimi) codebook 0, plus a 555M depth decoder for codebooks 1–31 — one 80 ms frame per step, 24 kHz mono. Twelve languages: `as bn en gu hi kn ml mr or pa ta te`. Apache-2.0 (Mimi is CC-BY-4.0); public, not gated.
+
+**The folder wraps upstream's server rather than replacing it,** the opposite of the decision `rumik-oss-1` made, for the opposite reason. Upstream's `maya3.server` is already an OpenAI-compatible server over a continuous-batching, CUDA-graphed engine, with admission control, a queue deadline, cancellation on disconnect, and mid-stream failures that abort the connection instead of ending it cleanly. `server.py` subclasses it and adds only what the slot contract asks for and upstream does not do; `contract.py` holds each of those as a pure function:
+
+| | upstream alone | this slot |
+| --- | --- | --- |
+| `X-Audio-Format` | absent | on every speech response |
+| default `response_format` | `wav` | `pcm` |
+| `language: "od"` | 400 | Odia |
+| `voice: "alloy"` or none | `plain`, a random speaker per request | `MAYA_DEFAULT_VOICE` (Ahana) |
+| `instructions`, `speed ≠ 1` | ignored / 400 | ignored, named in `X-Instructions-Ignored` / `X-Speed-Ignored` |
+| `POST/DELETE /v1/voices` | open | 403 unless `MAYA_VOICE_CLONING=true` |
+
+Upstream is pinned to a commit in `requirements.txt`, because `server.py` overrides five of its methods by name.
+
+**The client sends the language.** Marathi shares Hindi's script and Assamese shares Bengali's, so the script cannot decide the language; the `maya2_native` provider sends `language` on every request. Without it the server still detects one from the script.
+
+**Memory is per seat, taken at startup:** 7.7 GB at 1 seat, 11.7 GB at 16 (the default `MAYA_MAX_SEATS`), 15.8 GB at 32. On ace-h200, where MPS does not partition memory, that figure is what production is left with. Upstream measured 224 concurrent streams on one H100 NVL at steady-state TTFA p50/p99 111/242 ms; nothing has been measured here yet.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/audio/speech` | OpenAI-compatible; `stream_format` `audio` or `sse` |
+| `GET /health` | 503 until weights are loaded and CUDA graphs captured |
+| `GET /v1/voices` | the 20 voices, with each one's trained languages |
+| `GET /demo` | a page that plays the stream as it arrives |
+| `WS /v1/tts/stream` | upstream's multi-context WebSocket, unchanged and unused by the pipeline |
+
+`fetch.sh` downloads the release, Mimi and the ECAPA speaker encoder (~5.5 GB) into `models/` before the build, so the slot runs airgapped. ECAPA is only for cloning, which is disabled, but upstream's loader requires it.
+
 ## Format negotiation
 
 The models in this slot disagree on the wire, and none of them is wrong:
 
-| | Indic Parler | Indic-Mio | Orpheus | Rumik OSS-1 | Higgs TTS 3 |
-| --- | --- | --- | --- | --- | --- |
-| sample rate | 44,100 Hz | 44,100 Hz | 24,000 Hz | 24,000 Hz | 24,000 Hz |
-| sample width | float32 | float32 (16-bit on request) | signed 16-bit | signed 16-bit | signed 16-bit |
-| format name | `pcm_f32le` | `pcm_f32le` | `pcm` | `pcm` | `pcm` |
+| | Indic Parler | Indic-Mio | Orpheus | Rumik OSS-1 | Higgs TTS 3 | Maya 2 Native |
+| --- | --- | --- | --- | --- | --- | --- |
+| sample rate | 44,100 Hz | 44,100 Hz | 24,000 Hz | 24,000 Hz | 24,000 Hz | 24,000 Hz |
+| sample width | float32 | float32 (16-bit on request) | signed 16-bit | signed 16-bit | signed 16-bit | signed 16-bit |
+| format name | `pcm_f32le` | `pcm_f32le` | `pcm` | `pcm` | `pcm` | `pcm` |
 
-OpenAI's `response_format` vocabulary is `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm` — so Orpheus, Rumik and Higgs are the compliant ones, and `pcm_f32le` is an extension Indic Parler serves because float32 is what its engine produces. Two models agreeing is not the same as the question going away: the client still decodes by what the response declares, never by which model it thinks it reached.
+OpenAI's `response_format` vocabulary is `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm` — so Orpheus, Rumik, Higgs and Maya are the compliant ones, and `pcm_f32le` is an extension Indic Parler serves because float32 is what its engine produces. Two models agreeing is not the same as the question going away: the client still decodes by what the response declares, never by which model it thinks it reached.
 
 The client therefore cannot assume a width or a rate. It reads `X-Audio-Format` and `X-Sample-Rate` off the response and decodes accordingly, which is why the contract requires a model to declare them. Getting this wrong does not raise an error — it produces plausible bytes that sound like noise on a phone line. A format the client cannot decode produces a clear error naming it, never silence.
 
@@ -179,7 +211,7 @@ The client therefore cannot assume a width or a rate. It reads `X-Audio-Format` 
 
 TTS moved *off* WebSockets to plain HTTP, which gave cancellation for free. Direction of travel decides the transport: TTS is one-directional — text in, audio out — so HTTP does the same job with less machinery.
 
-When the caller interrupts, Pipecat stops reading the response, the connection drops, and that drop travels through the gateway to the TTS server, which frees the GPU slot. For `indic-parler` the server evicts the request from the batch; for `indic-mio` the async generator's `GeneratorExit` aborts the vLLM request; for `rumik-oss-1` the same `GeneratorExit` aborts the vLLM request, or, on the transformers engine, trips a flag that the sampling tap raises on at the next token, unwinding the model's own generation loop from the inside — a blocking loop in a worker thread cannot be stopped any other way; for `higgs-tts-3` the adapter closes its connection to the SGLang-Omni sidecar, which aborts a streaming request in the engine when its client disconnects. Either way generation stops rather than finishing a sentence nobody is listening to.
+When the caller interrupts, Pipecat stops reading the response, the connection drops, and that drop travels through the gateway to the TTS server, which frees the GPU slot. For `indic-parler` the server evicts the request from the batch; for `indic-mio` the async generator's `GeneratorExit` aborts the vLLM request; for `rumik-oss-1` the same `GeneratorExit` aborts the vLLM request, or, on the transformers engine, trips a flag that the sampling tap raises on at the next token, unwinding the model's own generation loop from the inside — a blocking loop in a worker thread cannot be stopped any other way; for `higgs-tts-3` the adapter closes its connection to the SGLang-Omni sidecar, which aborts a streaming request in the engine when its client disconnects; for `maya2-native` aiohttp cancels the handler (`handler_cancellation` is on) and upstream's cleanup cancels the engine request, which leaves its seat on the next 80 ms tick. Either way generation stops rather than finishing a sentence nobody is listening to.
 
 That propagation is what `tests/test_gateway_streaming.py` checks: the gateway streams rather than buffers, and a client disconnect reaches the upstream. The stopping-work-on-hangup row of the [container contract](adding-a-model) exists for exactly this.
 
@@ -194,6 +226,8 @@ The folder also still carries the older `voices.json` (v1): 12 ALL-CAPS styles (
 </Note>
 
 **rumik-oss-1** — four: Ira (default), Aisha, Siya, Zoya, read from the checkpoint's own `config.json` rather than a roster file, and served at `GET /v1/voices`. Every one covers every language, so there is no voice-per-language table to keep in step with a checkpoint. Expressiveness lives in the free-text delivery description instead of a style roster, so there is no fixed vocabulary to get wrong — and equally nothing that rejects a typo, which is the trade.
+
+**maya2-native** — 20 named voices, read from the release's `voices/voices.json` and served at `GET /v1/voices` with the languages each had at least an hour of data in: eight cover all eleven non-Assamese languages (Ahana — the default — Vaidehi, Malini, Charvi, Anirban, Nakul, Siddhant, Satvik), two cover ten, and the rest cover one to three (Kayal is English and Tamil; Ishwari, Vrinda and Ritvik are Hindi only). No voice lists Assamese. Any voice will speak any of the twelve languages, but outside its list it is cross-lingual, and the response says so in `X-Voice-Untrained-Language`. The provider's per-language dropdown offers only voices trained on that language, and the eight broad voices for Assamese.
 
 **indic-mio** — five preset speakers built from AI4Bharat Rasa reference clips: Aditi (default), Meera, Ananya, Rahul, Arjun. It is a zero-shot voice-cloning model, so a voice is a speaker embedding derived from one reference clip. The embedding is timbre only, so one voice works across all 22 Indic languages plus English — you do not need a voice per language.
 

@@ -1,0 +1,27 @@
+# Dependencies for the maya2-native slot.
+#
+# Upstream's engine is the dependency; everything else here is what it pins.
+# The package is called `maya3` (the repository was renamed to maya2-native
+# after the code was written -- upstream's README says so). It is installed
+# from git at a FIXED COMMIT, not a branch: server.py subclasses upstream's
+# Maya3Server and overrides five of its methods by name, so an unpinned upgrade
+# can break the slot without changing a line here. To move it, read upstream's
+# CHANGELOG, bump the SHA, and run tests/test_maya2_native.py against the new
+# checkout (its docstring says how).
+#
+# torch / torchaudio are upstream's own pins (torch 2.8.0 + cu128, which brings
+# triton 3.4.0 for the fused backbone and depth-decoder kernels). They come from
+# PyTorch's cu128 index; the whole CUDA userspace arrives as pip wheels, so the
+# host supplies only an NVIDIA driver new enough for CUDA 12.8.
+#
+# NOT YET A RESOLVED SET. As in tts/rumik-oss-1, freeze the first build that
+# works into constraints.txt and add `-c constraints.txt` to the Dockerfile:
+#
+#   docker compose ... run --rm --entrypoint "" tts pip freeze > constraints.txt
+
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.8.0
+torchaudio==2.8.0
+
+# The [server] extra is aiohttp, which upstream's server -- and so ours -- is built on.
+maya3[server] @ git+https://github.com/MayaResearch/maya2-native@c6b376868e268551d065c4206193e96257bef4a1

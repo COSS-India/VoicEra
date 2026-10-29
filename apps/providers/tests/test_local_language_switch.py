@@ -87,6 +87,7 @@ def test_nemotron_switches_to_wire_code(canonical, wire):
         ("indic_parler", {"language": "hi", "voice": "Divya"}, "Jaya"),
         ("indic_mio", {"language": "hi", "voice": "Aditi"}, "Meera"),
         ("higgs_tts", {"language": "hi", "voice": "Aditi"}, "Meera"),
+        ("maya2_native", {"language": "hi", "voice": "Ahana"}, "Kayal"),
     ],
 )
 def test_local_tts_switches_voice(provider, first, second):
@@ -97,3 +98,17 @@ def test_local_tts_switches_voice(provider, first, second):
 
     assert svc._voice == second
     assert svc._request_params("வணக்கம்")["voice"] == second
+
+
+@pytest.mark.parametrize(("canonical", "wire"), [("od", "or"), ("mr", "mr"), ("as", "as")])
+def test_maya_sends_the_switched_language_as_its_wire_code(canonical, wire):
+    """Maya is the one local TTS server that needs the language on the wire --
+    Marathi shares Hindi's script, Assamese shares Bengali's -- so a switch must
+    change what the next request carries, in the server's code, not VoicEra's."""
+    svc = TTS_CREATORS["maya2_native"](TTS_CONFIGS["maya2_native"](language="hi"))
+    assert svc._request_params("नमस्ते")["extra_body"] == {"language": "hi"}
+
+    _run(svc._update_settings(TTSSettings(voice="Ahana", language=canonical)))
+
+    assert svc._language == wire
+    assert svc._request_params("x")["extra_body"] == {"language": wire}
