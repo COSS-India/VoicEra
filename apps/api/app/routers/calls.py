@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+import logging
+import posixpath
 import threading
 from typing import Any, Iterator, NoReturn
 
@@ -47,12 +50,15 @@ from app.services.outbound_call_service import OutboundCallError, initiate_outbo
 from app.services.translation_service import (
     LANGUAGE_TAG_PATTERN,
     MAX_TRANSCRIPT_CHARS,
+    PROMPT_VERSION,
     TranslationError,
     TranslationErrorReason,
     translate_transcript,
 )
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
@@ -387,8 +393,11 @@ def translate_call_transcript(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CallTranslateResponse:
     """LLM-backed translation of the whole persisted transcript in one
-    request, so each line has the full conversation as context. Stateless —
-    not persisted.
+    request, so each line has the full conversation as context. The result is
+    cached beside the transcript (same bucket and {org}/{call}/ prefix), keyed
+    by target_lang and PROMPT_VERSION, so reopening a call doesn't pay for
+    another completion. The cache is best-effort: storage errors fall through
+    to the LLM (on read) or are logged (on write), never failing the request.
 
     Deliberately a SYNC route (not `async def`): it calls the sync OpenAI
     client and sync MinIO client. FastAPI runs sync route handlers in a
@@ -401,6 +410,20 @@ def translate_call_transcript(
     bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
 
     storage = MinIOStorage()
+    cache_key = posixpath.join(
+        posixpath.dirname(object_name), f"translation.{target_lang}.{PROMPT_VERSION}.txt"
+    )
+    try:
+        cached = storage.client.get_object(bucket_name, cache_key)
+        try:
+            return CallTranslateResponse(
+                translated_text=cached.read().decode("utf-8"), target_lang=target_lang
+            )
+        finally:
+            cached.close()
+            cached.release_conn()
+    except S3Error:
+        pass  # miss (NoSuchKey) or storage hiccup — translate fresh
 
     # The semaphore wraps the MinIO fetch too, not just the LLM call: the
     # limit exists to stop a burst of requests from starving unrelated sync
@@ -449,6 +472,18 @@ def translate_call_transcript(
             _raise_translation_error(exc)
     finally:
         _translate_semaphore.release()
+
+    data = translated_text.encode("utf-8")
+    try:
+        storage.client.put_object(
+            bucket_name,
+            cache_key,
+            io.BytesIO(data),
+            len(data),
+            content_type="text/plain; charset=utf-8",
+        )
+    except S3Error as exc:
+        logger.warning("Failed to cache translation %s: %s", cache_key, exc.code)
 
     return CallTranslateResponse(translated_text=translated_text, target_lang=target_lang)
 
