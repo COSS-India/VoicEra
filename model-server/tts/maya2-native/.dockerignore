@@ -1,0 +1,6 @@
+# ~5 GB of weights, bind-mounted at run time and never baked into the image.
+models/
+.env
+__pycache__/
+*.pyc
+README.md

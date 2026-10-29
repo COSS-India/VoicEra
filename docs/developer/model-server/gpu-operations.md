@@ -48,8 +48,9 @@ Memory reservations are worth planning before starting. The vLLM-backed slots ta
 | --- | --- | --- |
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.10` | the LLM slot — ~14 GB of a 143 GB H200 |
 | `MIO_VLLM_GPU_MEMORY_UTILIZATION` | `0.06` | `tts/indic-mio`'s vLLM sidecar — ~8.6 GB |
+| `HIGGS_ENGINE_GPU_MEMORY_FRACTION` + `HIGGS_VOCODER_GPU_MEMORY_FRACTION` + `HIGGS_ENCODER_GPU_MEMORY_FRACTION` | `0.12` + `0.03` + `0.02` | `tts/higgs-tts-3`'s SGLang-Omni sidecar, one per pipeline stage — ~24 GB in all, unmeasured. Upstream's own defaults add up to 98% of the card. |
 
-Those are two separate reservations on the same card when both are running, not alternatives. Never use vLLM's own `0.9` default here: MPS does not partition memory, so a greedy pre-allocation starves whatever else shares the card rather than failing cleanly.
+Those are separate reservations on the same card when they are running, not alternatives. Never use vLLM's own `0.9` default here: MPS does not partition memory, so a greedy pre-allocation starves whatever else shares the card rather than failing cleanly.
 
 Every GPU service also sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
 

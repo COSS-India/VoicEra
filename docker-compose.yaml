@@ -271,6 +271,8 @@ services:
       MINIO_ENDPOINT: minio:9000
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
       MODEL_SERVER_WS_URL: ws://host.docker.internal:8100/v1/asr/ws
+      # OpenAI Realtime transcription (indic_conformer, indic_transcribe).
+      MODEL_SERVER_REALTIME_URL: ws://host.docker.internal:8100/v1/realtime
       MODEL_SERVER_URL: http://host.docker.internal:8100/v1
     logging:
       driver: "json-file"

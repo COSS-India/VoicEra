@@ -136,7 +136,7 @@ async def create_speech(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    max_tokens = engine.clamp_max_tokens(req.max_tokens)
+    max_tokens = engine.clamp_max_tokens(req.max_tokens, req.input)
     engine.metrics.requests_total += 1
     stats = StreamStats()
 
