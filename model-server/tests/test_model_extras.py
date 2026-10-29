@@ -111,7 +111,10 @@ def test_a_gpu_sidecar_does_not_grab_the_card(slot, model):
         if name in ("gateway", slot):
             continue
         for arg in svc.get("command") or []:
-            if "gpu-memory-utilization" in str(arg):
+            # vLLM spells it --gpu-memory-utilization; SGLang-Omni takes one
+            # --<stage>.gpu_memory_fraction per stage (tts/higgs-tts-3), each
+            # a fraction of the whole card on its own.
+            if "gpu-memory-utilization" in str(arg) or "gpu_memory_fraction" in str(arg):
                 value = float(str(arg).split("=")[-1])
                 assert value <= 0.15, (
                     f"{name} reserves {value:.0%} of the whole card at startup; "

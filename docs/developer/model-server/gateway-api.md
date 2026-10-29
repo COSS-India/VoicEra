@@ -28,7 +28,17 @@ Routes are defined in `model-server/gateway/app/main.py`; that file is the curre
 `/v1/asr/ws` and `/v1/realtime` are relays, not protocols the gateway understands. Bytes and text frames pass through untouched in both directions, and the protocol on top is entirely between the client and the model. That is why a model that does not stream has nothing listening on its end.
 </Note>
 
-Anything a model serves beyond these routes — `/metrics`, `/admin/*`, Orpheus's `/v1/tts` family, a model's own demo page at `/` — is not part of the slot contract and is not forwarded. Reach those with `docker compose exec` for debugging.
+## Slot-prefixed routes
+
+`GET /<slot>/<path>` and `WS /<slot>/<path>` forward to the model in that slot, for the demo pages. Only an allowlist of exact paths is forwarded:
+
+| Slot | GET | WebSocket |
+| --- | --- | --- |
+| stt | `/health`, `/v1/languages` | `/v1/realtime` |
+| tts | `/health`, `/v1/languages`, `/v1/voices`, `/v1/styles`, `/v1/tts/stream` | `/v1/tts/ws` |
+| llm | none | none |
+
+Anything else a model serves — `/docs`, `/openapi.json`, `/metrics`, `/admin/*` — returns `404` (WebSocket: an error frame, then close code `1008`). Reach those with `docker compose exec` for debugging. Override a list with `<SLOT>_PASSTHROUGH_GET` / `<SLOT>_PASSTHROUGH_WS` in `.env` (comma-separated; `none` forwards nothing).
 
 ## /models vs /v1/models
 

@@ -1,0 +1,26 @@
+# The one thing this model needs when the host has an MPS daemon.
+#
+# An MPS client must run as the same user as the daemon. On ace-h200 the GPU is
+# in Exclusive_Process mode behind a root-owned daemon shared with production,
+# and a CUDA init from an unprivileged user there does not fail -- it BLOCKS in
+# the MPS handshake, in a unix datagram receive, with no log line, no GPU
+# allocation and dozens of threads parked in futex_wait. Indistinguishable from
+# a model still loading; it cost tts/orpheus most of an afternoon to find.
+#
+# orpheus carries `user: "0:0"` in its compose.extra.yml, which applies on every
+# host including those with no daemon at all. Here it lives in compose.mps.yml
+# instead, which compose-files.sh layers in ONLY when a daemon is really there
+# (both conditions, found by existence). So a host whose GPU is in the ordinary
+# Default mode keeps the image's unprivileged user, and nothing is given root
+# that does not need it.
+#
+# Everything else MPS needs for the `tts` service -- ipc: host, the ulimits, the
+# CUDA_MPS_* variables and the per-GPU pipe directories -- is in the shared
+# model-server/compose.mps.yml and is not repeated here.
+#
+# Note that /hf-cache will hold root-owned files once this has run, so moving a
+# host back to Default mode wants a `chown 1000:1000` on that volume.
+
+services:
+  tts:
+    user: "0:0"

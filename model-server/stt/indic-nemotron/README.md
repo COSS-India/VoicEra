@@ -39,9 +39,9 @@ for; a test pins that.
 ## Setup
 
 ```sh
-# Both checkpoints are GATED. Request access on both model pages first:
+# The multilingual checkpoint is GATED. Request access on its model page first:
 #   https://huggingface.co/ai4bharat/indic-asr-nemotron-600m
-#   https://huggingface.co/ai4bharat/bhili-asr-nemotron-600m
+# Bhili comes from Google Drive (see "The Bhili checkpoint" below).
 huggingface-cli login
 sh model-server/stt/indic-nemotron/fetch.sh      # ~4.8 GB, weights BEFORE up
 
@@ -96,6 +96,95 @@ to Hindi.
 invariant, and greedy RNNT amplifies ~1e-3 encoder differences into visible
 changes. Upstream documents this. It is not a bug and it is not ours, but it
 will look like one the first time a load test disagrees with a manual check.
+
+## The Bhili checkpoint
+
+Bhili is served from AI4Bharat's **2026-10-05 retrain**, not the HuggingFace
+release. It was shared on Google Drive alongside their inference script
+(`infer_nemotron_bhb.py`), and `fetch.sh` downloads it with `gdown`.
+
+| | path under `models/` | source |
+|---|---|---|
+| **current** | `bhili-asr-nemotron-600m-2026-10-05/` | Drive, file id `1ZVfylGZTlRYAX_W0WQh2Smv-sO7Clwt6` |
+| previous (rollback) | `bhili-asr-nemotron-600m/` | HF `ai4bharat/bhili-asr-nemotron-600m`, `NEMOTRON_BHILI_SOURCE=hf` |
+
+Both are `indic_nemotron_bhili_sft_lr1-averaged.nemo`, which is why the folder
+carries the date: the path is the only thing that says which one is serving.
+Rolling back is one line in `model-server/.env`:
+
+```sh
+NEMOTRON_BHILI_NEMO_PATH=/models/bhili-asr-nemotron-600m/indic_nemotron_bhili_sft_lr1-averaged.nemo
+```
+
+**The prompt pin.** AI4Bharat's script exists mainly to pin the language prompt
+to `bhb`: NeMo's offline `transcribe` otherwise picks `auto` or `bhb` at random
+per utterance. On their 4,130-utterance test set: pinned **WER 33.2**, random
+50.3, `auto` 66.8. This engine never had the problem -- every stream calls
+`set_prompt(model, "bhb")` -- so it needs nothing, but it is why a quick test
+through NeMo's own `transcribe` can look much worse than this server.
+
+**Both ways it can go wrong are silent**, and `/health` shows neither:
+
+1. The path in `BHILI_NEMO_PATH` does not exist → `find_model_path` falls back
+   to its built-in candidates, which is the *old* folder if it is still on disk.
+   Bhili works, on the previous weights.
+2. No Bhili file at all → `bhili_model` is `None` and `bhb` is served by the
+   multilingual checkpoint.
+
+`/health` says `"bhili": true` in case 1. The load line is what to check:
+
+```sh
+docker logs voicera_model_stt 2>&1 | grep 'Loading bhili'
+# [Engine] Loading bhili ASR model from: /models/bhili-asr-nemotron-600m-2026-10-05/...
+```
+
+**Checksum.** AI4Bharat published none. `fetch.sh` prints the sha256 of the
+first download; pin it as `BHILI_SHA256`'s default in `fetch.sh` so later
+downloads are checked. Drive's failure mode is an HTML page saved under the
+checkpoint's name with exit status 0, which `fetch.sh` also catches by checking
+for `model_config.yaml` inside the archive.
+
+### Testing a checkpoint without touching the live slot
+
+`tests/bench/nemotron_standalone.sh` runs this folder as a second container on
+a GPU and port you choose, with its environment taken from
+`docker compose config` -- the same values the live slot gets -- and attaches to
+MPS when the card has a daemon. `tests/bench/stt_ab.py` then sends the same
+audio to both and reports WER/CER and every transcript that changed.
+
+Use a separate checkout, so the branch never sits under the live stack:
+
+```sh
+git worktree add ~/voicera-bhili-test feat/nemotron-bhili-v2 && cd ~/voicera-bhili-test
+LIVE=~/voicera/model-server            # wherever the live stack runs from
+
+# 1. Weights: reuse the live multilingual download, add the new Bhili beside it.
+huggingface-cli login                  # if this box is not already logged in
+NEMOTRON_MODELS_DIR=$LIVE/stt/indic-nemotron/models \
+  sh model-server/stt/indic-nemotron/fetch.sh     # prints the sha256 to pin
+
+# 2. Bring up the standalone container.
+GPU=1 PORT=8200 MODELS=$LIVE/stt/indic-nemotron/models ENV_FILE=$LIVE/.env \
+  sh model-server/tests/bench/nemotron_standalone.sh up
+sh model-server/tests/bench/nemotron_standalone.sh check    # wait for OK
+
+# 3. Compare: live slot through the gateway vs the new container.
+python3 model-server/tests/bench/stt_ab.py \
+  --server old=http://127.0.0.1:8100 --server new=http://127.0.0.1:8200 \
+  --language bhb --manifest bhili_test.jsonl --out ab.jsonl
+
+# 4. Tear down.
+sh model-server/tests/bench/nemotron_standalone.sh down
+```
+
+`bhili_test.jsonl` is one `{"audio_filepath": ..., "text": ...}` per line, the
+format AI4Bharat's script reads; `text` is optional, and without it you get the
+transcripts side by side but no WER. The WER will not match AI4Bharat's 33.2 --
+theirs is offline full-utterance decoding, this is the 320 ms streaming path a
+call actually uses -- so compare old against new, not against their number.
+
+The second model costs another few GB on the card. Under MPS that memory is
+shared with production, so run it outside peak hours or on a spare card.
 
 ## Running on hardware
 
