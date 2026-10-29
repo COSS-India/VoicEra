@@ -21,6 +21,7 @@ import secrets
 from enum import Enum
 
 from app.services import auth_service
+from apps.providers.languages import LANGUAGES
 from apps.providers.one_shot_llm import OneShotLLMError, call_first_available
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ MAX_TRANSCRIPT_CHARS = 22_000  # ~20 min call
 # for the occasional bracketed [note: ...] the model appends to garbled
 # lines. Must stay ahead of MAX_TRANSCRIPT_CHARS's worst-case token-
 # equivalent, or completions get silently truncated mid-transcript and
-# _count_transcript_lines() rejects the result with an error that a retry
+# translate_transcript's line-count check rejects the result with an error that a retry
 # can never fix.
 MAX_OUTPUT_TOKENS = MAX_TRANSCRIPT_CHARS + 2_000
 
@@ -81,13 +82,16 @@ _CONTEXT_POLICY = (
     "line using the whole conversation as context, by meaning rather than word-by-word, and "
     "render idioms by their meaning (e.g. 'मेरा दिमाग खराब हो गया है' expresses frustration). "
     "'assistant' lines are the voice agent speaking in the first person on behalf of the "
-    "business (e.g. '<Name> se bol raha/rahi hoon' = 'this is <Name> speaking', never 'speaking to <Name>'); "
-    "'user' lines are the caller. "
+    "business (e.g. '<Name> se bol raha/rahi hoon' = 'I am speaking from <Name>' — 'se' here "
+    "means 'from', never 'speaking to/with <Name>'); 'user' lines are the caller. "
+    "Natural wording must not reframe a sentence: keep the speaker's own subject and structure "
+    "(an 'I am…' sentence stays 'I am…', not 'this is…'). "
     "Translate honorifics and particles by intent, not sound (e.g. 'जी' = 'Yes'/'Sure', never "
     "'Gee'), and short follow-ups as natural questions (e.g. 'जैसे कि?' = 'Like what?'). "
-    "Stay faithful: keep every repetition and greeting the speaker said (e.g. 'हाँ हाँ' = "
-    "'yes, yes'; 'हलो नमस्ते' = 'Hello, Namaste'); never merge or drop words, and never add, "
-    "omit, or alter numbers or dates. "
+    "Stay faithful: a word the speaker themselves repeats stays repeated (e.g. 'हाँ हाँ' = "
+    "'yes, yes'), and never merge or drop words — except that when adjacent different "
+    "greeting words translate to the same English word, write it once ('नमस्ते' = 'Hello', so "
+    "'हलो नमस्ते' = 'Hello', not 'Hello, hello'). Never add, omit, or alter numbers or dates. "
     "Write spoken digit sequences as comma-separated numerals, keeping every digit in order "
     "(e.g. 'मेरा नंबर नौ आठ सात है मेरा' = 'My number is 9, 8, 7'); speech recognition may "
     "join words without spaces (e.g. 'एकहैमेरा' = 'एक है मेरा'), so split them first, and "
@@ -145,14 +149,35 @@ def _new_delimiter_tag() -> str:
 def is_valid_language_tag(target_lang: str) -> bool:
     return _LANGUAGE_TAG_RE.fullmatch(target_lang) is not None
 
-# Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format —
-# used to detect when the model has merged/split/dropped lines despite being
-# told to keep the same line structure, since nothing else validates that.
+
+# Languages the product serves (apps/providers/languages.py), as base codes.
+# The regex above only checks shape — without this, made-up tags like 'qq'
+# were accepted, silently answered in English, and each cost a paid call
+# and a cached object. 'or' is the ISO code browsers send for Odia; the
+# catalog uses 'od'. frontend/src/lib/transcript.ts mirrors this set.
+_LANG_ALIASES = {"od": "or"}
+SUPPORTED_TARGET_LANGS = frozenset(
+    _LANG_ALIASES.get(base, base)
+    for base in (code.split("-")[0].lower() for code in LANGUAGES)
+    if base != "multi"
+)
+
+
+def normalize_target_lang(target_lang: str) -> str | None:
+    """Lowercased base code ('en-US' -> 'en', 'od' -> 'or') if the product
+    supports it, else None. Used for both the prompt and the cache key, so
+    'en', 'EN' and 'en-US' share one cached translation."""
+    if not is_valid_language_tag(target_lang):
+        return None
+    base = target_lang.split("-")[0].lower()
+    base = _LANG_ALIASES.get(base, base)
+    return base if base in SUPPORTED_TARGET_LANGS else None
+
+# Mirrors frontend/src/lib/transcript.ts's parseTranscript() line format.
+# Only lines in this format are sent to the model; anything else (the
+# call_id header, a malformed line) is passed through untouched, so one odd
+# line can't make the model "fix" it and break the line-count check forever.
 _TRANSCRIPT_LINE_RE = re.compile(r"^\[[^\]]+]\s*[^:\]]+:\s*.*$")
-
-
-def _count_transcript_lines(text: str) -> int:
-    return sum(1 for line in text.split("\n") if _TRANSCRIPT_LINE_RE.match(line))
 
 
 class TranslationErrorReason(str, Enum):
@@ -215,9 +240,10 @@ def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> 
     text = (raw_transcript or "").strip()
     if not text:
         raise TranslationError("Transcript is empty.", reason=TranslationErrorReason.INVALID_INPUT)
-    if not is_valid_language_tag(target_lang):
+    lang = normalize_target_lang(target_lang)
+    if lang is None:
         raise TranslationError(
-            f"target_lang {target_lang!r} is not a valid language tag.",
+            f"target_lang {target_lang!r} is not a supported language.",
             reason=TranslationErrorReason.INVALID_INPUT,
         )
     if len(text) > MAX_TRANSCRIPT_CHARS:
@@ -227,12 +253,19 @@ def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> 
             reason=TranslationErrorReason.OVERSIZED,
         )
 
+    lines = text.split("\n")
+    slots = [i for i, line in enumerate(lines) if _TRANSCRIPT_LINE_RE.match(line)]
+    if not slots:
+        raise TranslationError(
+            "Transcript has no translatable lines.", reason=TranslationErrorReason.INVALID_INPUT
+        )
+
     tag = _new_delimiter_tag()
     try:
         dispatched = call_first_available(
             org_id,
             _SYSTEM_PROMPT.replace("{tag}", tag),
-            _user_prompt(text, target_lang, tag),
+            _user_prompt("\n".join(lines[i] for i in slots), lang, tag),
             resolve_auth=_resolve_auth,
             list_configured_providers=auth_service.list_configured_providers,
             jwt_subject=f"translate-{org_id}",
@@ -261,12 +294,16 @@ def translate_transcript(raw_transcript: str, target_lang: str, org_id: str) -> 
         raise TranslationError(
             "Translation returned an empty result.", reason=TranslationErrorReason.UPSTREAM
         )
-    # If the original transcript has zero matching lines, the count comparison
-    # can't detect corruption (0 != 0 trivially passes) — nothing to compare against.
-    original_line_count = _count_transcript_lines(text)
-    if original_line_count > 0 and _count_transcript_lines(result) != original_line_count:
+    # Non-transcript chatter the model adds (a preamble, a blank line) is
+    # dropped; a merged/split/dropped line still fails the count check.
+    translated = [
+        line.strip() for line in result.split("\n") if _TRANSCRIPT_LINE_RE.match(line.strip())
+    ]
+    if len(translated) != len(slots):
         raise TranslationError(
             "The translation model changed the transcript's line structure. Please try again.",
             reason=TranslationErrorReason.UPSTREAM,
         )
-    return result
+    for i, line in zip(slots, translated):
+        lines[i] = line
+    return "\n".join(lines)
