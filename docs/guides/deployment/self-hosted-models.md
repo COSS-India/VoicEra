@@ -77,7 +77,7 @@ STT and TTS have first-class local providers — pick them like any other provid
 }
 ```
 
-They read the gateway address from environment variables at service-creation time, not from agent config — set `MODEL_SERVER_URL` (`indic_orpheus`, `rumik_oss`, `indic_parler`, `indic_mio` and `maya2_native`, OpenAI-shaped HTTP), `MODEL_SERVER_WS_URL` (`indic_nemotron`, raw WebSocket) and `MODEL_SERVER_REALTIME_URL` (`indic_conformer` and `indic_transcribe`, OpenAI Realtime WebSocket) on the runtime. Only one STT and one TTS model is deployed at a time, so only the providers whose model is deployed show as `authenticated`. See [Providers → The local providers](../../developer/services/providers#the-local-providers) for the field reference.
+They read the gateway address from environment variables at service-creation time, not from agent config — set `MODEL_SERVER_URL` (`indic_orpheus`, `rumik_oss`, `indic_parler`, `indic_mio`, `higgs_tts` and `maya2_native`, OpenAI-shaped HTTP), `MODEL_SERVER_WS_URL` (`indic_nemotron`, raw WebSocket) and `MODEL_SERVER_REALTIME_URL` (`indic_conformer` and `indic_transcribe`, OpenAI Realtime WebSocket) on the runtime. Only one STT and one TTS model is deployed at a time, so only the providers whose model is deployed show as `authenticated`. See [Providers → The local providers](../../developer/services/providers#the-local-providers) for the field reference.
 
 No local LLM provider exists yet, so an LLM still has to go through an OpenAI-compatible `base_url` on the `openai` provider:
 

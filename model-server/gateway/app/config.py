@@ -70,6 +70,39 @@ def _demo_assets(kind: str) -> tuple[str, ...]:
     return tuple(prefixes)
 
 
+# Paths the /{slot}/... passthrough forwards, matched exactly. The app calls
+# only named routes; these are what the demo pages need. Everything else a
+# model serves (/docs, /openapi.json, /metrics, /admin/*) stays internal.
+_PASSTHROUGH_GET = {
+    "stt": ("/health", "/v1/languages"),
+    "tts": ("/health", "/v1/languages", "/v1/voices", "/v1/styles", "/v1/tts/stream"),
+    "llm": (),
+}
+_PASSTHROUGH_WS = {
+    "stt": ("/v1/realtime",),
+    "tts": ("/v1/tts/ws",),
+    "llm": (),
+}
+
+
+def _paths(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Comma-separated exact paths, e.g. TTS_PASSTHROUGH_GET=/health,/v1/voices.
+
+    Unset keeps the slot default; `none` forwards nothing.
+    """
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    if raw.lower() == "none":
+        return ()
+    paths = []
+    for part in raw.split(","):
+        cleaned = part.strip().strip("/")
+        if cleaned:
+            paths.append("/" + cleaned)
+    return tuple(paths)
+
+
 @dataclass(frozen=True)
 class Upstream:
     kind: str          # "stt" | "tts" | "llm"
@@ -77,10 +110,22 @@ class Upstream:
     model: str         # model id, also the Compose profile name
     demo_path: str = "/demo"   # where this model serves its page; see _demo_path
     demo_assets: tuple[str, ...] = ()   # root-relative prefixes it owns; see _demo_assets
+    passthrough_get: tuple[str, ...] | None = None   # None = slot default
+    passthrough_ws: tuple[str, ...] | None = None    # None = slot default
 
     @property
     def enabled(self) -> bool:
         return bool(self.model and self.url)
+
+    def exposes(self, path: str, websocket: bool = False) -> bool:
+        """Whether GET (or WebSocket) /{kind}{path} is forwarded to this slot."""
+        if websocket:
+            allowed = self.passthrough_ws
+            default = _PASSTHROUGH_WS[self.kind]
+        else:
+            allowed = self.passthrough_get
+            default = _PASSTHROUGH_GET[self.kind]
+        return path in (default if allowed is None else allowed)
 
 
 @dataclass(frozen=True)
@@ -93,7 +138,11 @@ class Settings:
     def _slot(kind: str) -> Upstream:
         model = _clean(f"{kind.upper()}_MODEL")
         url = _clean(f"{kind.upper()}_UPSTREAM") or (_DEFAULT_URL[kind] if model else "")
-        return Upstream(kind, url, model, _demo_path(kind), _demo_assets(kind))
+        return Upstream(
+            kind, url, model, _demo_path(kind), _demo_assets(kind),
+            _paths(f"{kind.upper()}_PASSTHROUGH_GET", _PASSTHROUGH_GET[kind]),
+            _paths(f"{kind.upper()}_PASSTHROUGH_WS", _PASSTHROUGH_WS[kind]),
+        )
 
     @classmethod
     def from_env(cls) -> Settings:

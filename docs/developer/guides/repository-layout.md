@@ -112,7 +112,7 @@ apps/providers/
 ├── readme.md
 ├── cloud/          22 vendor folders → provider_type=cloud
 ├── adapters/       bhashini · kenpath → provider_type=adapter
-├── local/          indic_conformer · indic_nemotron · indic_transcribe (STT) · indic_mio · indic_orpheus · indic_parler · maya2_native · rumik_oss (TTS) → provider_type=local; _openai_speech.py is their shared TTS client
+├── local/          indic_conformer · indic_nemotron · indic_transcribe (STT) · higgs_tts · indic_mio · indic_orpheus · indic_parler · maya2_native · rumik_oss (TTS) → provider_type=local; _openai_speech.py is their shared TTS client
 └── tests/          5 test modules
 ```
 
@@ -158,7 +158,7 @@ model-server/
 ├── ruff.toml                      The only lint config in the repository
 ├── gateway/                       One published port; routes to the slots
 ├── stt/                           indic-conformer, indic-transcribe
-├── tts/                           indic-mio, indic-parler, maya2-native, orpheus, rumik-oss-1
+├── tts/                           higgs-tts-3, indic-mio, indic-parler, maya2-native, orpheus, rumik-oss-1
 ├── llm/                           qwen3.5-4b
 ├── tests/                         27 test modules plus stubs
 └── hindi.wav                      Fixture for the GPU smoke script

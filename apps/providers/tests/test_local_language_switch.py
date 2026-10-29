@@ -86,6 +86,7 @@ def test_nemotron_switches_to_wire_code(canonical, wire):
         ("rumik_oss", {"language": "hi", "voice": "Ira"}, "Zoya"),
         ("indic_parler", {"language": "hi", "voice": "Divya"}, "Jaya"),
         ("indic_mio", {"language": "hi", "voice": "Aditi"}, "Meera"),
+        ("higgs_tts", {"language": "hi", "voice": "Aditi"}, "Meera"),
         ("maya2_native", {"language": "hi", "voice": "Ahana"}, "Kayal"),
     ],
 )

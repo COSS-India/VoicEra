@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>higgs-tts-3 — TTS slot</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; background:#0b1020; color:#eef2ff;
+         max-width: 780px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color:#94a3b8; font-size: 13px; margin: 0 0 24px; }
+  label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+          color:#94a3b8; margin: 16px 0 6px; }
+  select, input, textarea, button {
+    box-sizing:border-box; width:100%; padding:10px 12px; font: inherit;
+    background:#151d33; color:#fff; border:1px solid #34405f; border-radius:8px; }
+  textarea { resize: vertical; }
+  button { background:#f97316; border:0; font-weight:650; cursor:pointer; margin-top:20px; }
+  button:disabled { opacity:.5; cursor:wait; }
+  button.chip { width:auto; margin:6px 6px 0 0; padding:4px 10px; font-size:12px; font-weight:500;
+                background:#1e293b; border:1px solid #34405f; }
+  .row { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
+  .row2 { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  #status { min-height:22px; margin-top:14px; font-size:13px; color:#fbbf24; }
+  table { width:100%; border-collapse:collapse; margin-top:18px; font-size:13px; }
+  td { padding:5px 0; border-bottom:1px solid #1f2940; }
+  td:last-child { text-align:right; color:#a5b4fc; font-variant-numeric: tabular-nums; }
+  .hint { color:#64748b; font-size:12px; margin-top:6px; }
+  code { color:#c7d2fe; }
+  #keyrow[hidden] { display:none; }
+  @media (max-width:520px) { .row, .row2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>Higgs TTS 3</h1>
+<p class="sub">Boson AI &middot; 4B &middot; hi, bn, ta, te, kn, ml, mr, gu, as, ne, ur, pa, en
+&middot; 24&nbsp;kHz &middot; streamed as it generates &middot;
+<strong>research &amp; non-commercial licence</strong></p>
+
+<div id="keyrow" hidden>
+  <label for="key">API key</label>
+  <input id="key" type="password" autocomplete="off" placeholder="HIGGS_TEST_API_KEY">
+  <p class="hint">Sent as <code>Authorization: Bearer …</code>, kept only in this tab.</p>
+</div>
+
+<div class="row2">
+  <div><label for="voice">Voice</label><select id="voice"></select></div>
+  <div><label for="delivery">Delivery (<code>instructions</code>)</label>
+       <select id="delivery"></select></div>
+</div>
+<p class="hint" id="voicehint"></p>
+
+<label for="input">Text (<code>input</code>)</label>
+<textarea id="input" rows="4">नमस्ते, मैं आपकी कैसे मदद कर सकती हूँ? आपका ऑर्डर कल तक पहुँच जाएगा।</textarea>
+<div id="samples"></div>
+<div>
+  <button class="chip" data-tag="<|prosody:pause|>">+ pause</button>
+  <button class="chip" data-tag="<|prosody:long_pause|>">+ long pause</button>
+  <button class="chip" data-tag="<|sfx:laughter|>Haha">+ laughter</button>
+  <button class="chip" data-tag="<|sfx:sigh|>Uh">+ sigh</button>
+  <button class="chip" data-tag="<|sfx:cough|>Ahem">+ cough</button>
+</div>
+<p class="hint">Inline tags go where the effect should happen; a sound effect is followed by its
+sound. The script of the text sets the language.</p>
+
+<div class="row">
+  <div><label for="speed">Speed</label>
+    <select id="speed">
+      <option value="0.65">0.65× (very slow)</option>
+      <option value="0.85">0.85× (slow)</option>
+      <option value="1" selected>1.0×</option>
+      <option value="1.2">1.2× (fast)</option>
+      <option value="1.4">1.4× (very fast)</option>
+    </select></div>
+  <div><label for="temperature">Temperature</label>
+       <input id="temperature" type="number" value="0.8" step="0.1" min="0" max="2"></div>
+  <div><label for="topk">Top-k</label>
+       <input id="topk" type="number" value="50" min="1"></div>
+</div>
+
+<button id="go">Synthesize</button>
+<div id="status"></div>
+<table id="timings" hidden>
+  <tr><td>Time to first audio</td><td id="t-ttfa"></td></tr>
+  <tr><td>Audio received</td><td id="t-audio"></td></tr>
+  <tr><td>Wall clock</td><td id="t-wall"></td></tr>
+  <tr><td>Realtime factor</td><td id="t-rtf"></td></tr>
+  <tr><td>Voice / tags applied</td><td id="t-tags"></td></tr>
+</table>
+
+<script>
+// Raw PCM is requested so the page shows what the slot actually does: audio
+// playing while the model is still generating it.
+const els = id => document.getElementById(id);
+const status = msg => { els('status').textContent = msg; };
+
+// Where the page is served decides where the roster is. Directly on the
+// adapter (the standalone test stack, at /demo or /demo/tts) it is /v1/voices;
+// through the gateway (/demo/tts) only /tts/v1/voices exists. Try both, in an
+// order that cannot be wrong for long. /v1/audio/speech is the same path on both.
+const VOICES_URLS = ['/v1/voices', '/tts/v1/voices'];
+const SPEECH_URL = '/v1/audio/speech';
+
+const SAMPLES = {
+  hi: 'नमस्ते, मैं आपकी कैसे मदद कर सकती हूँ? आपका ऑर्डर कल तक पहुँच जाएगा।',
+  ta: 'வணக்கம், உங்களுக்கு எப்படி உதவலாம்? உங்கள் ஆர்டர் நாளை வந்து சேரும்.',
+  bn: 'নমস্কার, আমি কীভাবে সাহায্য করতে পারি? আপনার অর্ডার কাল পৌঁছে যাবে।',
+  te: 'నమస్కారం, నేను మీకు ఎలా సహాయం చేయగలను? మీ ఆర్డర్ రేపు వస్తుంది.',
+  mr: 'नमस्कार, मी तुमची कशी मदत करू शकते? तुमची ऑर्डर उद्या पोहोचेल.',
+  kn: 'ನಮಸ್ಕಾರ, ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು? ನಿಮ್ಮ ಆರ್ಡರ್ ನಾಳೆ ತಲುಪುತ್ತದೆ.',
+  ml: 'നമസ്കാരം, ഞാൻ നിങ്ങളെ എങ്ങനെ സഹായിക്കും? നിങ്ങളുടെ ഓർഡർ നാളെ എത്തും.',
+  gu: 'નમસ્તે, હું તમારી કેવી રીતે મદદ કરી શકું? તમારો ઓર્ડર કાલે પહોંચી જશે.',
+  en: 'Hello, how can I help you today? Your order will arrive tomorrow.',
+};
+
+// The key lives in this tab's sessionStorage at most. Storage can throw (private
+// windows, blocked site data); the page works without it.
+const KEY_SLOT = 'higgs-demo-key';
+function savedKey() { try { return sessionStorage.getItem(KEY_SLOT) || ''; } catch { return ''; } }
+function saveKey(v) { try { sessionStorage.setItem(KEY_SLOT, v); } catch { /* fine */ } }
+els('key').value = savedKey();
+els('key').addEventListener('change', () => { saveKey(els('key').value); loadVoices(); });
+
+function headers(json) {
+  const h = json ? { 'content-type': 'application/json' } : {};
+  const key = els('key').value.trim();
+  if (key) h.authorization = `Bearer ${key}`;
+  return h;
+}
+
+function option(sel, value, label, selected) {
+  const opt = document.createElement('option');
+  opt.value = value; opt.textContent = label; opt.selected = !!selected;
+  sel.append(opt);
+}
+
+async function loadVoices() {
+  let body = null, refused = false;
+  for (const url of VOICES_URLS) {
+    try {
+      const r = await fetch(url, { headers: headers(false) });
+      if (r.status === 401) refused = true;
+      if (r.ok) { body = await r.json(); break; }
+    } catch { /* try the next */ }
+  }
+  const voice = els('voice'), delivery = els('delivery');
+  // Reloading (a new key) keeps what was chosen, where it still exists.
+  const keepVoice = voice.value, keepDelivery = delivery.value;
+  // The key field is shown only when the server asks for one (or a key is
+  // already saved in this tab); an open server needs none.
+  els('keyrow').hidden = !(refused || els('key').value);
+  if (!body) {
+    status(refused ? 'This server requires an API key: enter it above.'
+                   : 'Could not load the voice list — is the model up?');
+    return;
+  }
+  voice.replaceChildren(); delivery.replaceChildren();
+  status('');
+  const usable = body.data.filter(v => v.available);
+  for (const v of body.data) {
+    const label = `${v.id} — ${v.gender || ''} ${v.language ? '(' + v.language + ' accent)' : ''}`
+                + (v.available ? '' : ' · no clip yet');
+    option(voice, v.id, label, v.available && v.id === body.default);
+    voice.lastChild.disabled = !v.available;
+  }
+  if (body.zero_shot) option(voice, 'default', 'default — no reference clip (random speaker)',
+                             !usable.length);
+  els('voicehint').textContent = usable.length ? '' :
+    'No voice has its reference clip yet, so only the random "default" speaker is available.';
+  for (const tag of body.instructions || ['none']) option(delivery, tag, tag, tag === 'none');
+  if (keepVoice && [...voice.options].some(o => o.value === keepVoice && !o.disabled)) voice.value = keepVoice;
+  if (keepDelivery && [...delivery.options].some(o => o.value === keepDelivery)) delivery.value = keepDelivery;
+}
+
+function addSamples() {
+  const box = els('samples');
+  for (const [lang, text] of Object.entries(SAMPLES)) {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = lang;
+    b.addEventListener('click', () => { els('input').value = text; });
+    box.append(b);
+  }
+}
+
+document.querySelectorAll('button[data-tag]').forEach(b => b.addEventListener('click', () => {
+  const ta = els('input'), at = ta.selectionStart ?? ta.value.length;
+  ta.value = ta.value.slice(0, at) + ' ' + b.dataset.tag + ' ' + ta.value.slice(at);
+  ta.focus();
+}));
+
+async function run() {
+  const button = els('go');
+  button.disabled = true;
+  button.textContent = 'Generating…';
+  els('timings').hidden = true;
+  status('Connecting…');
+
+  const t0 = performance.now();
+  let ctx = null, playAt = 0, firstAudioAt = null, samples = 0, rate = 24000;
+  // A chunk boundary can fall inside a 16-bit sample; carry the odd byte over.
+  let carry = new Uint8Array(0);
+
+  try {
+    const response = await fetch(SPEECH_URL, {
+      method: 'POST',
+      headers: headers(true),
+      body: JSON.stringify({
+        model: 'higgs-tts-3',
+        input: els('input').value,
+        voice: els('voice').value,
+        instructions: els('delivery').value,
+        speed: Number(els('speed').value),
+        response_format: 'pcm',
+        stream_format: 'audio',
+        temperature: Number(els('temperature').value),
+        top_k: Number(els('topk').value),
+      }),
+    });
+    if (!response.ok) {
+      if (response.status === 401) els('keyrow').hidden = false;
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `HTTP ${response.status}`);
+    }
+
+    // The server says what it sent; nothing here assumes a rate or a width.
+    rate = Number(response.headers.get('X-Sample-Rate')) || 24000;
+    const applied = [response.headers.get('X-Voice'),
+                     response.headers.get('X-Delivery-Tags') || 'no tags'].join(' · ');
+    ctx = new AudioContext({ sampleRate: rate });
+    playAt = ctx.currentTime + 0.08;
+    status('Receiving audio…');
+
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.length) continue;
+
+      const merged = new Uint8Array(carry.length + value.length);
+      merged.set(carry, 0);
+      merged.set(value, carry.length);
+      const usable = merged.length - (merged.length % 2);
+      carry = merged.slice(usable);
+      if (!usable) continue;
+
+      const pcm = new Int16Array(merged.buffer, merged.byteOffset, usable / 2);
+      const buffer = ctx.createBuffer(1, pcm.length, rate);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(Math.max(playAt, ctx.currentTime));
+      playAt = Math.max(playAt, ctx.currentTime) + buffer.duration;
+
+      samples += pcm.length;
+      if (firstAudioAt === null) {
+        firstAudioAt = performance.now() - t0;
+        status('Playing while the model is still generating…');
+      }
+    }
+
+    const wall = performance.now() - t0;
+    const audioMs = (samples / rate) * 1000;
+    els('t-ttfa').textContent = firstAudioAt === null ? '—' : `${firstAudioAt.toFixed(0)} ms`;
+    els('t-audio').textContent = `${(audioMs / 1000).toFixed(2)} s`;
+    els('t-wall').textContent = `${(wall / 1000).toFixed(2)} s`;
+    els('t-rtf').textContent = audioMs ? (wall / audioMs).toFixed(2) : '—';
+    els('t-tags').textContent = applied;
+    els('timings').hidden = false;
+    status(samples ? 'Done.' : 'The stream ended without audio — check the server log.');
+  } catch (err) {
+    status(err.message || String(err));
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Synthesize';
+  }
+}
+
+els('go').addEventListener('click', run);
+addSamples();
+loadVoices();
+</script>
+</body>
+</html>

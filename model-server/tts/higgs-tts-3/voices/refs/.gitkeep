@@ -1,0 +1,4 @@
+# One reference clip per voice in ../manifest.json (aditi.wav, ...), each with
+# its transcript in the manifest's `text`. Fetch with scripts/fetch_voices.py;
+# see ../README.md. Rasa's CC-BY-4.0 licence allows committing them, and doing
+# so means no deployment ever needs a Rasa-approved token -- see ../NOTICE.
