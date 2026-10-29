@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, Download, Eye, FileText, RefreshCw, Table, User } from "lucide-react";
+import { ChevronDown, Download, Eye, FileText, RefreshCw, Search, Table, User } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { CallTypeBadge, CALL_TYPE_META } from "@/components/ui/CallTypeBadge";
@@ -19,7 +19,7 @@ import {
 } from "@/lib/api/calls";
 import { listCampaigns } from "@/lib/api/campaigns";
 import { parseTranscript } from "@/lib/transcript";
-import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
+import { displayFromNumber, displayToNumber, formatDateTime, formatDuration } from "@/lib/format";
 import { buildCsvReport, downloadBlob, type ReportMeta } from "@/lib/report";
 import { CallDetailSheet } from "@/components/dashboard/CallDetailSheet";
 import { HistoryDateFilter } from "@/components/dashboard/HistoryDateFilter";
@@ -31,6 +31,8 @@ import type {
 } from "@/lib/api-types";
 import {
   buildHistoryListQuery,
+  filterAndSortCalls,
+  isCallIdSearchQuery,
   type CampaignScope,
   type DatePreset,
 } from "@/lib/history-filters";
@@ -49,20 +51,6 @@ function relativeTime(from: Date, now: Date): string {
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
   return `${hours}h ago`;
-}
-
-function formatDateTime(iso?: string | null): string {
-  if (!iso) return "–";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "–";
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 function statusTone(call: CallLogItem) {
@@ -116,6 +104,8 @@ const todayStamp = () => new Date().toISOString().slice(0, 10);
 interface ExportMenuProps {
   filteredCalls: CallLogItem[];
   listFilters: ReturnType<typeof buildHistoryListQuery>;
+  /** When set (e.g. client-side phone search), bulk exports use this set instead of re-fetching. */
+  exportAllRows?: CallLogItem[] | null;
   orgId: string | undefined;
   meta: ReportMeta;
   selectedAgent: AgentApiResponse | null;
@@ -128,6 +118,7 @@ interface ExportMenuProps {
 function ExportMenu({
   filteredCalls,
   listFilters,
+  exportAllRows,
   orgId,
   meta,
   selectedAgent,
@@ -155,8 +146,12 @@ function ExportMenu({
     }
     setBusy("csv");
     try {
-      const { limit: _l, offset: _o, ...filters } = listFilters;
-      const rows = await listAllOrgCalls(orgId, filters);
+      const rows =
+        exportAllRows ??
+        (await (async () => {
+          const { limit: _l, offset: _o, ...filters } = listFilters;
+          return listAllOrgCalls(orgId, filters);
+        })());
       downloadBlob(callsToCsv(rows, meta), "text/csv", `call-history-${todayStamp()}.csv`);
       onNotify("Export complete", `${rows.length} calls exported.`);
     } catch (err) {
@@ -176,8 +171,12 @@ function ExportMenu({
     if (!orgId) return;
     setBusy("transcripts");
     try {
-      const { limit: _l, offset: _o, ...filters } = listFilters;
-      const allCalls = await listAllOrgCalls(orgId, filters);
+      const allCalls =
+        exportAllRows ??
+        (await (async () => {
+          const { limit: _l, offset: _o, ...filters } = listFilters;
+          return listAllOrgCalls(orgId, filters);
+        })());
       const withTranscripts = allCalls.filter((c) => c.transcript_url);
       const header = ["Call ID", "Agent", "Campaign", "Call Type", "Called On", "Line Timestamp", "Role", "Content"];
       const rows: unknown[][] = [];
@@ -335,8 +334,13 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   const [agentFilterId, setAgentFilterId] = useState(agentFromUrl);
   const [exportCalls, setExportCalls] = useState<CallLogItem[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
-  const [callIdInput, setCallIdInput] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [callIdSearch, setCallIdSearch] = useState<string | null>(null);
+  const [phoneSearch, setPhoneSearch] = useState<string | null>(null);
+  const [phoneSearchMatches, setPhoneSearchMatches] = useState<CallLogItem[]>([]);
+  // Bumps on every list fetch so a slow response for an older filter cannot
+  // overwrite calls/total after the user has already changed filters.
+  const fetchGeneration = useRef(0);
 
   const hasActiveFilters =
     dateFilter.hasDateFilter ||
@@ -344,50 +348,76 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     statusFilter !== "all" ||
     Boolean(agentFilterId) ||
     campaignScope.mode !== "all" ||
-    Boolean(callIdSearch);
+    Boolean(callIdSearch) ||
+    Boolean(phoneSearch);
 
-  function clearCallIdSearch() {
+  function resetPageTotals() {
+    setOffset(0);
+    setTotal(0);
+    setCalls([]);
+  }
+
+  function clearSearch() {
     setCallIdSearch(null);
-    setCallIdInput("");
+    setPhoneSearch(null);
+    setSearchInput("");
+    resetPageTotals();
     setReloadToken((n) => n + 1);
   }
 
-  async function searchByCallId() {
-    const id = callIdInput.trim();
-    if (!id) return;
+  async function searchByCallId(id: string) {
+    const generation = ++fetchGeneration.current;
     setLoading(true);
     setLoadError("");
     try {
       const call = await getCall(id);
+      if (generation !== fetchGeneration.current) return;
       setCalls([call]);
       setTotal(1);
       setOffset(0);
       setCallIdSearch(id);
+      setPhoneSearch(null);
       setLastUpdated(new Date());
     } catch (err) {
+      if (generation !== fetchGeneration.current) return;
       setCalls([]);
       setTotal(0);
       setCallIdSearch(null);
       setLoadError(err instanceof Error ? err.message : "No call found with that ID.");
     } finally {
-      setLoading(false);
+      if (generation === fetchGeneration.current) setLoading(false);
     }
   }
 
-  const listFilters = useMemo(
+  function applySearch() {
+    const query = searchInput.trim();
+    if (!query) return;
+    setOffset(0);
+    setLoadError("");
+    if (isCallIdSearchQuery(query)) {
+      void searchByCallId(query);
+      return;
+    }
+    setCallIdSearch(null);
+    setPhoneSearch(query);
+    setReloadToken((n) => n + 1);
+  }
+
+  /** API query: omit date bounds while searching by phone so matches can span any date. */
+  const apiListFilters = useMemo(
     () =>
       buildHistoryListQuery({
-        range: dateFilter.applied,
+        range: phoneSearch ? null : dateFilter.applied,
         type: typeFilter,
         status: statusFilter,
         agentId: agentFilterId,
         campaignScope,
       }),
-    [dateFilter.applied, typeFilter, statusFilter, agentFilterId, campaignScope],
+    [phoneSearch, dateFilter.applied, typeFilter, statusFilter, agentFilterId, campaignScope],
   );
 
   function onDatePresetChange(preset: DatePreset) {
-    setOffset(0);
+    resetPageTotals();
     const result = dateFilter.selectPreset(preset);
     if (result.shouldReload) setReloadToken((n) => n + 1);
   }
@@ -395,7 +425,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   function onApplyCustomRange() {
     const range = dateFilter.applyCustom();
     if (!range) return;
-    setOffset(0);
+    resetPageTotals();
     // Always reload on Apply (dograh pattern) so re-selecting dates is stable.
     setReloadToken((n) => n + 1);
   }
@@ -429,25 +459,34 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
   const loadPage = useCallback(
     async (nextOffset: number) => {
       if (!orgId) return;
+      const generation = ++fetchGeneration.current;
+      if (phoneSearch) {
+        if (generation !== fetchGeneration.current) return;
+        setOffset(nextOffset);
+        setCalls(phoneSearchMatches.slice(nextOffset, nextOffset + PAGE_SIZE));
+        return;
+      }
       setLoading(true);
       setLoadError("");
       try {
         const res = await listOrgCalls(orgId, {
-          ...listFilters,
+          ...apiListFilters,
           limit: PAGE_SIZE,
           offset: nextOffset,
         });
+        if (generation !== fetchGeneration.current) return;
         setCalls(res.calls);
         setTotal(res.total);
         setOffset(res.offset);
         setLastUpdated(new Date());
       } catch (err) {
+        if (generation !== fetchGeneration.current) return;
         setLoadError(err instanceof Error ? err.message : "Couldn't load call history.");
       } finally {
-        setLoading(false);
+        if (generation === fetchGeneration.current) setLoading(false);
       }
     },
-    [orgId, listFilters],
+    [orgId, apiListFilters, phoneSearch, phoneSearchMatches],
   );
 
   useEffect(() => {
@@ -455,25 +494,49 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     const id = orgId;
     let cancelled = false;
 
+    const generation = ++fetchGeneration.current;
+    setLoading(true);
+    setTotal(0);
+    setCalls([]);
+
     async function run() {
-      setLoading(true);
       setLoadError("");
       try {
-        const res = await listOrgCalls(id, {
-          ...listFilters,
-          limit: PAGE_SIZE,
-          offset: 0,
-        });
-        if (cancelled) return;
-        setCalls(res.calls);
-        setTotal(res.total);
-        setOffset(0);
+        if (phoneSearch) {
+          const { limit: _l, offset: _o, ...filters } = apiListFilters;
+          const all = await listAllOrgCalls(id, filters);
+          if (cancelled || generation !== fetchGeneration.current) return;
+          const filtered = filterAndSortCalls(all, {
+            range: dateFilter.applied,
+            type: typeFilter,
+            status: statusFilter,
+            agentId: agentFilterId,
+            campaignScope,
+            phoneSearch,
+          });
+          setPhoneSearchMatches(filtered);
+          setExportCalls(filtered);
+          setTotal(filtered.length);
+          setOffset(0);
+          setCalls(filtered.slice(0, PAGE_SIZE));
+        } else {
+          const res = await listOrgCalls(id, {
+            ...apiListFilters,
+            limit: PAGE_SIZE,
+            offset: 0,
+          });
+          if (cancelled || generation !== fetchGeneration.current) return;
+          setPhoneSearchMatches([]);
+          setCalls(res.calls);
+          setTotal(res.total);
+          setOffset(0);
+        }
         setLastUpdated(new Date());
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled || generation !== fetchGeneration.current) return;
         setLoadError(err instanceof Error ? err.message : "Couldn't load call history.");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && generation === fetchGeneration.current) setLoading(false);
       }
     }
 
@@ -481,16 +544,27 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     return () => {
       cancelled = true;
     };
-  }, [orgId, listFilters, reloadToken, callIdSearch]);
+  }, [
+    orgId,
+    apiListFilters,
+    reloadToken,
+    callIdSearch,
+    phoneSearch,
+    dateFilter.applied,
+    typeFilter,
+    statusFilter,
+    agentFilterId,
+    campaignScope,
+  ]);
 
-  // Keep a full filtered set for PDF print export.
+  // Keep a full filtered set for PDF print export (server-paginated mode only).
   useEffect(() => {
-    if (!orgId || callIdSearch) {
+    if (!orgId || callIdSearch || phoneSearch) {
       if (!orgId) setExportCalls([]);
       return;
     }
     let cancelled = false;
-    const { limit: _l, offset: _o, ...filters } = listFilters;
+    const { limit: _l, offset: _o, ...filters } = apiListFilters;
     listAllOrgCalls(orgId, filters)
       .then((rows) => {
         if (!cancelled) setExportCalls(rows);
@@ -501,7 +575,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
     return () => {
       cancelled = true;
     };
-  }, [orgId, listFilters, reloadToken, callIdSearch]);
+  }, [orgId, apiListFilters, reloadToken, callIdSearch, phoneSearch]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 30_000);
@@ -510,12 +584,13 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
 
   const pageCalls = calls;
   const displayTotal = total;
-  const canPrev = offset > 0;
-  const canNext = offset + pageCalls.length < displayTotal;
+  const rangeEnd = Math.min(offset + pageCalls.length, displayTotal);
+  const canPrev = offset > 0 && pageCalls.length > 0;
+  const canNext = pageCalls.length > 0 && offset + pageCalls.length < displayTotal;
 
   function refresh() {
     if (callIdSearch) {
-      void searchByCallId();
+      void searchByCallId(callIdSearch);
       return;
     }
     setReloadToken((n) => n + 1);
@@ -556,7 +631,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             className="!h-9 !py-0"
             value={typeFilter}
             onChange={(e) => {
-              setOffset(0);
+              resetPageTotals();
               setTypeFilter(e.target.value as TypeFilter);
             }}
           >
@@ -575,7 +650,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             className="!h-9 !py-0"
             value={statusFilter}
             onChange={(e) => {
-              setOffset(0);
+              resetPageTotals();
               setStatusFilter(e.target.value as StatusFilter);
             }}
           >
@@ -597,7 +672,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
               className="!h-9 !py-0 min-w-[10rem] max-w-[14rem]"
               value={agentFilterId}
               onChange={(e) => {
-                setOffset(0);
+                resetPageTotals();
                 setAgentFilterId(e.target.value);
               }}
             >
@@ -619,7 +694,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
             className="!h-9 !py-0 min-w-[11rem] max-w-[16rem]"
             value={campaignScopeSelectValue(campaignScope)}
             onChange={(e) => {
-              setOffset(0);
+              resetPageTotals();
               setCampaignScope(parseCampaignScopeSelect(e.target.value));
             }}
           >
@@ -633,27 +708,34 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
           </Select>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="text-[13px] font-medium text-v-body">Call ID</span>
-          <input
-            type="text"
-            value={callIdInput}
-            onChange={(e) => setCallIdInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void searchByCallId();
-            }}
-            placeholder="Paste call ID"
-            aria-label="Search by call ID"
-            className="h-9 min-w-[10rem] max-w-[14rem] rounded-v-sm border border-v-line bg-white px-2.5 text-[13px] focus:border-v-accent focus:outline-none"
-          />
-          <Button type="button" size="sm" variant="outline" onClick={() => void searchByCallId()}>
+        <div className="flex min-w-[14rem] flex-1 basis-[18rem] items-center gap-2">
+          <span className="shrink-0 text-[13px] font-medium text-v-body">Search</span>
+          <div className="relative flex min-w-0 flex-1 items-center">
+            <Search
+              className="pointer-events-none absolute left-2.5 size-3.5 text-v-muted"
+              strokeWidth={2}
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applySearch();
+              }}
+              placeholder="Phone number or call ID"
+              aria-label="Search by phone number or call ID"
+              className="h-9 w-full min-w-0 rounded-v-sm border border-v-line bg-white py-0 pl-8 pr-2.5 text-[13px] focus:border-v-accent focus:outline-none"
+            />
+          </div>
+          <Button type="button" size="sm" variant="outline" onClick={applySearch}>
             Search
           </Button>
-          {callIdSearch ? (
+          {callIdSearch || phoneSearch ? (
             <button
               type="button"
-              onClick={clearCallIdSearch}
-              className="cursor-pointer text-xs font-medium text-v-muted hover:text-v-fg"
+              onClick={clearSearch}
+              className="cursor-pointer shrink-0 text-xs font-medium text-v-muted hover:text-v-fg"
             >
               Clear
             </button>
@@ -674,7 +756,8 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
           </button>
           <ExportMenu
             filteredCalls={pageCalls}
-            listFilters={listFilters}
+            listFilters={apiListFilters}
+            exportAllRows={phoneSearch ? exportCalls : null}
             orgId={orgId}
             meta={reportMeta}
             selectedAgent={selectedAgent}
@@ -701,7 +784,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
           </span>
           <span className="text-xs font-light text-v-muted">
             {hasActiveFilters
-              ? "Try a wider date range or clear filters to see more calls."
+              ? "Try a different search term, a wider date range, or clear filters to see more calls."
               : "Telephony calls and test calls will show up here once they happen."}
           </span>
         </div>
@@ -716,7 +799,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
                 <th className="px-4 py-3 font-medium">To</th>
                 <th className="px-4 py-3 font-medium">From</th>
                 <th className="px-4 py-3 font-medium">Call Status</th>
-                <th className="px-4 py-3 font-medium">Called On</th>
+                <th className="whitespace-nowrap px-4 py-3 font-medium">Called On</th>
                 <th className="px-4 py-3 font-medium">Duration</th>
                 <th className="px-4 py-3 font-medium">Conversation Data</th>
               </tr>
@@ -746,7 +829,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
                     <td className="px-4 py-3">
                       <Badge tone={statusTone(c)}>{c.status.replace("_", " ")}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-v-muted">{formatDateTime(c.start_time_utc ?? c.created_at)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-v-muted">{formatDateTime(c.start_time_utc ?? c.created_at)}</td>
                     <td className="px-4 py-3 text-v-muted">{formatDuration(c.duration)}</td>
                     <td className="px-4 py-3">
                       <Button variant="outline" size="sm" onClick={() => setSelectedCall(c)}>
@@ -762,10 +845,10 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
         </div>
       )}
 
-      {!loading && displayTotal > PAGE_SIZE ? (
+      {!loading && pageCalls.length > 0 && displayTotal > PAGE_SIZE ? (
         <div className="flex items-center justify-between gap-3 text-xs text-v-muted">
           <span>
-            {offset + 1}–{offset + pageCalls.length} of {displayTotal}
+            {offset + 1}–{rangeEnd} of {displayTotal}
           </span>
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" disabled={!canPrev} onClick={goPrev}>

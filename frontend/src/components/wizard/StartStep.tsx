@@ -32,7 +32,7 @@ export function StartStep({ onStartScratch, onUseTemplate }: StartStepProps) {
           <h1 className="text-[28px] font-semibold tracking-tight">
             How would you like to begin?
           </h1>
-          <p className="max-w-[56ch] text-sm font-light leading-relaxed text-v-muted-2">
+          <p className="max-w-2xl text-sm font-light leading-relaxed text-v-muted-2">
             Both paths end in the same place — an agent that answers the phone in your
             caller&rsquo;s language.
           </p>
@@ -118,23 +118,29 @@ export function StartStep({ onStartScratch, onUseTemplate }: StartStepProps) {
         {filtered.map((t) => (
           <div
             key={t.id}
-            className="flex flex-col gap-3 rounded-v-md border border-v-line bg-white p-4.5"
+            className="flex h-full min-h-0 flex-col gap-3 rounded-v-md border border-v-line bg-white p-4.5"
           >
             <span className="flex items-start justify-between gap-2">
-              <span className="text-[15px] font-semibold tracking-tight">{t.name}</span>
-              <span className="whitespace-nowrap font-mono text-[9px] uppercase tracking-[.12em] text-v-muted">
+              <span className="min-w-0 flex-1 line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight">
+                {t.name}
+              </span>
+              <span className="shrink-0 whitespace-nowrap font-mono text-[9px] uppercase tracking-[.12em] text-v-muted">
                 by {t.by}
               </span>
             </span>
-            <span className="text-xs font-light leading-relaxed text-v-muted">{t.note}</span>
-            <span className="border-l-2 border-v-accent pl-2.5 text-[12.5px] leading-relaxed text-v-fg">
-              {t.line}
-            </span>
-            <span className="flex items-center justify-between gap-2 border-t border-v-line pt-3">
-              <span className="font-mono text-[9.5px] uppercase tracking-[.1em] text-v-muted">
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <span className="line-clamp-2 text-xs font-light leading-relaxed text-v-muted">
+                {t.note}
+              </span>
+              <span className="line-clamp-3 border-l-2 border-v-accent pl-2.5 text-[12.5px] leading-relaxed text-v-fg">
+                {t.line}
+              </span>
+            </div>
+            <span className="mt-auto flex shrink-0 items-center justify-between gap-2 border-t border-v-line pt-3">
+              <span className="min-w-0 truncate font-mono text-[9.5px] uppercase tracking-[.1em] text-v-muted">
                 {t.category} · {t.lang}
               </span>
-              <Button size="sm" onClick={() => onUseTemplate(t)}>
+              <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => onUseTemplate(t)}>
                 Use this
               </Button>
             </span>

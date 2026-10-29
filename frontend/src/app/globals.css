@@ -247,6 +247,28 @@ textarea:focus {
   display: none; /* Chrome, Safari, new Edge */
 }
 
+/* Slim thumb, no arrow buttons — matches the rest of the UI on desktop Chrome. */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--v-line-strong) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--v-line-strong);
+  border-radius: 999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 ::placeholder {
   color: var(--v-dim);
 }

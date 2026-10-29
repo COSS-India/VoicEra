@@ -23,14 +23,16 @@ import {
   User,
 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { Dialog, DialogHeader } from "@/components/ui/Dialog";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { archiveAgent, createAgent, deleteAgent, getAgent, listAgents } from "@/lib/api-client";
 import { listOrgCalls } from "@/lib/api/calls";
 import { listPhoneNumbers } from "@/lib/api/phone-numbers";
-import { displayUserName, formatDuration, nameFromEmail, truncateLabel } from "@/lib/format";
+import { formatDuration, greetingFirstName, nameFromEmail, nextDuplicateAgentName, truncateLabel } from "@/lib/format";
 import { agentPurposeFromApi } from "@/lib/agent-mapper";
+import { AGENT_NAME_MAX_LENGTH } from "@/lib/wizard-data";
 import { useAuth } from "@/components/AuthProvider";
 import { AgentTestModal } from "@/components/dashboard/AgentTestModal";
 import { TestCallSheet } from "@/components/dashboard/TestCallSheet";
@@ -354,9 +356,11 @@ function AgentCard({
             Test on Browser
           </Button>
         )}
-        <IconButton aria-label="Edit agent" onClick={onOpenEdit} className="size-[42px]">
-          <Pencil className="size-4" strokeWidth={1.9} />
-        </IconButton>
+        <Tooltip text="Edit">
+          <IconButton aria-label="Edit agent" onClick={onOpenEdit} className="size-[42px]">
+            <Pencil className="size-4" strokeWidth={1.9} />
+          </IconButton>
+        </Tooltip>
       </div>
     </motion.div>
   );
@@ -534,7 +538,7 @@ export function AgentsHome({ onNotify }: { onNotify: (title: string, note: strin
     return "Good evening";
   }
 
-  const userName = displayUserName(session?.name);
+  const userName = greetingFirstName(session?.name, session?.email);
   const greeting = `${getGreeting()}${userName ? `, ${userName}` : ""}`;
 
   const headline = greeting;
@@ -594,7 +598,11 @@ export function AgentsHome({ onNotify }: { onNotify: (title: string, note: strin
     try {
       const source = rawAgents[a.id] ?? (await getAgent(a.id));
       const created = await createAgent({
-        name: `${source.name} (copy)`,
+        name: nextDuplicateAgentName(
+          source.name,
+          agents.map((agent) => agent.name),
+          AGENT_NAME_MAX_LENGTH,
+        ),
         agent_category: source.agent_category,
         telephony_provider: source.telephony?.provider ?? null,
         config: source.config,

@@ -145,7 +145,7 @@ export function AppSidebar() {
               restartWalkthrough();
               router.push("/dashboard");
             }}
-            className="flex w-full cursor-pointer items-center gap-[11px] rounded-v-md px-[11px] py-[9px] text-left text-[13.5px] font-medium text-v-accent transition-colors duration-[120ms] hover:bg-v-soft"
+            className="flex w-full cursor-pointer items-center gap-[11px] rounded-v-md px-[11px] py-1.5 text-left text-[13.5px] font-medium text-v-accent transition-colors duration-[120ms] hover:bg-v-soft"
           >
             <PlayCircle className={iconClass} strokeWidth={1.8} />
             {expanded ? <span>Walkthrough</span> : null}
@@ -154,7 +154,7 @@ export function AppSidebar() {
             type="button"
             title="Docs"
             onClick={() => window.open("https://voicera.mintlify.app/docs/guides", "_blank")}
-            className="flex w-full cursor-pointer items-center gap-[11px] rounded-v-md px-[11px] py-[9px] text-left text-[13.5px] font-medium text-v-body transition-colors duration-[120ms] hover:bg-v-soft hover:text-v-fg"
+            className="flex w-full cursor-pointer items-center gap-[11px] rounded-v-md px-[11px] py-1.5 text-left text-[13.5px] font-medium text-v-body transition-colors duration-[120ms] hover:bg-v-soft hover:text-v-fg"
           >
             <FileText className={iconClass} strokeWidth={1.8} />
             {expanded ? <span>Docs</span> : null}
