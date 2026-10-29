@@ -6,9 +6,11 @@ import io
 import logging
 import posixpath
 import threading
+import time
 from typing import Any, Iterator, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+import redis
 from fastapi.responses import StreamingResponse
 from minio.error import S3Error
 
@@ -49,10 +51,12 @@ from app.services.inbound_call_service import InboundCallError, register_inbound
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
 from app.services.translation_service import (
     LANGUAGE_TAG_PATTERN,
+    MAX_OUTPUT_TOKENS,
     MAX_TRANSCRIPT_CHARS,
     PROMPT_VERSION,
     TranslationError,
     TranslationErrorReason,
+    is_valid_language_tag,
     translate_transcript,
 )
 from app.services.web_call_service import WebCallError, register_web_call
@@ -386,6 +390,88 @@ _TRANSLATE_ACQUIRE_TIMEOUT_SECONDS = 30.0
 _translate_semaphore = threading.Semaphore(_TRANSLATE_CONCURRENCY_LIMIT)
 
 
+# Worst-case UTF-8 size of a translation the service can produce; anything
+# larger in the cache wasn't written by this route and isn't read.
+_MAX_CACHED_TRANSLATION_BYTES = MAX_OUTPUT_TOKENS * 4
+
+_redis_client: redis.Redis | None = None
+
+
+def _get_redis() -> redis.Redis:
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.Redis.from_url(settings.REDIS_URL, socket_timeout=2)
+    return _redis_client
+
+
+def _enforce_translate_rate_limit(org_id: str) -> None:
+    """Per-org fixed one-minute window on uncached translations — each one is
+    a paid completion on the org's own LLM key, and any member could otherwise
+    loop over valid language tags to run up that bill. Fails closed: if Redis
+    is unreachable the cost control can't be enforced, so refuse.
+    ponytail: fixed window allows up to 2x the limit in a burst straddling a
+    minute boundary; switch to a sliding window (sorted set) if the cap must
+    hold strictly."""
+    now = int(time.time())
+    key = f"translate_rate:{org_id}:{now // 60}"
+    try:
+        pipe = _get_redis().pipeline()
+        pipe.incr(key)
+        pipe.expire(key, 120)
+        count, _ = pipe.execute()
+    except redis.RedisError as exc:
+        logger.error("Translate rate limiter unavailable: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Translation is temporarily unavailable. Please try again shortly.",
+        ) from exc
+    if int(count) > settings.TRANSLATE_RATE_LIMIT_PER_MIN:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many translations for this organisation. Please wait a minute.",
+            headers={"Retry-After": str(60 - now % 60)},
+        )
+
+
+def _read_cached_translation(storage: MinIOStorage, bucket_name: str, key: str) -> str | None:
+    """Best-effort cache read: any failure (miss, storage/network error,
+    oversized or undecodable object) is a miss, never a failed request."""
+    try:
+        cached = storage.client.get_object(bucket_name, key)
+    except Exception:  # noqa: BLE001 — NoSuchKey, connection errors, etc.
+        return None
+    try:
+        length = cached.headers.get("Content-Length")
+        if length is not None and int(length) > _MAX_CACHED_TRANSLATION_BYTES:
+            logger.warning("Ignoring oversized cached translation %s", key)
+            return None
+        data = cached.read(_MAX_CACHED_TRANSLATION_BYTES + 1)
+        if len(data) > _MAX_CACHED_TRANSLATION_BYTES:
+            return None  # no/false Content-Length — never serve a truncated read
+        return data.decode("utf-8")
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        cached.close()
+        cached.release_conn()
+
+
+def _write_cached_translation(storage: MinIOStorage, bucket_name: str, key: str, text: str) -> None:
+    """Best-effort: the translation is already paid for, so a storage failure
+    is logged (type only, never content) and the result is still returned."""
+    data = text.encode("utf-8")
+    if len(data) > _MAX_CACHED_TRANSLATION_BYTES:
+        # Would be rejected on read anyway — don't store what can't be served.
+        logger.warning("Not caching oversized translation %s (%d bytes)", key, len(data))
+        return
+    try:
+        storage.client.put_object(
+            bucket_name, key, io.BytesIO(data), len(data), content_type="text/plain; charset=utf-8"
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to cache translation %s: %s", key, type(exc).__name__)
+
+
 @router.post("/{call_id}/translate", response_model=CallTranslateResponse)
 def translate_call_transcript(
     call_id: str,
@@ -398,6 +484,7 @@ def translate_call_transcript(
     by target_lang and PROMPT_VERSION, so reopening a call doesn't pay for
     another completion. The cache is best-effort: storage errors fall through
     to the LLM (on read) or are logged (on write), never failing the request.
+    Uncached translations are rate-limited per org (TRANSLATE_RATE_LIMIT_PER_MIN).
 
     Deliberately a SYNC route (not `async def`): it calls the sync OpenAI
     client and sync MinIO client. FastAPI runs sync route handlers in a
@@ -406,24 +493,29 @@ def translate_call_transcript(
     blocking I/O inside it would freeze the entire process for the duration
     of the LLM call, blocking every other request on the server.
     """
+    # Re-checked here (the Query pattern already enforces it) because
+    # target_lang becomes part of an object key before the service's own
+    # check would run.
+    if not is_valid_language_tag(target_lang):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="target_lang is not a valid language tag.",
+        )
     org_id = _require_active_org(current_user)
     bucket_name, object_name = _resolve_transcript_object(org_id, call_id)
 
     storage = MinIOStorage()
+    # Derived transcript data: same bucket and {org}/{call}/ prefix as the
+    # transcript, so the same isolation applies — and any future call
+    # deletion must remove the whole prefix, not just transcript.txt.
     cache_key = posixpath.join(
-        posixpath.dirname(object_name), f"translation.{target_lang}.{PROMPT_VERSION}.txt"
+        posixpath.dirname(object_name), f"translation.{target_lang.lower()}.{PROMPT_VERSION}.txt"
     )
-    try:
-        cached = storage.client.get_object(bucket_name, cache_key)
-        try:
-            return CallTranslateResponse(
-                translated_text=cached.read().decode("utf-8"), target_lang=target_lang
-            )
-        finally:
-            cached.close()
-            cached.release_conn()
-    except S3Error:
-        pass  # miss (NoSuchKey) or storage hiccup — translate fresh
+    cached_text = _read_cached_translation(storage, bucket_name, cache_key)
+    if cached_text is not None:
+        return CallTranslateResponse(translated_text=cached_text, target_lang=target_lang)
+
+    _enforce_translate_rate_limit(org_id)
 
     # The semaphore wraps the MinIO fetch too, not just the LLM call: the
     # limit exists to stop a burst of requests from starving unrelated sync
@@ -460,7 +552,7 @@ def translate_call_transcript(
                 # retrying never fixes this. 500 error
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Stored transcript {object_name} is not valid UTF-8 text.",
+                    detail="Stored transcript is not valid UTF-8 text.",
                 ) from exc
         finally:
             response.close()
@@ -473,18 +565,7 @@ def translate_call_transcript(
     finally:
         _translate_semaphore.release()
 
-    data = translated_text.encode("utf-8")
-    try:
-        storage.client.put_object(
-            bucket_name,
-            cache_key,
-            io.BytesIO(data),
-            len(data),
-            content_type="text/plain; charset=utf-8",
-        )
-    except S3Error as exc:
-        logger.warning("Failed to cache translation %s: %s", cache_key, exc.code)
-
+    _write_cached_translation(storage, bucket_name, cache_key, translated_text)
     return CallTranslateResponse(translated_text=translated_text, target_lang=target_lang)
 
 
