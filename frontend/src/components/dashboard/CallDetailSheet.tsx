@@ -267,13 +267,12 @@ export function CallDetailSheet({
   // oversight: call transcripts are sensitive data, so no cross-session or
   // cross-reload cache is kept, even though it means re-paying the LLM cost
   // on every view/reopen of the same call. `translation.result.lines` holds
-  // already-structured TranscriptLine[], not free text: the Chrome path
-  // builds this 1:1 from the original transcript, and the LLM fallback path
+  // already-structured TranscriptLine[], not free text: the LLM path
   // parses + validates its response before ever setting the result, so
   // rendering never needs to re-parse or guess at a possibly-corrupted shape.
   const translation = useTranscriptTranslation<TranscriptLine>();
   // Always the viewer's own browser language — no manual picker. General LLMs
-  // (and Chrome's on-device Translator) don't reliably support low-resource
+  // don't reliably support low-resource
   // languages like Bhili or Dogri; letting users pick from the full catalog
   // silently produced wrong-language output (e.g. Marathi/Bhojpuri substituted
   // for Bhili) instead of a clear error. Restricting to the browser's own
@@ -401,10 +400,9 @@ export function CallDetailSheet({
     URL.revokeObjectURL(url);
   }
 
-  /** Hybrid translate: tries the free, on-device Chrome Translator API first,
-   * falling back to the backend LLM endpoint only when that API is
-   * unavailable or doesn't support the requested language pair. The LLM
-   * fallback returning text that doesn't parse back into the same number of
+  /** Translates the whole transcript in one LLM request so every line is
+   * translated with the full conversation as context. A response that
+   * doesn't parse back into the same number of
    * transcript lines surfaces an explicit error rather than silently
    * reverting to the original transcript, since a spinner that stops with
    * nothing visibly different looks exactly like the app doing nothing. */
@@ -413,7 +411,6 @@ export function CallDetailSheet({
 
     await translation.translate(targetLang, {
       originalLines: transcript,
-      zipOnDeviceLine: (original, translatedText) => ({ ...original, content: translatedText }),
       callId: call.call_id,
       resolveExpectedLineCount: async () => transcript.length,
       fromParsedLine: (line) => line,

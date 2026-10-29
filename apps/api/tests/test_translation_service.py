@@ -253,6 +253,19 @@ def test_system_prompt_resolves_mandi_wholesale_market_ambiguity():
     assert "knee" in _SYSTEM_PROMPT
 
 
+def test_system_prompt_gives_conversation_context():
+    """Regression guard for QA-observed mistranslations: 'VoicEra se bol raha
+    hoon' reversed to 'I'm speaking to VoicEra', 'जी' rendered as 'Gee', and
+    'हाँ हाँ' collapsed to a single 'yes'."""
+    assert "first person" in _SYSTEM_PROMPT
+    assert "I am speaking from VoicEra" in _SYSTEM_PROMPT
+    assert "never 'Gee'" in _SYSTEM_PROMPT
+    assert "keep every repetition" in _SYSTEM_PROMPT
+    # '...तीन दो एक है मेरा' came back as '...three, two, mine'.
+    assert "comma-separated numerals" in _SYSTEM_PROMPT
+    assert "not 'my' or 'mine'" in _SYSTEM_PROMPT
+
+
 def test_system_prompt_asks_for_light_touch_up_not_a_rewrite():
     """Regression guard: the prompt must ask for natural-sounding wording
     without licensing the model to restructure sentences or change meaning —

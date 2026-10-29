@@ -263,7 +263,7 @@ export interface CallMetricsResponse {
   };
 }
 
-/** LLM-backed fallback translation result. Computed on demand, never persisted. */
+/** LLM-backed transcript translation result. Computed on demand, never persisted. */
 export interface CallTranslateResponse {
   translated_text: string;
   target_lang: string;

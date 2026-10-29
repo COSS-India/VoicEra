@@ -83,10 +83,9 @@ export async function getOrgCallAnalytics(orgId: string): Promise<CallAnalyticsR
   return apiFetch<CallAnalyticsResponse>(`/calls/org/${encodeURIComponent(orgId)}/analytics`);
 }
 
-/** LLM-backed fallback translation, used only when the caller's on-device Chrome
- * Translator API is unavailable or doesn't support the requested language pair
- * (see lib/chrome-translation.ts). Stateless — recomputed on every call, never
- * cached server-side. */
+/** LLM-backed translation of the whole persisted transcript in one request,
+ * so each line is translated with the full conversation as context.
+ * Stateless — recomputed on every call, never cached server-side. */
 export async function translateCallTranscriptViaLlm(
   callId: string,
   targetLang: string,

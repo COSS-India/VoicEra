@@ -1,12 +1,6 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import {
-  detectTextLanguage,
-  isChromeTranslationAvailable,
-  isTranslationPairAvailable,
-  translateLines,
-} from "@/lib/chrome-translation";
 import { translateCallTranscriptViaLlm } from "@/lib/api/calls";
 import { parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { ApiError } from "@/lib/api-client";
@@ -16,29 +10,28 @@ interface TranslationResult<TLine> {
   lang: string;
 }
 
-interface TranslateOptions<TLine, TOriginal extends { content: string }> {
-  /** The lines to translate, in on-screen order. */
-  originalLines: TOriginal[];
-  /** Rebuilds a translated line from the original at the same index and its
-   * translated text — used for the on-device path, which preserves order/count. */
-  zipOnDeviceLine: (original: TOriginal, translatedText: string, index: number) => TLine;
-  /** The callId to translate via the backend LLM fallback, or undefined if
-   * no call is associated yet (on-device-only translation still works). */
+interface TranslateOptions<TLine> {
+  /** The on-screen lines; translation is skipped when there are none. */
+  originalLines: readonly unknown[];
+  /** The callId whose persisted transcript the backend translates, or
+   * undefined if the call hasn't been saved yet. */
   callId: string | undefined;
   /** Resolves the expected number of lines after a correct backend
    * translation — a mismatch means the model corrupted the transcript's line
-   * structure. Lazy: only called on the LLM-fallback path, inside this
-   * function's own try/catch, so any fetch it does can't throw ahead of the
-   * on-device path or outside error handling. */
+   * structure. Lazy: called inside this function's own try/catch, so any
+   * fetch it does can't throw outside error handling. */
   resolveExpectedLineCount: () => Promise<number>;
   /** Builds a translated line from one parsed backend TranscriptLine. */
   fromParsedLine: (line: TranscriptLine) => TLine;
 }
 
 /**
- * Shared backend-LLM-translate parse/validate + on-device Chrome Translator
- * logic, previously duplicated (and drifted) between CallStage and
- * CallDetailSheet. Standardizes on the stricter structural check:
+ * Shared backend-LLM-translate parse/validate logic, previously duplicated
+ * (and drifted) between CallStage and CallDetailSheet. The whole transcript
+ * goes to the LLM in one request so every line is translated with the full
+ * conversation as context (Chrome's on-device Translator was dropped: it
+ * translates lines in isolation, which QA found mistranslates honorifics,
+ * fillers, idioms, and who is speaking). Standardizes on the stricter structural check:
  * `parsedLines.length !== expectedLineCount` (CallStage previously only
  * checked `=== 0`, which misses a same-nonzero-but-wrong-count corruption).
  */
@@ -61,11 +54,8 @@ export function useTranscriptTranslation<TLine>() {
     return result !== null && result.lang === targetLang;
   }
 
-  async function translate<TOriginal extends { content: string }>(
-    targetLang: string,
-    options: TranslateOptions<TLine, TOriginal>,
-  ) {
-    const { originalLines, zipOnDeviceLine, callId, resolveExpectedLineCount, fromParsedLine } = options;
+  async function translate(targetLang: string, options: TranslateOptions<TLine>) {
+    const { originalLines, callId, resolveExpectedLineCount, fromParsedLine } = options;
     if (originalLines.length === 0) return;
 
     const myRequest = (requestIdRef.current += 1);
@@ -74,36 +64,8 @@ export function useTranscriptTranslation<TLine>() {
     setError("");
 
     try {
-      if (isChromeTranslationAvailable()) {
-        // Detection runs once on the whole joined transcript, not per line —
-        // a code-switched call (e.g. Hinglish, Marathi/English mixed within
-        // one transcript) gets one detected source language applied to every
-        // line below, so some lines may translate from the wrong assumed
-        // source. Per-line detection would fix this but multiplies detector
-        // calls per transcript; out of scope for now.
-        const sampleText = originalLines.map((l) => l.content).join("\n");
-        const detected = await detectTextLanguage(sampleText);
-        const sourceLanguage = detected?.language;
-        const pairSupported = sourceLanguage
-          ? await isTranslationPairAvailable(sourceLanguage, targetLang)
-          : false;
-
-        if (sourceLanguage && pairSupported) {
-          const texts = await translateLines(
-            originalLines.map((l) => l.content),
-            sourceLanguage,
-            targetLang,
-          );
-          if (isStale()) return;
-          const lines = originalLines.map((line, i) => zipOnDeviceLine(line, texts[i] ?? line.content, i));
-          setResult({ lines, lang: targetLang });
-          setShowing(true);
-          return; // free on-device path — no backend call made
-        }
-      }
-
       if (!callId) {
-        throw new Error("On-device translation isn't available in this browser for this language.");
+        throw new Error("Transcript is still being saved — try again in a few seconds.");
       }
       const response = await translateCallTranscriptViaLlm(callId, targetLang);
       if (isStale()) return;

@@ -386,8 +386,9 @@ def translate_call_transcript(
     target_lang: str = Query(..., pattern=LANGUAGE_TAG_PATTERN),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CallTranslateResponse:
-    """LLM-backed fallback translation, used only when the client's on-device
-    Chrome Translator API is unavailable. Stateless — not persisted.
+    """LLM-backed translation of the whole persisted transcript in one
+    request, so each line has the full conversation as context. Stateless —
+    not persisted.
 
     Deliberately a SYNC route (not `async def`): it calls the sync OpenAI
     client and sync MinIO client. FastAPI runs sync route handlers in a

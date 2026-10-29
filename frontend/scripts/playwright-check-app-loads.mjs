@@ -1,8 +1,7 @@
 // Confirms the app itself doesn't crash/console-error on load with the new
 // translate-feature code compiled in — backend isn't running in this
 // environment so this can't reach an authenticated call-detail view, but it
-// does catch build/hydration errors in layout.tsx (Origin-Trial meta tags)
-// and any page that imports the new lib/chrome-translation.ts or
+// does catch build/hydration errors in layout.tsx and any
 // CallDetailSheet.tsx changes at module-load time.
 import { chromium } from "playwright";
 
