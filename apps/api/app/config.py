@@ -52,6 +52,14 @@ class Settings(BaseSettings):
         default="",
         description="Fernet key for encrypting ProviderAuth credential blobs",
     )
+    PLATFORM_PROVIDER_AUTH: str = Field(
+        default="",
+        description=(
+            "JSON map of provider id -> secret fields, used when an organisation has not "
+            'connected that provider itself, e.g. {"openai":{"api_key":"..."}}. Empty '
+            "disables it. Telephony providers are refused. See services/platform_auth.py."
+        ),
+    )
 
     CHROMA_BASE_DIR: str = Field(
         default="app/rag/chroma_data",

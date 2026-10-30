@@ -13,7 +13,7 @@ from app.models.schemas import (
     ProviderAuthUpsert,
     SuccessResponse,
 )
-from app.services import auth_service
+from app.services import auth_service, platform_auth
 from app.services.provider_auth_catalog import (
     UnknownAuthProviderError,
     all_auth_catalog,
@@ -82,8 +82,9 @@ async def auth_catalog_for_provider(
 async def list_configured(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> list[str]:
-    """Provider ids that have auth stored for the caller's organisation."""
-    return auth_service.list_configured_providers(current_user["org_id"])
+    """Provider ids the caller's organisation can use: its own, plus the platform's."""
+    own = auth_service.list_configured_providers(current_user["org_id"])
+    return sorted(set(own) | platform_auth.providers())
 
 
 @router.post("", response_model=ProviderAuthResponse, status_code=status.HTTP_201_CREATED)
@@ -128,6 +129,14 @@ async def get_auth(
         raise
 
     if not stored:
+        # The org has not connected this provider: fall back to the platform's
+        # credentials. Plaintext only for the runtime; masked for every user,
+        # admins included, since every signup is an admin.
+        platform = platform_auth.get(provider)
+        if platform:
+            if not platform_auth.is_runtime(current_user):
+                platform = auth_service.mask_auth_secrets(provider, platform)
+            return {"org_id": current_user["org_id"], "provider": provider, "auth": platform}
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No auth stored for provider: {provider}",

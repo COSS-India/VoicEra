@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import close_mongo_connection, connect_to_mongo, ping_database
 from app.database_init import initialize_database
+from app.services import platform_auth
 from app.routers import (
     agents,
     auth,
@@ -41,6 +42,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         connect_to_mongo()
         initialize_database()
+        platform_auth.validate_config()
         logger.info("Application started successfully")
     except Exception as exc:
         logger.error("Failed to start application: %s", exc)
