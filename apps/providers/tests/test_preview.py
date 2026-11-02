@@ -10,6 +10,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
+from apps.providers.base import Kind
 from apps.providers.preview import (
     PREVIEW_ADAPTERS,
     PREVIEW_SAMPLE_RATE_HZ,
@@ -191,3 +192,20 @@ def _run(coro):
     import asyncio
 
     return asyncio.run(coro)
+
+
+import_vendor_previews()
+
+
+@pytest.mark.parametrize("provider", sorted(PREVIEW_ADAPTERS))
+def test_tts_config_validates_with_only_save_required_credentials(provider):
+    """Creds the save endpoint lets an org store must be enough to build the TTS config.
+
+    Guards against a per-kind auth field being required on the TTS config but
+    dropped from the provider-level ``required`` intersection (Bhashini's Orpheus
+    creds were), which made every preview fail as an invalid configuration.
+    """
+    from apps.providers.schema import _config_class, provider_level_auth
+
+    required = (provider_level_auth(provider) or {}).get("required") or []
+    _config_class(Kind.TTS, provider).model_validate({k: "x" for k in required})

@@ -25,6 +25,7 @@ import urllib3
 from minio.error import S3Error
 from pydantic import BaseModel, ValidationError
 
+from apps.providers.availability import is_authenticated
 from apps.providers.base import Kind
 from apps.providers.preview import (
     PreviewProviderError,
@@ -312,7 +313,8 @@ async def resolve_config(org_id: str, blob: dict[str, Any]) -> BaseModel:
     """Merge stored auth into the validated blob and build the typed config."""
     provider = _get_provider(blob)
     configured = await asyncio.to_thread(auth_service.list_configured_providers, org_id)
-    if provider not in configured:
+    # Local providers store no creds: they count as configured when model-server serves them.
+    if not await asyncio.to_thread(is_authenticated, provider, set(configured)):
         raise TtsPreviewError(
             TtsPreviewErrorReason.NOT_CONFIGURED,
             f"Provider {provider!r} is not configured for this organisation",
@@ -327,10 +329,12 @@ async def resolve_config(org_id: str, blob: dict[str, Any]) -> BaseModel:
         # Never echo exc.errors() to the client: pydantic includes the offending
         # "input" for whole-model validators, which here can be {**blob, **auth}
         # (i.e. the real API key).
-        logger.warning("tts_preview invalid_config org=%s provider=%s", org_id, provider)
+        # The blob already passed validate_request, so what's left is the
+        # stored credentials: a provider problem, not the user's voice settings.
+        logger.warning("tts_preview credentials_invalid org=%s provider=%s", org_id, provider)
         raise TtsPreviewError(
-            TtsPreviewErrorReason.INVALID_CONFIG,
-            f"Invalid configuration for provider {provider!r}",
+            TtsPreviewErrorReason.NOT_CONFIGURED,
+            f"Stored credentials for provider {provider!r} are incomplete",
         ) from exc
 
 

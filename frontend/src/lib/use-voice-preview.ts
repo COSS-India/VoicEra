@@ -12,7 +12,7 @@ const PREVIEW_ERROR_MESSAGES: Record<string, string> = {
   oversized: "The greeting is too long to preview.",
   invalid_config: "This voice configuration isn't valid. Check the voice settings.",
   unsupported_voice: "Preview is not available for this voice.",
-  not_configured: "Connect this provider first.",
+  not_configured: "Connect this provider first, or check its credentials.",
   no_active_org: "Select an organisation to preview voices.",
   rate_limited: "Too many previews, please wait a moment.",
   timeout: "Voice preview is taking longer than expected. Please try again.",
