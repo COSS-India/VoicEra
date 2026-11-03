@@ -716,7 +716,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
                 <th className="px-4 py-3 font-medium">To</th>
                 <th className="px-4 py-3 font-medium">From</th>
                 <th className="px-4 py-3 font-medium">Call Status</th>
-                <th className="px-4 py-3 font-medium">Called On</th>
+                <th className="w-[12rem] min-w-[12rem] whitespace-nowrap px-4 py-3 font-medium">Called On</th>
                 <th className="px-4 py-3 font-medium">Duration</th>
                 <th className="px-4 py-3 font-medium">Conversation Data</th>
               </tr>
@@ -746,7 +746,7 @@ export function History({ onNotify }: { onNotify: (title: string, note: string) 
                     <td className="px-4 py-3">
                       <Badge tone={statusTone(c)}>{c.status.replace("_", " ")}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-v-muted">{formatDateTime(c.start_time_utc ?? c.created_at)}</td>
+                    <td className="w-[12rem] min-w-[12rem] whitespace-nowrap px-4 py-3 text-v-muted">{formatDateTime(c.start_time_utc ?? c.created_at)}</td>
                     <td className="px-4 py-3 text-v-muted">{formatDuration(c.duration)}</td>
                     <td className="px-4 py-3">
                       <Button variant="outline" size="sm" onClick={() => setSelectedCall(c)}>
