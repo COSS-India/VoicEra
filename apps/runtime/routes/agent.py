@@ -120,6 +120,8 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
             return
 
         start_info = data.get("start") or {}
+        if not isinstance(start_info, dict):
+            start_info = {}
         stream_meta = parse_stream_start(start_info)
         call_sid = (
             resolve_provider_call_sid(data)
@@ -139,10 +141,31 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
             and str(call_sid).strip().lower() != "unknown"
         ):
             stream_sid = str(call_sid).strip()
+        # Explicit caller/callee dump — confirms whether the carrier populates
+        # from/to on inbound (docs say yes; we currently store "unknown").
+        caller_from = (
+            start_info.get("from")
+            or data.get("from")
+            or start_info.get("From")
+            or data.get("From")
+        )
+        callee_to = (
+            start_info.get("to")
+            or data.get("to")
+            or start_info.get("To")
+            or data.get("To")
+        )
         logger.info(
-            "Call start call_sid={} stream_sid={}",
+            "Call start provider={} call_sid={} stream_sid={} from={!r} to={!r} "
+            "direction={!r} start_keys={} top_keys={}",
+            provider,
             call_sid,
             stream_sid,
+            caller_from,
+            callee_to,
+            start_info.get("direction") or data.get("direction"),
+            sorted(start_info.keys()),
+            sorted(data.keys()),
         )
 
         if not call_id and call_sid and call_sid != "unknown":
@@ -151,8 +174,8 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
                     org_id,
                     agent_id,
                     provider_call_sid=str(call_sid),
-                    from_number="unknown",
-                    to_number="unknown",
+                    from_number=str(caller_from or "").strip() or "unknown",
+                    to_number=str(callee_to or "").strip() or "unknown",
                 )
                 call_id = str(result.get("call_id") or "") or None
                 logger.info(

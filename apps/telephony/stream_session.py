@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from loguru import logger
+
 from apps.telephony.providers.go2market.stream_protocol import normalize_start_message
 
 _PREAMBLE_EVENTS = frozenset({"connected"})
@@ -27,6 +29,14 @@ async def recv_media_stream_start(websocket: Any, *, max_messages: int = 32) -> 
             raise ValueError(f"Invalid WebSocket JSON: {exc}") from exc
 
         event = str(data.get("event") or "").strip().lower()
+        # Diagnostic: dump carrier handshake so we can confirm which fields
+        # (from/to/direction/streamSid/…) arrive on real inbound legs.
+        logger.info(
+            "Media stream inbound event={!r} top_keys={} payload={}",
+            event,
+            sorted(data.keys()),
+            json.dumps(data, default=str, ensure_ascii=False),
+        )
         if event in _PREAMBLE_EVENTS:
             continue
         if event == "start":
