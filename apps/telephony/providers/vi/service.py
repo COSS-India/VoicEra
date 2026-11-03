@@ -18,6 +18,8 @@ def create_client(cfg: ViConfig) -> ViClient:
         cfg.auth_token,
         cfg.base_url,
         dni_flows=cfg.dni_flows,
+        pull_username=cfg.pull_username,
+        pull_password=cfg.pull_password,
     )
 
 

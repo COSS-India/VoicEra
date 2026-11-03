@@ -18,7 +18,7 @@ export function Dialog({ open, onClose, children, widthClassName = "max-w-3xl" }
       onClick={onClose}
     >
       <div
-        className={`animate-v-rise flex max-h-[85vh] w-full ${widthClassName} flex-col overflow-y-auto overscroll-contain rounded-v-md border border-v-line bg-white shadow-2xl`}
+        className={`scrollbar-thin animate-v-rise flex max-h-[85vh] w-full ${widthClassName} flex-col overflow-y-auto overscroll-contain rounded-v-md border border-v-line bg-white shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

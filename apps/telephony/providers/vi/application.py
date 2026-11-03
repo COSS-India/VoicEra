@@ -15,6 +15,16 @@ from apps.telephony.base import fail, success
 
 from .auth_helpers import answer_url_to_vi_stream, list_dnis
 from .obd_client import ViObdClient, ViObdError
+from .pull_report import (
+    ViPullReportClient,
+    ViPullReportError,
+    campaign_dni,
+    map_pull_row,
+    obd_campaign_ids,
+    pull_base_from_obd_base,
+    resolve_pull_window,
+    summarize_rows,
+)
 
 if TYPE_CHECKING:
     from apps.telephony.providers.vi.client import ViClient
@@ -270,3 +280,157 @@ async def get_bulk_status(
         state=_normalize_bulk_state(body if isinstance(body, dict) else None),
         raw={"id_kind": id_kind, "status_body": body},
     )
+
+
+def _as_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def map_obd_status_body(
+    body: Mapping[str, Any] | None,
+    *,
+    campaign_id: str | None = None,
+) -> dict[str, Any]:
+    """Flatten campaignstatus ``data`` for the status dialog."""
+    payload = body if isinstance(body, dict) else {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    base = data.get("baseDetails") if isinstance(data.get("baseDetails"), dict) else {}
+    return {
+        "campaign_id": campaign_id,
+        "campaign_name": data.get("campaignName"),
+        "campaign_type": data.get("campaignType"),
+        "current_status": data.get("currentStatus"),
+        "total_base_received": _as_int(base.get("totalBaseReceived")),
+        "total_call_initiated": _as_int(base.get("totalCallInitiated")),
+        "total_calls_connected": _as_int(base.get("totalCallsConnected")),
+        "total_calls_not_connected": _as_int(base.get("totalCallsNotConnected")),
+        "remaining_in_queue": _as_int(base.get("remainingNumbersInQueue")),
+        "success_rate_percentage": _as_float(base.get("successRatePercentage")),
+        "retry_interval": data.get("retryInterval"),
+        "retry_within": _as_int(data.get("retryWithin")),
+        "retry_attempts": _as_int(data.get("retryAttempts")),
+        "created_time": data.get("campaignCreatedTime"),
+        "window": data.get("campaignWindow"),
+        "end_date": data.get("campaignEndDate"),
+    }
+
+
+def _status_for_id(
+    obd: ViObdClient,
+    token: str,
+    campaign_id: str,
+    metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    handles = metadata.get("bulk_provider_handles")
+    if not isinstance(handles, dict):
+        handles = {}
+    latest_key = str(handles.get("campain_key") or "").strip()
+    ref = handles.get("campaign_ref_id")
+    if ref is None:
+        ref = metadata.get("bulk_provider_call_sid")
+    if campaign_id == latest_key and ref is not None and str(ref).strip():
+        body, _kind = obd.get_campaign_status_with_fallback(
+            token, ref, campain_key=campaign_id
+        )
+    else:
+        body, status = obd.get_campaign_status(token, campaign_id, id_kind="campainKey")
+        if status != 200:
+            raise ViObdError(
+                f"campaignstatus failed (HTTP {status}) for campaign_ID={campaign_id!r}"
+            )
+    return map_obd_status_body(body if isinstance(body, dict) else None, campaign_id=campaign_id)
+
+
+async def get_obd_status(client: "ViClient", *, metadata: Mapping[str, Any]) -> Dict[str, Any]:
+    """Fetch campaignstatus for each stored OBD campaign id."""
+    ids = obd_campaign_ids(metadata)
+    if not ids:
+        return fail(
+            "This campaign has not been submitted to the provider yet",
+            code="missing_campaign",
+        )
+
+    def _run() -> list[dict[str, Any]]:
+        obd = _obd_client(client)
+        token, _ = obd.get_auth_token()
+        return [_status_for_id(obd, token, campaign_id, metadata) for campaign_id in ids]
+
+    try:
+        statuses = await asyncio.to_thread(_run)
+    except ViObdError as exc:
+        return fail(str(exc))
+    return success("OBD campaign status", statuses=statuses)
+
+
+async def get_obd_report(
+    client: "ViClient",
+    *,
+    metadata: Mapping[str, Any],
+    from_number: str | None = None,
+    started_at: str | None = None,
+) -> Dict[str, Any]:
+    """Fetch outbound pullreport rows for each stored OBD campaign id."""
+    if not client.pull_username or not client.pull_password:
+        return fail(
+            "Pull API credentials are not configured",
+            code="missing_credentials",
+        )
+    ids = obd_campaign_ids(metadata)
+    if not ids:
+        return fail(
+            "This campaign has not been submitted to the provider yet",
+            code="missing_campaign",
+        )
+    dni = campaign_dni(metadata, from_number)
+    if len(dni) != 10:
+        return fail(
+            "Campaign caller number must be a 10-digit DNI",
+            code="missing_dni",
+        )
+    obd_config = metadata.get("obd_config")
+    if not isinstance(obd_config, dict):
+        obd_config = {}
+    fromdate, todate = resolve_pull_window(
+        str(obd_config.get("fromdate") or "") or None,
+        str(obd_config.get("todate") or "") or None,
+        started_at,
+    )
+
+    def _run() -> list[dict[str, Any]]:
+        pull = ViPullReportClient(
+            client.pull_username,
+            client.pull_password,
+            pull_base=pull_base_from_obd_base(client.base_url),
+        )
+        token = pull.authenticate(dni)
+        rows: list[dict[str, Any]] = []
+        for campaign_id in ids:
+            for raw in pull.pull_campaign(
+                token,
+                dni=dni,
+                campaign_id=campaign_id,
+                fromdate=fromdate,
+                todate=todate,
+            ):
+                rows.append(map_pull_row(raw))
+        return rows
+
+    try:
+        rows = await asyncio.to_thread(_run)
+    except ViPullReportError as exc:
+        return fail(str(exc), code=exc.code)
+    return success("OBD call report", summary=summarize_rows(rows), rows=rows)

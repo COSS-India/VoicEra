@@ -14,21 +14,8 @@ import {
   type CallRecordingSource,
 } from "@/lib/call-recordings";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
-import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
+import { displayFromNumber, displayToNumber, formatDateTime, formatDuration } from "@/lib/format";
 import type { CallLogItem } from "@/lib/api-types";
-
-function formatDateTime(iso?: string | null): string {
-  if (!iso) return "–";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "–";
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function fmtClock(t: number): string {
   if (!Number.isFinite(t)) return "0:00";
@@ -459,7 +446,7 @@ export function CallDetailSheet({
 
   return (
     <Sheet open onClose={onClose} widthClassName="max-w-xl">
-      <div className="flex items-center justify-between gap-3 border-b border-v-line px-5 py-4">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-v-line px-5 py-4">
         <span className="flex min-w-0 items-center gap-3">
           <button
             type="button"
@@ -501,102 +488,113 @@ export function CallDetailSheet({
         ) : null}
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
-        {recordingSources.length > 0 ? (
-          <div className="flex flex-col gap-3">
-            {recordingSources.map((src) => (
-              <CallRecordingPlayer
-                key={src.kind}
-                callId={call.call_id}
-                source={src}
-                onPlayback={setSyncPlayback}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-v-md bg-v-fg px-4 py-3 text-[12.5px] text-white/70">
-            No recording available.
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-v-muted">{formatDateTime(call.start_time_utc ?? call.created_at)}</span>
-          <CallTypeBadge type={call.call_type} />
-          <Badge tone={statusTone(call)}>{call.status}</Badge>
-          {call.campaign_id ? (
-            <Link
-              href={`/batches?campaign=${encodeURIComponent(call.campaign_id)}`}
-              className="rounded-v-sm border border-v-line bg-v-soft px-2 py-0.5 text-[11px] font-medium text-v-accent hover:underline"
-            >
-              {call.campaign_name ?? "Campaign"}
-            </Link>
-          ) : null}
-        </div>
-
-        <div className="flex items-center justify-between border-b border-v-line">
-          <div className="flex gap-4">
-            {(["transcript", "details"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={`cursor-pointer border-b-2 px-1 pb-2.5 text-[13.5px] font-medium capitalize transition-colors ${
-                  tab === t ? "border-v-fg text-v-fg" : "border-transparent text-v-muted hover:text-v-fg"
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-          {tab === "transcript" && transcript && transcript.length > 0 ? (
-            <button
-              type="button"
-              onClick={downloadTranscript}
-              className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent"
-            >
-              <Download className="size-3.5" strokeWidth={1.75} />
-              Export
-            </button>
-          ) : null}
-        </div>
-
-        {tab === "transcript" ? (
-          transcriptError ? (
-            <p className="py-8 text-center text-sm text-v-muted">{transcriptError}</p>
-          ) : transcript === null ? (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-v-muted">
-              <Spinner light={false} /> Loading transcript…
-            </div>
-          ) : transcript.length === 0 ? (
-            <p className="py-8 text-center text-sm text-v-muted">No transcript for this call.</p>
-          ) : (
-            <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
-              {transcript.map((line, i) => (
-                <TranscriptBubble
-                  key={i}
-                  line={line}
-                  active={i === activeIndex}
-                  onSeek={() => {
-                    /* Dual recording players — seek stays on the player controls. */
-                  }}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex shrink-0 flex-col gap-4 px-5 pt-5">
+          {recordingSources.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              {recordingSources.map((src) => (
+                <CallRecordingPlayer
+                  key={src.kind}
+                  callId={call.call_id}
+                  source={src}
+                  onPlayback={setSyncPlayback}
                 />
               ))}
             </div>
-          )
-        ) : (
-          <dl className="flex flex-col gap-3">
-            {detailRows.map((row) => (
-              <div key={row.label} className="flex items-start justify-between gap-4 border-b border-v-line pb-2.5">
-                <dt className="shrink-0 font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">
-                  {row.label}
-                </dt>
-                <dd className="min-w-0 break-words text-right text-[13px] font-medium text-v-fg">
-                  {row.value}
-                </dd>
+          ) : (
+            <div className="rounded-v-md bg-v-fg px-4 py-3 text-[12.5px] text-white/70">
+              No recording available.
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-v-muted">
+              {formatDateTime(call.start_time_utc ?? call.created_at)}
+            </span>
+            <CallTypeBadge type={call.call_type} />
+            <Badge tone={statusTone(call)}>{call.status}</Badge>
+            {call.campaign_id ? (
+              <Link
+                href={`/batches?campaign=${encodeURIComponent(call.campaign_id)}`}
+                className="rounded-v-sm border border-v-line bg-v-soft px-2 py-0.5 text-[11px] font-medium text-v-accent hover:underline"
+              >
+                {call.campaign_name ?? "Campaign"}
+              </Link>
+            ) : null}
+          </div>
+
+          <div className="flex items-center justify-between border-b border-v-line">
+            <div className="flex gap-4">
+              {(["transcript", "details"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTab(t)}
+                  className={`cursor-pointer border-b-2 px-1 pb-2.5 text-[13.5px] font-medium capitalize transition-colors ${
+                    tab === t
+                      ? "border-v-fg text-v-fg"
+                      : "border-transparent text-v-muted hover:text-v-fg"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            {tab === "transcript" && transcript && transcript.length > 0 ? (
+              <button
+                type="button"
+                onClick={downloadTranscript}
+                className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent"
+              >
+                <Download className="size-3.5" strokeWidth={1.75} />
+                Export
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+          {tab === "transcript" ? (
+            transcriptError ? (
+              <p className="py-8 text-center text-sm text-v-muted">{transcriptError}</p>
+            ) : transcript === null ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-sm text-v-muted">
+                <Spinner light={false} /> Loading transcript…
               </div>
-            ))}
-          </dl>
-        )}
+            ) : transcript.length === 0 ? (
+              <p className="py-8 text-center text-sm text-v-muted">No transcript for this call.</p>
+            ) : (
+              <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
+                {transcript.map((line, i) => (
+                  <TranscriptBubble
+                    key={i}
+                    line={line}
+                    active={i === activeIndex}
+                    onSeek={() => {
+                      /* Dual recording players — seek stays on the player controls. */
+                    }}
+                  />
+                ))}
+              </div>
+            )
+          ) : (
+            <dl className="flex flex-col gap-3">
+              {detailRows.map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-start justify-between gap-4 border-b border-v-line pb-2.5"
+                >
+                  <dt className="shrink-0 font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">
+                    {row.label}
+                  </dt>
+                  <dd className="min-w-0 break-words text-right text-[13px] font-medium text-v-fg">
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
       </div>
     </Sheet>
   );

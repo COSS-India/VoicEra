@@ -29,7 +29,9 @@ export function createBrowserPipecatClient(): PipecatClient {
 }
 
 /**
- * Register a CallLog (best-effort), then connect the client to the agent socket.
+ * Register a CallLog, then connect the client to the agent socket.
+ * Registration failures (for example 422 when the agent is not websocket)
+ * are thrown so the UI can show the API reason instead of connecting anyway.
  */
 export async function connectBrowserCall(
   client: PipecatClient,
@@ -40,15 +42,9 @@ export async function connectBrowserCall(
     throw new Error("Missing org or agent id");
   }
 
-  let callId: string | undefined;
-  try {
-    const call = await createWebCall({ agent_id: agentId });
-    callId = call.call_id;
-  } catch (err) {
-    console.warn("Couldn't pre-register web call, connecting without call_id", err);
-  }
+  const call = await createWebCall({ agent_id: agentId });
 
   await client.connect({
-    wsUrl: getBrowserWsUrl(orgId, agentId, callId),
+    wsUrl: getBrowserWsUrl(orgId, agentId, call.call_id),
   });
 }

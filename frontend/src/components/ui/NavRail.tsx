@@ -40,7 +40,7 @@ export function NavRail({
   return (
     <nav
       data-tour="sidebar-rail"
-      className={`flex h-full flex-col gap-4 border-r border-v-line bg-v-panel px-4 py-[22px] transition-[width] duration-200 ${
+      className={`flex h-full flex-col gap-3 border-r border-v-line bg-v-panel px-4 py-3.5 transition-[width] duration-200 ${
         expanded ? "w-[236px]" : "w-16"
       }`}
     >
@@ -81,11 +81,11 @@ export function NavRail({
         </button>
       ) : null}
 
-      <div className="flex flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden">
+      <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden">
         {groups.map((group) => (
           <div key={group.label} className="flex flex-col gap-1">
             {expanded ? (
-              <span className="px-[11px] pb-2 font-mono text-[10px] font-semibold tracking-[.14em] uppercase text-v-dim">
+              <span className="px-[11px] pb-1 font-mono text-[10px] font-semibold tracking-[.14em] uppercase text-v-dim">
                 {group.label}
               </span>
             ) : null}
@@ -97,7 +97,7 @@ export function NavRail({
                   data-tour={item.tourId}
                   onClick={item.onClick}
                   title={item.label}
-                  className={`flex cursor-pointer items-center gap-[11px] rounded-v-md px-[11px] py-[9px] text-left text-[13.5px] font-medium transition-colors duration-[120ms] ${
+                  className={`flex cursor-pointer items-center gap-[11px] rounded-v-md px-[11px] py-1.5 text-left text-[13.5px] font-medium transition-colors duration-[120ms] ${
                     isActive
                       ? "bg-v-pale font-semibold text-v-accent"
                       : item.accent
@@ -119,7 +119,7 @@ export function NavRail({
         ))}
       </div>
 
-      {footer ? <div className="flex flex-col gap-2 border-t border-v-line pt-3">{footer}</div> : null}
+      {footer ? <div className="flex flex-col gap-1 border-t border-v-line pt-2">{footer}</div> : null}
     </nav>
   );
 }

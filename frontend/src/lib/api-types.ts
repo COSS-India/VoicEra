@@ -438,6 +438,56 @@ export interface CampaignAnalyticsResponse {
   by_call_response: Record<string, number>;
 }
 
+export interface ObdReportSummary {
+  attempted: number;
+  connected: number;
+  timeout: number;
+  line_drop: number;
+  connection_rate: number;
+  average_duration_seconds: number;
+}
+
+export interface ObdReportRow {
+  provider_call_id?: string | null;
+  phone?: string | null;
+  dial_status?: string | null;
+  when?: string | null;
+  duration_seconds?: number | null;
+  recording_url?: string | null;
+  circle?: string | null;
+  operator?: string | null;
+  campaign_id?: string | null;
+  campaign_name?: string | null;
+}
+
+export interface ObdReportResponse {
+  summary: ObdReportSummary;
+  rows: ObdReportRow[];
+}
+
+export interface ObdCampaignStatus {
+  campaign_id?: string | null;
+  campaign_name?: string | null;
+  campaign_type?: string | null;
+  current_status?: string | null;
+  total_base_received?: number | null;
+  total_call_initiated?: number | null;
+  total_calls_connected?: number | null;
+  total_calls_not_connected?: number | null;
+  remaining_in_queue?: number | null;
+  success_rate_percentage?: number | null;
+  retry_interval?: string | null;
+  retry_within?: number | null;
+  retry_attempts?: number | null;
+  created_time?: string | null;
+  window?: string | null;
+  end_date?: string | null;
+}
+
+export interface ObdCampaignStatusResponse {
+  statuses: ObdCampaignStatus[];
+}
+
 export interface AgentCallCount {
   agent_id: string | null;
   agent_name: string | null;
