@@ -74,8 +74,13 @@ class PlivoClient:
         )
 
     async def link_number(
-        self, phone_number: str, application_id: str
+        self,
+        phone_number: str,
+        application_id: str,
+        *,
+        stream_url: Optional[str] = None,
     ) -> Dict[str, Any]:
+        del stream_url  # unused — Plivo binds numbers to applications only
         return await application.link_number(self, phone_number, application_id)
 
     async def unlink_number(self, phone_number: str) -> Dict[str, Any]:

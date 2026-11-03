@@ -35,6 +35,7 @@ from apps.telephony.base import (
     Kind,
 )
 from apps.telephony.calls import initiate_outbound
+from apps.telephony.providers.go2market import Go2MarketClient
 from apps.telephony.providers.plivo import PlivoClient
 from apps.telephony.providers.vobiz import VobizClient
 from apps.telephony.providers.vi import ViClient
@@ -87,6 +88,7 @@ __all__ = [
     "VobizClient",
     "PlivoClient",
     "ViClient",
+    "Go2MarketClient",
     "create_client",
     "build_config",
     "defers_call_log_to_stream",
