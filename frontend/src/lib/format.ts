@@ -24,6 +24,37 @@ export function displayUserName(name?: string | null): string {
   return name?.trim() ?? "";
 }
 
+function titleCaseWord(part: string): string {
+  if (!part) return "";
+  return part[0]!.toUpperCase() + part.slice(1).toLowerCase();
+}
+
+/** First segment of an email local part or dotted username, title-cased. */
+function firstNameSegment(raw: string): string {
+  const segment = raw.split(/[._-]+/).filter(Boolean)[0] ?? "";
+  return titleCaseWord(segment);
+}
+
+/**
+ * First name for the dashboard greeting. Email-shaped names
+ * (`bhargavi.prakash`) become "Bhargavi"; multi-word names use the first word.
+ */
+export function greetingFirstName(name?: string | null, email?: string | null): string {
+  const trimmed = name?.trim() ?? "";
+  const local = (email?.split("@")[0] ?? "").trim();
+
+  if (!trimmed) return local ? firstNameSegment(local) : "";
+
+  const looksLikeLocalPart =
+    !/\s/.test(trimmed) &&
+    (trimmed.toLowerCase() === local.toLowerCase() || /[._-]/.test(trimmed));
+
+  if (looksLikeLocalPart) return firstNameSegment(trimmed);
+
+  const firstWord = trimmed.split(/\s+/).filter(Boolean)[0] ?? "";
+  return firstWord ? titleCaseWord(firstWord) : "";
+}
+
 const TRAILING_COPY_SUFFIX = /\s*\(copy(?:\s+\d+)?\)\s*$/i;
 
 /**
@@ -88,13 +119,19 @@ export function formatDateTime(iso?: string | null): string {
   if (!iso) return "–";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "–";
-  return d.toLocaleString(undefined, {
+  const date = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+  }).format(d);
+  const time = new Intl.DateTimeFormat("en-GB", {
     hour: "numeric",
     minute: "2-digit",
-  });
+    hour12: true,
+  })
+    .format(d)
+    .replace(/\s*(am|pm)\s*$/i, (_, meridiem: string) => ` ${meridiem.toUpperCase()}`);
+  return `${date}, ${time}`;
 }
 
 export function formatBytes(bytes?: number | null): string {

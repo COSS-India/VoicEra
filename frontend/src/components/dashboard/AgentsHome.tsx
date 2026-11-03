@@ -23,6 +23,7 @@ import {
   User,
 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { Dialog, DialogHeader } from "@/components/ui/Dialog";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
@@ -355,9 +356,11 @@ function AgentCard({
             Test on Browser
           </Button>
         )}
-        <IconButton aria-label="Edit agent" onClick={onOpenEdit} className="size-[42px]">
-          <Pencil className="size-4" strokeWidth={1.9} />
-        </IconButton>
+        <Tooltip text="Edit">
+          <IconButton aria-label="Edit agent" onClick={onOpenEdit} className="size-[42px]">
+            <Pencil className="size-4" strokeWidth={1.9} />
+          </IconButton>
+        </Tooltip>
       </div>
     </motion.div>
   );
@@ -535,7 +538,7 @@ export function AgentsHome({ onNotify }: { onNotify: (title: string, note: strin
     return "Good evening";
   }
 
-  const userName = displayUserName(session?.name);
+  const userName = greetingFirstName(session?.name, session?.email);
   const greeting = `${getGreeting()}${userName ? `, ${userName}` : ""}`;
 
   const headline = greeting;

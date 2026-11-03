@@ -13,6 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import { CampaignAnalyticsDialog } from "@/components/dashboard/CampaignAnalyticsDialog";
+import { ObdReportDialog, ObdStatusDialog } from "@/components/dashboard/ObdCampaignDialogs";
 import { Button, IconButton } from "@/components/ui/Button";
 import { StatCard } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -118,12 +119,6 @@ function isViAgent(agent: AgentApiResponse | undefined): boolean {
   return (agent?.telephony?.provider || "").toLowerCase() === "vi";
 }
 
-/**
- * Temporary. Vodafone pull-report analytics is not wired yet.
- * Set to true to show the analytics action on VI / OBD campaigns again.
- */
-const VI_CAMPAIGN_ANALYTICS_ENABLED = false;
-
 /** OBD / bulk-provider campaigns (e.g. VI). */
 function isObdCampaign(
   campaign: CampaignApiResponse,
@@ -133,14 +128,6 @@ function isObdCampaign(
   if (meta && typeof meta === "object" && meta.obd_config) return true;
   if ((campaign.telephony_provider || "").toLowerCase() === "vi") return true;
   return isViAgent(agentById[campaign.agent_id]);
-}
-
-function showCampaignAnalytics(
-  campaign: CampaignApiResponse,
-  agentById: Record<string, AgentApiResponse>,
-): boolean {
-  if (VI_CAMPAIGN_ANALYTICS_ENABLED) return true;
-  return !isObdCampaign(campaign, agentById);
 }
 
 // --- Upload → preview → details dialog -------------------------------------
@@ -816,6 +803,8 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
   const [redialTarget, setRedialTarget] = useState<CampaignApiResponse | null>(null);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [analyticsCampaignId, setAnalyticsCampaignId] = useState<string | null>(null);
+  const [obdReportId, setObdReportId] = useState<string | null>(null);
+  const [obdStatusId, setObdStatusId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CampaignApiResponse | null>(null);
 
   function openAnalytics(campaignId?: string | null) {
@@ -849,14 +838,21 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
     return map;
   }, [agents]);
 
+  function openCampaignReport(campaign: CampaignApiResponse) {
+    if (isObdCampaign(campaign, agentById)) {
+      setObdReportId(campaign.campaign_id);
+      return;
+    }
+    openAnalytics(campaign.campaign_id);
+  }
+
   useEffect(() => {
     if (!campaignFromUrl) return;
     if (openedFromUrl.current === campaignFromUrl) return;
     const match = campaigns.find((c) => c.campaign_id === campaignFromUrl);
     if (!match) return;
     openedFromUrl.current = campaignFromUrl;
-    if (!showCampaignAnalytics(match, agentById)) return;
-    openAnalytics(campaignFromUrl);
+    openCampaignReport(match);
   }, [campaignFromUrl, campaigns, agentById]);
 
   const counts = useMemo(() => {
@@ -1014,31 +1010,36 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
                   {agentNameById[c.agent_id] ?? c.agent_id}
                 </span>
               </span>
-              <div className="flex flex-col gap-1.5">
-                <ProgressBar pct={progressPct(c)} thick />
-                <span className="flex items-center justify-between text-[10.5px] font-mono text-v-muted">
-                  <span>
-                    {c.processed_rows.toLocaleString()} of {c.total_rows ? c.total_rows.toLocaleString() : "–"} placed
+              {obd ? null : (
+                <div className="flex flex-col gap-1.5">
+                  <ProgressBar pct={progressPct(c)} thick />
+                  <span className="flex items-center justify-between text-[10.5px] font-mono text-v-muted">
+                    <span>
+                      {c.processed_rows.toLocaleString()} of {c.total_rows ? c.total_rows.toLocaleString() : "–"} placed
+                    </span>
+                    <span>{c.failed_rows.toLocaleString()} failed</span>
                   </span>
-                  <span>{c.failed_rows.toLocaleString()} failed</span>
-                </span>
-              </div>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2 border-t border-v-line pt-3">
                 <span className="font-mono text-[10.5px] text-v-muted">
                   {formatDateTime(c.started_at ?? c.created_at)}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  {showCampaignAnalytics(c, agentById) ? (
-                    <Tooltip text="Campaign analytics">
-                      <IconButton
-                        aria-label="Campaign analytics"
-                        onClick={() => openAnalytics(c.campaign_id)}
-                        className="bg-v-soft hover:border-v-accent hover:bg-v-pale hover:text-v-accent"
-                      >
-                        <BarChart3 className="size-4" strokeWidth={1.75} />
-                      </IconButton>
-                    </Tooltip>
+                  {obd ? (
+                    <Button variant="ghost" size="sm" onClick={() => setObdStatusId(c.campaign_id)}>
+                      Status
+                    </Button>
                   ) : null}
+                  <Tooltip text="Campaign analytics">
+                    <IconButton
+                      aria-label="Campaign analytics"
+                      onClick={() => openCampaignReport(c)}
+                      className="bg-v-soft hover:border-v-accent hover:bg-v-pale hover:text-v-accent"
+                    >
+                      <BarChart3 className="size-4" strokeWidth={1.75} />
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip text="Delete campaign">
                     <IconButton
                       aria-label="Delete campaign"
@@ -1059,17 +1060,19 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
         <div className="flex flex-col rounded-v-md border border-v-line bg-white">
           {rows.map((c) => {
             const obd = isObdCampaign(c, agentById);
-            const analyticsOn = showCampaignAnalytics(c, agentById);
             return (
-            <button
+            <div
               key={c.campaign_id}
-              type="button"
-              onClick={() => {
-                if (analyticsOn) openAnalytics(c.campaign_id);
+              role="button"
+              tabIndex={0}
+              onClick={() => openCampaignReport(c)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openCampaignReport(c);
+                }
               }}
-              className={`flex flex-wrap items-center justify-between gap-3 border-b border-v-line px-4.5 py-3 text-left last:border-0 ${
-                analyticsOn ? "hover:bg-v-soft/60" : "cursor-default"
-              }`}
+              className="flex cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-v-line px-4.5 py-3 text-left last:border-0 hover:bg-v-soft/60"
             >
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-[13.5px] font-medium">{c.name}</span>
@@ -1078,15 +1081,31 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
                 </span>
               </span>
               <span className="flex items-center gap-3">
-                <span className="w-24">
-                  <ProgressBar pct={progressPct(c)} />
-                </span>
-                <span className="font-mono text-[10.5px] w-16 text-right text-v-muted">
-                  {Math.round(progressPct(c))}%
-                </span>
-                {!obd ? <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge> : null}
+                {obd ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setObdStatusId(c.campaign_id);
+                    }}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
+                    Status
+                  </Button>
+                ) : (
+                  <>
+                    <span className="w-24">
+                      <ProgressBar pct={progressPct(c)} />
+                    </span>
+                    <span className="font-mono text-[10.5px] w-16 text-right text-v-muted">
+                      {Math.round(progressPct(c))}%
+                    </span>
+                    <Badge tone={stateTone(c.state)}>{stateLabel(c.state)}</Badge>
+                  </>
+                )}
               </span>
-            </button>
+            </div>
             );
           })}
         </div>
@@ -1113,10 +1132,21 @@ export function Campaigns({ onNotify }: { onNotify: (title: string, note: string
         onClose={() => setRedialTarget(null)}
       />
 
+      <ObdReportDialog
+        campaignId={obdReportId}
+        campaignName={campaigns.find((c) => c.campaign_id === obdReportId)?.name}
+        onClose={() => setObdReportId(null)}
+      />
+      <ObdStatusDialog
+        campaignId={obdStatusId}
+        campaignName={campaigns.find((c) => c.campaign_id === obdStatusId)?.name}
+        onClose={() => setObdStatusId(null)}
+      />
+
       <CampaignAnalyticsDialog
         open={analyticsOpen}
         initialCampaignId={analyticsCampaignId}
-        campaignOptions={campaigns.filter((c) => showCampaignAnalytics(c, agentById))}
+        campaignOptions={campaigns.filter((c) => !isObdCampaign(c, agentById))}
         onClose={() => {
           setAnalyticsOpen(false);
           setAnalyticsCampaignId(null);
