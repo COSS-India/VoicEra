@@ -45,9 +45,12 @@ from apps.providers.adapters.kenpath.bharat_vistaar_llm import (
 )
 from apps.providers.adapters.kenpath.llm import (
     KenpathLLMService,
+    extract_initial_spoken_greeting,
     extract_last_user_message,
     yield_word_chunks_from_text,
 )
+from apps.providers.adapters.kenpath.llm import ADVISORY_TEXT_PARAM
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -256,6 +259,79 @@ async def test_stream_vistaar_completions_uses_call_id(
     assert call_kwargs["params"]["query"] == "namaste"
     assert call_kwargs["params"]["source_lang"] == "mr"
     assert call_kwargs["headers"]["Authorization"] == "Bearer signed-token"
+    assert ADVISORY_TEXT_PARAM not in call_kwargs["params"]
+
+
+@pytest.fixture
+def advisory_service() -> KenpathLLMService:
+    return KenpathLLMService(
+        private_key=_TEST_PRIVATE_KEY,
+        jwt_sub="+91-9000000000",
+        base_url="https://vistaar-dev.mahapocra.gov.in",
+        model=VISTAAR_DEV_MODEL,
+        source_lang="mr",
+        target_lang="mr",
+        send_greeting_to_llm=True,
+    )
+
+
+def test_extract_initial_spoken_greeting():
+    context = LLMContext(
+        [
+            {"role": "assistant", "content": "Namaste"},
+            {"role": "user", "content": "help"},
+        ]
+    )
+    assert extract_initial_spoken_greeting(context) == "Namaste"
+
+
+@pytest.mark.asyncio
+async def test_stream_vistaar_sends_advisory_text_once(
+    advisory_service: KenpathLLMService, monkeypatch
+):
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
+    advisory_service.set_spoken_greeting("Spoken greeting")
+    context = LLMContext([{"role": "user", "content": "first"}])
+
+    stream_cm = AsyncMock()
+    response = AsyncMock()
+    response.status_code = 200
+
+    async def aiter_bytes():
+        yield b"ok"
+
+    response.aiter_bytes = aiter_bytes
+    stream_cm.__aenter__.return_value = response
+    stream_cm.__aexit__.return_value = None
+
+    mock_client = MagicMock()
+    mock_client.is_closed = False
+    mock_client.stream.return_value = stream_cm
+    advisory_service._client = mock_client
+
+    async for _ in advisory_service._stream_vistaar_completions(
+        "first", context=context
+    ):
+        pass
+    assert (
+        mock_client.stream.call_args.kwargs["params"][ADVISORY_TEXT_PARAM]
+        == "Spoken greeting"
+    )
+
+    mock_client.stream.reset_mock()
+    stream_cm2 = AsyncMock()
+    response2 = AsyncMock()
+    response2.status_code = 200
+    response2.aiter_bytes = aiter_bytes
+    stream_cm2.__aenter__.return_value = response2
+    stream_cm2.__aexit__.return_value = None
+    mock_client.stream.return_value = stream_cm2
+
+    async for _ in advisory_service._stream_vistaar_completions(
+        "second", context=context
+    ):
+        pass
+    assert ADVISORY_TEXT_PARAM not in mock_client.stream.call_args.kwargs["params"]
 
 
 @pytest.mark.asyncio

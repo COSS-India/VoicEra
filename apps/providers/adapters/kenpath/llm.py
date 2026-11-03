@@ -6,6 +6,7 @@ import codecs
 import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import httpx
@@ -23,6 +24,14 @@ from pipecat.services.llm_service import LLMService
 from pipecat.utils.tracing.service_decorators import traced_llm
 
 from .call_ending import KenpathCallEndingMixin, response_requests_end_call, strip_goodbye_for_tts
+
+ADVISORY_TEXT_PARAM = "advisory_text"
+
+
+@dataclass
+class _AdvisoryTextState:
+    enabled: bool
+    sent: bool = False
 
 
 def yield_word_chunks_from_text(text: str) -> Iterator[str]:
@@ -48,6 +57,19 @@ def yield_word_chunks_from_text(text: str) -> Iterator[str]:
 
     if buffer.strip():
         yield buffer.strip()
+
+
+def extract_initial_spoken_greeting(context: LLMContext) -> str | None:
+    """First assistant message before any user turn (Pipecat ``LLMMessagesAppendFrame`` greeting)."""
+    for message in context.get_messages():
+        role = message.get("role")
+        if role == "user":
+            break
+        if role == "assistant":
+            text = str(message.get("content") or "").strip()
+            if text:
+                return text
+    return None
 
 
 def extract_last_user_message(context: LLMContext) -> str:
@@ -78,6 +100,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         source_lang: str = "mr",
         target_lang: str = "mr",
         voice_bhili_url: str = "",
+        send_greeting_to_llm: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -96,6 +119,8 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         self._is_prod = "vistaar-prod" in model
         self._call_id: str | None = None
         self._client: httpx.AsyncClient | None = None
+        self._advisory_text = _AdvisoryTextState(enabled=send_greeting_to_llm)
+        self._spoken_greeting: str | None = None
         self._kenpath_init_call_ending()
 
         if self._use_voice_bhili and not self._voice_bhili_url:
@@ -122,6 +147,12 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         self._call_id = (call_id or "").strip() or None
         if self._call_id:
             logger.info("Kenpath Vistaar session_id set to call_id={}", self._call_id)
+
+    def set_spoken_greeting(self, text: str | None) -> None:
+        """Spoken greeting for first Vistaar ``advisory_text`` when enabled in agent config."""
+        if not self._advisory_text.enabled:
+            return
+        self._spoken_greeting = (text or "").strip() or None
 
     def _session_id(self) -> str:
         return self._call_id or str(uuid.uuid4())
@@ -192,7 +223,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         chunk_count = 0
         parts: list[str] = []
         self._kenpath_begin_assistant_turn()
-        async for chunk in self._iter_completions(user_message):
+        async for chunk in self._iter_completions(user_message, context=context):
             if first_chunk:
                 first_chunk = False
                 await self.stop_ttfb_metrics()
@@ -206,12 +237,20 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         logger.info("Kenpath completed — {} chunks streamed", chunk_count)
         return "".join(parts)
 
-    async def _iter_completions(self, query: str) -> AsyncIterator[str]:
+    async def _iter_completions(
+        self,
+        query: str,
+        *,
+        context: LLMContext | None = None,
+    ) -> AsyncIterator[str]:
         if self._use_voice_bhili:
             async for chunk in self._iter_voice_bhili_text(query):
                 yield chunk
         else:
-            async for chunk in self._stream_vistaar_completions(query):
+            async for chunk in self._stream_vistaar_completions(
+                query,
+                context=context,
+            ):
                 yield chunk
 
     async def _iter_voice_bhili_text(
@@ -274,6 +313,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         self,
         query: str,
         *,
+        context: LLMContext | None = None,
         source_lang: str | None = None,
         target_lang: str | None = None,
         session_id: str | None = None,
@@ -288,13 +328,29 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
             "target_lang": target_lang,
             "session_id": session_id,
         }
+        state = self._advisory_text
+        if state.enabled and not state.sent:
+            advisory = self._spoken_greeting
+            if not advisory and context is not None:
+                advisory = extract_initial_spoken_greeting(context)
+            if advisory:
+                params[ADVISORY_TEXT_PARAM] = advisory
+                state.sent = True
         headers = {"Authorization": f"Bearer {self._generate_jwt()}"}
-
-        logger.info(
-            "Vistaar API request | session_id={} | query={}...",
-            session_id,
-            query[:50],
-        )
+        if ADVISORY_TEXT_PARAM in params:
+            logger.info(
+                "Vistaar API request | session_id={} | query={}... | {}_len={}",
+                session_id,
+                query[:50],
+                ADVISORY_TEXT_PARAM,
+                len(params[ADVISORY_TEXT_PARAM]),
+            )
+        else:
+            logger.info(
+                "Vistaar API request | session_id={} | query={}...",
+                session_id,
+                query[:50],
+            )
 
         client = await self._get_client()
         async with client.stream("GET", url, params=params, headers=headers) as response:
@@ -344,7 +400,7 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         if not user_message:
             return None
         parts: list[str] = []
-        async for chunk in self._iter_completions(user_message):
+        async for chunk in self._iter_completions(user_message, context=context):
             parts.append(chunk)
         return "".join(parts) if parts else None
 
