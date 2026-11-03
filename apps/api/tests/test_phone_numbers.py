@@ -251,7 +251,11 @@ async def test_attach_to_agent_links_provider(
     )
     assert result["status"] == "success"
     link_mock.assert_awaited_once_with(
-        "org-1", "vobiz", "+15551234567", "app-123"
+        "org-1",
+        "vobiz",
+        "+15551234567",
+        "app-123",
+        stream_url="https://voice.example.com/answer?agent_id=agent-1&org_id=org-1",
     )
     assert _PHONE_STORE["+15551234567"]["agent_id"] == "agent-1"
     assert _AGENT_STORE[("org-1", "agent-1")]["linked_phone_number"] == "+15551234567"

@@ -67,20 +67,46 @@ def build_answer_urls(
     return answer_url, answer_url
 
 
+# Catalog / registry metadata — never forwarded as dial credentials.
+_CONFIG_META_KEYS = frozenset({"provider", "name", "kind"})
+
+
+def _nonempty_config_fields(config: Any) -> dict[str, Any]:
+    """Flatten a built telephony config into dial defaults (provider-agnostic).
+
+    Provider-specific secrets flow through automatically via ``model_dump``;
+    this layer never names vendors or field keys.
+    """
+    if hasattr(config, "model_dump"):
+        raw = config.model_dump()
+    else:
+        raw = {
+            key: getattr(config, key)
+            for key in dir(config)
+            if not key.startswith("_") and not callable(getattr(config, key, None))
+        }
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        if key in _CONFIG_META_KEYS or value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        out[key] = value
+    return out
+
+
 def get_provider_dial_credentials(org_id: str, provider: str) -> dict[str, Any]:
     """Return auth secrets and base URL for outbound dialing.
 
-    Includes every secret field stored in ProviderAuth plus ``base_url``
-    from the registered provider config defaults.
+    Merges stored ProviderAuth with built config defaults (any secret /
+    settings fields the provider model exposes), then forces ``base_url``
+    from the registered config.
     """
     config = _build_config(org_id, provider)
     stored = auth_service.get_provider_auth(org_id, provider, mask_secrets=False) or {}
     auth = dict(stored.get("auth") or {})
-    # Ensure core fields are present even if catalog only had defaults.
-    auth.setdefault("auth_id", getattr(config, "auth_id", None))
-    auth.setdefault("auth_token", getattr(config, "auth_token", None))
-    if not auth.get("base_url") and getattr(config, "base_url", None):
-        auth["base_url"] = getattr(config, "base_url")
+    for key, value in _nonempty_config_fields(config).items():
+        auth.setdefault(key, value)
     result: dict[str, Any] = {
         key: value
         for key, value in auth.items()
@@ -101,29 +127,28 @@ def _build_config(org_id: str, provider: str):
         )
 
     auth = stored["auth"]
-    auth_id = str(auth.get("auth_id") or "").strip()
-    auth_token = str(auth.get("auth_token") or "").strip()
-    if not auth_id or not auth_token:
-        raise AgentTelephonyError(
-            f"Incomplete telephony credentials for provider '{provider}' "
-            f"(auth_id and auth_token required)."
-        )
 
-    # Pass all stored secret fields so provider-specific secrets reach build_config
-    # without vendor branches here.
+    # Pass all stored secret fields so provider-specific secrets reach
+    # build_config without vendor branches here.
     config_kwargs: dict[str, Any] = {
         key: value
         for key, value in auth.items()
         if value is not None and str(value).strip() != ""
     }
-    config_kwargs["auth_id"] = auth_id
-    config_kwargs["auth_token"] = auth_token
 
     try:
-        # Config defaults (e.g. base_url) come from the registered provider model.
-        return build_config(provider, **config_kwargs)
+        config = build_config(provider, **config_kwargs)
     except (ValueError, TypeError) as exc:
         raise AgentTelephonyError(str(exc)) from exc
+
+    auth_id = str(getattr(config, "auth_id", None) or "").strip()
+    auth_token = str(getattr(config, "auth_token", None) or "").strip()
+    if not auth_id or not auth_token:
+        raise AgentTelephonyError(
+            f"Incomplete telephony credentials for provider '{provider}' "
+            f"(auth_id and auth_token required)."
+        )
+    return config
 
 
 def load_telephony_client(org_id: str, provider: str):
@@ -254,11 +279,21 @@ async def link_number(
     provider: str,
     phone_number: str,
     application_id: str,
+    *,
+    stream_url: str | None = None,
 ) -> None:
-    """Bind a phone number to a provider application."""
+    """Bind a phone number to a provider application.
+
+    ``stream_url`` is optional media/WSS endpoint for providers that map DIDs
+    to a websocket (ignored by providers that only need application binding).
+    """
     provider = _require_provider(provider)
     client = load_telephony_client(org_id, provider)
-    result = await client.link_number(phone_number, application_id)
+    result = await client.link_number(
+        phone_number,
+        application_id,
+        stream_url=(stream_url or "").strip() or None,
+    )
     _raise_on_fail(result, "link number")
 
 

@@ -16,7 +16,9 @@ from apps.runtime.services.agent_routing import (
 from apps.runtime.services.backend import BackendError, backend_client
 from apps.runtime.services.pipecat.audio import resolve_custom_variables
 from apps.runtime.services.pipecat.runners import run_telephony_bot, run_websocket_bot
-from apps.telephony import parse_stream_start
+from apps.telephony import parse_stream_start, resolve_provider_call_sid
+from apps.telephony.providers.go2market.stream_protocol import resolve_stream_sid
+from apps.telephony.stream_session import recv_media_stream_start
 
 router = APIRouter()
 
@@ -110,30 +112,33 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
 
         provider = telephony_provider(agent)
 
-        first = await websocket.receive_text()
-        data: dict[str, Any] = json.loads(first)
-        if data.get("event") != "start":
-            logger.warning(
-                "Expected start event, got {!r} — closing",
-                data.get("event"),
-            )
-            await websocket.close(code=1008, reason="Expected start event")
+        try:
+            data = await recv_media_stream_start(websocket)
+        except ValueError as exc:
+            logger.warning("Media stream start failed: {}", exc)
+            await websocket.close(code=1008, reason=str(exc)[:120])
             return
 
         start_info = data.get("start") or {}
         stream_meta = parse_stream_start(start_info)
         call_sid = (
-            stream_meta.get("provider_call_sid")
+            resolve_provider_call_sid(data)
+            or stream_meta.get("provider_call_sid")
             or start_info.get("callSid")
             or start_info.get("callId")
             or start_info.get("call_uuid")
+            or call_id
             or "unknown"
         )
-        stream_sid = (
-            start_info.get("streamSid")
-            or start_info.get("streamId")
-            or "unknown"
-        )
+        stream_sid = resolve_stream_sid(data) or ""
+        # Go2Market often omits streamSid and sends only the call id. That id
+        # is already the provider call id; echo it on outbound media.
+        if (
+            not stream_sid
+            and call_sid
+            and str(call_sid).strip().lower() != "unknown"
+        ):
+            stream_sid = str(call_sid).strip()
         logger.info(
             "Call start call_sid={} stream_sid={}",
             call_sid,

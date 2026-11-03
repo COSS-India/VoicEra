@@ -1,6 +1,6 @@
 # Telephony
 
-> Provider-agnostic clients for Vobiz and Plivo, shared by `apps/api` and `apps/runtime`.
+> Provider-agnostic clients for Vobiz, Plivo, Vodafone Idea, and Go To Market, shared by `apps/api` and `apps/runtime`.
 
 [![Providers](https://img.shields.io/badge/providers-Vobiz%20%C2%B7%20Plivo-brightgreen.svg)](#provider-catalog-for-appsapi--ui)
 [![Registry](https://img.shields.io/badge/pattern-decorator%20registry-blue.svg)](#provider-catalog-for-appsapi--ui)

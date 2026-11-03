@@ -62,6 +62,16 @@ def test_resolve_pipeline_rates_vi_24k_tts_caps_pipeline() -> None:
     assert not hasattr(rates, "recording_rate")
 
 
+def test_resolve_pipeline_rates_go2market_registered() -> None:
+    load_providers()
+    tts = SimpleNamespace(_init_sample_rate=24000, sample_rate=24000)
+    rates = resolve_pipeline_rates("go2market", tts)
+    assert rates is not None
+    assert rates.wire_rate == 8000
+    assert rates.pipeline_rate == 16000
+    assert not hasattr(rates, "recording_rate")
+
+
 def test_resolve_pipeline_rates_unknown_provider() -> None:
     load_providers()
     assert resolve_pipeline_rates("plivo", SimpleNamespace()) is None
