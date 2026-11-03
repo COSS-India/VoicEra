@@ -29,8 +29,9 @@ import { Spinner } from "@/components/ui/Spinner";
 import { archiveAgent, createAgent, deleteAgent, getAgent, listAgents } from "@/lib/api-client";
 import { listOrgCalls } from "@/lib/api/calls";
 import { listPhoneNumbers } from "@/lib/api/phone-numbers";
-import { displayUserName, formatDuration, nameFromEmail, truncateLabel } from "@/lib/format";
+import { displayUserName, formatDuration, nameFromEmail, nextDuplicateAgentName, truncateLabel } from "@/lib/format";
 import { agentPurposeFromApi } from "@/lib/agent-mapper";
+import { AGENT_NAME_MAX_LENGTH } from "@/lib/wizard-data";
 import { useAuth } from "@/components/AuthProvider";
 import { AgentTestModal } from "@/components/dashboard/AgentTestModal";
 import { TestCallSheet } from "@/components/dashboard/TestCallSheet";
@@ -594,7 +595,11 @@ export function AgentsHome({ onNotify }: { onNotify: (title: string, note: strin
     try {
       const source = rawAgents[a.id] ?? (await getAgent(a.id));
       const created = await createAgent({
-        name: `${source.name} (copy)`,
+        name: nextDuplicateAgentName(
+          source.name,
+          agents.map((agent) => agent.name),
+          AGENT_NAME_MAX_LENGTH,
+        ),
         agent_category: source.agent_category,
         telephony_provider: source.telephony?.provider ?? null,
         config: source.config,

@@ -136,7 +136,7 @@ function AddNumberDialog({
     <Dialog open onClose={onClose} widthClassName="max-w-lg">
       <DialogHeader
         title="Add a new number"
-        subtitle="List your telephony provider's account and import one into this workspace."
+        subtitle="Choose a number from your telephony provider account to import into this workspace."
         onClose={onClose}
         titleEnd={
           docsUrl ? (
