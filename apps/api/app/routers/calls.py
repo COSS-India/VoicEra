@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from typing import Any, Iterator
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
-from app.auth import get_current_user
+from app.auth import get_current_user, verify_api_key
 from app.config import settings
 from app.models.schemas import (
     CallAnalyticsResponse,
@@ -18,6 +19,8 @@ from app.models.schemas import (
     CallMetricsResponse,
     InboundCallRegisterRequest,
     InboundCallRegisterResponse,
+    OutboundCallRegisterRequest,
+    OutboundCallRegisterResponse,
     OutboundCallRequest,
     OutboundCallResponse,
     WebCallRegisterRequest,
@@ -28,6 +31,7 @@ from app.services.call_log_service import (
     CallLogListFilters,
     CallLogNotFoundError,
     count_call_logs,
+    find_call_log_by_provider_sid,
     get_call_log,
     get_org_call_analytics,
     list_call_logs_by_org,
@@ -41,7 +45,11 @@ from app.services.call_metrics_service import (
     upsert_call_metrics,
 )
 from app.services.inbound_call_service import InboundCallError, register_inbound_call
-from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
+from app.services.outbound_call_service import (
+    OutboundCallError,
+    initiate_outbound_call,
+    register_outbound_call,
+)
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
 
@@ -142,6 +150,29 @@ async def create_outbound_call(
 
 
 @router.post(
+    "/outbound/register",
+    response_model=OutboundCallRegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_outbound_call_log(
+    body: OutboundCallRegisterRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Register an outbound CallLog when the voice runtime stream starts (no dial)."""
+    org_id = _require_active_org(current_user)
+    try:
+        return register_outbound_call(
+            org_id,
+            body.agent_id,
+            provider_call_sid=body.provider_call_sid,
+            from_number=body.from_number,
+            to_number=body.to_number,
+        )
+    except OutboundCallError as exc:
+        _raise_outbound_error(exc)
+
+
+@router.post(
     "/inbound",
     response_model=InboundCallRegisterResponse,
     status_code=status.HTTP_201_CREATED,
@@ -183,6 +214,22 @@ async def create_web_call(
         )
     except WebCallError as exc:
         _raise_web_call_error(exc)
+
+
+@router.get("/by-provider-sid/{provider_call_sid}", response_model=CallLogResponse)
+async def get_call_by_provider_sid(
+    provider_call_sid: str,
+    _: bool = Depends(verify_api_key),
+) -> dict[str, Any]:
+    """Resolve a CallLog by provider SID (voice server; X-API-Key)."""
+    sid = unquote(provider_call_sid).strip()
+    doc = find_call_log_by_provider_sid(sid)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Call log not found for provider sid: {sid}",
+        )
+    return transform_call_log_urls(doc, api_prefix=settings.API_V1_PREFIX)
 
 
 @router.patch("/by-provider-sid/{provider_call_sid}", response_model=CallLogResponse)
@@ -227,30 +274,26 @@ async def patch_call(
     return transform_call_log_urls(doc, api_prefix=settings.API_V1_PREFIX)
 
 
-@router.get("/{call_id}/recording")
-async def get_call_recording(
-    call_id: str,
-    current_user: dict[str, Any] = Depends(get_current_user),
+def _stream_call_artifact(
+    call: dict[str, Any],
+    *,
+    url_field: str,
+    missing_detail: str,
+    invalid_detail: str,
+    default_content_type: str,
 ) -> StreamingResponse:
-    """Stream the call recording from MinIO."""
-    org_id = _require_active_org(current_user)
-    try:
-        call = get_call_log(org_id, call_id)
-    except CallLogNotFoundError as exc:
-        _raise_call_not_found(exc)
-
-    recording_url = call.get("recording_url")
-    if not recording_url:
+    artifact_url = call.get(url_field)
+    if not artifact_url:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recording not found for this call",
+            detail=missing_detail,
         )
 
-    parsed = MinIOStorage.parse_minio_url(str(recording_url))
+    parsed = MinIOStorage.parse_minio_url(str(artifact_url))
     if not parsed:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid recording URL on call log",
+            detail=invalid_detail,
         )
 
     bucket_name, object_name = parsed
@@ -261,8 +304,50 @@ async def get_call_recording(
             detail=f"Recording file not found: {object_name}",
         )
 
-    content_type = _artifact_content_type(object_name, "audio/wav")
+    content_type = _artifact_content_type(object_name, default_content_type)
     return _stream_minio_object(bucket_name, object_name, content_type)
+
+
+@router.get("/{call_id}/recording")
+async def get_call_recording(
+    call_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> StreamingResponse:
+    """Stream the system (Pipecat) call recording from MinIO."""
+    org_id = _require_active_org(current_user)
+    try:
+        call = get_call_log(org_id, call_id)
+    except CallLogNotFoundError as exc:
+        _raise_call_not_found(exc)
+
+    return _stream_call_artifact(
+        call,
+        url_field="recording_url",
+        missing_detail="Recording not found for this call",
+        invalid_detail="Invalid recording URL on call log",
+        default_content_type="audio/wav",
+    )
+
+
+@router.get("/{call_id}/provider-recording")
+async def get_call_provider_recording(
+    call_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> StreamingResponse:
+    """Stream the carrier / provider recording from MinIO."""
+    org_id = _require_active_org(current_user)
+    try:
+        call = get_call_log(org_id, call_id)
+    except CallLogNotFoundError as exc:
+        _raise_call_not_found(exc)
+
+    return _stream_call_artifact(
+        call,
+        url_field="provider_recording_url",
+        missing_detail="Provider recording not found for this call",
+        invalid_detail="Invalid provider recording URL on call log",
+        default_content_type="audio/wav",
+    )
 
 
 @router.get("/{call_id}/transcript")

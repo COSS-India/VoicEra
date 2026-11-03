@@ -17,6 +17,8 @@ class ViClient:
     """
 
     PROVIDER_LABEL = "Vodafone Idea"
+    # Dial SIDs and stream call_ids differ; CallLog is created on media connect.
+    DEFERS_CALL_LOG_TO_STREAM = True
 
     def __init__(
         self,
@@ -58,8 +60,13 @@ class ViClient:
         )
 
     async def link_number(
-        self, phone_number: str, application_id: str
+        self,
+        phone_number: str,
+        application_id: str,
+        *,
+        stream_url: Optional[str] = None,
     ) -> Dict[str, Any]:
+        del stream_url  # unused — VI uses DNI flows, not DID↔WSS attach here
         return await application.link_number(self, phone_number, application_id)
 
     async def unlink_number(self, phone_number: str) -> Dict[str, Any]:
@@ -105,6 +112,14 @@ class ViClient:
         to_numbers: List[str],
         name: Optional[str] = None,
         description: str = "VoicERA VI campaign",
+        fromdate: Optional[str] = None,
+        todate: Optional[str] = None,
+        fromtime: Optional[str] = None,
+        totime: Optional[str] = None,
+        dialtimeout: Optional[int] = None,
+        retrycount: Optional[int] = None,
+        retryintervalvalue: Optional[int] = None,
+        retryintervaltype: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Capability hook for campaign batch dialing (one OBD campaign)."""
         return await application.initiate_bulk_calls(
@@ -113,6 +128,14 @@ class ViClient:
             to_numbers=to_numbers,
             name=name,
             description=description,
+            fromdate=fromdate,
+            todate=todate,
+            fromtime=fromtime,
+            totime=totime,
+            dialtimeout=dialtimeout,
+            retrycount=retrycount,
+            retryintervalvalue=retryintervalvalue,
+            retryintervaltype=retryintervaltype,
         )
 
     async def get_bulk_status(

@@ -161,7 +161,8 @@ export interface OutboundCallRequest {
 }
 
 export interface OutboundCallResponse {
-  call_id: string;
+  /** Null for providers that register the CallLog on media connect (e.g. VI). */
+  call_id?: string | null;
   status: CallLogStatus;
   provider_call_sid?: string | null;
   from_number: string;
@@ -216,7 +217,10 @@ export interface CallLogItem {
   start_time_utc?: string | null;
   end_time_utc?: string | null;
   duration?: number | null;
+  /** System (Pipecat AudioBuffer) recording. */
   recording_url?: string | null;
+  /** Carrier / provider recording (parallel artifact). */
+  provider_recording_url?: string | null;
   transcript_url?: string | null;
   error_message?: string | null;
   campaign_id?: string | null;
@@ -308,6 +312,8 @@ export interface CampaignApiResponse {
   org_id: string;
   name: string;
   agent_id: string;
+  /** Snapshot of agent telephony provider at campaign create. */
+  telephony_provider?: string | null;
   source_type: string;
   source_id: string;
   state: CampaignState;
@@ -352,6 +358,19 @@ export interface CampaignScheduleConfig {
   slots: CampaignScheduleSlot[];
 }
 
+/** Core Vodafone OBD createCampaign fields (VI bulk campaigns). */
+export interface ObdCampaignConfig {
+  description: string;
+  fromdate: string;
+  todate: string;
+  fromtime: string;
+  totime: string;
+  dialtimeout: number;
+  retrycount: number;
+  retryintervalvalue: number;
+  retryintervaltype?: number;
+}
+
 export interface CreateCampaignPayload {
   name: string;
   agent_id: string;
@@ -361,6 +380,8 @@ export interface CreateCampaignPayload {
   max_concurrency?: number;
   from_number?: string | null;
   retry_config?: CampaignRetryConfig;
+  schedule_config?: CampaignScheduleConfig;
+  obd_config?: ObdCampaignConfig;
 }
 
 /** GET /campaign/{id}/runs returns raw call-log dicts server-side — only a
@@ -378,6 +399,7 @@ export interface CampaignRunItem {
   campaign_id?: string | null;
   campaign_name?: string | null;
   recording_url?: string | null;
+  provider_recording_url?: string | null;
   transcript_url?: string | null;
   [key: string]: unknown;
 }

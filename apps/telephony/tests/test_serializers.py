@@ -7,7 +7,10 @@ import pytest
 from apps.telephony.serializers import create_frame_serializer
 
 
-@pytest.mark.parametrize("provider", ["vobiz", "plivo", "vi", "Vobiz", "Plivo", "VI"])
+@pytest.mark.parametrize(
+    "provider",
+    ["vobiz", "plivo", "vi", "go2market", "Vobiz", "Plivo", "VI", "Go2Market"],
+)
 def test_create_frame_serializer_known_providers(provider: str) -> None:
     serializer = create_frame_serializer(
         provider,
@@ -20,6 +23,7 @@ def test_create_frame_serializer_known_providers(provider: str) -> None:
         "VobizFrameSerializer",
         "PlivoFrameSerializer",
         "ViFrameSerializer",
+        "Go2MarketFrameSerializer",
     )
 
 

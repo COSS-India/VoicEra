@@ -21,6 +21,8 @@ from app.services.campaign.errors import (
     PhoneNumberPoolExhaustedError,
 )
 from app.services.outbound_call_service import OutboundCallError, initiate_outbound_call
+from apps.telephony.registry import defers_call_log_to_stream
+
 from app.services import agent_service, phone_number_service
 from app.services.agent_telephony_service import (
     AgentTelephonyError,
@@ -122,6 +124,10 @@ class CampaignCallDispatcher:
         return acquired, True
 
     def _telephony_provider(self, campaign: dict[str, Any]) -> str:
+        stored = str(campaign.get("telephony_provider") or "").strip().lower()
+        if stored:
+            return stored
+        # Legacy campaigns created before telephony_provider was snapshotted.
         org_id = str(campaign["org_id"])
         agent_id = str(campaign["agent_id"])
         try:
@@ -177,12 +183,13 @@ class CampaignCallDispatcher:
                 )
                 slot = await self.acquire_concurrent_slot(org_id, campaign)
                 result = await self.dispatch_call(queued_run, campaign, slot)
-                repo.update_queued_run(
-                    qid,
-                    state="processed",
-                    call_id=result["call_id"],
-                    processed_at=datetime.now(timezone.utc).isoformat(),
-                )
+                processed_patch: dict[str, Any] = {
+                    "state": "processed",
+                    "processed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                if result.get("call_id"):
+                    processed_patch["call_id"] = result["call_id"]
+                repo.update_queued_run(qid, **processed_patch)
                 processed_count += 1
                 processed_ids.add(qid)
                 current_processed = int(campaign.get("processed_rows") or 0) + 1
@@ -243,13 +250,32 @@ class CampaignCallDispatcher:
             return 0
 
         to_numbers = [phone for _, phone in valid]
+        metadata = dict(campaign.get("orchestrator_metadata") or {})
+        obd_config = metadata.get("obd_config")
+        if not isinstance(obd_config, dict):
+            obd_config = {}
+        bulk_kwargs: dict[str, Any] = {
+            "from_number": from_number,
+            "to_numbers": to_numbers,
+            "name": f"campaign-{campaign_id[:8]}-{agent_id[:8]}",
+            "description": str(
+                obd_config.get("description") or f"VoicERA campaign {campaign_id}"
+            ),
+        }
+        for key in (
+            "fromdate",
+            "todate",
+            "fromtime",
+            "totime",
+            "dialtimeout",
+            "retrycount",
+            "retryintervalvalue",
+            "retryintervaltype",
+        ):
+            if key in obd_config and obd_config[key] is not None:
+                bulk_kwargs[key] = obd_config[key]
         try:
-            result = await client.initiate_bulk_calls(
-                from_number=from_number,
-                to_numbers=to_numbers,
-                name=f"campaign-{campaign_id[:8]}-{agent_id[:8]}",
-                description=f"VoicERA campaign {campaign_id}",
-            )
+            result = await client.initiate_bulk_calls(**bulk_kwargs)
         except Exception as exc:
             logger.error("Bulk campaign dial failed for %s: %s", campaign_id[:8], exc)
             await self._return_unprocessed_claims(queued_runs, set())
@@ -283,13 +309,26 @@ class CampaignCallDispatcher:
         repo.update_campaign(campaign_id, orchestrator_metadata=metadata)
 
         processed_count = 0
-        try:
-            agent = agent_service.get_agent(org_id, agent_id)
-        except Exception:
-            agent = {}
+        defer_log = defers_call_log_to_stream(provider)
+        agent: dict[str, Any] = {}
+        if not defer_log:
+            try:
+                agent = agent_service.get_agent(org_id, agent_id)
+            except Exception:
+                agent = {}
 
         for queued_run, phone in valid:
             qid = str(queued_run["queued_run_id"])
+            # VI (and similar) register CallLogs when the media stream connects.
+            if defer_log:
+                repo.update_queued_run(
+                    qid,
+                    state="processed",
+                    processed_at=now,
+                )
+                processed_count += 1
+                continue
+
             context = dict(queued_run.get("context_variables") or {})
             call_id = str(uuid.uuid4())
             to_number = format_e164_for_call_log(phone)
@@ -472,17 +511,27 @@ class CampaignCallDispatcher:
                 from_number=from_number,
                 custom_variables=variables,
             )
-            call_id = str(result["call_id"])
-            call_log_service.update_call_log(
-                call_id,
-                {"campaign_id": campaign_id, "queued_run_id": queued_run_id},
-            )
-            await call_concurrency.bind_call_slot(concurrency_slot, call_id)
-            slot_bound = True
-            if pool_managed:
-                await rate_limiter.store_call_from_number_mapping(
-                    call_id, org_id, from_number, pool_scope
+            raw_call_id = result.get("call_id")
+            call_id = str(raw_call_id).strip() if raw_call_id else None
+            if call_id:
+                call_log_service.update_call_log(
+                    call_id,
+                    {"campaign_id": campaign_id, "queued_run_id": queued_run_id},
                 )
+                await call_concurrency.bind_call_slot(concurrency_slot, call_id)
+                slot_bound = True
+                if pool_managed:
+                    await rate_limiter.store_call_from_number_mapping(
+                        call_id, org_id, from_number, pool_scope
+                    )
+            else:
+                # Stream-time CallLog providers (e.g. VI): no dial-time call_id
+                # to bind; release the org slot after a successful dial.
+                await call_concurrency.release_slot(concurrency_slot)
+                if from_number and pool_managed:
+                    await rate_limiter.release_from_number(
+                        org_id, from_number, pool_scope
+                    )
             return result
         except Exception:
             if slot_bound and call_id:

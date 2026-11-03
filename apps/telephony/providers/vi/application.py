@@ -156,6 +156,14 @@ async def initiate_bulk_calls(
     to_numbers: List[str],
     name: Optional[str] = None,
     description: str = "VoicERA VI campaign",
+    fromdate: Optional[str] = None,
+    todate: Optional[str] = None,
+    fromtime: Optional[str] = None,
+    totime: Optional[str] = None,
+    dialtimeout: Optional[int] = None,
+    retrycount: Optional[int] = None,
+    retryintervalvalue: Optional[int] = None,
+    retryintervaltype: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Create one OBD campaign and ingest many MSISDNs."""
 
@@ -165,6 +173,14 @@ async def initiate_bulk_calls(
             from_number=from_number,
             name=name,
             description=description,
+            fromdate=fromdate,
+            todate=todate,
+            fromtime=fromtime,
+            totime=totime,
+            dialtimeout=dialtimeout,
+            retrycount=retrycount,
+            retryintervalvalue=retryintervalvalue,
+            retryintervaltype=retryintervaltype,
         )
 
     try:

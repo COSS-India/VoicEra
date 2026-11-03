@@ -12,11 +12,14 @@ __all__ = ["PipelineRates", "resolve_pipeline_rates"]
 
 @dataclass(frozen=True)
 class PipelineRates:
-    """Wire / internal pipeline / recording sample rates for a telephony call."""
+    """Wire vs internal pipeline sample rates for a telephony call.
+
+    Recording uses the pipeline rate via Pipecat's ``AudioBufferProcessor``
+    after ``transport.output()`` — no separate recording rate.
+    """
 
     wire_rate: int
     pipeline_rate: int
-    recording_rate: int
 
 
 def resolve_pipeline_rates(provider: str, tts: Any) -> PipelineRates | None:

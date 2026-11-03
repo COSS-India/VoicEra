@@ -24,6 +24,40 @@ export function displayUserName(name?: string | null): string {
   return name?.trim() ?? "";
 }
 
+const TRAILING_COPY_SUFFIX = /\s*\(copy(?:\s+\d+)?\)\s*$/i;
+
+/**
+ * Next unused duplicate name: "Name (copy)", then "Name (copy 2)", …
+ * Strips an existing copy suffix so copies of copies don't nest "(copy) (copy)".
+ */
+export function nextDuplicateAgentName(
+  sourceName: string,
+  existingNames: readonly string[],
+  maxLength = 65,
+): string {
+  const taken = new Set(existingNames.map((n) => n.trim().toLowerCase()));
+  let base = sourceName.trim();
+  while (TRAILING_COPY_SUFFIX.test(base)) {
+    base = base.replace(TRAILING_COPY_SUFFIX, "").trim();
+  }
+  if (!base) base = "Agent";
+
+  const fit = (suffix: string) => {
+    const room = Math.max(1, maxLength - suffix.length);
+    const trimmed = (base.slice(0, room).trimEnd() || "Agent").slice(0, room);
+    return `${trimmed}${suffix}`.slice(0, maxLength);
+  };
+
+  const first = fit(" (copy)");
+  if (!taken.has(first.toLowerCase())) return first;
+
+  for (let n = 2; n < 1000; n++) {
+    const next = fit(` (copy ${n})`);
+    if (!taken.has(next.toLowerCase())) return next;
+  }
+  return fit(" (copy)");
+}
+
 /** Display label for org membership roles (super_admin → "Super Admin"). */
 export function formatUserRole(role: string): string {
   return role

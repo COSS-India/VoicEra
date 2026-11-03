@@ -9,6 +9,10 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { fetchCallRecordingBlob, fetchCallTranscriptText, getCallMetrics } from "@/lib/api/calls";
+import {
+  availableCallRecordings,
+  type CallRecordingSource,
+} from "@/lib/call-recordings";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDuration } from "@/lib/format";
 import type { CallLogItem } from "@/lib/api-types";
@@ -108,11 +112,13 @@ function WaveformPlayer({
   onTogglePlay,
   onSeek,
   callId,
+  downloadName,
 }: {
   state: AudioState;
   onTogglePlay: () => void;
   onSeek: (t: number) => void;
   callId: string;
+  downloadName?: string;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const progress = state.duration > 0 ? state.current / state.duration : 0;
@@ -177,12 +183,129 @@ function WaveformPlayer({
       {state.url ? (
         <a
           href={state.url}
-          download={`${callId}.wav`}
+          download={downloadName ?? `${callId}.wav`}
           aria-label="Download recording"
           className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25"
         >
           <Download className="size-4" strokeWidth={1.75} />
         </a>
+      ) : null}
+    </div>
+  );
+}
+
+/** One system or provider recording player (loads its own artifact). */
+function CallRecordingPlayer({
+  callId,
+  source,
+  onPlayback,
+}: {
+  callId: string;
+  source: CallRecordingSource;
+  onPlayback?: (state: { playing: boolean; current: number }) => void;
+}) {
+  const [audio, setAudio] = useState<AudioState>({
+    url: null,
+    peaks: null,
+    error: "",
+    playing: false,
+    current: 0,
+    duration: 0,
+  });
+  const audioElRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setAudio({
+      url: null,
+      peaks: null,
+      error: "",
+      playing: false,
+      current: 0,
+      duration: 0,
+    });
+    fetchCallRecordingBlob(callId, source.kind)
+      .then(async (blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setAudio((s) => ({ ...s, url: objectUrl, error: "" }));
+        try {
+          const peaks = await computePeaks(blob, WAVEFORM_BARS);
+          if (!cancelled) setAudio((s) => ({ ...s, peaks }));
+        } catch {
+          /* waveform is a bonus */
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAudio((s) => ({
+            ...s,
+            error: err instanceof Error ? err.message : "Recording unavailable.",
+          }));
+        }
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [callId, source.kind]);
+
+  function togglePlay() {
+    const el = audioElRef.current;
+    if (!el) return;
+    if (audio.playing) el.pause();
+    else el.play();
+  }
+
+  function seekTo(t: number) {
+    const el = audioElRef.current;
+    if (!el || !audio.duration) return;
+    el.currentTime = Math.min(audio.duration, Math.max(0, t));
+    if (!audio.playing) el.play();
+  }
+
+  const suffix = source.kind === "provider" ? "-provider" : "";
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-medium uppercase tracking-[.06em] text-v-muted">
+        {source.label} recording
+      </span>
+      <WaveformPlayer
+        state={audio}
+        onTogglePlay={togglePlay}
+        onSeek={seekTo}
+        callId={callId}
+        downloadName={`${callId}${suffix}.wav`}
+      />
+      {audio.url ? (
+        <audio
+          ref={audioElRef}
+          src={audio.url}
+          onPlay={() => {
+            setAudio((s) => ({ ...s, playing: true }));
+            onPlayback?.({ playing: true, current: audio.current });
+          }}
+          onPause={() => {
+            setAudio((s) => ({ ...s, playing: false }));
+            onPlayback?.({ playing: false, current: audio.current });
+          }}
+          onTimeUpdate={(e) => {
+            const current = e.currentTarget.currentTime;
+            setAudio((s) => ({ ...s, current }));
+            if (audio.playing) onPlayback?.({ playing: true, current });
+          }}
+          onLoadedMetadata={(e) => {
+            const duration = e.currentTarget.duration || 0;
+            setAudio((s) => ({ ...s, duration }));
+          }}
+          onEnded={() => {
+            setAudio((s) => ({ ...s, playing: false }));
+            onPlayback?.({ playing: false, current: audio.current });
+          }}
+          className="hidden"
+        />
       ) : null}
     </div>
   );
@@ -250,15 +373,8 @@ export function CallDetailSheet({
   const [transcript, setTranscript] = useState<TranscriptLine[] | null>(null);
   const [transcriptError, setTranscriptError] = useState("");
   const [transcriptRaw, setTranscriptRaw] = useState("");
-  const [audio, setAudio] = useState<AudioState>({
-    url: null,
-    peaks: null,
-    error: "",
-    playing: false,
-    current: 0,
-    duration: 0,
-  });
-  const audioElRef = useRef<HTMLAudioElement>(null);
+  const recordingSources = useMemo(() => availableCallRecordings(call), [call]);
+  const [syncPlayback, setSyncPlayback] = useState({ playing: false, current: 0 });
   const [hasLatencyData, setHasLatencyData] = useState(false);
 
   useEffect(() => {
@@ -273,32 +389,6 @@ export function CallDetailSheet({
       });
     return () => {
       cancelled = true;
-    };
-  }, [call.call_id]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    fetchCallRecordingBlob(call.call_id)
-      .then(async (blob) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setAudio((s) => ({ ...s, url: objectUrl }));
-        try {
-          const peaks = await computePeaks(blob, WAVEFORM_BARS);
-          if (!cancelled) setAudio((s) => ({ ...s, peaks }));
-        } catch {
-          /* waveform is a bonus — playback still works without it */
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setAudio((s) => ({ ...s, error: err instanceof Error ? err.message : "Recording unavailable." }));
-        }
-      });
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [call.call_id]);
 
@@ -320,29 +410,15 @@ export function CallDetailSheet({
     };
   }, [call.call_id]);
 
-  function togglePlay() {
-    const el = audioElRef.current;
-    if (!el) return;
-    if (audio.playing) el.pause();
-    else el.play();
-  }
-
-  function seekTo(t: number) {
-    const el = audioElRef.current;
-    if (!el || !audio.duration) return;
-    el.currentTime = Math.min(audio.duration, Math.max(0, t));
-    if (!audio.playing) el.play();
-  }
-
   const activeIndex = useMemo(() => {
-    if (!transcript || !audio.playing) return -1;
+    if (!transcript || !syncPlayback.playing) return -1;
     let idx = -1;
     for (let i = 0; i < transcript.length; i++) {
-      if (transcript[i]!.offsetSeconds <= audio.current) idx = i;
+      if (transcript[i]!.offsetSeconds <= syncPlayback.current) idx = i;
       else break;
     }
     return idx;
-  }, [transcript, audio]);
+  }, [transcript, syncPlayback]);
 
   const detailRows = useMemo(
     () => [
@@ -426,25 +502,22 @@ export function CallDetailSheet({
       </div>
 
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
-        <WaveformPlayer state={audio} onTogglePlay={togglePlay} onSeek={seekTo} callId={call.call_id} />
-        {audio.url ? (
-          <audio
-            ref={audioElRef}
-            src={audio.url}
-            onPlay={() => setAudio((s) => ({ ...s, playing: true }))}
-            onPause={() => setAudio((s) => ({ ...s, playing: false }))}
-            onTimeUpdate={(e) => {
-              const current = e.currentTarget.currentTime;
-              setAudio((s) => ({ ...s, current }));
-            }}
-            onLoadedMetadata={(e) => {
-              const duration = e.currentTarget.duration || 0;
-              setAudio((s) => ({ ...s, duration }));
-            }}
-            onEnded={() => setAudio((s) => ({ ...s, playing: false }))}
-            className="hidden"
-          />
-        ) : null}
+        {recordingSources.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {recordingSources.map((src) => (
+              <CallRecordingPlayer
+                key={src.kind}
+                callId={call.call_id}
+                source={src}
+                onPlayback={setSyncPlayback}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-v-md bg-v-fg px-4 py-3 text-[12.5px] text-white/70">
+            No recording available.
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-v-muted">{formatDateTime(call.start_time_utc ?? call.created_at)}</span>
@@ -499,7 +572,14 @@ export function CallDetailSheet({
           ) : (
             <div className="flex flex-col gap-4 rounded-v-md bg-v-soft/40 p-4">
               {transcript.map((line, i) => (
-                <TranscriptBubble key={i} line={line} active={i === activeIndex} onSeek={seekTo} />
+                <TranscriptBubble
+                  key={i}
+                  line={line}
+                  active={i === activeIndex}
+                  onSeek={() => {
+                    /* Dual recording players — seek stays on the player controls. */
+                  }}
+                />
               ))}
             </div>
           )

@@ -155,18 +155,37 @@ class ViObdClient:
         name: Optional[str] = None,
         description: str = "VoicERA VI campaign",
         window_hours: float = 1.0,
+        fromdate: Optional[str] = None,
+        todate: Optional[str] = None,
+        fromtime: Optional[str] = None,
+        totime: Optional[str] = None,
         dialtimeout: Optional[int] = None,
         retryintervaltype: int = 0,
         retryintervalvalue: int = 5,
         retrycount: int = 1,
     ) -> dict:
-        """Create an OBD campaign with a near-immediate IST time window."""
+        """Create an OBD campaign.
+
+        Prefer an explicit IST window (fromdate/todate/fromtime/totime) when
+        provided; otherwise derive a near-term window from ``window_hours``.
+        """
         if dialtimeout is None:
             dialtimeout = self._dialtimeout
         if not name:
             name = f"voicera-{datetime.now(IST).strftime('%Y%m%d-%H%M%S')}"
 
-        window = self._campaign_window(window_hours)
+        explicit = all(
+            str(v or "").strip() for v in (fromdate, todate, fromtime, totime)
+        )
+        if explicit:
+            window = {
+                "fromdate": str(fromdate).strip(),
+                "todate": str(todate).strip(),
+                "fromtime": str(fromtime).strip(),
+                "totime": str(totime).strip(),
+            }
+        else:
+            window = self._campaign_window(window_hours)
         payload = {
             "flowid": flow_id,
             **window,
@@ -571,6 +590,14 @@ class ViObdClient:
         from_number: str | None = None,
         name: Optional[str] = None,
         description: str = "VoicERA VI campaign",
+        fromdate: Optional[str] = None,
+        todate: Optional[str] = None,
+        fromtime: Optional[str] = None,
+        totime: Optional[str] = None,
+        dialtimeout: Optional[int] = None,
+        retrycount: Optional[int] = None,
+        retryintervalvalue: Optional[int] = None,
+        retryintervaltype: Optional[int] = None,
     ) -> dict[str, Any]:
         """Auth → resolve live DNI → create one campaign → bulk ingest MSISDNs."""
         msisdns = [normalize_msisdn(n) for n in to_numbers if str(n).strip()]
@@ -584,15 +611,37 @@ class ViObdClient:
             )
         except ViAuthError as exc:
             raise ViObdError(str(exc)) from exc
-        window_hours = max(1.0, float(math.ceil(len(msisdns) / 50.0)))
+        explicit_window = all(
+            str(v or "").strip() for v in (fromdate, todate, fromtime, totime)
+        )
+        window_hours = (
+            0.0
+            if explicit_window
+            else max(1.0, float(math.ceil(len(msisdns) / 50.0)))
+        )
         token, _ = self.get_auth_token()
         dni, dni_source = self.resolve_outbound_dni(token, flow_id, configured_dni)
+        create_kwargs: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "window_hours": window_hours if not explicit_window else 1.0,
+            "fromdate": fromdate,
+            "todate": todate,
+            "fromtime": fromtime,
+            "totime": totime,
+        }
+        if dialtimeout is not None:
+            create_kwargs["dialtimeout"] = dialtimeout
+        if retrycount is not None:
+            create_kwargs["retrycount"] = retrycount
+        if retryintervalvalue is not None:
+            create_kwargs["retryintervalvalue"] = retryintervalvalue
+        if retryintervaltype is not None:
+            create_kwargs["retryintervaltype"] = retryintervaltype
         create_response = self.create_campaign(
             token,
             flow_id=flow_id,
-            name=name,
-            description=description,
-            window_hours=window_hours,
+            **create_kwargs,
         )
         campain_key = self._campain_key_from_response(create_response)
         campaign_ref_id = create_response.get("campaign_Ref_ID")
@@ -608,7 +657,7 @@ class ViObdClient:
             "configured_dni": configured_dni,
             "flow_id": flow_id,
             "msisdns": msisdns,
-            "window_hours": window_hours,
+            "window_hours": window_hours if not explicit_window else None,
             "call_uuid": campaign_ref_id,
             "request_uuid": campaign_ref_id,
         }

@@ -60,6 +60,7 @@ def create_campaign(doc: dict[str, Any]) -> dict[str, Any]:
         "org_id": doc["org_id"],
         "name": doc["name"],
         "agent_id": doc["agent_id"],
+        "telephony_provider": doc.get("telephony_provider"),
         "source_type": doc.get("source_type", "csv"),
         "source_id": doc["source_id"],
         "state": "created",
