@@ -416,7 +416,7 @@ function ActivityDialog({
             <table className="w-full min-w-[640px] border-collapse text-sm">
               <thead className="sticky top-0 z-[1] border-b border-v-line bg-v-surface-sunk">
                 <tr className="text-left font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">
-                  <th className="min-w-[11.5rem] whitespace-nowrap px-4 py-3 font-medium">Time</th>
+                  <th className="w-[12.75rem] min-w-[12.75rem] whitespace-nowrap px-4 py-3 font-medium">Time</th>
                   <th className="px-4 py-3 font-medium">Action</th>
                   <th className="px-4 py-3 font-medium">Number</th>
                   <th className="px-4 py-3 font-medium">Agent</th>
@@ -429,7 +429,7 @@ function ActivityDialog({
                     key={`${e.at}-${e.phone_number}-${e.action}-${e.by_email ?? ""}-${i}`}
                     className="border-b border-v-line last:border-b-0"
                   >
-                    <td className="min-w-[11.5rem] whitespace-nowrap px-4 py-3 text-v-muted">{formatDateTime(e.at)}</td>
+                    <td className="w-[12.75rem] min-w-[12.75rem] whitespace-nowrap px-4 py-3 text-v-muted">{formatDateTime(e.at)}</td>
                     <td className="px-4 py-3">
                       <Badge tone={activityActionTone(e.action)}>{activityActionLabel(e.action)}</Badge>
                     </td>

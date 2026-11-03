@@ -30,7 +30,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { archiveAgent, createAgent, deleteAgent, getAgent, listAgents } from "@/lib/api-client";
 import { listOrgCalls } from "@/lib/api/calls";
 import { listPhoneNumbers } from "@/lib/api/phone-numbers";
-import { formatDuration, greetingFirstName, nameFromEmail, nextDuplicateAgentName, truncateLabel } from "@/lib/format";
+import { displayUserName, formatDuration, nameFromEmail, nextDuplicateAgentName, truncateLabel } from "@/lib/format";
 import { agentPurposeFromApi } from "@/lib/agent-mapper";
 import { AGENT_NAME_MAX_LENGTH } from "@/lib/wizard-data";
 import { useAuth } from "@/components/AuthProvider";
