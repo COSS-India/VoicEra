@@ -6,6 +6,7 @@ import inspect
 
 from apps.providers.adapters.bhashini.catalog import ORPHEUS_SAMPLE_RATE
 from apps.providers.adapters.bhashini.orpheus_tts import BhashiniOrpheusTTSService
+from apps.providers.local._openai_speech import ModelServerSpeechTTSService
 from apps.providers.local.indic_orpheus.catalog import SAMPLE_RATE
 from apps.providers.local.indic_orpheus.tts import IndicOrpheusTTSService
 
@@ -20,14 +21,15 @@ def test_indic_orpheus_forces_24k_init_even_if_pipeline_requests_16k() -> None:
 
 
 def test_indic_orpheus_run_tts_yields_native_rate_constant() -> None:
-    src = inspect.getsource(IndicOrpheusTTSService.run_tts)
-    assert "SAMPLE_RATE" in src
-    assert "self.sample_rate" not in src.split("TTSAudioRawFrame")[1].split(")")[0]
+    src = inspect.getsource(ModelServerSpeechTTSService.run_tts)
+    assert "NATIVE_SAMPLE_RATE" in src
+    frame_section = src.split("TTSAudioRawFrame")[1].split(")")[0]
+    assert "self.sample_rate" not in frame_section
 
 
 def test_indic_orpheus_start_pins_rate() -> None:
-    src = inspect.getsource(IndicOrpheusTTSService.start)
-    assert "self._sample_rate = SAMPLE_RATE" in src
+    src = inspect.getsource(ModelServerSpeechTTSService.start)
+    assert "self._sample_rate = self.NATIVE_SAMPLE_RATE" in src
 
 
 def test_bhashini_orpheus_forces_24k_init() -> None:
