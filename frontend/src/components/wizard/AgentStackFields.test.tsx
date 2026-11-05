@@ -1,4 +1,4 @@
-import { render, waitFor, within } from "@testing-library/react";
+import { act, render, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AgentStackFields, type StackFieldsValue } from "@/components/wizard/AgentStackFields";
@@ -111,7 +111,7 @@ describe("AgentStackFields TTS model sync", () => {
       ttsModel: "bulbul:v3",
     });
     await waitFor(() => expect(form.current.ttsModel).toBe("orpheus"));
-    expect(modelButton()).not.toHaveTextContent("Select…");
+    expect(modelButton()).toHaveTextContent("orpheus");
   });
 
   it("falls back to the first model when the catalog has no default", async () => {
@@ -126,14 +126,14 @@ describe("AgentStackFields TTS model sync", () => {
       ),
       { ttsModel: "eleven_multilingual_v2" },
     );
-    await new Promise((r) => setTimeout(r, 20));
+    await act(async () => {});
     expect(form.current.ttsModel).toBe("eleven_multilingual_v2");
     expect(modelButton()).toHaveTextContent("eleven_multilingual_v2");
   });
 
   it("leaves the model alone while settings are still loading", async () => {
     const form = renderStack(catalogsWith(null), { ttsModel: "bulbul:v3" });
-    await new Promise((r) => setTimeout(r, 20));
+    await act(async () => {});
     expect(form.current.ttsModel).toBe("bulbul:v3");
     expect(modelButton()).toBeNull();
   });

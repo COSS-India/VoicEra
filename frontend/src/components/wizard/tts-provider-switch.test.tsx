@@ -127,7 +127,6 @@ describe("TTS provider switch (useWizardCatalogs + AgentStackFields)", () => {
     await release("bhashini");
     await waitFor(() => expect(screen.getByTestId("tts-model")).toHaveTextContent("orpheus"));
     expect(modelButton()).toHaveTextContent("orpheus");
-    expect(modelButton()).not.toHaveTextContent("Select…");
   });
 
   it("selects Bhashini's default model for Hindi", async () => {
