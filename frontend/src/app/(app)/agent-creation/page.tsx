@@ -136,17 +136,6 @@ export default function AgentCreationPage() {
     }
   }, [catalogs.sttSettings, form.sttModel]);
 
-  useEffect(() => {
-    if (catalogs.ttsSettings) {
-      const model = defaultModelFromSettings(catalogs.ttsSettings);
-      const models = modelOptionsFromSettings(catalogs.ttsSettings);
-      if (model && !form.ttsModel) onChange("ttsModel", model);
-      else if (form.ttsModel && !models.some((m) => m.value === form.ttsModel) && models[0]) {
-        onChange("ttsModel", models[0].value);
-      }
-    }
-  }, [catalogs.ttsSettings, form.ttsModel]);
-
   const jumpTo = (id: string) => {
     const idx = STEPS.findIndex((s) => s.id === id);
     if (idx >= 0) setStep(idx);
