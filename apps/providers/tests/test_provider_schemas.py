@@ -294,12 +294,14 @@ def test_bhashini_orpheus_tts_dispatches():
     assert svc._style == DEFAULT_ORPHEUS_STYLE
 
 
-def test_bhashini_orpheus_tts_requires_auth():
+def test_bhashini_tts_auth_defaults_empty_like_parler():
+    # Provider-level save only requires the STT/TTS auth intersection (none for
+    # bhashini), so Parler-only orgs must still build a config; a missing
+    # backend credential surfaces as a vendor error at call time instead.
     from apps.providers.adapters.bhashini.config import BhashiniTTSConfig
-    import pydantic
 
-    with pytest.raises(pydantic.ValidationError):
-        BhashiniTTSConfig(model="orpheus", language="hi")
+    cfg = BhashiniTTSConfig(model="orpheus", language="hi")
+    assert (cfg.orpheus_auth_token, cfg.orpheus_function_id) == ("", "")
 
 
 def test_bhashini_tts_speakers_are_per_language():

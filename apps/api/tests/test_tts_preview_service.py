@@ -211,6 +211,52 @@ def test_resolve_config_builds_typed_config_from_blob_and_auth():
     assert cfg.voice == "shubh"
 
 
+def test_resolve_config_accepts_bhashini_parler_only_credentials():
+    # The save endpoint accepts Parler creds without the Orpheus ones; the
+    # ticket's exact selection must not fail as an invalid configuration.
+    blob = validate_request(
+        {"provider": "bhashini", "model": "bhashini-indic-parler", "voice": "Rohit"}, "hi", "hello"
+    )
+    auth = {"api_key": "k", "auth_token": "parler-token", "function_id": "parler-fn"}
+    with (
+        patch(f"{_SVC}.auth_service.list_configured_providers", return_value=["bhashini"]),
+        patch(f"{_SVC}.auth_service.get_provider_auth", return_value={"auth": auth}),
+    ):
+        cfg = _run(resolve_config("org-1", blob))
+
+    assert cfg.auth_token == "parler-token"
+    assert cfg.voice == "Rohit"
+
+
+def test_resolve_config_accepts_local_provider_served_by_model_server():
+    # Local providers store no creds, so they never appear in ProviderAuth.
+    from apps.providers.availability import register_local
+    from apps.providers.local.indic_orpheus.catalog import GATEWAY_MODEL_ID
+
+    register_local("indic_orpheus", GATEWAY_MODEL_ID)
+    blob = validate_request({"provider": "indic_orpheus"}, "hi", "hello")
+    with (
+        patch(f"{_SVC}.auth_service.list_configured_providers", return_value=[]),
+        patch(f"{_SVC}.auth_service.get_provider_auth", return_value=None),
+        patch("apps.providers.availability._deployed_ids", return_value=frozenset({GATEWAY_MODEL_ID})),
+    ):
+        cfg = _run(resolve_config("org-1", blob))
+
+    assert cfg.provider == "indic_orpheus"
+
+
+def test_resolve_config_incomplete_stored_credentials_is_not_configured():
+    # Missing api_key in storage is a credentials problem, not the voice settings.
+    with (
+        patch(f"{_SVC}.auth_service.list_configured_providers", return_value=["sarvam"]),
+        patch(f"{_SVC}.auth_service.get_provider_auth", return_value={"auth": {}}),
+    ):
+        with pytest.raises(TtsPreviewError) as exc_info:
+            _run(resolve_config("org-1", _SARVAM))
+
+    assert exc_info.value.reason == TtsPreviewErrorReason.NOT_CONFIGURED
+
+
 # --- generate_preview ---
 
 

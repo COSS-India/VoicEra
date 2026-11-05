@@ -178,6 +178,7 @@ export function useWizardCatalogs(
       return;
     }
     let cancelled = false;
+    setTtsSettings(null); // old provider's models/voices must not linger while the new ones load
     getTtsSettings(ttsProvider, langIds)
       .then((s) => {
         if (!cancelled) setTtsSettings(s);

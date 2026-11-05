@@ -108,6 +108,7 @@ class BhashiniTTSAuth(BaseModel):
         json_schema_extra={"secret": True},
     )
     orpheus_auth_token: str = Field(
+        default="",
         description=(
             "NVCF Bearer token for Orpheus Indic TTS HTTP "
             "(BHASHINI_ORPHEUS_TTS_AUTH_TOKEN)."
@@ -115,6 +116,7 @@ class BhashiniTTSAuth(BaseModel):
         json_schema_extra={"secret": True},
     )
     orpheus_function_id: str = Field(
+        default="",
         description=(
             "NVCF function id for Orpheus Indic TTS HTTP "
             "(BHASHINI_ORPHEUS_TTS_FUNCTION_ID)."
