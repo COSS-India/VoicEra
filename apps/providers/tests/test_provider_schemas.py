@@ -501,6 +501,12 @@ def test_kenpath_llm_catalog_language_fields():
         assert field["examples"] == list(ALL_KENPATH_LANGUAGES)
         assert field["default"] == "mr"
 
+    send_greeting = fields["send_greeting_to_llm"]
+    assert send_greeting["default"] is False
+    assert send_greeting["type"] == "boolean"
+    assert send_greeting["input_mode"] == "options"
+    assert send_greeting["examples"] == [False, True]
+
 
 def test_configuration_defaults_envelope():
     defaults = configuration_defaults()

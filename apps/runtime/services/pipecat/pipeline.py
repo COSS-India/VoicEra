@@ -40,6 +40,9 @@ async def run_pipeline(
             if hasattr(member, "set_call_id"):
                 member.set_call_id(call_id)
     system_prompt, greeting = prompts(agent, custom_variables=custom_variables)
+    for member in llm.services:
+        if hasattr(member, "set_spoken_greeting"):
+            member.set_spoken_greeting(greeting)
     behaviour = (agent.get("config") or {}).get("behaviour") or {}
     config = pipeline_config_from_behaviour(behaviour)
     hold_handler = hold_from_behaviour(behaviour, tts)
@@ -89,6 +92,7 @@ async def run_pipeline(
         idle_handler=idle_handler,
         org_id=org_id,
         call_id=call_id,
+        agent=agent,
     )
 
     ctx = SessionContext(

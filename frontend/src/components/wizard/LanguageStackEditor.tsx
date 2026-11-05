@@ -27,14 +27,32 @@ function DropdownControl({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const options = (field.examples ?? []).map((ex) => ({ value: String(ex), label: String(ex) }));
+  const options = (field.examples ?? []).map((ex) => {
+    const value = String(ex);
+    const label =
+      field.type === "boolean"
+        ? ex === true || value === "true"
+          ? "Yes"
+          : "No"
+        : value;
+    return { value, label };
+  });
   const current =
     value !== undefined && value !== null
       ? String(value)
       : field.default !== undefined && field.default !== null
         ? String(field.default)
         : String(field.examples![0]);
-  return <SearchSelect options={options} value={current} onChange={onChange} placeholder="Select…" />;
+  const handleChange = (next: string) => {
+    if (field.type === "boolean") {
+      onChange(next === "true");
+      return;
+    }
+    onChange(next);
+  };
+  return (
+    <SearchSelect options={options} value={current} onChange={handleChange} placeholder="Select…" />
+  );
 }
 
 function SliderControl({

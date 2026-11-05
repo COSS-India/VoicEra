@@ -60,4 +60,5 @@ def create_llm(cfg: KenpathLLMConfig):
         model=cfg.model,
         source_lang=cfg.source_lang,
         target_lang=cfg.target_lang,
+        send_greeting_to_llm=cfg.send_greeting_to_llm,
     )
