@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
+import jwt
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
@@ -20,12 +22,47 @@ from apps.telephony import parse_stream_start
 
 router = APIRouter()
 
+# Same signing secret/algorithm as apps/api/app/auth.py (verify_token). Both
+# services already load it from the shared root .env (see docker-compose.yaml),
+# so this is a local check -- no network call back to the API per connection.
+_JWT_ALGORITHM = "HS256"
+
+
+def _websocket_token_authorized(token: str | None, org_id: str) -> bool:
+    """Verify a ?token= query param for the *websocket-category* branch only.
+
+    Deliberately NOT applied to the telephony branch below: telephony
+    providers connect to this same route and cannot be made to send a
+    bearer token, and the official security-hardening guide (docs/guides/
+    deployment/security-hardening.md) already covers that path with
+    proxy-level mitigations (rate limiting, IP allowlisting). This only
+    closes the gap for direct websocket clients (browser test calls,
+    external eval/testing agents).
+
+    Accepts any token minted by POST /api/v1/users/bot/token (bot JWT,
+    org-scoped) or a logged-in user's access token, provided its org_id
+    claim matches the org_id in the URL.
+    """
+    secret = os.getenv("SECRET_KEY")
+    if not secret:
+        logger.error("SECRET_KEY not configured -- rejecting websocket agent auth")
+        return False
+    if not token:
+        return False
+    try:
+        payload = jwt.decode(token, secret, algorithms=[_JWT_ALGORITHM])
+    except jwt.PyJWTError as exc:
+        logger.warning("Agent WebSocket token rejected: {}", exc)
+        return False
+    return str(payload.get("org_id") or "") == org_id
+
 
 @router.websocket("/agent/{org_id}/{agent_id}")
 async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> None:
     """Accept telephony or browser media stream and run the Pipecat pipeline."""
     await websocket.accept()
     call_id = (websocket.query_params.get("call_id") or "").strip() or None
+    token = websocket.query_params.get("token")
     logger.info(
         "WebSocket accepted org_id={} agent_id={} call_id={}",
         org_id,
@@ -47,6 +84,16 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
         )
 
         if category == "websocket":
+            if not _websocket_token_authorized(token, org_id):
+                logger.warning(
+                    "Rejecting websocket agent session -- missing/invalid token "
+                    "org_id={} agent_id={}",
+                    org_id,
+                    agent_id,
+                )
+                await websocket.close(code=1008, reason="Missing or invalid token")
+                return
+
             call_log: dict[str, Any] | None = None
             if call_id:
                 try:
