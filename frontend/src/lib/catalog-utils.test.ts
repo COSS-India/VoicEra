@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderSettingsCatalog } from "@/lib/catalog-types";
-import { defaultModelId } from "@/lib/catalog-utils";
+import { acceptsCustomValue, defaultModelId } from "@/lib/catalog-utils";
 
 function settings(models: string[] | undefined, defaultModel?: string): ProviderSettingsCatalog {
   return {
@@ -31,5 +31,22 @@ describe("defaultModelId", () => {
 
   it("returns empty when there's no model field", () => {
     expect(defaultModelId(null)).toBe("");
+  });
+});
+
+describe("acceptsCustomValue", () => {
+  it.each([
+    [{ input_type: "dropdown" as const }, false],
+    [{ input_type: "input" as const }, true],
+    [{ input_type: "both" as const, allow_custom_input: true }, true],
+    [{ input_type: "both" as const }, false],
+    [{ input_mode: "options" }, false],
+    [{ input_mode: "both" }, true],
+  ])("%o -> %s", (field, expected) => {
+    expect(acceptsCustomValue(field)).toBe(expected);
+  });
+
+  it("treats an unknown field as accepting anything", () => {
+    expect(acceptsCustomValue(undefined)).toBe(true);
   });
 });

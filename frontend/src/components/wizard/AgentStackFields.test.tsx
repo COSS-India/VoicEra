@@ -1,4 +1,5 @@
-import { act, render, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AgentStackFields, type StackFieldsValue } from "@/components/wizard/AgentStackFields";
@@ -48,6 +49,40 @@ const SARVAM = ttsSettings("sarvam", ["bulbul:v3"], "bulbul:v3", {
   allow_custom_input: true,
 });
 
+/** Bhashini (Hindi): list-only models and voices, and each model has its own voices. */
+const BHASHINI_HI: ProviderSettingsCatalog = {
+  provider: "bhashini",
+  name: "bhashini",
+  fields: {
+    model: {
+      type: "string",
+      default: "bhashini-indic-parler",
+      input_mode: "options",
+      examples: ["bhashini-indic-parler", "orpheus"],
+    },
+    voice: { type: "string", input_mode: "input" },
+  },
+  capabilities: {
+    "bhashini-indic-parler": {
+      languages: { hi: "hi" },
+      settings: { hi: { voice: { default: "Rohit", options: ["Rohit", "Divya"], input_type: "dropdown" } } },
+    },
+    orpheus: {
+      languages: { hi: "hi" },
+      settings: { hi: { voice: { default: "Kavya", options: ["Kavya", "Amit"], input_type: "dropdown" } } },
+    },
+  },
+};
+
+/** A provider with two models whose voices accept custom ids. */
+const CUSTOM_VOICES = ttsSettings("acme", ["v1", "v2"], "v1", {
+  type: "string",
+  default: "stock",
+  examples: ["stock"],
+  input_type: "both",
+  allow_custom_input: true,
+});
+
 function catalogsWith(tts: ProviderSettingsCatalog | null): WizardCatalogs {
   return {
     languages: { en: "English" },
@@ -62,6 +97,7 @@ function catalogsWith(tts: ProviderSettingsCatalog | null): WizardCatalogs {
     llmSettings: null,
     loading: false,
     error: "",
+    langsChanged: false,
   };
 }
 
@@ -101,12 +137,18 @@ function renderStack(catalogs: WizardCatalogs, initial: Partial<StackFieldsValue
   return latest;
 }
 
-/** The trigger button of the TTS "Model" select, or null when it isn't rendered. */
-function modelButton() {
+/** The trigger button of the labelled field ("Model", "Voice"), or null when it isn't rendered. */
+function fieldButton(name: string) {
   const label = [...document.querySelectorAll("label")].find(
-    (l) => l.firstChild?.nodeType === Node.TEXT_NODE && l.firstChild.textContent?.trim() === "Model",
+    (l) => l.firstChild?.nodeType === Node.TEXT_NODE && l.firstChild.textContent?.trim() === name,
   );
   return label ? within(label).getByRole("button") : null;
+}
+const modelButton = () => fieldButton("Model");
+
+async function chooseModel(model: string) {
+  await userEvent.click(modelButton()!);
+  await userEvent.click(await screen.findByRole("option", { name: model }));
 }
 
 describe("AgentStackFields TTS model fill", () => {
@@ -179,5 +221,25 @@ describe("AgentStackFields TTS voice fill", () => {
     const form = renderStack(catalogsWith(SARVAM), { ttsModel: "bulbul:v2" });
     await act(async () => {});
     expect(form.current.voice).toBe("");
+  });
+});
+
+describe("AgentStackFields TTS model change", () => {
+  it("replaces a list-only voice the new model doesn't offer", async () => {
+    const form = renderStack(catalogsWith(BHASHINI_HI), {
+      langs: ["hi"],
+      ttsModel: "bhashini-indic-parler",
+      voice: "Rohit",
+    });
+    await chooseModel("orpheus");
+    await waitFor(() => expect(form.current.voice).toBe("Kavya"));
+    expect(form.current.ttsModel).toBe("orpheus");
+  });
+
+  it("keeps a custom voice when the voice field accepts custom ids", async () => {
+    const form = renderStack(catalogsWith(CUSTOM_VOICES), { ttsModel: "v1", voice: "my-cloned-voice" });
+    await chooseModel("v2");
+    await act(async () => {});
+    expect(form.current.voice).toBe("my-cloned-voice");
   });
 });

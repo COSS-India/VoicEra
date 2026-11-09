@@ -44,18 +44,40 @@ const SARVAM: ProviderSettingsCatalog = {
   provider: "sarvam",
   name: "Sarvam",
   fields: {
-    model: { type: "string", default: "bulbul:v3", examples: ["bulbul:v3"] },
-    voice: { type: "string", default: "shubh", examples: ["anushka", "shubh"], allow_custom_input: true },
+    model: { type: "string", default: "bulbul:v3", input_mode: "both", examples: ["bulbul:v3"] },
+    voice: {
+      type: "string",
+      default: "shubh",
+      examples: ["anushka", "shubh"],
+      input_type: "both",
+      allow_custom_input: true,
+    },
   },
 };
 
-/** Mirrors the backend: English trims Bhashini to orpheus but keeps default=parler. */
-function bhashini(lang: string): ProviderSettingsCatalog {
-  const examples = lang === "en" ? ["orpheus"] : ["bhashini-indic-parler", "orpheus"];
+/** Mirrors the backend: any English trims Bhashini to orpheus but keeps
+ * default=parler. Models and voices are list-only; each model has its own voices. */
+function bhashini(langs: string[]): ProviderSettingsCatalog {
+  const en = langs.includes("en");
+  const voice = (options: string[]) => ({ default: options[0], options, input_type: "dropdown" as const });
+  const orpheus = {
+    languages: { hi: "hi", en: "en" },
+    settings: { hi: { voice: voice(["Kavya", "Amit"]) }, en: { voice: voice(["Kavya", "Amit"]) } },
+  };
+  const parler = { languages: { hi: "hi" }, settings: { hi: { voice: voice(["Rohit", "Divya"]) } } };
   return {
     provider: "bhashini",
     name: "Bhashini",
-    fields: { model: { type: "string", default: "bhashini-indic-parler", examples } },
+    fields: {
+      model: {
+        type: "string",
+        default: "bhashini-indic-parler",
+        input_mode: "options",
+        examples: en ? ["orpheus"] : ["bhashini-indic-parler", "orpheus"],
+      },
+      voice: { type: "string", input_mode: "input" },
+    },
+    capabilities: en ? { orpheus } : { "bhashini-indic-parler": parler, orpheus },
   };
 }
 
@@ -63,10 +85,11 @@ function bhashini(lang: string): ProviderSettingsCatalog {
 const pending: { provider: string; langs: string[]; resolve: (s: ProviderSettingsCatalog) => void }[] = [];
 
 async function release(provider: string) {
-  const i = pending.findIndex((p) => p.provider === provider);
+  // The latest request wins; earlier ones were superseded (and cancelled) by later changes.
+  const i = pending.findLastIndex((p) => p.provider === provider);
   if (i < 0) throw new Error(`no pending settings request for ${provider}`);
   const [req] = pending.splice(i, 1);
-  await act(async () => req!.resolve(provider === "sarvam" ? SARVAM : bhashini(req!.langs[0]!)));
+  await act(async () => req!.resolve(provider === "sarvam" ? SARVAM : bhashini(req!.langs)));
 }
 
 function Page({ langs, saved = {} }: { langs: string[]; saved?: Partial<StackFieldsValue> }) {
@@ -89,7 +112,10 @@ function Page({ langs, saved = {} }: { langs: string[]; saved?: Partial<StackFie
     setForm((f) => ({ ...f, [key]: value }));
   return (
     <>
-      <AgentStackFields value={form} onChange={onChange} catalogs={catalogs} sections={["tts"]} />
+      {/* Both pages unmount the stack while catalogs reload (e.g. after a language change). */}
+      {catalogs.loading ? null : (
+        <AgentStackFields value={form} onChange={onChange} catalogs={catalogs} sections={["languages", "tts"]} />
+      )}
       <output data-testid="tts-model">{form.ttsModel}</output>
       <output data-testid="tts-voice">{form.voice}</output>
     </>
@@ -118,6 +144,25 @@ async function startOnSarvam(langs: string[]) {
   await release("sarvam");
   await waitFor(() => expect(modelButton()).toHaveTextContent("bulbul:v3"));
 }
+
+async function startOn(provider: string, langs: string[], saved: Partial<StackFieldsValue> = {}) {
+  render(<Page langs={langs} saved={{ ttsProvider: provider, ...saved }} />);
+  await waitFor(() => expect(pending.some((p) => p.provider === provider)).toBe(true));
+  await release(provider);
+  await waitFor(() => expect(modelButton()).not.toBeNull());
+}
+
+/** Makes `to` the only language through the real picker: add it, then remove `from`. */
+async function changeLanguage(from: string, to: string) {
+  const search = screen.getByPlaceholderText("Search languages to add…");
+  await waitFor(() => expect(search).toBeEnabled());
+  await userEvent.click(search);
+  await userEvent.click(await screen.findByRole("button", { name: new RegExp(`^${to}`) }));
+  await waitFor(() => expect(screen.getByLabelText(`Remove ${from}`)).toBeEnabled());
+  await userEvent.click(screen.getByLabelText(`Remove ${from}`));
+}
+
+const formValue = (field: "tts-model" | "tts-voice") => screen.getByTestId(field).textContent;
 
 describe("TTS provider switch (useWizardCatalogs + AgentStackFields)", () => {
   beforeEach(() => {
@@ -173,4 +218,34 @@ describe("TTS provider switch (useWizardCatalogs + AgentStackFields)", () => {
     expect(screen.getByTestId("tts-model")).toHaveTextContent("bulbul:v2");
     expect(screen.getByTestId("tts-voice")).toHaveTextContent("my-cloned-voice");
   });
+
+  it("replaces a model the new language doesn't offer (list-only)", async () => {
+    await startOn("bhashini", ["hi"]);
+    await waitFor(() => expect(formValue("tts-voice")).toBe("Rohit"));
+    expect(formValue("tts-model")).toBe("bhashini-indic-parler");
+    await changeLanguage("Hindi", "English");
+    await release("bhashini");
+    await waitFor(() => expect(formValue("tts-model")).toBe("orpheus"));
+    await waitFor(() => expect(formValue("tts-voice")).toBe("Kavya"));
+  });
+
+  it("keeps a model the new language still offers", async () => {
+    await startOn("bhashini", ["en"]);
+    await waitFor(() => expect(formValue("tts-voice")).toBe("Kavya"));
+    await changeLanguage("English", "Hindi");
+    await release("bhashini");
+    await act(async () => {});
+    expect(formValue("tts-model")).toBe("orpheus");
+    expect(formValue("tts-voice")).toBe("Kavya");
+  });
+
+  it("keeps a custom model and voice across a language change", async () => {
+    await startOn("sarvam", ["hi"], { ttsModel: "bulbul:v2", voice: "my-cloned-voice" });
+    await changeLanguage("Hindi", "English");
+    await release("sarvam");
+    await act(async () => {});
+    expect(formValue("tts-model")).toBe("bulbul:v2");
+    expect(formValue("tts-voice")).toBe("my-cloned-voice");
+  });
 });
+
