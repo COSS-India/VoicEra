@@ -39,6 +39,10 @@ export interface WizardCatalogs {
   llmSettings: ProviderSettingsCatalog | null;
   loading: boolean;
   error: string;
+  /** Whether the languages differ from the ones this form started with — i.e.
+   * the user changed them. Lives here (in the page) rather than in the stack
+   * fields, which unmount while catalogs reload after a language change. */
+  langsChanged: boolean;
 }
 
 /** Keep only providers the org can actually use (`authenticated: true`). */
@@ -66,6 +70,8 @@ export function useWizardCatalogs(
   const [error, setError] = useState("");
 
   const langKey = langIds.join(",");
+  const [initialLangKey] = useState(langKey);
+  const langsChanged = langKey !== initialLangKey;
 
   // Re-fetched every time the selected language(s) change — hitting the STT/TTS
   // list endpoints with the current language filter keeps the pickers scoped to
@@ -224,6 +230,7 @@ export function useWizardCatalogs(
       llmSettings,
       loading,
       error,
+      langsChanged,
     }),
     [
       languages,
@@ -238,6 +245,7 @@ export function useWizardCatalogs(
       llmSettings,
       loading,
       error,
+      langsChanged,
     ],
   );
 }

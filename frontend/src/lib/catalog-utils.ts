@@ -13,6 +13,16 @@ export function modelIds(settings: ProviderSettingsCatalog | null | undefined): 
   return Array.isArray(examples) ? examples.map((m) => String(m)) : [];
 }
 
+/** Whether a field accepts values outside its listed options (custom voice ids,
+ * unlisted models). Same input_type / input_mode reading as the field renderer. */
+export function acceptsCustomValue(field: CatalogField | undefined): boolean {
+  if (!field) return true; // unknown: never treat a value as invalid
+  if (field.input_type) {
+    return field.input_type === "input" || (field.input_type === "both" && field.allow_custom_input === true);
+  }
+  return field.input_mode !== "options";
+}
+
 /** The catalog's default model id — `fields.model.default` when it's offered,
  * else the first option. The server trims the options by language but keeps the
  * default, so the default can be one this language doesn't offer. */

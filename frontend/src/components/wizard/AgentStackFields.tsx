@@ -9,7 +9,7 @@ import { InfoTip } from "@/components/ui/Tooltip";
 import { LanguageSearchSelect } from "@/components/wizard/LanguageSearchSelect";
 import { VoiceSelect } from "@/components/wizard/VoicePreview";
 import type { CatalogField } from "@/lib/catalog-types";
-import { humanizeFieldKey, resolvedModelFields } from "@/lib/catalog-utils";
+import { acceptsCustomValue, humanizeFieldKey, resolvedModelFields } from "@/lib/catalog-utils";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
 import {
   defaultModelFromSettings,
@@ -258,6 +258,25 @@ export function AgentStackFields({
   const voices = voiceOptionsFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
   const voiceField = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, primaryLang);
   const voiceIsFreeText = voiceFieldIsFreeText(catalogs.ttsSettings, value.ttsModel, primaryLang);
+  // Once the user has changed the languages, a model or voice the current
+  // languages don't offer is cleared (so the fills pick new defaults) — but only
+  // for list-only fields; custom values are kept. A saved agent opened as-is is
+  // never touched. Re-runs when the new languages' catalog arrives.
+  useEffect(() => {
+    if (!catalogs.langsChanged || !ttsCatalogReady) return;
+    const modelOffered = ttsModels.some((m) => m.value === value.ttsModel);
+    if (value.ttsModel && !modelOffered && !acceptsCustomValue(catalogs.ttsSettings?.fields.model)) {
+      onChange("ttsModel", "");
+      onChange("voice", "");
+    } else if (
+      value.voice &&
+      voices.length > 0 &&
+      !voices.some((v) => v.id === value.voice) &&
+      !acceptsCustomValue(voiceField)
+    ) {
+      onChange("voice", "");
+    }
+  }, [catalogs.langsChanged, catalogs.ttsSettings, ttsCatalogReady, ttsModels, voices, voiceField, value.ttsModel, value.voice, onChange]);
   // Each provider's chosen model's own extra fields — rendered as a second
   // tier of controls once a model is picked. TTS excludes "voice" since that
   // gets its own dedicated picker/input above instead of the generic renderer.
@@ -483,7 +502,21 @@ export function AgentStackFields({
               Model
               <Select
                 value={value.ttsModel}
-                onChange={(e) => onChange("ttsModel", e.target.value)}
+                onChange={(e) => {
+                  const model = e.target.value;
+                  onChange("ttsModel", model);
+                  // A list-only voice the new model doesn't offer is cleared so its default fills in.
+                  const nextVoices = voiceOptionsFromSettings(catalogs.ttsSettings, model, primaryLang);
+                  const nextField = voiceFieldFromSettings(catalogs.ttsSettings, model, primaryLang);
+                  if (
+                    value.voice &&
+                    nextVoices.length > 0 &&
+                    !nextVoices.some((v) => v.id === value.voice) &&
+                    !acceptsCustomValue(nextField)
+                  ) {
+                    onChange("voice", "");
+                  }
+                }}
                 disabled={!value.ttsProvider}
               >
                 <option value="">Select model…</option>
