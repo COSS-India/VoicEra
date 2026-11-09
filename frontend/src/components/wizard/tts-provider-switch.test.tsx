@@ -43,7 +43,10 @@ vi.mock("@/lib/api-client", () => ({
 const SARVAM: ProviderSettingsCatalog = {
   provider: "sarvam",
   name: "Sarvam",
-  fields: { model: { type: "string", default: "bulbul:v3", examples: ["bulbul:v3"] } },
+  fields: {
+    model: { type: "string", default: "bulbul:v3", examples: ["bulbul:v3"] },
+    voice: { type: "string", default: "shubh", examples: ["anushka", "shubh"], allow_custom_input: true },
+  },
 };
 
 /** Mirrors the backend: English trims Bhashini to orpheus but keeps default=parler. */
@@ -66,7 +69,7 @@ async function release(provider: string) {
   await act(async () => req!.resolve(provider === "sarvam" ? SARVAM : bhashini(req!.langs[0]!)));
 }
 
-function Page({ langs }: { langs: string[] }) {
+function Page({ langs, saved = {} }: { langs: string[]; saved?: Partial<StackFieldsValue> }) {
   const [form, setForm] = useState<StackFieldsValue>({
     langs,
     sttProvider: "",
@@ -79,6 +82,7 @@ function Page({ langs }: { langs: string[] }) {
     llmModel: "",
     llmExtra: {},
     voice: "",
+    ...saved,
   });
   const catalogs = useWizardCatalogs(form.langs, form.sttProvider, form.ttsProvider, form.llmProvider);
   const onChange = <K extends keyof StackFieldsValue>(key: K, value: StackFieldsValue[K]) =>
@@ -86,12 +90,19 @@ function Page({ langs }: { langs: string[] }) {
   return (
     <>
       <AgentStackFields value={form} onChange={onChange} catalogs={catalogs} sections={["tts"]} />
-      <button type="button" onClick={() => onChange("ttsProvider", "bhashini")}>
-        switch-to-bhashini
-      </button>
       <output data-testid="tts-model">{form.ttsModel}</output>
+      <output data-testid="tts-voice">{form.voice}</output>
     </>
   );
+}
+
+/** Picks a provider through the real Provider dropdown, as a user does. */
+async function chooseProvider(name: string) {
+  const label = [...document.querySelectorAll("label")].find(
+    (l) => l.firstChild?.nodeType === Node.TEXT_NODE && l.firstChild.textContent?.trim() === "Provider",
+  )!;
+  await userEvent.click(within(label).getByRole("button"));
+  await userEvent.click(await screen.findByRole("option", { name: new RegExp(name) }));
 }
 
 function modelButton() {
@@ -123,7 +134,7 @@ describe("TTS provider switch (useWizardCatalogs + AgentStackFields)", () => {
 
   it("selects Bhashini's first listed model for English (default not offered)", async () => {
     await startOnSarvam(["en"]);
-    await userEvent.click(screen.getByText("switch-to-bhashini"));
+    await chooseProvider("Bhashini");
     await release("bhashini");
     await waitFor(() => expect(screen.getByTestId("tts-model")).toHaveTextContent("orpheus"));
     expect(modelButton()).toHaveTextContent("orpheus");
@@ -131,7 +142,7 @@ describe("TTS provider switch (useWizardCatalogs + AgentStackFields)", () => {
 
   it("selects Bhashini's default model for Hindi", async () => {
     await startOnSarvam(["hi"]);
-    await userEvent.click(screen.getByText("switch-to-bhashini"));
+    await chooseProvider("Bhashini");
     await release("bhashini");
     await waitFor(() => expect(screen.getByTestId("tts-model")).toHaveTextContent("bhashini-indic-parler"));
     expect(modelButton()).toHaveTextContent("bhashini-indic-parler");
@@ -139,11 +150,27 @@ describe("TTS provider switch (useWizardCatalogs + AgentStackFields)", () => {
 
   it("never shows the old provider's model list while the new settings load", async () => {
     await startOnSarvam(["en"]);
-    await userEvent.click(screen.getByText("switch-to-bhashini"));
+    await chooseProvider("Bhashini");
     // Bhashini's settings are still in flight: Sarvam's model must not be offered.
     await waitFor(() => expect(modelButton()).toBeNull());
     expect(screen.queryByText("bulbul:v3", { selector: "button *" })).toBeNull();
     await release("bhashini");
     await waitFor(() => expect(modelButton()).toHaveTextContent("orpheus"));
+  });
+
+  it("drops the old provider's voice on a switch", async () => {
+    await startOnSarvam(["hi"]);
+    await waitFor(() => expect(screen.getByTestId("tts-voice")).toHaveTextContent("shubh"));
+    await chooseProvider("Bhashini");
+    expect(screen.getByTestId("tts-voice")).toBeEmptyDOMElement();
+  });
+
+  it("never rewrites a saved model or custom voice on load (edit page)", async () => {
+    render(<Page langs={["hi"]} saved={{ ttsModel: "bulbul:v2", voice: "my-cloned-voice" }} />);
+    await waitFor(() => expect(pending.some((p) => p.provider === "sarvam")).toBe(true));
+    await release("sarvam");
+    await waitFor(() => expect(modelButton()).not.toBeNull());
+    expect(screen.getByTestId("tts-model")).toHaveTextContent("bulbul:v2");
+    expect(screen.getByTestId("tts-voice")).toHaveTextContent("my-cloned-voice");
   });
 });

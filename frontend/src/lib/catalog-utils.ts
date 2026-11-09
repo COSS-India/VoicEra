@@ -13,12 +13,16 @@ export function modelIds(settings: ProviderSettingsCatalog | null | undefined): 
   return Array.isArray(examples) ? examples.map((m) => String(m)) : [];
 }
 
-/** The catalog's default model id — `fields.model.default`, falling back to the first option. */
+/** The catalog's default model id — `fields.model.default` when it's offered,
+ * else the first option. The server trims the options by language but keeps the
+ * default, so the default can be one this language doesn't offer. */
 export function defaultModelId(settings: ProviderSettingsCatalog | null | undefined): string {
   const modelField = settings?.fields?.model;
   if (!modelField) return "";
-  if (modelField.default !== undefined && modelField.default !== null) return String(modelField.default);
-  return modelIds(settings)[0] ?? "";
+  const ids = modelIds(settings);
+  const fallback = modelField.default !== undefined && modelField.default !== null ? String(modelField.default) : "";
+  if (fallback && (ids.length === 0 || ids.includes(fallback))) return fallback;
+  return ids[0] ?? fallback;
 }
 
 /** `capabilities[modelId].settings`, keyed by canonical language id — this
