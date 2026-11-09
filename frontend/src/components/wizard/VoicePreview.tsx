@@ -239,6 +239,10 @@ export function VoiceSelect({ value, catalogs, voices, onChange, welcome }: Voic
             {v.name}
           </option>
         ))}
+        {/* A saved voice outside the list (e.g. a custom/cloned voice) still shows as selected. */}
+        {value.voice && !voices.some((v) => v.id === value.voice) ? (
+          <option value={value.voice}>{value.voice} (custom)</option>
+        ) : null}
       </Select>
       <VoiceStatus blocked={blocked} error={preview.status === "error" ? preview.error : null} />
     </>

@@ -211,10 +211,11 @@ describe("AgentStackFields TTS voice fill", () => {
     await waitFor(() => expect(form.current.voice).toBe("shubh"));
   });
 
-  it("keeps a saved custom voice", async () => {
+  it("keeps a saved custom voice and shows it as selected", async () => {
     const form = renderStack(catalogsWith(SARVAM), { ttsModel: "bulbul:v3", voice: "my-cloned-voice" });
     await act(async () => {});
     expect(form.current.voice).toBe("my-cloned-voice");
+    expect(fieldButton("Voice")).toHaveTextContent("my-cloned-voice (custom)");
   });
 
   it("doesn't fill a voice for a model the catalog doesn't list", async () => {
