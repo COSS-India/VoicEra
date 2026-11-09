@@ -243,15 +243,15 @@ export function AgentStackFields({
   const llmModels = modelOptionsFromSettings(catalogs.llmSettings);
   const sttModels = modelOptionsFromSettings(catalogs.sttSettings);
   const ttsModels = modelOptionsFromSettings(catalogs.ttsSettings);
-  // Never leave Model unset or on another provider's model: keep a listed model,
-  // else the provider's default (when listed), else the first. Shared by the
-  // create and edit pages.
+  // Fill an empty Model with the provider's default. Only ever fills: a saved
+  // model (edit page) is never replaced, even if it isn't in the list. Waits for
+  // the selected provider's own catalog, not the previous provider's.
   const ttsDefaultModel = defaultModelFromSettings(catalogs.ttsSettings);
+  const ttsCatalogReady = catalogs.ttsSettings?.provider === value.ttsProvider;
   useEffect(() => {
-    if (ttsModels.length === 0 || ttsModels.some((m) => m.value === value.ttsModel)) return;
-    const listed = ttsModels.some((m) => m.value === ttsDefaultModel);
-    onChange("ttsModel", listed ? ttsDefaultModel : ttsModels[0]!.value);
-  }, [ttsModels, ttsDefaultModel, value.ttsModel, onChange]);
+    if (!ttsCatalogReady || value.ttsModel || !ttsDefaultModel) return;
+    onChange("ttsModel", ttsDefaultModel);
+  }, [ttsCatalogReady, ttsDefaultModel, value.ttsModel, onChange]);
   // Provider settings can vary by (model, language) via `capabilities` — the
   // primary language is what everything below resolves against.
   const primaryLang = value.langs[0];
@@ -459,7 +459,13 @@ export function AgentStackFields({
             <SearchSelect
               options={ttsOpts}
               value={value.ttsProvider}
-              onChange={(v) => onChange("ttsProvider", v)}
+              onChange={(v) => {
+                // A new provider's models and voices differ: drop the old ones so
+                // the new provider's defaults fill in.
+                onChange("ttsProvider", v);
+                onChange("ttsModel", "");
+                onChange("voice", "");
+              }}
               placeholder="Search TTS providers…"
               disabled={ttsOpts.length === 0}
             />

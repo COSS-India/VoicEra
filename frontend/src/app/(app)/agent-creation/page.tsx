@@ -21,7 +21,6 @@ import {
   modelOptionsFromSettings,
   pickFirstProvider,
   useWizardCatalogs,
-  voiceOptionsFromSettings,
 } from "@/lib/use-wizard-catalogs";
 
 const STEPS: SectionNavItem[] = [
@@ -85,7 +84,8 @@ export default function AgentCreationPage() {
         next = { ...next, sttProvider: pickFirstProvider(catalogs.sttProviders) };
       }
       if (!providerStillValid(catalogs.ttsProviders, f.ttsProvider)) {
-        next = { ...next, ttsProvider: pickFirstProvider(catalogs.ttsProviders) };
+        // Its model and voice belonged to the old provider.
+        next = { ...next, ttsProvider: pickFirstProvider(catalogs.ttsProviders), ttsModel: "", voice: "" };
       }
       if (!providerStillValid(catalogs.llmProviders, f.llmProvider)) {
         next = { ...next, llmProvider: pickFirstProvider(catalogs.llmProviders) };
@@ -110,20 +110,6 @@ export default function AgentCreationPage() {
       }
     }
   }, [catalogs.llmSettings, form.llmModel]);
-
-  useEffect(() => {
-    if (catalogs.ttsSettings) {
-      // Voice options are per (model, language) via `capabilities` — omitting
-      // these resolved against the wrong (arbitrary first) language, so a
-      // validly-picked voice for the real language kept getting judged "not
-      // in the list" and silently reset on every render.
-      const voices = voiceOptionsFromSettings(catalogs.ttsSettings, form.ttsModel, form.langs[0]);
-      if (voices.length && !form.voice) onChange("voice", voices[0]!.id);
-      else if (form.voice && !voices.some((v) => v.id === form.voice) && voices[0]) {
-        onChange("voice", voices[0].id);
-      }
-    }
-  }, [catalogs.ttsSettings, form.voice, form.ttsModel, form.langs]);
 
   useEffect(() => {
     if (catalogs.sttSettings) {

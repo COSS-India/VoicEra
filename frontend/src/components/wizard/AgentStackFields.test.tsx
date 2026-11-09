@@ -2,7 +2,7 @@ import { act, render, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AgentStackFields, type StackFieldsValue } from "@/components/wizard/AgentStackFields";
-import type { ProviderSettingsCatalog } from "@/lib/catalog-types";
+import type { CatalogField, ProviderSettingsCatalog } from "@/lib/catalog-types";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
 
 // framer-motion's animations reject with AbortError under happy-dom; render plain sections.
@@ -23,13 +23,30 @@ vi.mock("@/lib/api-client", () => ({
   getPreviewLimits: vi.fn(() => new Promise(() => {})),
 }));
 
-function ttsSettings(provider: string, models: string[], defaultModel?: string): ProviderSettingsCatalog {
+function ttsSettings(
+  provider: string,
+  models: string[],
+  defaultModel?: string,
+  voice?: CatalogField,
+): ProviderSettingsCatalog {
   return {
     provider,
     name: provider,
-    fields: { model: { type: "string", default: defaultModel, examples: models } },
+    fields: {
+      model: { type: "string", default: defaultModel, examples: models },
+      ...(voice ? { voice } : {}),
+    },
   };
 }
+
+/** Sarvam-like: a voice list that also accepts custom voice ids. */
+const SARVAM = ttsSettings("sarvam", ["bulbul:v3"], "bulbul:v3", {
+  type: "string",
+  default: "shubh",
+  examples: ["anushka", "shubh"],
+  input_type: "both",
+  allow_custom_input: true,
+});
 
 function catalogsWith(tts: ProviderSettingsCatalog | null): WizardCatalogs {
   return {
@@ -53,7 +70,7 @@ const BASE: StackFieldsValue = {
   sttProvider: "",
   sttModel: "",
   sttExtra: {},
-  ttsProvider: "bhashini",
+  ttsProvider: "",
   ttsModel: "",
   ttsExtra: {},
   llmProvider: "",
@@ -62,9 +79,12 @@ const BASE: StackFieldsValue = {
   voice: "",
 };
 
-/** Holds the form like the create/edit pages do; `latest` exposes it to assertions. */
+/** Holds the form like the create/edit pages do; `latest` exposes it to assertions.
+ * The form's provider defaults to the catalog's, as it is once that catalog has loaded. */
 function renderStack(catalogs: WizardCatalogs, initial: Partial<StackFieldsValue> = {}) {
-  const latest = { current: { ...BASE, ...initial } };
+  const latest = {
+    current: { ...BASE, ttsProvider: catalogs.ttsSettings?.provider ?? "", ...initial },
+  };
   function Harness() {
     const [value, setValue] = useState<StackFieldsValue>(latest.current);
     latest.current = value;
@@ -89,37 +109,27 @@ function modelButton() {
   return label ? within(label).getByRole("button") : null;
 }
 
-describe("AgentStackFields TTS model sync", () => {
-  it("selects the provider's default model when none is set", async () => {
+describe("AgentStackFields TTS model fill", () => {
+  it("fills an empty model with the provider's default", async () => {
     const form = renderStack(catalogsWith(ttsSettings("openai", ["gpt-4o-mini-tts"], "gpt-4o-mini-tts")));
     await waitFor(() => expect(form.current.ttsModel).toBe("gpt-4o-mini-tts"));
     expect(modelButton()).toHaveTextContent("gpt-4o-mini-tts");
   });
 
-  it("replaces another provider's model with this provider's default", async () => {
-    const form = renderStack(
-      catalogsWith(ttsSettings("bhashini", ["orpheus", "bhashini-indic-parler"], "bhashini-indic-parler")),
-      { ttsModel: "bulbul:v3" },
-    );
-    await waitFor(() => expect(form.current.ttsModel).toBe("bhashini-indic-parler"));
-    expect(modelButton()).toHaveTextContent("bhashini-indic-parler");
-  });
-
-  it("falls back to the first model when the default isn't listed for the language", async () => {
+  it("fills the first model when the default isn't offered for the language", async () => {
     // Bhashini + English: the backend keeps default=parler but only lists orpheus.
-    const form = renderStack(catalogsWith(ttsSettings("bhashini", ["orpheus"], "bhashini-indic-parler")), {
-      ttsModel: "bulbul:v3",
-    });
+    const form = renderStack(catalogsWith(ttsSettings("bhashini", ["orpheus"], "bhashini-indic-parler")));
     await waitFor(() => expect(form.current.ttsModel).toBe("orpheus"));
     expect(modelButton()).toHaveTextContent("orpheus");
   });
 
-  it("falls back to the first model when the catalog has no default", async () => {
+  it("fills the first model when the catalog has no default", async () => {
     const form = renderStack(catalogsWith(ttsSettings("rime", ["arcana", "mist"])));
     await waitFor(() => expect(form.current.ttsModel).toBe("arcana"));
+    expect(modelButton()).toHaveTextContent("arcana");
   });
 
-  it("keeps a saved model that is still listed", async () => {
+  it("keeps a saved model that is listed", async () => {
     const form = renderStack(
       catalogsWith(
         ttsSettings("elevenlabs", ["eleven_flash_v2_5", "eleven_multilingual_v2"], "eleven_flash_v2_5"),
@@ -128,13 +138,46 @@ describe("AgentStackFields TTS model sync", () => {
     );
     await act(async () => {});
     expect(form.current.ttsModel).toBe("eleven_multilingual_v2");
-    expect(modelButton()).toHaveTextContent("eleven_multilingual_v2");
+  });
+
+  it("keeps a saved model that isn't listed (edit page must not rewrite it)", async () => {
+    const form = renderStack(catalogsWith(SARVAM), { ttsModel: "bulbul:v2", voice: "anushka" });
+    await act(async () => {});
+    expect(form.current.ttsModel).toBe("bulbul:v2");
+    expect(form.current.voice).toBe("anushka");
+  });
+
+  it("doesn't fill from another provider's catalog", async () => {
+    // Just after a provider switch the previous provider's catalog is still loaded.
+    const form = renderStack(catalogsWith(SARVAM), { ttsProvider: "bhashini" });
+    await act(async () => {});
+    expect(form.current.ttsModel).toBe("");
+    expect(form.current.voice).toBe("");
   });
 
   it("leaves the model alone while settings are still loading", async () => {
-    const form = renderStack(catalogsWith(null), { ttsModel: "bulbul:v3" });
+    const form = renderStack(catalogsWith(null), { ttsProvider: "sarvam", ttsModel: "bulbul:v3" });
     await act(async () => {});
     expect(form.current.ttsModel).toBe("bulbul:v3");
     expect(modelButton()).toBeNull();
+  });
+});
+
+describe("AgentStackFields TTS voice fill", () => {
+  it("fills an empty voice with the catalog default, not the first voice", async () => {
+    const form = renderStack(catalogsWith(SARVAM));
+    await waitFor(() => expect(form.current.voice).toBe("shubh"));
+  });
+
+  it("keeps a saved custom voice", async () => {
+    const form = renderStack(catalogsWith(SARVAM), { ttsModel: "bulbul:v3", voice: "my-cloned-voice" });
+    await act(async () => {});
+    expect(form.current.voice).toBe("my-cloned-voice");
+  });
+
+  it("doesn't fill a voice for a model the catalog doesn't list", async () => {
+    const form = renderStack(catalogsWith(SARVAM), { ttsModel: "bulbul:v2" });
+    await act(async () => {});
+    expect(form.current.voice).toBe("");
   });
 });
