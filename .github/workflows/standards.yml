@@ -17,8 +17,8 @@ jobs:
     name: OpenAPI 3.1 — generate, validate, lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install API dependencies and validator
@@ -38,7 +38,7 @@ jobs:
           echo 'extends: ["spectral:oas"]' > .spectral.yaml
           npx -y @stoplight/spectral-cli@6 lint openapi.json --ruleset .spectral.yaml --fail-severity=error
       - name: Publish the generated spec
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openapi-spec
           path: openapi.json
@@ -46,40 +46,53 @@ jobs:
   language-codes:
     name: BCP 47 language tags
     runs-on: ubuntu-latest
-    # Report-only until the legacy ids "od" and "bh" are migrated to "or" and "bhb"
-    # (they are stored on agents, so the rename needs a data migration). Remove this line afterwards.
-    continue-on-error: true
+    env:
+      # "false" = report problems as warnings (job stays green).
+      # Set to "true" once the legacy ids "od" and "bh" are migrated to "or" and "bhb"
+      # (they are stored on agents, so the rename needs a data migration).
+      STRICT: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: pip install langcodes language_data
-      - name: Check every language id in apps/providers/languages.py is a valid BCP 47 tag
+      - name: Check each language id is a valid BCP 47 tag that matches its label
         shell: python
         run: |
-          import ast, sys, langcodes
+          import ast, os, re, sys, langcodes
           tree = ast.parse(open("apps/providers/languages.py").read())
           node = next(n for n in ast.walk(tree)
                       if isinstance(n, ast.AnnAssign) and getattr(n.target, "id", "") == "LANGUAGES")
-          bad = []
+          problems = []
           for key, val in zip(node.value.keys, node.value.values):
               tag, label = key.value, val.value
               if tag == "multi":          # project-specific "auto-detect" id, not a language
                   continue
-              ok = langcodes.tag_is_valid(tag)
-              name = langcodes.Language.get(tag).display_name() if ok else "INVALID TAG"
-              print(f"{tag:6} {label:28} -> {name}")
-              if not ok:
-                  bad.append(tag)
-          if bad:
-              sys.exit(f"Not valid BCP 47: {bad}")
+              base = re.sub(r"\s*\(.*\)$", "", label)
+              try:
+                  expected = langcodes.find(base).language
+              except LookupError:
+                  expected = None
+              if not langcodes.tag_is_valid(tag):
+                  problems.append(f'"{tag}" ({label}) is not a valid BCP 47 tag; standard tag: "{expected}"')
+              elif expected and langcodes.Language.get(tag).language != expected:
+                  actual = langcodes.Language.get(tag).display_name()
+                  problems.append(f'"{tag}" is labelled {label} but means {actual}; standard tag: "{expected}"')
+              else:
+                  print(f"OK  {tag:6} {label}")
+          for p in problems:
+              print(f"::warning file=apps/providers/languages.py::{p}")
+          checked = sum(1 for k in node.value.keys if k.value != "multi")
+          print(f"{checked - len(problems)} of {checked} language ids conform to BCP 47")
+          if problems and os.environ.get("STRICT") == "true":
+              sys.exit(1)
 
   dockerfiles:
     name: Dockerfile best practices (hadolint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hadolint/hadolint-action@v3.1.0
         with:
           recursive: true
@@ -89,7 +102,7 @@ jobs:
     name: Compose Specification
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate docker-compose.yaml against the Compose Specification
         run: |
           cp .env.example .env
@@ -99,8 +112,8 @@ jobs:
     name: Dependency vulnerabilities and leaked secrets (Trivy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: actions/checkout@v7
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: vuln,secret
