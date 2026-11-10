@@ -1,0 +1,108 @@
+# .github/workflows/standards.yml
+# Open-standards conformance checks for VoicEra (DPG Standard, Indicator 8).
+# Every tool used here is open source. Results appear on the repo's Actions tab.
+name: Standards conformance
+
+on:
+  push:
+    branches: [main, staging, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  openapi:
+    name: OpenAPI 3.1 — generate, validate, lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install API dependencies and validator
+        run: pip install -r apps/api/requirements.txt openapi-spec-validator
+      - name: Generate openapi.json from the FastAPI app
+        working-directory: apps/api
+        env:
+          SECRET_KEY: ci-only-not-a-secret
+          INTERNAL_API_KEY: ci-only-not-a-secret
+        run: |
+          export PROVIDER_AUTH_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          PYTHONPATH="$GITHUB_WORKSPACE:." python -c "import json; from app.main import app; json.dump(app.openapi(), open('$GITHUB_WORKSPACE/openapi.json', 'w'), indent=2)"
+      - name: Validate against the OpenAPI Specification (openapi-spec-validator)
+        run: openapi-spec-validator openapi.json
+      - name: Lint with Spectral (spectral:oas ruleset)
+        run: |
+          echo 'extends: ["spectral:oas"]' > .spectral.yaml
+          npx -y @stoplight/spectral-cli@6 lint openapi.json --ruleset .spectral.yaml --fail-severity=error
+      - name: Publish the generated spec
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: openapi.json
+
+  language-codes:
+    name: BCP 47 language tags
+    runs-on: ubuntu-latest
+    # Report-only until the legacy ids "od" and "bh" are migrated to "or" and "bhb"
+    # (they are stored on agents, so the rename needs a data migration). Remove this line afterwards.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install langcodes language_data
+      - name: Check every language id in apps/providers/languages.py is a valid BCP 47 tag
+        shell: python
+        run: |
+          import ast, sys, langcodes
+          tree = ast.parse(open("apps/providers/languages.py").read())
+          node = next(n for n in ast.walk(tree)
+                      if isinstance(n, ast.AnnAssign) and getattr(n.target, "id", "") == "LANGUAGES")
+          bad = []
+          for key, val in zip(node.value.keys, node.value.values):
+              tag, label = key.value, val.value
+              if tag == "multi":          # project-specific "auto-detect" id, not a language
+                  continue
+              ok = langcodes.tag_is_valid(tag)
+              name = langcodes.Language.get(tag).display_name() if ok else "INVALID TAG"
+              print(f"{tag:6} {label:28} -> {name}")
+              if not ok:
+                  bad.append(tag)
+          if bad:
+              sys.exit(f"Not valid BCP 47: {bad}")
+
+  dockerfiles:
+    name: Dockerfile best practices (hadolint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          failure-threshold: error
+
+  compose:
+    name: Compose Specification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose.yaml against the Compose Specification
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yaml config --quiet
+
+  vulnerabilities:
+    name: Dependency vulnerabilities and leaked secrets (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "0"        # report only; switch to "1" once the baseline is clean
