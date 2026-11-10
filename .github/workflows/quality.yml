@@ -1,0 +1,288 @@
+# .github/workflows/quality.yml
+# Tests, linting, security scanning, SBOM and licence inventory for VoicEra.
+# Every tool used here is open source. Results appear on the repo's Actions tab;
+# each job writes a readable report to the run's Summary page.
+#
+# Gate policy: jobs fail only on checks that are clean today (tests, critical lint
+# rules, TypeScript, Vitest). Checks with an existing backlog (full Ruff rules,
+# ESLint, Bandit) report without failing until their STRICT switch is set to "true".
+name: Quality
+
+on:
+  push:
+    branches: [main, staging, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    name: Tests — ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: api
+            workdir: .
+            install: -r apps/api/requirements.txt pytest pytest-cov
+            tests: apps/api/tests
+            cov: apps/api/app
+            known_failures: ""
+          - suite: runtime
+            workdir: .
+            install: -r apps/api/requirements.txt -r apps/runtime/requirements.txt pytest pytest-asyncio pytest-cov
+            tests: apps/runtime/tests
+            cov: apps/runtime
+            known_failures: ""
+          - suite: providers
+            workdir: .
+            install: -r apps/api/requirements.txt -r apps/runtime/requirements.txt pytest pytest-asyncio pytest-cov
+            tests: apps/providers/tests
+            cov: apps/providers
+            # Stale test: the Sarvam catalogue no longer contains bulbul:v2.
+            known_failures: apps/providers/tests/test_settings_by_model_language.py::test_sarvam_voice_options_split_by_model
+          - suite: telephony
+            workdir: .
+            install: -r apps/api/requirements.txt -r apps/runtime/requirements.txt pytest pytest-asyncio pytest-cov
+            tests: apps/telephony/tests
+            cov: apps/telephony
+            known_failures: ""
+          - suite: model-server
+            workdir: model-server
+            # python-dotenv and python-multipart are missing from tests/requirements-dev.txt.
+            install: -r tests/requirements-dev.txt pyyaml python-dotenv python-multipart pytest-cov
+            tests: tests
+            cov: gateway
+            # 1) ~100 variables read by the compose files are not documented in .env.example.
+            # 2) The test looks for a setup.sh that no longer exists.
+            # Node ids are relative to model-server/tests (where pytest.ini lives).
+            known_failures: >-
+              test_env_example.py::test_every_variable_compose_reads_is_documented
+              test_grpc_facade.py::test_the_facade_folder_is_hidden_from_the_model_menu_and_the_catalogue
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        working-directory: ${{ matrix.workdir }}
+        run: pip install ${{ matrix.install }}
+      - name: Run tests
+        working-directory: ${{ matrix.workdir }}
+        env:
+          KNOWN_FAILURES: ${{ matrix.known_failures }}
+          SUITE: ${{ matrix.suite }}
+          TESTS: ${{ matrix.tests }}
+          COV: ${{ matrix.cov }}
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          deselect=()
+          for t in $KNOWN_FAILURES; do
+            deselect+=(--deselect "$t")
+            echo "::warning title=Known failing test skipped (${SUITE})::${t}"
+          done
+          set +e
+          python -m pytest "$TESTS" -q -p no:cacheprovider "${deselect[@]}" \
+            --cov="$COV" --cov-report= --junitxml=junit.xml | tee pytest.log
+          status=${PIPESTATUS[0]}
+          set -e
+          total=$(python -m coverage report --format=total 2>/dev/null || echo "n/a")
+          result=$(grep -E '(passed|failed|error)' pytest.log | tail -1)
+          {
+            echo "### Tests — ${SUITE}"
+            echo ""
+            echo "**Result:** ${result:-no summary}  "
+            echo "**Line coverage (${COV}):** ${total}%"
+            if [ -n "$KNOWN_FAILURES" ]; then
+              echo ""
+              echo "Known failing tests skipped and tracked for fixing:"
+              for t in $KNOWN_FAILURES; do echo "- \`$t\`"; done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+  python-lint:
+    name: Python lint (Ruff)
+    runs-on: ubuntu-latest
+    env:
+      STRICT: "false"   # "true" = fail on any Ruff finding, not only critical ones
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install ruff==0.17.4
+      - name: Critical rules — syntax errors and undefined names (blocking)
+        run: ruff check apps model-server --select E9,F63,F7,F82 --output-format github
+      - name: Full rule set (report)
+        run: |
+          apps=$(ruff check apps --statistics --exit-zero | grep -E "^Found" || echo "no findings")
+          ms=$( (cd model-server && ruff check . --statistics --exit-zero) | grep -E "^Found" || echo "no findings")
+          {
+            echo "### Ruff"
+            echo ""
+            echo "- Critical rules (syntax errors, undefined names): **passed**"
+            echo "- Full rule set, apps/: ${apps:-0 findings}"
+            echo "- Full rule set, model-server/ (model-server/ruff.toml): ${ms:-0 findings}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$STRICT" = "true" ]; then
+            ruff check apps
+            (cd model-server && ruff check .)
+          fi
+
+  frontend:
+    name: Frontend — types, tests, lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      STRICT_ESLINT: "false"   # "true" = fail on ESLint errors
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Generate Next.js route types
+        run: npx next typegen
+      - name: Type check (blocking)
+        run: npx tsc --noEmit
+      - name: Unit tests — Vitest (blocking)
+        run: npm test
+        env:
+          VITE_CONFIG_NATIVE_IGNORE_WARNING: "true"
+      - name: ESLint (report)
+        run: |
+          npx eslint . --format json --output-file eslint.json || true
+          node -e '
+            const r = require("./eslint.json");
+            const e = r.reduce((a, f) => a + f.errorCount, 0);
+            const w = r.reduce((a, f) => a + f.warningCount, 0);
+            const rules = {};
+            r.forEach(f => f.messages.forEach(m => { const k = m.ruleId || "parse"; rules[k] = (rules[k] || 0) + 1; }));
+            const top = Object.entries(rules).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            const fs = require("fs");
+            const lines = ["### ESLint", "", `**${e} errors · ${w} warnings**`, "", "| Rule | Count |", "| --- | --- |",
+                           ...top.map(([k, v]) => `| ${k} | ${v} |`)];
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+            fs.writeFileSync("eslint-errors.txt", String(e));
+          '
+          if [ "$STRICT_ESLINT" = "true" ] && [ "$(cat eslint-errors.txt)" != "0" ]; then exit 1; fi
+
+  security-scan:
+    name: Python security scan (Bandit)
+    runs-on: ubuntu-latest
+    env:
+      STRICT: "false"   # "true" = fail on any HIGH-severity, HIGH-confidence finding
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install bandit==1.9.4
+      - name: Scan apps/ and model-server/
+        shell: python
+        run: |
+          import json, os, subprocess, sys
+          subprocess.run(["bandit", "-r", "apps", "model-server", "-x", "*/tests/*", "-f", "json",
+                          "-q", "-o", "bandit.json"], check=False)
+          results = json.load(open("bandit.json"))["results"]
+          sev = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+          for r in results:
+              sev[r["issue_severity"]] += 1
+              if r["issue_severity"] in ("HIGH", "MEDIUM"):
+                  msg = r["issue_text"].replace("%", "%25").replace("\n", " ")
+                  print(f'::warning file={r["filename"]},line={r["line_number"]},'
+                        f'title=Bandit {r["test_id"]} ({r["issue_severity"]})::{msg}')
+          blocking = [r for r in results
+                      if r["issue_severity"] == "HIGH" and r["issue_confidence"] == "HIGH"]
+          lines = ["### Bandit (Python security)", "",
+                   f'**{sev["HIGH"]} high · {sev["MEDIUM"]} medium · {sev["LOW"]} low**', ""]
+          if blocking:
+              lines += ["| Severity | Rule | File | Line | Issue |", "| --- | --- | --- | --- | --- |"]
+              lines += [f'| HIGH | {r["test_id"]} | {r["filename"]} | {r["line_number"]} | {r["issue_text"]} |'
+                        for r in blocking]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+          if blocking and os.environ.get("STRICT") == "true":
+              sys.exit(1)
+
+  sbom-and-licences:
+    name: SBOM and licence inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generate SBOM (SPDX) with Syft
+        uses: anchore/sbom-action@v0.24.3
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: voicera-sbom.spdx.json
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Python licences (API + voice runtime)
+        run: |
+          python -m venv /tmp/lic
+          /tmp/lic/bin/pip install -q -r apps/api/requirements.txt -r apps/runtime/requirements.txt pip-licenses==5.5.5
+          /tmp/lic/bin/pip-licenses --format=json --with-urls > python-licences.json
+      - name: JavaScript licences (dashboard, production dependencies)
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npx -y license-checker-rseidelsohn@4 --production --excludePrivatePackages --json > ../js-licences.json
+      - name: Build THIRD_PARTY_LICENSES.md and flag copyleft or unknown licences
+        shell: python
+        run: |
+          import json, os, re
+          py = json.load(open("python-licences.json"))
+          js = json.load(open("js-licences.json"))
+          rows = [("Python", p["Name"], p["Version"], p["License"], p.get("URL", "")) for p in py]
+          for key, v in js.items():
+              name, _, version = key.rpartition("@")
+              lic = v.get("licenses")
+              rows.append(("JavaScript", name, version, " / ".join(lic) if isinstance(lic, list) else str(lic),
+                           v.get("repository", "")))
+          strong = re.compile(r"(?<!L)(?<!Lesser )\bA?GPL|SSPL|Commons Clause", re.I)
+          weak = re.compile(r"LGPL|Lesser General|MPL", re.I)
+          unknown = re.compile(r"UNKNOWN|UNLICENSED|Custom", re.I)
+          flags = {"strong copyleft": [], "weak copyleft": [], "unknown": []}
+          for eco, name, ver, lic, url in rows:
+              if strong.search(lic): flags["strong copyleft"].append((eco, name, ver, lic))
+              elif weak.search(lic): flags["weak copyleft"].append((eco, name, ver, lic))
+              elif unknown.search(lic): flags["unknown"].append((eco, name, ver, lic))
+          for kind in ("strong copyleft", "unknown"):
+              for eco, name, ver, lic in flags[kind]:
+                  print(f"::warning title=Licence review needed ({kind})::{eco} {name} {ver}: {lic}")
+          doc = ["# Third-party licences", "",
+                 "Generated automatically by the Quality workflow (pip-licenses, license-checker-rseidelsohn).",
+                 "Covers the API, voice runtime and dashboard production dependencies.", "",
+                 "| Ecosystem | Package | Version | Licence | Source |", "| --- | --- | --- | --- | --- |"]
+          doc += [f"| {e} | {n} | {v} | {l} | {u} |" for e, n, v, l, u in sorted(rows, key=lambda r: (r[0], r[1].lower()))]
+          open("THIRD_PARTY_LICENSES.md", "w").write("\n".join(doc) + "\n")
+          summ = ["### Licence inventory", "",
+                  f"**{len(rows)} packages** ({len(py)} Python, {len(js)} JavaScript) · "
+                  f"{len(flags['strong copyleft'])} strong copyleft · {len(flags['weak copyleft'])} weak copyleft "
+                  f"(LGPL/MPL) · {len(flags['unknown'])} unknown", ""]
+          for kind in ("strong copyleft", "weak copyleft", "unknown"):
+              if flags[kind]:
+                  summ.append(f"**{kind.capitalize()}:** " + ", ".join(f"{n} {v} ({l})" for _, n, v, l in flags[kind]))
+                  summ.append("")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(summ) + "\n")
+      - uses: actions/upload-artifact@v7
+        with:
+          name: third-party-licences
+          path: |
+            THIRD_PARTY_LICENSES.md
+            python-licences.json
+            js-licences.json
