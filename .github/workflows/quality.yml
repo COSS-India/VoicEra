@@ -27,7 +27,7 @@ jobs:
         include:
           - suite: api
             workdir: .
-            install: -r apps/api/requirements.txt pytest pytest-cov
+            install: -r apps/api/requirements.txt pytest pytest-asyncio pytest-cov
             tests: apps/api/tests
             cov: apps/api/app
             known_failures: ""
@@ -223,7 +223,8 @@ jobs:
         with:
           path: .
           format: spdx-json
-          artifact-name: voicera-sbom.spdx.json
+          output-file: voicera-sbom.spdx.json   # written to the workspace, bundled into the evidence artifact below
+          upload-artifact: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -279,10 +280,12 @@ jobs:
                   summ.append("")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
               fh.write("\n".join(summ) + "\n")
-      - uses: actions/upload-artifact@v7
+      - name: Upload SBOM and licence inventory (one zip)
+        uses: actions/upload-artifact@v7
         with:
-          name: third-party-licences
+          name: dpg-evidence-sbom-and-licences
           path: |
+            voicera-sbom.spdx.json
             THIRD_PARTY_LICENSES.md
             python-licences.json
             js-licences.json
