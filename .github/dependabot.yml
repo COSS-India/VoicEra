@@ -1,0 +1,139 @@
+# .github/dependabot.yml
+# Dependency-update pull requests for VoicEra, opened against the staging branch.
+#
+# IMPORTANT: GitHub reads this file only from the DEFAULT branch (main).
+# Committing it to staging alone has no effect; it starts working once it is on main.
+# Security-fix PRs ("Dependabot security updates") are switched on separately under
+# Settings > Code security and always target main.
+#
+# Every directory listed below exists on the staging branch, which is where these PRs go.
+# Status: Insights > Dependency graph > Dependabot
+#   https://github.com/COSS-India/VoicEra/network/updates
+version: 2
+
+updates:
+  # ---------------------------------------------------------------- core platform
+  # Python: API control plane and voice runtime.
+  # Note: these requirements use ">=" lower bounds, so Dependabot opens few PRs here
+  # until the files are pinned (tracked separately).
+  - package-ecosystem: pip
+    directories: [/apps/api, /apps/runtime]
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Kolkata
+    cooldown:
+      default-days: 3          # wait a few days after a release before proposing it
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      core-python-minor-and-patch:
+        update-types: [minor, patch]
+
+  # JavaScript: dashboard (package-lock.json)
+  - package-ecosystem: npm
+    directory: /frontend
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Kolkata
+    cooldown:
+      default-days: 3
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Docker base images for the three core services
+  - package-ecosystem: docker
+    directories: [/apps/api, /apps/runtime, /frontend]
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+      include: scope
+
+  # ---------------------------------------------------------------- model server
+  # Self-hosted STT/TTS model containers. Monthly and capped, because GPU images and
+  # ML libraries (vllm, transformers, nemo) need a hardware test before merging.
+  # torch / torchaudio are pinned to CUDA-specific builds (e.g. 2.12.0+cu132) and are
+  # upgraded by hand together with the CUDA base image, so Dependabot skips them.
+  - package-ecosystem: pip
+    directories:
+      - /model-server/gateway
+      - /model-server/stt/_grpc
+      - /model-server/stt/indic-conformer
+      - /model-server/stt/indic-transcribe
+      - /model-server/tts/indic-mio
+      - /model-server/tts/indic-parler
+      - /model-server/tts/orpheus
+    target-branch: staging
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Kolkata
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+      include: scope
+    ignore:
+      - dependency-name: "torch*"
+    groups:
+      model-server-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories:
+      - /model-server/gateway
+      - /model-server/llm/qwen3.5-4b
+      - /model-server/stt/_grpc
+      - /model-server/stt/indic-conformer
+      - /model-server/stt/indic-nemotron
+      - /model-server/stt/indic-transcribe
+      - /model-server/tts/indic-mio
+      - /model-server/tts/indic-parler
+      - /model-server/tts/orpheus
+    target-branch: staging
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps
+      include: scope
+    ignore:
+      # CUDA base images: major bumps change the driver/toolkit and are done by hand.
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+
+  # ---------------------------------------------------------------- CI
+  # GitHub Actions used by .github/workflows (standards.yml, quality.yml, scorecard.yml)
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: staging
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Kolkata
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
