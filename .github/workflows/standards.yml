@@ -91,12 +91,52 @@ jobs:
   dockerfiles:
     name: Dockerfile best practices (hadolint)
     runs-on: ubuntu-latest
+    env:
+      HADOLINT_VERSION: "2.15.1"
     steps:
       - uses: actions/checkout@v7
-      - uses: hadolint/hadolint-action@v3.1.0
-        with:
-          recursive: true
-          failure-threshold: error
+      - name: Install hadolint
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/hadolint" \
+            "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-x86_64"
+          chmod +x "$RUNNER_TEMP/hadolint"
+          "$RUNNER_TEMP/hadolint" --version
+      - name: Lint every Dockerfile (findings keep hadolint's own severity)
+        shell: python
+        run: |
+          import json, os, subprocess, sys
+          hadolint = os.path.join(os.environ["RUNNER_TEMP"], "hadolint")
+          files = subprocess.run(["git", "ls-files", "*Dockerfile*"],
+                                 capture_output=True, text=True, check=True).stdout.split()
+          # DL3022 is ignored: model-server Dockerfiles copy from BuildKit named build contexts
+          # (e.g. COPY --from=nemo, defined in model-server/compose.model-server.yml), which hadolint cannot see.
+          run = subprocess.run([hadolint, "--no-fail", "--format", "json", "--ignore", "DL3022", *files],
+                               capture_output=True, text=True)
+          if run.returncode != 0 and not run.stdout.strip():
+              sys.exit(f"hadolint failed to run: {run.stderr}")
+          findings = json.loads(run.stdout or "[]")
+
+          # hadolint level -> GitHub annotation level (the stock action reports everything as "error")
+          annotation = {"error": "error", "warning": "warning", "info": "notice", "style": "notice"}
+          esc = lambda s: s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          for f in findings:
+              print(f'::{annotation[f["level"]]} file={f["file"]},line={f["line"]},'
+                    f'title=hadolint {f["code"]}::{esc(f["message"])}')
+
+          counts = {lvl: sum(f["level"] == lvl for f in findings) for lvl in ("error", "warning", "info", "style")}
+          lines = [f"### hadolint — {len(files)} Dockerfiles checked", "",
+                   f"**{counts['error']} errors** · {counts['warning']} warnings · "
+                   f"{counts['info']} info · {counts['style']} style "
+                   "(DL3022 ignored: BuildKit named build contexts)", ""]
+          if findings:
+              lines += ["| Level | Rule | File | Line | Message |", "| --- | --- | --- | --- | --- |"]
+              lines += [f'| {f["level"]} | {f["code"]} | {f["file"]} | {f["line"]} | {f["message"].replace("|", "/")} |'
+                        for f in sorted(findings, key=lambda f: (f["level"] != "error", f["file"], f["line"]))]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+          print("\n".join(lines[:3]))
+          if counts["error"]:
+              sys.exit(1)
 
   compose:
     name: Compose Specification
