@@ -6,7 +6,7 @@ import { Select } from "@/components/ui/Field";
 import { Spinner } from "@/components/ui/Spinner";
 import type { StackFieldsValue } from "@/components/wizard/AgentStackFields";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
-import { buildModelConfigsFromCatalogs, languageLabel } from "@/lib/use-wizard-catalogs";
+import { buildModelConfigsFromCatalogs, languageLabel, voiceFieldFromSettings } from "@/lib/use-wizard-catalogs";
 import { useVoicePreview } from "@/lib/use-voice-preview";
 import { getPreviewLimits } from "@/lib/api-client";
 import { stripPlaceholders } from "@/lib/voice-preview-text";
@@ -186,6 +186,15 @@ export function VoiceSelect({ value, catalogs, voices, onChange, welcome }: Voic
     stop();
     reset();
   }, [configKey, stop, reset]);
+
+  // Never leave the dropdown on "Select voice…": keep a listed voice, else the
+  // catalog default for this (model, language), else the first voice.
+  const defaultVoice = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, value.langs[0])?.default;
+  useEffect(() => {
+    if (voices.length === 0 || voices.some((v) => v.id === value.voice)) return;
+    const fallback = voices.find((v) => v.id === String(defaultVoice)) ?? voices[0]!;
+    onChange(fallback.id);
+  }, [voices, value.voice, defaultVoice, onChange]);
 
   function toggle(voice: string) {
     // Second click on the active voice stops it — playing or still generating.

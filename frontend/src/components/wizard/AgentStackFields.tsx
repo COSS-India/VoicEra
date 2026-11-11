@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { motion, type Variants } from "framer-motion";
 import { Brain, Mic, Volume2 } from "lucide-react";
 import { Input, Select, Textarea } from "@/components/ui/Field";
@@ -12,6 +12,7 @@ import type { CatalogField } from "@/lib/catalog-types";
 import { humanizeFieldKey, resolvedModelFields } from "@/lib/catalog-utils";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
 import {
+  defaultModelFromSettings,
   languageLabel,
   modelOptionsFromSettings,
   searchableProviderOptions,
@@ -242,6 +243,15 @@ export function AgentStackFields({
   const llmModels = modelOptionsFromSettings(catalogs.llmSettings);
   const sttModels = modelOptionsFromSettings(catalogs.sttSettings);
   const ttsModels = modelOptionsFromSettings(catalogs.ttsSettings);
+  // Never leave Model unset or on another provider's model: keep a listed model,
+  // else the provider's default (when listed), else the first. Shared by the
+  // create and edit pages.
+  const ttsDefaultModel = defaultModelFromSettings(catalogs.ttsSettings);
+  useEffect(() => {
+    if (ttsModels.length === 0 || ttsModels.some((m) => m.value === value.ttsModel)) return;
+    const listed = ttsModels.some((m) => m.value === ttsDefaultModel);
+    onChange("ttsModel", listed ? ttsDefaultModel : ttsModels[0]!.value);
+  }, [ttsModels, ttsDefaultModel, value.ttsModel, onChange]);
   // Provider settings can vary by (model, language) via `capabilities` — the
   // primary language is what everything below resolves against.
   const primaryLang = value.langs[0];
