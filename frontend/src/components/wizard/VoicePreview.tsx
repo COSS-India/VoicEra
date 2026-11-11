@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import type { StackFieldsValue } from "@/components/wizard/AgentStackFields";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
 import { buildModelConfigsFromCatalogs, languageLabel, voiceFieldFromSettings } from "@/lib/use-wizard-catalogs";
+import { modelIds } from "@/lib/catalog-utils";
 import { useVoicePreview } from "@/lib/use-voice-preview";
 import { getPreviewLimits } from "@/lib/api-client";
 import { stripPlaceholders } from "@/lib/voice-preview-text";
@@ -187,14 +188,18 @@ export function VoiceSelect({ value, catalogs, voices, onChange, welcome }: Voic
     reset();
   }, [configKey, stop, reset]);
 
-  // Never leave the dropdown on "Select voice…": keep a listed voice, else the
-  // catalog default for this (model, language), else the first voice.
+  // Fill an empty voice with the catalog default for this (model, language), else
+  // the first voice. Only ever fills: a saved custom voice is never replaced.
+  // Waits until the selected provider's catalog lists the selected model, so it
+  // doesn't pick a voice for a model that's about to change.
   const defaultVoice = voiceFieldFromSettings(catalogs.ttsSettings, value.ttsModel, value.langs[0])?.default;
+  const modelReady =
+    catalogs.ttsSettings?.provider === value.ttsProvider && modelIds(catalogs.ttsSettings).includes(value.ttsModel);
   useEffect(() => {
-    if (voices.length === 0 || voices.some((v) => v.id === value.voice)) return;
+    if (!modelReady || value.voice || voices.length === 0) return;
     const fallback = voices.find((v) => v.id === String(defaultVoice)) ?? voices[0]!;
     onChange(fallback.id);
-  }, [voices, value.voice, defaultVoice, onChange]);
+  }, [modelReady, voices, value.voice, defaultVoice, onChange]);
 
   function toggle(voice: string) {
     // Second click on the active voice stops it — playing or still generating.
@@ -234,6 +239,10 @@ export function VoiceSelect({ value, catalogs, voices, onChange, welcome }: Voic
             {v.name}
           </option>
         ))}
+        {/* A saved voice outside the list (e.g. a custom/cloned voice) still shows as selected. */}
+        {value.voice && !voices.some((v) => v.id === value.voice) ? (
+          <option value={value.voice}>{value.voice} (custom)</option>
+        ) : null}
       </Select>
       <VoiceStatus blocked={blocked} error={preview.status === "error" ? preview.error : null} />
     </>
