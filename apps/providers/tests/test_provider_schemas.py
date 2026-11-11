@@ -76,6 +76,25 @@ def test_openai_llm_catalog_examples_and_secret():
         assert name in model["examples"]
 
 
+def test_google_gemini_llm_catalog_and_service():
+    from apps.providers.cloud.google.catalog import LLM_MODELS as GOOGLE_LLM_MODELS
+    from apps.providers.cloud.google.config import GoogleLLMConfig
+    from apps.providers.registry import LLM_CREATORS
+
+    schema = provider_schemas(Kind.LLM)["google"]
+    assert schema["provider"] == "google"
+    assert schema["name"] == "Google Gemini"
+    assert "api_key" in schema["secrets"]
+    fields = schema["fields"]
+    assert fields["api_key"]["secret"] is True
+    assert "gemini-2.5-flash" in schema["fields"]["model"]["examples"]
+    assert "gemini-2.0-flash" in schema["fields"]["model"]["examples"]
+
+    cfg = GoogleLLMConfig(api_key="test-key", model="gemini-2.5-flash")
+    svc = LLM_CREATORS["google"](cfg)
+    assert svc is not None
+
+
 def test_catalog_omits_schema_noise():
     for kind in Kind:
         for provider, schema in provider_schemas(kind).items():
