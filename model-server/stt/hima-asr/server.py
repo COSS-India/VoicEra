@@ -62,6 +62,10 @@ BATCH_TIMEOUT = int(os.environ.get("HIMA_BATCH_WINDOW_MS", "50")) / 1000
 # than handed to a model that was never trained on it.
 MAX_SECONDS = float(os.environ.get("HIMA_MAX_SECONDS", "30"))
 QUEUE_MAXSIZE = int(os.environ.get("HIMA_QUEUE_MAXSIZE", "256"))
+# Hard ceiling on this process's GPU memory, in GB. The card is shared with
+# other models; a runaway batch here must fail HERE with an OOM, not by starving
+# its neighbours. Empty = no cap. The model needs ~2 GB at float32.
+MAX_GPU_MEMORY_GB = os.environ.get("HIMA_MAX_GPU_MEMORY_GB", "").strip()
 
 TARGET_SAMPLE_RATE = 16000
 # Under 0.1 s there is nothing to transcribe, and the model card asks for >= 1 s.
@@ -181,8 +185,21 @@ def load_model():
             f"no checkpoint at {path}. Run model-server/stt/hima-asr/fetch.sh before "
             "starting the slot."
         )
+    cap_gpu_memory()
     m = AutoModel.from_pretrained(str(path), trust_remote_code=True, dtype=_torch_dtype(DTYPE_NAME))
     return m.to(DEVICE).eval()
+
+
+def cap_gpu_memory() -> float | None:
+    """Apply HIMA_MAX_GPU_MEMORY_GB as PyTorch's per-process fraction. Returns
+    the fraction applied, or None when there is no cap or no GPU."""
+    if not MAX_GPU_MEMORY_GB or not DEVICE.startswith("cuda"):
+        return None
+    index = int(DEVICE.split(":")[1]) if ":" in DEVICE else 0
+    total = torch.cuda.get_device_properties(index).total_memory
+    fraction = min(1.0, float(MAX_GPU_MEMORY_GB) * 1024**3 / total)
+    torch.cuda.set_per_process_memory_fraction(fraction, index)
+    return fraction
 
 
 def warmup(m) -> None:
@@ -368,6 +385,7 @@ def health():
         "dtype": DTYPE_NAME,
         "style": STYLE,
         "max_seconds": MAX_SECONDS,
+        "max_gpu_memory_gb": MAX_GPU_MEMORY_GB or None,
         "queue_size": request_queue.qsize(),
         "realtime_sessions_active": active_session_count(),
         "max_batch_size": MAX_BATCH_SIZE,

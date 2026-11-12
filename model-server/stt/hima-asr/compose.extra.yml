@@ -26,6 +26,10 @@ services:
       HIMA_DTYPE: ${HIMA_DTYPE:-float32}
       # Empty = cuda:0 when a GPU is visible, else cpu.
       HIMA_DEVICE: ${HIMA_DEVICE:-}
+      # Hard cap on this process's GPU memory. The card is shared; past this
+      # Hima OOMs on its own rather than squeezing its neighbours. ~2 GB is
+      # the model at float32, the rest is activations for a full batch.
+      HIMA_MAX_GPU_MEMORY_GB: ${HIMA_MAX_GPU_MEMORY_GB:-8}
 
       # ---- output ------------------------------------------------------
       #   native  every word in the language's own script (model default)

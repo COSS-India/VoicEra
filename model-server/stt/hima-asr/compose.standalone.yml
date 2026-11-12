@@ -37,6 +37,13 @@
 
 name: voicera-hima-test
 
+# Every container here rotates its logs. Docker's default json-file driver keeps
+# them forever, and this box has filled its disk before.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
 services:
   stt:
     build:
@@ -44,6 +51,12 @@ services:
     image: voicera-hima-test/stt:local
     container_name: voicera_hima_test_stt
     restart: unless-stopped
+    <<: *logging
+    # Ceilings, so a test cannot take CPU or RAM from the stacks beside it.
+    # Generous for a 0.46B model: one core does the decode loop, the rest is
+    # resampling and the realtime sessions' bookkeeping.
+    cpus: ${HIMA_TEST_CPUS:-8}
+    mem_limit: ${HIMA_TEST_MEM_LIMIT:-16g}
     # No host port: reached through the gateway below, or `docker exec` for probe.py.
     environment:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -53,6 +66,7 @@ services:
       TRANSFORMERS_OFFLINE: "1"
       HIMA_DTYPE: ${HIMA_DTYPE:-float32}
       HIMA_DEVICE: ${HIMA_DEVICE:-}
+      HIMA_MAX_GPU_MEMORY_GB: ${HIMA_MAX_GPU_MEMORY_GB:-8}
       HIMA_STYLE: ${HIMA_STYLE:-native}
       HIMA_MAX_BATCH: ${HIMA_MAX_BATCH:-16}
       HIMA_BATCH_WINDOW_MS: ${HIMA_BATCH_WINDOW_MS:-50}
@@ -89,6 +103,9 @@ services:
     image: voicera-hima-test/gateway:local
     container_name: voicera_hima_test_gateway
     restart: unless-stopped
+    <<: *logging
+    cpus: 1
+    mem_limit: 512m
     ports:
       - "127.0.0.1:${HIMA_TEST_PORT:-18201}:8000"
     environment:
@@ -119,6 +136,9 @@ services:
     pull_policy: missing
     container_name: voicera_hima_test_tunnel
     restart: "no"
+    <<: *logging
+    cpus: 1
+    mem_limit: 256m
     command: ["tunnel", "--no-autoupdate", "--url", "http://gateway:8000"]
     depends_on:
       - gateway

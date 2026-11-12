@@ -427,3 +427,32 @@ def test_standalone_demo_is_reachable_at_demo_stt():
     tunnel = services["tunnel"]
     assert tunnel["profiles"] == ["tunnel"]
     assert tunnel["command"][-1] == "http://gateway:8000"
+
+
+def test_standalone_caps_cpu_memory_logs_and_gpu_memory():
+    """A test stack on a shared box gets ceilings on everything it could take."""
+    import yaml
+
+    doc = yaml.safe_load((MODEL_DIR / "compose.standalone.yml").read_text())
+    for name, svc in doc["services"].items():
+        assert svc.get("cpus"), name
+        assert svc.get("mem_limit"), name
+        assert svc["logging"]["options"]["max-size"], name
+    assert "HIMA_MAX_GPU_MEMORY_GB" in doc["services"]["stt"]["environment"]
+
+
+def test_fetch_never_installs_into_the_host_python():
+    fetch = (MODEL_DIR / "fetch.sh").read_text()
+    code = "\n".join(line for line in fetch.splitlines() if not line.lstrip().startswith("#"))
+    assert "--break-system-packages" not in code
+    assert "pip3 install" not in code
+    # the only pip is inside the throwaway container, into a private --target
+    assert "--target /tmp/hf" in code
+
+
+def test_teardown_removes_only_this_stacks_images():
+    teardown = (MODEL_DIR / "tools" / "teardown.sh").read_text()
+    code = "\n".join(line for line in teardown.splitlines() if not line.lstrip().startswith("#"))
+    assert "--rmi" not in code
+    assert "-p voicera-hima-test" in code
+    assert "cloudflared" not in code

@@ -71,6 +71,8 @@ slot's contract is audio in, text out. `fetch.sh` skips `decide/`.
 | `static/realtime.html` | indic-conformer's demo page, unchanged |
 | `compose.standalone.yml` | the same server, plus a gateway and an optional quick tunnel, as a separate test project; see below |
 | `tools/probe.py` | transcripts, RTF, time to first partial, concurrency |
+| `tools/preflight.sh` | read-only GO / NO-GO for the test stack on a shared box |
+| `tools/teardown.sh` | removes the test stack and only it |
 
 ## Why the commit is pinned
 
@@ -106,11 +108,21 @@ policy. Redistribution has to pass those terms on; see `NOTICE` in the HF repo.
 
 ## Trying it on a shared box
 
-`compose.standalone.yml` runs the same server as its own Compose project, so
-nothing else on the box is touched, prod's STT slot included. It has its own
-containers (`voicera_hima_test_{stt,gateway,tunnel}`), images and network, and
-runs on GPU 1 by default. The test asserts that its environment matches
-`compose.extra.yml`.
+`compose.standalone.yml` runs the same server as its own Compose project
+(`voicera-hima-test`), beside everything else on the box. It is built so that
+nothing that already exists is touched:
+
+| | |
+| --- | --- |
+| Folder | a fresh clone of its own; no other stack runs from it |
+| Containers | `voicera_hima_test_{stt,gateway,tunnel}` |
+| Images | `voicera-hima-test/{stt,gateway}:local`, never a tag another stack runs. Base images are only pulled if missing. `cloudflared:latest` is never re-pulled |
+| Network | `voicera-hima-test_default`; no named volumes |
+| Port | `127.0.0.1:18201` (this stack's gateway). The model publishes nothing |
+| GPU | `HIMA_TEST_GPU` (default 1), with PyTorch capped at `HIMA_MAX_GPU_MEMORY_GB` (default 8). Past the cap Hima runs out of memory on its own instead of taking memory its neighbours need |
+| CPU / RAM | 8 CPUs / 16 GB for the model, 1 CPU / 512 MB for the gateway, 1 CPU / 256 MB for the tunnel |
+| Logs | rotated, 3 × 10 MB per container |
+| Host Python | untouched. If the box has no `hf` CLI, `fetch.sh` downloads inside a throwaway container |
 
 The stock gateway sits in front of the model, so the demo is at **`/demo/stt`**,
 exactly as on the real stack. With `--profile tunnel`, a Cloudflare quick
@@ -118,20 +130,40 @@ tunnel gives it a public `https://*.trycloudflare.com` URL. That URL needs no
 account, and https is what lets the browser use the microphone.
 
 ```bash
-cd model-server
+# 1. A folder of its own -- check it does not exist first
+cd ~ && ls -d voicera-hima-test 2>/dev/null && echo "EXISTS -- pick another name"
+git clone --branch feature/hima-asr-stt https://github.com/COSS-India/VoicEra.git voicera-hima-test
+cd ~/voicera-hima-test/model-server
+
+# 2. Read-only checks: must end in GO
+sh stt/hima-asr/tools/preflight.sh
+
+# 3. Weights (~1 GB, into stt/hima-asr/models/ of THIS clone)
 sh stt/hima-asr/fetch.sh
-docker compose -p voicera-hima-test --project-directory . \
+
+# 4. Up, with the tunnel
+sudo docker compose -p voicera-hima-test --project-directory . \
     -f stt/hima-asr/compose.standalone.yml --profile tunnel up -d --build
-docker logs -f voicera_hima_test_stt          # until "Application startup complete"
-docker logs voicera_hima_test_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com'
+sudo docker logs -f voicera_hima_test_stt          # until "Application startup complete"
+sudo docker logs voicera_hima_test_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com'
 # open <that URL>/demo/stt
 ```
 
 **Anyone who has the URL can use the model**, because the gateway has no auth,
 as on the real stack. The URL is random, and it changes every time the tunnel
-starts. Close it with `docker compose -p voicera-hima-test --project-directory . -f
-stt/hima-asr/compose.standalone.yml stop tunnel`. Without the profile, the
-stack is reachable only on the box, at `http://127.0.0.1:18201/demo/stt`.
+starts. `sudo docker stop voicera_hima_test_tunnel` closes it and leaves the
+rest of the stack running.
+
+Remove everything with `sh stt/hima-asr/tools/teardown.sh --images`. It removes
+only this project's containers, network and the two images it built. It never
+uses `down --rmi all`, which would also remove the `cloudflared` image the
+box's other tunnels run from. After that, `rm -rf ~/voicera-hima-test` leaves
+the box as it was, apart from any base images that were pulled.
+
+**On load:** GPU 1 is shared with production models. An idle Hima uses no
+compute. A `probe.py live --sessions 16` run, though, competes for the GPU
+with whatever is serving calls on the same card, so run large concurrency
+probes off-hours.
 
 `tools/probe.py` measures it from inside the container. Copy a few call
 recordings into this folder first; it is mounted at `/app`.

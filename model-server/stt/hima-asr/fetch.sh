@@ -37,18 +37,34 @@ if complete; then
   exit 0
 fi
 
-if ! command -v hf >/dev/null 2>&1 && ! command -v huggingface-cli >/dev/null 2>&1; then
-  echo "installing huggingface_hub[cli]" >&2
-  pip3 install --quiet --break-system-packages "huggingface_hub[cli]"
-fi
-CLI=hf
-command -v hf >/dev/null 2>&1 || CLI=huggingface-cli
-
 mkdir -p "$DEST"
 echo "  Downloading $REPO@$REVISION (~1 GB)"
-set -- download "$REPO" --revision "$REVISION" --local-dir "$DEST" --exclude "decide/*"
-[ -n "${HF_TOKEN:-}" ] && set -- "$@" --token "$HF_TOKEN"
-"$CLI" "$@"
+
+# Use the host's HuggingFace CLI if it already has one. If not, run the download
+# in a throwaway container rather than pip-installing into the host's Python:
+# this script runs on shared GPU boxes, and installing into their system
+# packages is a change to something that is not ours. The container writes as
+# the calling user, so the files are not root-owned.
+if command -v hf >/dev/null 2>&1 || command -v huggingface-cli >/dev/null 2>&1; then
+  CLI=hf
+  command -v hf >/dev/null 2>&1 || CLI=huggingface-cli
+  set -- download "$REPO" --revision "$REVISION" --local-dir "$DEST" --exclude "decide/*"
+  [ -n "${HF_TOKEN:-}" ] && set -- "$@" --token "$HF_TOKEN"
+  "$CLI" "$@"
+elif command -v docker >/dev/null 2>&1; then
+  DOCKER=docker
+  docker ps >/dev/null 2>&1 || DOCKER="sudo docker"
+  echo "  (no hf CLI on this host; downloading in a throwaway python:3.12-slim container)"
+  $DOCKER run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e HF_TOKEN="${HF_TOKEN:-}" \
+    -v "$DEST:/out" python:3.12-slim sh -c "
+      pip install --quiet --no-cache-dir --target /tmp/hf 'huggingface_hub>=0.34' &&
+      PYTHONPATH=/tmp/hf python -m huggingface_hub.cli.hf download '$REPO' \
+        --revision '$REVISION' --local-dir /out --exclude 'decide/*'"
+else
+  echo "ERROR: need either the HuggingFace CLI ('hf') or docker to download." >&2
+  echo "This script does not pip-install into the host's Python." >&2
+  exit 1
+fi
 
 for f in $REQUIRED; do
   if [ ! -f "$DEST/$f" ]; then
