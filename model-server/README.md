@@ -12,7 +12,8 @@ Three slots — STT, TTS, LLM — each running whichever model you selected, wit
 model-server/
 ├── gateway/               the only published port    :8100
 ├── stt/                   speech-to-text slot        :8001 (internal)
-│   └── indic-conformer/
+│   ├── indic-conformer/
+│   └── hima-asr/
 ├── tts/                   text-to-speech slot        :8002 (internal)
 │   ├── indic-parler/
 │   ├── orpheus/

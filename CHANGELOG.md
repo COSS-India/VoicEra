@@ -18,6 +18,16 @@ several subsystems are new.
 
 ### Added
 
+- **Hima-ASR in the STT slot** (`model-server/stt/hima-asr`, provider
+  `hima_asr`) — Prahaladha's 0.46B Qwen3-ASR-encoder + Gemma-3-270M-decoder ASR
+  for 11 Indian languages plus English, with code-switching support. It
+  transcribes whole clips (1–30 s), so it serves OpenAI Realtime at
+  `/v1/realtime` the way indic-conformer does: partials come from
+  re-transcribing the open segment every 600 ms, sharing that folder's
+  `realtime_ws.py`. Audio over 30 s is split near the quietest point. The HF
+  repo is pinned to a commit and loaded offline, because it runs with
+  `trust_remote_code`. The decoder carries the Gemma Terms of Use. Not yet run
+  on hardware.
 - **Maya 2 Native in the TTS slot** (`model-server/tts/maya2-native`, provider
   `maya2_native`) — Maya Research's 12-language, 20-voice streaming TTS on
   OpenAI's `/v1/audio/speech`. Wraps upstream's own OpenAI-compatible server and
@@ -32,8 +42,8 @@ several subsystems are new.
   a central if/elif chain. 22 cloud vendors, the Bhashini (STT/TTS) and Kenpath
   (LLM) adapters, and local providers — `indic_orpheus`, `rumik_oss`,
   `indic_parler`, `indic_mio`, `higgs_tts` and `maya2_native` (TTS),
-  `indic_nemotron`, `indic_conformer` and
-  `indic_transcribe` (STT) — reached through the model
+  `indic_nemotron`, `indic_conformer`,
+  `indic_transcribe` and `hima_asr` (STT) — reached through the model
   server gateway instead of stored credentials. Kenpath and its Bharat Vistaar variant detect their own
   "goodbye" end-of-call signal in streamed LLM text, strip it before TTS speaks
   the chunk, and end the pipeline — a provider-specific mechanism alongside the

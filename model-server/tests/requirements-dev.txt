@@ -6,6 +6,8 @@ fastapi
 uvicorn
 ruff
 websockets>=12.0
+# stt/hima-asr reads WAV uploads at any rate with it. Ships its own libsndfile.
+soundfile
 # Only to exercise stt/_grpc/. No runtime image gains a dependency.
 grpcio>=1.60
 grpcio-tools>=1.60

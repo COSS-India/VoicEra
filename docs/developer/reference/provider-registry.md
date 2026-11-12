@@ -106,7 +106,7 @@ class DeepgramSTTConfig(DeepgramAuth, DeepgramSTTSettings, BaseSTTConfig):
 | --- | --- | --- |
 | `cloud` | `apps/providers/cloud/` | A hosted vendor reached over its own API, wired through Pipecat. |
 | `adapter` | `apps/providers/adapters/` | A first-party service class implementing a Pipecat `STTService` / `TTSService`. |
-| `local` | `apps/providers/local/` | Talks to VoicEra's own [model server](../model-server/overview) gateway instead of a third-party API. Nine providers today: `indic_orpheus` (TTS), `rumik_oss` (TTS), `indic_parler` (TTS), `indic_mio` (TTS), `higgs_tts` (TTS), `maya2_native` (TTS), `indic_nemotron` (STT), `indic_conformer` (STT) and `indic_transcribe` (STT). |
+| `local` | `apps/providers/local/` | Talks to VoicEra's own [model server](../model-server/overview) gateway instead of a third-party API. Ten providers today: `indic_orpheus` (TTS), `rumik_oss` (TTS), `indic_parler` (TTS), `indic_mio` (TTS), `higgs_tts` (TTS), `maya2_native` (TTS), `indic_nemotron` (STT), `indic_conformer` (STT), `indic_transcribe` (STT) and `hima_asr` (STT). |
 
 A config class outside all three raises `ValueError`, which keeps the layout honest.
 
@@ -245,6 +245,7 @@ python3 -c "from apps.providers import Kind, provider_schemas; [print(k, sorted(
 | `google_vertex` | Google Vertex AI | cloud | LLM |
 | `groq` | Groq | cloud | LLM |
 | `higgs_tts` | Higgs TTS | **local** | TTS |
+| `hima_asr` | Hima ASR | **local** | STT |
 | `indic_conformer` | Indic Conformer | **local** | STT |
 | `indic_mio` | Indic-Mio | **local** | TTS |
 | `indic_nemotron` | Indic Nemotron | **local** | STT |

@@ -92,6 +92,43 @@ stt:
       Running on ace-h200 GPU 1 since 2 September 2026 -- both checkpoints
       loaded, 320 ms confirmed at /health.
 
+  - id: hima-asr
+    name: Hima-ASR 0.46B
+    status: ready
+    runtime: transformers              # HF Transformers, trust_remote_code, pinned commit
+    sample_rate: 16000
+    upload_format: wav                 # any rate; resampled to 16 kHz. Headerless = 16 kHz int16
+    partial_transcripts: native        # server emits OpenAI Realtime deltas over WS
+    streaming_endpoint: false          # no /v1/asr/ws; use OpenAI Realtime instead
+    realtime_endpoint: true            # WS /v1/realtime?intent=transcription
+    license: apache-2.0+gemma-terms    # decoder is Gemma-derived. See the note below.
+    languages: [as, bn, en, gu, hi, kn, ml, mr, or, pa, ta, te]
+    notes: >-
+      Qwen3-ASR-1.7B's audio encoder, a projector, and a Gemma-3-270M text
+      decoder with a trimmed 63,335-piece vocabulary -- 0.46B in all, ~0.9 GB in
+      bf16, so by far the smallest model in this slot. Plain HF Transformers
+      (>= 5.13) loaded with trust_remote_code; fetch.sh pins the repo to a
+      commit and the image runs offline, so the modeling code that executes is
+      the code that was reviewed. Public repo, not gated.
+      Transcribes whole clips of 1-30 s and does not stream, so it takes
+      indic-conformer's shape: the server re-transcribes the open segment every
+      600 ms and emits Realtime deltas (realtime_ws.py is shared with that
+      folder). Audio over 30 s is split at the quietest point near each cut.
+      12 languages including English, the one STT model here built for
+      code-switched speech: HIMA_STYLE=mixed keeps English words in Latin
+      script. Auto language detection exists (language "auto" on the raw API);
+      the VoicEra provider always names one, like every other STT provider.
+      Self-reported WER: 12.95 average over its test sets, against 12.84 for
+      Indic-Transcribe-Core; best of the models it compares on te, ta, kn, ml.
+      The model card's decision head (tone, intent, urgency) is NOT served --
+      it is a separate model with its own API, outside this slot's contract.
+      LICENCE: Hima's own parts and the encoder are Apache-2.0; the decoder is
+      derived from Gemma 3 and carries the Gemma Terms of Use, including its
+      prohibited-use policy, which redistribution must pass on (see NOTICE in
+      the HF repo).
+      NOT YET RUN ON HARDWARE. float32 by default because that is what the card
+      loads; bf16 is untested against it.
+
   - id: canary
     name: NVIDIA Canary
     status: planned

@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live STT · model-server</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e8eaed; --dim: #9aa3b2;
+    --accent: #6ea8fe; --ok: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 24px 18px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 18px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  label {
+    display: block; font-size: 12px; color: var(--dim); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  select, button {
+    font: inherit; color: var(--ink); background: #11141a;
+    border: 1px solid var(--line); border-radius: 7px; padding: 9px 12px;
+  }
+  select { width: 100%; max-width: 360px; }
+  button { cursor: pointer; font-weight: 600; }
+  button.go { background: var(--accent); color: #0b0d11; border-color: transparent; }
+  button.stop { background: var(--bad); color: #1a0b0b; border-color: transparent; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  .transcript {
+    min-height: 120px; font-size: 22px; line-height: 1.65;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .final { color: var(--ink); }
+  .live { color: var(--accent); opacity: .9; }
+  .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--dim); margin-right: 7px; vertical-align: middle;
+  }
+  .dot.on { background: var(--ok); animation: pulse 1.2s infinite; }
+  .dot.err { background: var(--bad); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- Filled in from the server at load. This page is byte-identical in every
+       STT model folder, so it must not name a model: whichever one is deployed
+       says who it is. A hardcoded name is wrong for every other model, and
+       silently wrong for this one after a rename. -->
+  <h1 id="modelName">Live STT<span style="color:var(--dim);font-weight:400"> · model-server</span></h1>
+  <div class="sub">OpenAI Realtime WebSocket · speak and watch words stream</div>
+
+  <div class="panel">
+    <label for="lang">Language</label>
+    <select id="lang">
+      <!-- Populated from GET /v1/languages, which reports what the loaded checkpoint
+           actually supports. The list below is only a fallback for a model that does
+           not serve that route: a static list is a promise this page cannot keep,
+           and the two STT models here already differ -- 23 languages against 25,
+           the second adding Bhojpuri and English. -->
+      <option value="hi">Hindi (hi)</option>
+      <option value="bn">Bengali (bn)</option>
+      <option value="ta">Tamil (ta)</option>
+      <option value="te">Telugu (te)</option>
+    </select>
+    <div class="row">
+      <button class="go" id="start">Start</button>
+      <button class="stop" id="stop" disabled>Stop</button>
+      <span id="status"><span class="dot"></span>idle</span>
+    </div>
+    <p class="hint">Mic needs HTTPS on remote hosts; <code>localhost</code> works over HTTP.</p>
+  </div>
+
+  <div class="panel">
+    <label>Transcript</label>
+    <div class="transcript">
+      <span class="final" id="final"></span><span class="live" id="live"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+// Served two ways, and the page has to behave identically both times: directly
+// from the model on its own port at /demo, and through the gateway at
+// /demo/stt. Under the gateway every model route is slot-prefixed, because STT
+// and TTS both publish /v1/languages with different shapes and one path cannot
+// mean both. The prefix is read off the URL rather than configured, so this file
+// stays copyable into any model folder.
+const SLOT = (location.pathname.match(/\/demo\/(stt|tts|llm)\/?$/) || [])[1] || '';
+const API = SLOT ? '/' + SLOT : '';
+
+// Otherwise exactly the URL the OpenAI Realtime spec describes for a
+// transcription session. The language is configured with session.update below,
+// not here: the server also accepts a `language` query parameter, but that is an
+// extension of ours, and a demo that relied on it would stop being evidence that
+// a client speaking only the published protocol works against this server.
+const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://')
+  + location.host + API + '/v1/realtime?intent=transcription';
+const TARGET_RATE = 24000;
+let deployedModel = null;   // learned from /health at load
+
+// Ask the deployed model who it is and what it speaks. Both are best-effort:
+// the page stays fully usable if either request fails, which matters because
+// this is the tool you reach for when something is already wrong.
+async function describeModel() {
+  try {
+    const r = await fetch(API + '/health');
+    if (r.ok) {
+      const h = await r.json();
+      // Direct from a model, or through the gateway, whose /health reports per slot.
+      const name = h.model || h.checkpoint || h.engine
+        || (h.upstreams && h.upstreams.stt && h.upstreams.stt.model);
+      if (name) {
+        deployedModel = name;
+        document.getElementById('modelName').innerHTML =
+          name + '<span style="color:var(--dim);font-weight:400"> · live STT</span>';
+        document.title = name + ' · Live STT';
+      }
+    }
+  } catch (e) { /* keep the generic title */ }
+
+  try {
+    const r = await fetch(API + '/v1/languages');
+    if (!r.ok) return;
+    const body = await r.json();
+    const langs = Array.isArray(body) ? body : (body.languages || []);
+    if (!langs.length) return;
+    const sel = document.getElementById('lang');
+    const previous = sel.value;
+    sel.innerHTML = '';
+    for (const l of langs) {
+      const code = typeof l === 'string' ? l : (l.code || l.id);
+      const label = (typeof l === 'object' && l.name) ? (l.name + ' (' + code + ')') : code;
+      const o = document.createElement('option');
+      o.value = code; o.textContent = label;
+      sel.appendChild(o);
+    }
+    if ([...sel.options].some(o => o.value === previous)) sel.value = previous;
+  } catch (e) { /* keep the fallback list */ }
+}
+describeModel();
+
+const $ = id => document.getElementById(id);
+let ws = null, ctx = null, node = null, stream = null, sessionReady = false;
+let committed = '', partial = '', pendingStop = false, contentIndex = -1;
+
+function setStatus(text, cls) {
+  $('status').innerHTML = '<span class="dot ' + (cls || '') + '"></span>' + text;
+}
+
+function render() {
+  $('final').textContent = committed;
+  $('live').textContent = partial;
+}
+
+function resetTranscript() {
+  committed = '';
+  partial = '';
+  contentIndex = -1;
+  render();
+}
+
+function sessionUpdate(lang) {
+  return JSON.stringify({
+    type: 'session.update',
+    session: {
+      type: 'transcription',
+      audio: {
+        input: {
+          format: { type: 'audio/pcm', rate: TARGET_RATE },
+          // Whoever answered /health, or null. Naming a model here would tell
+          // the other model it is something it is not; the server answers with
+          // its own identity either way, so null is honest rather than lossy.
+          transcription: { model: deployedModel, language: lang },
+          turn_detection: null,
+        },
+      },
+    },
+  });
+}
+
+function floatToInt16(samples) {
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+}
+
+function downsampleTo24k(float32, fromRate) {
+  if (fromRate === TARGET_RATE) return float32;
+  const ratio = fromRate / TARGET_RATE;
+  const outLen = Math.floor(float32.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    out[i] = float32[Math.floor(i * ratio)];
+  }
+  return out;
+}
+
+function appendAudio(float32) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !sessionReady) return;
+  const pcm = floatToInt16(float32);
+  const bytes = new Uint8Array(pcm.buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const audio = btoa(bin);
+  ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio }));
+}
+
+function handleEvent(evt) {
+  const t = evt.type || '';
+  if (t === 'session.created') {
+    ws.send(sessionUpdate($('lang').value));
+  } else if (t === 'session.updated') {
+    sessionReady = true;
+    startMic();
+  } else if (t === 'conversation.item.input_audio_transcription.delta') {
+    const idx = evt.content_index ?? 0;
+    if (idx !== contentIndex) {
+      partial = '';
+      contentIndex = idx;
+    }
+    partial += evt.delta || '';
+    render();
+  } else if (t === 'conversation.item.input_audio_transcription.completed') {
+    const seg = (evt.transcript || '').trim();
+    partial = '';
+    contentIndex = -1;
+    if (seg) {
+      committed += (committed && !committed.endsWith(' ') ? ' ' : '') + seg;
+    }
+    render();
+    if (pendingStop) finishStop();
+  } else if (t === 'error') {
+    const msg = (evt.error && evt.error.message) || JSON.stringify(evt);
+    setStatus(msg, 'err');
+  }
+}
+
+async function startMic() {
+  setStatus('listening', 'on');
+  $('start').disabled = true;
+  $('stop').disabled = false;
+  $('lang').disabled = true;
+
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const fromRate = ctx.sampleRate;
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    });
+    const src = ctx.createMediaStreamSource(stream);
+    node = ctx.createScriptProcessor(4096, 1, 1);
+    node.onaudioprocess = e => {
+      const raw = e.inputBuffer.getChannelData(0);
+      appendAudio(downsampleTo24k(raw, fromRate));
+    };
+    src.connect(node);
+    node.connect(ctx.destination);
+  } catch (err) {
+    setStatus('mic denied: ' + err.message, 'err');
+    cleanup(false);
+  }
+}
+
+function finishStop() {
+  pendingStop = false;
+  closeWs();
+  $('start').disabled = false;
+  $('stop').disabled = true;
+  $('lang').disabled = false;
+  if (!$('status').querySelector('.dot.err')) {
+    setStatus('idle');
+  }
+}
+
+function closeWs() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close();
+  }
+  ws = null;
+}
+
+function cleanup(sendCommit) {
+  sessionReady = false;
+  if (node) { node.disconnect(); node = null; }
+  if (ctx) { ctx.close().catch(() => {}); ctx = null; }
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  if (sendCommit && ws && ws.readyState === WebSocket.OPEN) {
+    pendingStop = true;
+    try { ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' })); } catch (_) {}
+    setTimeout(() => { if (pendingStop) finishStop(); }, 2500);
+    return;
+  }
+  finishStop();
+}
+
+async function start() {
+  resetTranscript();
+  setStatus('connecting');
+  sessionReady = false;
+
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => setStatus('handshake…');
+  ws.onmessage = ev => {
+    try { handleEvent(JSON.parse(ev.data)); } catch (_) {}
+  };
+  ws.onerror = () => setStatus('websocket error', 'err');
+  ws.onclose = () => {
+    if ($('stop').disabled === false) cleanup(false);
+  };
+}
+
+function stop() {
+  setStatus('stopping…');
+  cleanup(true);
+}
+
+$('start').onclick = start;
+$('stop').onclick = stop;
+</script>
+</body>
+</html>

@@ -33,7 +33,7 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 
 
 def test_union_variant_counts_match_registry():
-    assert len(_union_variants(STTConfig)) == 16
+    assert len(_union_variants(STTConfig)) == 17
     assert len(_union_variants(TTSConfig)) == 22
     assert len(_union_variants(LLMConfig)) == 11
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
@@ -888,6 +888,58 @@ def test_indic_conformer_stt_creator(monkeypatch):
     assert svc._wire_language == "or"
     assert str(svc._settings.language) == "or"
     assert svc._settings.model == "indic-conformer"
+    assert svc._server_vad_enabled is False
+
+
+def test_hima_asr_stt_registered(monkeypatch):
+    from apps.providers.capabilities import model_ids
+    from apps.providers.local.hima_asr.catalog import (
+        STT_CAPABILITIES,
+        resolve_realtime_url,
+        resolve_wire_language,
+    )
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime/"
+    )
+
+    schema = provider_schemas(Kind.STT)["hima_asr"]
+    assert schema["provider_type"] == ProviderType.LOCAL
+    assert schema["name"] == "Hima ASR"
+    assert schema["secrets"] == []
+    assert "api_key" not in schema["fields"]
+    assert "base_url" not in schema["fields"]
+    assert model_ids(STT_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
+
+    lang = schema["fields"]["language"]
+    assert lang["language_codes"]["hima-asr"]["od"] == "or"
+    # 11 Indic languages plus English; no Bhili, Urdu or auto-detect.
+    assert set(lang["examples"]) == {
+        "as", "bn", "en", "gu", "hi", "kn", "ml", "mr", "od", "pa", "ta", "te"
+    }
+    assert "bh" not in lang["examples"]
+    assert "multi" not in lang["examples"]
+
+    assert resolve_wire_language("hima-asr", "od") == "or"
+    assert resolve_wire_language("hima-asr", "en") == "en"
+    assert resolve_realtime_url() == "ws://host.docker.internal:8100/v1/realtime"
+
+
+def test_hima_asr_stt_creator(monkeypatch):
+    pytest.importorskip("pipecat")
+    from apps.providers.local.hima_asr.config import HimaASRSTTConfig
+    from apps.providers.local.hima_asr.stt import HimaASRSTTService
+
+    monkeypatch.setenv(
+        "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
+    )
+
+    svc = STT_CREATORS["hima_asr"](HimaASRSTTConfig(language="od"))
+    assert isinstance(svc, HimaASRSTTService)
+    assert svc._base_url == "ws://host.docker.internal:8100/v1/realtime"
+    assert svc._wire_language == "or"
+    assert str(svc._settings.language) == "or"
+    assert svc._settings.model == "hima-asr"
     assert svc._server_vad_enabled is False
 
 

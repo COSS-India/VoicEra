@@ -67,6 +67,21 @@ def test_realtime_stt_switches_to_wire_code(provider, canonical, wire):
     assert svc._wire_language == wire
 
 
+@pytest.mark.parametrize(("canonical", "wire"), [("od", "or"), ("en", "en"), ("ta", "ta")])
+def test_hima_asr_switches_to_wire_code(canonical, wire):
+    """Same Realtime client as Conformer, but no Bhili and with English."""
+    from apps.providers.registry import STT_CONFIGS
+
+    svc = STT_CREATORS["hima_asr"](STT_CONFIGS["hima_asr"](language="hi"))
+    assert svc._wire_language == "hi"
+
+    changed = _run(svc._update_settings(STTSettings(language=canonical)))
+
+    assert "language" in changed
+    assert str(svc._settings.language) == wire
+    assert svc._wire_language == wire
+
+
 @pytest.mark.parametrize(("canonical", "wire"), [("od", "or"), ("bh", "bhb"), ("bho", "bho")])
 def test_nemotron_switches_to_wire_code(canonical, wire):
     from apps.providers.local.indic_nemotron.config import IndicNemotronSTTConfig

@@ -29,6 +29,10 @@ exclude = [
   "stt/indic-nemotron/session.py",
   "stt/indic-nemotron/openai_api.py",
   "stt/indic-nemotron/audio_io.py",
+  # stt/hima-asr: a copy of indic-conformer's realtime_ws.py, which
+  # tests/test_hima_asr.py pins to differ only in the model name. Restyling
+  # the copy alone would break that pin; fix both or neither.
+  "stt/hima-asr/realtime_ws.py",
   "tts/indic-parler/inference/**",  # the continuous-batching engine
   "tts/indic-mio/config.py",
   "tts/indic-mio/tts_engine.py",

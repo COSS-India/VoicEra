@@ -1,0 +1,16 @@
+# torch/torchaudio come from the CUDA 13 index in the Dockerfile and are
+# deliberately absent here, as in indic-conformer.
+#
+# transformers: the model card requires >= 5.13 (Qwen3-ASR's encoder and
+# feature extractor landed there). Pinned to the version indic-transcribe
+# already builds against, so the GPU box has it cached.
+transformers==5.15.1
+safetensors
+tokenizers
+sentencepiece
+fastapi
+uvicorn[standard]
+websockets
+python-multipart
+numpy
+soundfile

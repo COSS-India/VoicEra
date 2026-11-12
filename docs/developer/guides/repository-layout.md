@@ -112,7 +112,7 @@ apps/providers/
 ├── readme.md
 ├── cloud/          22 vendor folders → provider_type=cloud
 ├── adapters/       bhashini · kenpath → provider_type=adapter
-├── local/          indic_conformer · indic_nemotron · indic_transcribe (STT) · higgs_tts · indic_mio · indic_orpheus · indic_parler · maya2_native · rumik_oss (TTS) → provider_type=local; _openai_speech.py is their shared TTS client
+├── local/          hima_asr · indic_conformer · indic_nemotron · indic_transcribe (STT) · higgs_tts · indic_mio · indic_orpheus · indic_parler · maya2_native · rumik_oss (TTS) → provider_type=local; _openai_speech.py is their shared TTS client
 └── tests/          5 test modules
 ```
 

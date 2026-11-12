@@ -1,0 +1,50 @@
+# hima-asr: what this deployment decides, so nothing is inherited.
+#
+# No sidecar and no extra mounts. The slot already bind-mounts this folder at
+# /app, and fetch.sh puts the checkpoint in models/hima-asr inside it, so the
+# server reads /app/models/hima-asr. This overlay exists only to declare every
+# variable server.py reads -- an undeclared knob is one whose value is whatever
+# the code happened to default to, and this repo has shipped that bug before.
+#
+# The slot contract is unchanged: service `stt` on 8001, /health, the OpenAI
+# POST route and /v1/realtime. Nothing is published on the host.
+
+services:
+  stt:
+    environment:
+      # ---- weights -----------------------------------------------------
+      HIMA_MODEL_PATH: ${HIMA_MODEL_PATH:-/app/models/hima-asr}
+      # The repo's modeling code runs with trust_remote_code. Offline means it
+      # is always the copy fetch.sh pinned, never a fresh pull.
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+
+      # ---- numerics ----------------------------------------------------
+      # float32 is what the model card's own example loads. The weights ship in
+      # bf16 and bfloat16 halves memory (~0.9 GB vs ~1.8 GB), but nobody has
+      # compared transcripts at bf16 yet -- measure before switching.
+      HIMA_DTYPE: ${HIMA_DTYPE:-float32}
+      # Empty = cuda:0 when a GPU is visible, else cpu.
+      HIMA_DEVICE: ${HIMA_DEVICE:-}
+
+      # ---- output ------------------------------------------------------
+      #   native  every word in the language's own script (model default)
+      #   mixed   English words in code-switched speech stay in Latin script
+      HIMA_STYLE: ${HIMA_STYLE:-native}
+
+      # ---- batching ----------------------------------------------------
+      # One worker batches POSTs and realtime interims together, one forward
+      # pass per language in the window.
+      HIMA_MAX_BATCH: ${HIMA_MAX_BATCH:-16}
+      HIMA_BATCH_WINDOW_MS: ${HIMA_BATCH_WINDOW_MS:-50}
+      HIMA_QUEUE_MAXSIZE: ${HIMA_QUEUE_MAXSIZE:-256}
+      # The model card's clip limit. Longer audio is cut at the quietest point
+      # near each 30 s mark and the pieces rejoined.
+      HIMA_MAX_SECONDS: ${HIMA_MAX_SECONDS:-30}
+
+      # ---- realtime (realtime_ws.py) -----------------------------------
+      # Partials come from re-transcribing the open segment this often, as on
+      # indic-conformer. Cost grows with utterance length; at 0.46B that should
+      # be cheap, but it is unmeasured on our GPU.
+      REALTIME_INTERIM_MS: ${HIMA_REALTIME_INTERIM_MS:-600}
+      REALTIME_MAX_SESSIONS: ${HIMA_REALTIME_MAX_SESSIONS:-16}

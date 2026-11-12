@@ -3,7 +3,7 @@ title: STT models
 description: Speech-to-text models and how partial transcripts actually work.
 ---
 
-Three models can fill the STT slot. They cover overlapping sets of Indian languages and all return words while the caller is still speaking — but they get there by different means, at very different GPU cost. That distinction is the substance of this page.
+Four models can fill the STT slot. They cover overlapping sets of Indian languages and all return words while the caller is still speaking — but they get there by different means, at very different GPU cost. That distinction is the substance of this page.
 
 ## Available models
 
@@ -12,6 +12,7 @@ Three models can fill the STT slot. They cover overlapping sets of Indian langua
 | `indic-conformer` | AI4Bharat Indic Conformer 600M | `ready` | 16000 | 23 Indic | no (`WS /v1/realtime`) |
 | `indic-transcribe` | AI4Bharat / BodhanAI Indic-Transcribe 1.2B | `ready` | 16000 | 25 Indian languages | yes (`WS /v1/asr/ws`) |
 | `indic-nemotron` | AI4Bharat Nemotron Streaming ASR 600M | `ready` | 16000 | 27 Indian languages + `en` | yes (`WS /v1/asr/ws`) |
+| `hima-asr` | Hima-ASR 0.46B | `ready` | 16000 | 11 Indic + `en` | no (`WS /v1/realtime`) |
 | `canary` | NVIDIA Canary | `planned` | — | European-language focus | — |
 
 Set the one you want with `STT_MODEL` in `model-server/.env`. Statuses are from `model-server/models.yaml`.
@@ -185,11 +186,25 @@ Admission is capped in the slot's overlay at the measured real-time capacity —
 
 Two campaigns live in `stt/indic-transcribe/bench/`, answering different questions: `docs/BENCHMARKS.md` is the sweep that chose the shipped configuration, and `REPORT.md` plus `LOADTEST.md` measure what that configuration actually does. The two do not transfer — the sweep measured concurrency at `chunk 0.96 / right 0.48`, so quoting it for the live service would overstate capacity by about a factor of two.
 
+## hima-asr
+
+[Hima-ASR](https://huggingface.co/Prahaladha/hima-asr) puts Qwen3-ASR-1.7B's audio encoder in front of a Gemma-3-270M decoder. It is 0.46B in total, the smallest model in the slot, and covers `as bn en gu hi kn ml mr or pa ta te`. It is trained for code-switched speech: `HIMA_STYLE=mixed` keeps English words in Latin script.
+
+It runs on plain HF Transformers with `trust_remote_code` and transcribes whole clips of 1–30 s, so it is served the way indic-conformer is. The routes are the same, `/v1/realtime` reuses the same `realtime_ws.py`, and partials come from re-transcribing the open segment every 600 ms. Audio over 30 s is split at the quietest point near each cut.
+
+```bash
+STT_MODEL=hima-asr make model-server-setup
+```
+
+`fetch.sh` downloads the repo at a pinned commit into `models/hima-asr/` (about 1 GB, public, no token), and the image runs with `HF_HUB_OFFLINE=1`. That way, the modeling code `trust_remote_code` executes is always the reviewed copy. The model card's decision head (tone, intent, urgency) is not served. The decoder is covered by the Gemma Terms of Use. Not yet run on hardware; see `stt/hima-asr/README.md`.
+
 ## Weights and gated repos
 
-Neither model's weights are in the repository.
+No model's weights are in the repository.
 
 **indic-conformer.** `stt/indic-conformer/models/IndicConformer.nemo` is gitignored. `fetch.sh` downloads it (~2.4 GB); `scripts/start-model-server.sh` runs that automatically. The weights live inside the model's own folder, which is what the slot bind-mounts.
+
+**hima-asr.** `fetch.sh` downloads `Prahaladha/hima-asr` at the commit in `HIMA_REVISION` into `models/hima-asr/`, skipping `decide/`. The slot's bind mount of the folder at `/app` is all it needs.
 
 **indic-transcribe.** There is deliberately no `fetch.sh` — preparing this model is a download, a conversion, and two verification gates, and the conversion has to run inside the built image. `SETUP.md` in the folder is the authority. In outline:
 
