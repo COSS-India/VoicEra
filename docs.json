@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "VoicEra",
-  "theme": "maple",
+  "theme": "luma",
   "colors": {
     "primary": "#289C9C",
     "light": "#8B7FE8",
