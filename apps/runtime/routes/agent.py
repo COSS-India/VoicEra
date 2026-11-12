@@ -220,6 +220,7 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
             call_id=call_id,
             agent=agent,
             custom_variables=custom_variables,
+            call_log=call_log,
         )
     except AgentRoutingError as exc:
         logger.warning("Agent routing error agent_id={}: {}", agent_id, exc)

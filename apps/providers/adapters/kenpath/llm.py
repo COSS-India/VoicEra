@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import httpx
-import jwt
 from loguru import logger
 from pipecat.frames.frames import (
     Frame,
@@ -23,7 +22,10 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.utils.tracing.service_decorators import traced_llm
 
+from apps.providers.call_session import ParticipantPhoneMixin
+
 from .call_ending import KenpathCallEndingMixin, response_requests_end_call, strip_goodbye_for_tts
+from .vistaar_jwt import build_vistaar_payload, sign_vistaar_token
 
 ADVISORY_TEXT_PARAM = "advisory_text"
 
@@ -87,7 +89,7 @@ def extract_last_user_message(context: LLMContext) -> str:
     return " ".join(parts)
 
 
-class KenpathLLMService(KenpathCallEndingMixin, LLMService):
+class KenpathLLMService(ParticipantPhoneMixin, KenpathCallEndingMixin, LLMService):
     """Kenpath Vistaar LLM — ``/api/voice/`` for Marathi; ``/api/voice-bhili`` for Bhili."""
 
     def __init__(
@@ -101,12 +103,14 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         target_lang: str = "mr",
         voice_bhili_url: str = "",
         send_greeting_to_llm: bool = False,
+        use_participant_phone: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         if not private_key.strip():
             raise ValueError("Kenpath requires private_key")
 
+        self._use_participant_phone = use_participant_phone
         self._private_key = private_key
         self._jwt_sub = jwt_sub
         self._base_url = base_url.rstrip("/")
@@ -157,15 +161,6 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
     def _session_id(self) -> str:
         return self._call_id or str(uuid.uuid4())
 
-    def _generate_jwt(self) -> str:
-        now = int(time.time())
-        payload = {
-            "sub": self._jwt_sub,
-            "iss": "voice-provider",
-            "iat": now,
-            "exp": now + 3600,
-        }
-        return jwt.encode(payload, self._private_key, algorithm="RS256")
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -272,14 +267,15 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         }
         # Match mono aiohttp behavior: Accept always; JWT only on prod.
         headers = {"Accept": "application/json"}
+        jwt_payload: dict[str, int | str] | None = None
         if self._is_prod:
-            headers["Authorization"] = f"Bearer {self._generate_jwt()}"
-
-        logger.info(
-            "Voice Bhili API request | env={} | session_id={} | query={}...",
-            "prod" if self._is_prod else "dev",
-            session_id,
-            query[:50],
+            token, jwt_payload = self._vistaar_jwt_bundle()
+            headers["Authorization"] = f"Bearer {token}"
+        self._log_kenpath_outbound(
+            label="voice_bhili",
+            url=self._voice_bhili_url,
+            params=params,
+            jwt_payload=jwt_payload,
         )
 
         client = await self._get_client()
@@ -336,21 +332,14 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
             if advisory:
                 params[ADVISORY_TEXT_PARAM] = advisory
                 state.sent = True
-        headers = {"Authorization": f"Bearer {self._generate_jwt()}"}
-        if ADVISORY_TEXT_PARAM in params:
-            logger.info(
-                "Vistaar API request | session_id={} | query={}... | {}_len={}",
-                session_id,
-                query[:50],
-                ADVISORY_TEXT_PARAM,
-                len(params[ADVISORY_TEXT_PARAM]),
-            )
-        else:
-            logger.info(
-                "Vistaar API request | session_id={} | query={}...",
-                session_id,
-                query[:50],
-            )
+        token, jwt_payload = self._vistaar_jwt_bundle()
+        headers = {"Authorization": f"Bearer {token}"}
+        self._log_kenpath_outbound(
+            label="vistaar",
+            url=url,
+            params=params,
+            jwt_payload=jwt_payload,
+        )
 
         client = await self._get_client()
         async with client.stream("GET", url, params=params, headers=headers) as response:
@@ -410,4 +399,31 @@ class KenpathLLMService(KenpathCallEndingMixin, LLMService):
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
             self._client = None
-            logger.info("Kenpath httpx client closed")
+            logger.info("Kenpath httpx client closed")    def _vistaar_jwt_bundle(self) -> tuple[str, dict[str, int | str]]:
+        sub = self._participant_phone or self._jwt_sub
+        payload = build_vistaar_payload(sub=sub, now=int(time.time()))
+        return sign_vistaar_token(payload, self._private_key), payload
+
+    def _generate_jwt(self) -> str:
+        token, _ = self._vistaar_jwt_bundle()
+        return token
+
+    def _log_kenpath_outbound(
+        self,
+        *,
+        label: str,
+        url: str,
+        params: dict[str, Any],
+        jwt_payload: dict[str, int | str] | None = None,
+    ) -> None:
+        sub_source = None
+        if jwt_payload is not None:
+            sub_source = "participant" if self._participant_phone else "jwt_sub"
+        logger.info(
+            "Kenpath outbound | {} | url={} | params={} | jwt_sub_source={} | jwt_claims={}",
+            label,
+            url,
+            params,
+            sub_source,
+            jwt_payload,
+        )

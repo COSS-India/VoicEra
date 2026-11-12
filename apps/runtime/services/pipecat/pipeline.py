@@ -14,6 +14,11 @@ from apps.runtime.services.pipecat.factory import build_pipeline_components
 from apps.runtime.services.pipecat.hold import hold_from_behaviour
 from apps.runtime.services.pipecat.idle import UserOnlineDetectionHandler
 from apps.runtime.services.pipecat.lifecycle import SessionContext, run_with_lifecycle
+from apps.runtime.services.pipecat.call_context import (
+    participant_phone_from_call_log,
+    resolve_call_log,
+    wire_llm_call_session,
+)
 from apps.runtime.services.pipecat.metrics import CallMetricsWriter, register_call_metrics
 
 
@@ -28,6 +33,7 @@ async def run_pipeline(
     custom_variables: dict[str, Any] | None = None,
     session_label: str = "session",
     finalize_call: bool = False,
+    call_log: dict[str, Any] | None = None,
     stt: Any | None = None,
     tts: Any | None = None,
     llm: Any | None = None,
@@ -35,14 +41,15 @@ async def run_pipeline(
     """Shared Pipecat pipeline for telephony and browser WebSocket agents."""
     if stt is None or tts is None or llm is None:
         stt, tts, llm = await build_ai_services(agent)
-    if call_id:
-        for member in llm.services:
-            if hasattr(member, "set_call_id"):
-                member.set_call_id(call_id)
+    session_call_log = await resolve_call_log(org_id, call_id, call_log)
+    participant_phone = participant_phone_from_call_log(session_call_log)
     system_prompt, greeting = prompts(agent, custom_variables=custom_variables)
-    for member in llm.services:
-        if hasattr(member, "set_spoken_greeting"):
-            member.set_spoken_greeting(greeting)
+    wire_llm_call_session(
+        llm,
+        call_id=call_id,
+        participant_phone=participant_phone,
+        spoken_greeting=greeting,
+    )
     behaviour = (agent.get("config") or {}).get("behaviour") or {}
     config = pipeline_config_from_behaviour(behaviour)
     hold_handler = hold_from_behaviour(behaviour, tts)

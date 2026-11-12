@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from ...base import BaseLLMConfig, BaseLLMSettings
 from .catalog import (
@@ -28,7 +28,7 @@ class KenpathAuth(BaseModel):
     private_key: str = Field(
         default="",
         description=(
-            "RSA PEM for Vistaar JWTs (iss=voice-provider). "
+            "RSA PEM for Vistaar JWTs (iss=voice era). "
             f"Mono: jwt_private_key.pem. Catalog auth secret: {VISTAAR_AUTH_SECRET}."
         ),
         json_schema_extra={"multiline": True, "secret": True},
@@ -54,7 +54,23 @@ class KenpathAuth(BaseModel):
 class KenpathLLMSettings(BaseLLMSettings):
     jwt_sub: str = Field(
         default="+91-9036722772",
-        description="JWT subject (phone) claim for Vistaar /api/voice/ (ignored for Bharat Vistaar).",
+        description=(
+            "Fallback JWT sub for Vistaar /api/voice/ when the call participant phone "
+            "is unavailable (ignored for Bharat Vistaar)."
+        ),
+    )
+    send_phone_number_to_llm: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("send_phone_number_to_llm", "use_participant_phone"),
+        description=(
+            "When enabled, send the telephony caller/callee number to the LLM "
+            "(Kenpath Vistaar JWT sub when available)."
+        ),
+        json_schema_extra={
+            "label": "Send phone number to LLM",
+            "input_type": "switch",
+            "examples": [False, True],
+        },
     )
     send_greeting_to_llm: bool = Field(
         default=False,
