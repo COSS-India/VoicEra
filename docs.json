@@ -1,9 +1,9 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "VoicEra",
-  "theme": "mint",
+  "theme": "maple",
   "colors": {
-    "primary": "#248F8F",
+    "primary": "#289C9C",
     "light": "#8B7FE8",
     "dark": "#5B4FCF"
   },
@@ -270,5 +270,15 @@
     { "source": "/reference/rest-api", "destination": "/docs/api-reference/overview" },
     { "source": "/reference/endpoints-cheatsheet", "destination": "/docs/api-reference/endpoints-cheatsheet" },
     { "source": "/reference/data-model", "destination": "/docs/developer/reference/data-model" }
-  ]
+  ],
+  "seo": {
+    "metatags": {
+      "domain": "voice",
+      "domain1": "voice ai"
+    },
+    "indexing": "navigable"
+  },
+  "icons": {
+    "library": "lucide"
+  }
 }
