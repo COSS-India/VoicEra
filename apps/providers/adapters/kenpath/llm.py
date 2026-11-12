@@ -161,6 +161,34 @@ class KenpathLLMService(ParticipantPhoneMixin, KenpathCallEndingMixin, LLMServic
     def _session_id(self) -> str:
         return self._call_id or str(uuid.uuid4())
 
+    def _vistaar_jwt_bundle(self) -> tuple[str, dict[str, int | str]]:
+        sub = self._participant_phone or self._jwt_sub
+        payload = build_vistaar_payload(sub=sub, now=int(time.time()))
+        return sign_vistaar_token(payload, self._private_key), payload
+
+    def _generate_jwt(self) -> str:
+        token, _ = self._vistaar_jwt_bundle()
+        return token
+
+    def _log_kenpath_outbound(
+        self,
+        *,
+        label: str,
+        url: str,
+        params: dict[str, Any],
+        jwt_payload: dict[str, int | str] | None = None,
+    ) -> None:
+        sub_source = None
+        if jwt_payload is not None:
+            sub_source = "participant" if self._participant_phone else "jwt_sub"
+        logger.info(
+            "Kenpath outbound | {} | url={} | params={} | jwt_sub_source={} | jwt_claims={}",
+            label,
+            url,
+            params,
+            sub_source,
+            jwt_payload,
+        )
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -399,31 +427,4 @@ class KenpathLLMService(ParticipantPhoneMixin, KenpathCallEndingMixin, LLMServic
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
             self._client = None
-            logger.info("Kenpath httpx client closed")    def _vistaar_jwt_bundle(self) -> tuple[str, dict[str, int | str]]:
-        sub = self._participant_phone or self._jwt_sub
-        payload = build_vistaar_payload(sub=sub, now=int(time.time()))
-        return sign_vistaar_token(payload, self._private_key), payload
-
-    def _generate_jwt(self) -> str:
-        token, _ = self._vistaar_jwt_bundle()
-        return token
-
-    def _log_kenpath_outbound(
-        self,
-        *,
-        label: str,
-        url: str,
-        params: dict[str, Any],
-        jwt_payload: dict[str, int | str] | None = None,
-    ) -> None:
-        sub_source = None
-        if jwt_payload is not None:
-            sub_source = "participant" if self._participant_phone else "jwt_sub"
-        logger.info(
-            "Kenpath outbound | {} | url={} | params={} | jwt_sub_source={} | jwt_claims={}",
-            label,
-            url,
-            params,
-            sub_source,
-            jwt_payload,
-        )
+            logger.info("Kenpath httpx client closed")
