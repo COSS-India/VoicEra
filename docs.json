@@ -4,8 +4,8 @@
   "theme": "luma",
   "colors": {
     "primary": "#2563EB",
-    "light": "#85A8F4",
-    "dark": "#0C3CA6"
+    "light": "#0C2D74",
+    "dark": "#82A4F1"
   },
   "navbar": {
     "links": [
