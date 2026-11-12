@@ -280,5 +280,11 @@
   },
   "icons": {
     "library": "lucide"
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "background": {
+    "decoration": "grid"
   }
 }
