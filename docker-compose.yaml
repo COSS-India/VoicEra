@@ -6,12 +6,14 @@
 # file. Running `docker compose up` against a fresh checkout without .env will
 # fail or come up misconfigured (SECRET_KEY / INTERNAL_API_KEY / PROVIDER_AUTH_ENCRYPTION_KEY).
 #
-# Container names use the voicera_oss_* prefix for a stable, unique identity.
+# Container names use the voicera_launchpad_* prefix so this stack can run beside
+# other Voicera stacks on a shared host (e.g. ace-k2). Set COMPOSE_PROJECT_NAME
+# in .env too, or volumes/networks collide with any stack named after its folder.
 
 services:
   postgres:
     image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
-    container_name: voicera_oss_postgres
+    container_name: voicera_launchpad_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: "${MONGODB_USER:-admin}"
@@ -35,10 +37,10 @@ services:
 
   ferretdb:
     image: ghcr.io/ferretdb/ferretdb:2.7.0
-    container_name: voicera_oss_ferretdb
+    container_name: voicera_launchpad_ferretdb
     restart: unless-stopped
     ports:
-      - "${FERRETDB_HOST_PORT:-27018}:27017"
+      - "${HOST_BIND_IP:-127.0.0.1}:${FERRETDB_HOST_PORT:-27018}:27017"
     environment:
       FERRETDB_POSTGRESQL_URL: "postgres://${MONGODB_USER:-admin}:${MONGODB_PASSWORD:-admin123}@postgres:5432/postgres"
     logging:
@@ -58,10 +60,10 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    container_name: voicera_oss_api
+    container_name: voicera_launchpad_api
     restart: unless-stopped
     ports:
-      - "${API_HOST_PORT:-8000}:8000"
+      - "${HOST_BIND_IP:-127.0.0.1}:${API_HOST_PORT:-8000}:8000"
     env_file:
       - .env
     extra_hosts:
@@ -86,7 +88,7 @@ services:
       KB_EMBEDDING_MODEL: "${KB_EMBEDDING_MODEL:-text-embedding-3-small}"
       REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
       # Model-server gateway for local provider readiness (configuration authenticated).
-      MODEL_SERVER_URL: http://host.docker.internal:8100/v1
+      MODEL_SERVER_URL: http://host.docker.internal:${MODEL_SERVER_HOST_PORT:-8100}/v1
       # DEBUG comes from root .env via env_file only — do not interpolate
       # ${DEBUG} here; the host shell often exports DEBUG=release and would
       # override a boolean False from .env.
@@ -111,12 +113,12 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: voicera_oss_minio
+    container_name: voicera_launchpad_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "${HOST_BIND_IP:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
+      - "${HOST_BIND_IP:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin123}"
@@ -138,7 +140,7 @@ services:
 
   minio-init:
     image: minio/mc:latest
-    container_name: voicera_oss_minio_init
+    container_name: voicera_launchpad_minio_init
     depends_on:
       minio:
         condition: service_healthy
@@ -156,7 +158,7 @@ services:
 
   redis:
     image: redis:7
-    container_name: voicera_oss_redis
+    container_name: voicera_launchpad_redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:-redissecret}
     logging:
@@ -179,7 +181,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    container_name: voicera_oss_arq_worker
+    container_name: voicera_launchpad_arq_worker
     restart: unless-stopped
     env_file:
       - .env
@@ -223,7 +225,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    container_name: voicera_oss_campaign_orchestrator
+    container_name: voicera_launchpad_campaign_orchestrator
     restart: unless-stopped
     env_file:
       - .env
@@ -258,10 +260,10 @@ services:
     build:
       context: .
       dockerfile: apps/runtime/Dockerfile
-    container_name: voicera_oss_runtime
+    container_name: voicera_launchpad_runtime
     restart: unless-stopped
     ports:
-      - "${RUNTIME_HOST_PORT:-7860}:7860"
+      - "${HOST_BIND_IP:-127.0.0.1}:${RUNTIME_HOST_PORT:-7860}:7860"
     env_file:
       - .env
     extra_hosts:
@@ -270,10 +272,10 @@ services:
       API_BASE_URL: http://api:8000/api/v1
       MINIO_ENDPOINT: minio:9000
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
-      MODEL_SERVER_WS_URL: ws://host.docker.internal:8100/v1/asr/ws
+      MODEL_SERVER_WS_URL: ws://host.docker.internal:${MODEL_SERVER_HOST_PORT:-8100}/v1/asr/ws
       # OpenAI Realtime transcription (indic_conformer, indic_transcribe).
-      MODEL_SERVER_REALTIME_URL: ws://host.docker.internal:8100/v1/realtime
-      MODEL_SERVER_URL: http://host.docker.internal:8100/v1
+      MODEL_SERVER_REALTIME_URL: ws://host.docker.internal:${MODEL_SERVER_HOST_PORT:-8100}/v1/realtime
+      MODEL_SERVER_URL: http://host.docker.internal:${MODEL_SERVER_HOST_PORT:-8100}/v1
     logging:
       driver: "json-file"
       options:
@@ -294,11 +296,11 @@ services:
       args:
         NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}"
 
-    container_name: voicera_oss_frontend
+    container_name: voicera_launchpad_frontend
     restart: unless-stopped
 
     ports:
-      - "${FRONTEND_HOST_PORT:-3000}:3000"
+      - "${HOST_BIND_IP:-127.0.0.1}:${FRONTEND_HOST_PORT:-3000}:3000"
 
     env_file:
       - .env

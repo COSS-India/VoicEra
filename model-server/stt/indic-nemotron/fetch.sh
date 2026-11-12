@@ -173,5 +173,5 @@ echo "(no service name: this model's overlay also configures the gateway, and"
 echo " 'up -d --build stt' would leave the gateway pointed at the wrong port)"
 echo
 echo "Then confirm WHICH Bhili checkpoint loaded -- /health only says that one did:"
-echo "  docker logs voicera_model_stt 2>&1 | grep 'Loading bhili'"
+echo "  docker logs voicera_launchpad_model_stt 2>&1 | grep 'Loading bhili'"
 echo "  # expect: .../$BHILI_DIR/$BHILI_FILE"

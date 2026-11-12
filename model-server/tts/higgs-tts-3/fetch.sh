@@ -11,7 +11,7 @@
 # network problem surfaces at the latest possible moment. Here it surfaces
 # first, with a progress bar.
 #
-# It downloads INTO THE VOLUME the sidecar reads (voicera-model-server_hf_cache,
+# It downloads INTO THE VOLUME the sidecar reads (voicera-launchpad-model_hf_cache,
 # at /root/.cache/huggingface), using a throwaway python container, so the
 # files are where the sidecar looks and nothing lands on the host's own disk.
 #
@@ -38,7 +38,7 @@ HIGGS_MODEL_ID=${HIGGS_MODEL_ID:-$(from_env_file HIGGS_MODEL_ID)}
 USE_SHARED_HF_CACHE=${USE_SHARED_HF_CACHE:-$(from_env_file USE_SHARED_HF_CACHE)}
 
 REPO=${HIGGS_MODEL_ID:-bosonai/higgs-tts-3-4b}
-VOLUME=${HIGGS_HF_CACHE_VOLUME:-voicera-model-server_hf_cache}
+VOLUME=${HIGGS_HF_CACHE_VOLUME:-voicera-launchpad-model_hf_cache}
 # Only the files a checkpoint load needs; skips anything else the repo carries.
 WANT=config.json
 

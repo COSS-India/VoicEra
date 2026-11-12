@@ -19,7 +19,7 @@
 services:
   vllm-mio:
     image: vllm/vllm-openai:v0.27.1
-    container_name: voicera_model_tts_vllm
+    container_name: voicera_launchpad_model_tts_vllm
     restart: unless-stopped
     command:
       - --model=SPRINGLab/Indic-Mio

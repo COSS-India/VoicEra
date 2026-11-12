@@ -49,7 +49,7 @@ services:
       #   * nothing found -> bhili_model is None and resolve_model_and_prompt
       #                      routes `bhb` to the multilingual model instead.
       # Check the load line instead:
-      #   docker logs voicera_model_stt 2>&1 | grep 'Loading bhili'
+      #   docker logs voicera_launchpad_model_stt 2>&1 | grep 'Loading bhili'
       #
       # The prompt pin AI4Bharat's inference script warns about (bhb pinned:
       # WER 33.2, random prompt: 50.3, `auto`: 66.8) is already how this engine

@@ -30,7 +30,7 @@ services:
         SGLANG_OMNI_REF: v${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
         SGLANG_OMNI_COMMIT: ${HIGGS_SGLANG_OMNI_COMMIT:-8200f49934d66de591c035cab1c626c0600905fa}
     image: voicera/model-tts-higgs-sglang:${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
-    container_name: voicera_model_tts_higgs_sglang
+    container_name: voicera_launchpad_model_tts_higgs_sglang
     restart: unless-stopped
     # A long utterance is a long generation; give in-flight streams room on a
     # redeploy instead of the default 10 s SIGKILL.

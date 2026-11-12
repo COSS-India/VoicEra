@@ -16,7 +16,7 @@
 # nothing binds to the host, so this stack sits beside the prod and translate
 # stacks without competing for ports.
 
-name: voicera-model-server
+name: voicera-launchpad-model
 
 # GPU placement, per slot.
 #
@@ -87,7 +87,7 @@ services:
       context: .
       dockerfile: gateway/Dockerfile
     image: voicera/model-gateway:latest
-    container_name: voicera_model_gateway
+    container_name: voicera_launchpad_model_gateway
     restart: unless-stopped
     ports:
       - "${GATEWAY_PORT:-8100}:8000"
@@ -143,7 +143,7 @@ services:
         # repo; override with NEMO_CONTEXT_PATH in .env.
         nemo: ${NEMO_CONTEXT_PATH:-../../ai4bharat_nemo}
     image: voicera/model-stt:${STT_MODEL:-indic-conformer}
-    container_name: voicera_model_stt
+    container_name: voicera_launchpad_model_stt
     restart: unless-stopped
     environment:
       <<: *alloc
@@ -181,7 +181,7 @@ services:
     build:
       context: ./tts/${TTS_MODEL:-indic-parler}
     image: voicera/model-tts:${TTS_MODEL:-indic-parler}
-    container_name: voicera_model_tts
+    container_name: voicera_launchpad_model_tts
     restart: unless-stopped
     environment:
       <<: *alloc
@@ -223,7 +223,7 @@ services:
     build:
       context: ./llm/${LLM_MODEL:-qwen3.5-4b}
     image: voicera/model-llm:${LLM_MODEL:-qwen3.5-4b}
-    container_name: voicera_model_llm
+    container_name: voicera_launchpad_model_llm
     restart: unless-stopped
     environment:
       <<: *alloc
