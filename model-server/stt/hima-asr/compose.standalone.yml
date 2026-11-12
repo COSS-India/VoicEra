@@ -1,0 +1,124 @@
+# Hima-ASR on its own: a test stack beside everything else on the box.
+#
+# The slot overlay (compose.extra.yml) puts Hima INTO the model-server stack's
+# STT slot, which replaces whatever that slot runs -- on ace-h200, production's
+# indic-nemotron. This file runs the same server as a separate Compose project
+# instead, the way tts/higgs-tts-3/compose.standalone.yml does. Nothing here is
+# named like, or binds anything used by, another stack:
+#
+#   containers  voicera_hima_test_{stt,gateway,tunnel}
+#   images      voicera-hima-test/*        (never retags an image another stack runs)
+#   network     voicera-hima-test_default
+#   port        127.0.0.1:${HIMA_TEST_PORT:-18201} -> this stack's gateway, localhost only
+#   GPU         ${HIMA_TEST_GPU:-1}
+#
+# A gateway sits in front so the demo is at /demo/stt exactly as on the real
+# stack -- the page detects that path and calls /stt/health, /stt/v1/languages
+# and /stt/v1/realtime, which only the gateway routes. It is the stock gateway
+# with STT_MODEL=hima-asr and no other slot.
+#
+#   cd model-server
+#   sh stt/hima-asr/fetch.sh
+#   docker compose -p voicera-hima-test --project-directory . \
+#       -f stt/hima-asr/compose.standalone.yml --profile tunnel up -d --build
+#   docker logs voicera_hima_test_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com'
+#   # then open <that URL>/demo/stt
+#
+# --profile tunnel is opt-in. Without it the stack is reachable only on the box,
+# at http://127.0.0.1:18201/demo/stt. WITH it, ANYONE WHO HAS THE URL CAN USE
+# THE MODEL: the gateway has no auth, as on the real stack. The URL is random and
+# changes on every tunnel start; `docker compose ... stop tunnel` closes it.
+#
+# Paths resolve against --project-directory (model-server/), as in the overlay.
+#
+# The stt environment MUST match compose.extra.yml's -- same variables, same
+# defaults -- or this tests a different deployment from the one the slot runs.
+# tests/test_hima_asr.py compares the two.
+
+name: voicera-hima-test
+
+services:
+  stt:
+    build:
+      context: ./stt/hima-asr
+    image: voicera-hima-test/stt:local
+    container_name: voicera_hima_test_stt
+    restart: unless-stopped
+    # No host port: reached through the gateway below, or `docker exec` for probe.py.
+    environment:
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      PORT: 8001
+      HIMA_MODEL_PATH: ${HIMA_MODEL_PATH:-/app/models/hima-asr}
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HIMA_DTYPE: ${HIMA_DTYPE:-float32}
+      HIMA_DEVICE: ${HIMA_DEVICE:-}
+      HIMA_STYLE: ${HIMA_STYLE:-native}
+      HIMA_MAX_BATCH: ${HIMA_MAX_BATCH:-16}
+      HIMA_BATCH_WINDOW_MS: ${HIMA_BATCH_WINDOW_MS:-50}
+      HIMA_QUEUE_MAXSIZE: ${HIMA_QUEUE_MAXSIZE:-256}
+      HIMA_MAX_SECONDS: ${HIMA_MAX_SECONDS:-30}
+      REALTIME_INTERIM_MS: ${HIMA_REALTIME_INTERIM_MS:-600}
+      REALTIME_MAX_SESSIONS: ${HIMA_REALTIME_MAX_SESSIONS:-16}
+    volumes:
+      # As the slot does: the folder at /app, so models/hima-asr from fetch.sh
+      # and tools/ are both visible, and editing server.py needs no rebuild.
+      - ./stt/hima-asr:/app
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${HIMA_TEST_GPU:-1}"]
+              capabilities: [gpu]
+
+  # The stock model-server gateway, holding only the STT slot. Its image tag is
+  # this project's own, so nothing here retags voicera/model-gateway:latest,
+  # which prod's gateway runs.
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    image: voicera-hima-test/gateway:local
+    container_name: voicera_hima_test_gateway
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${HIMA_TEST_PORT:-18201}:8000"
+    environment:
+      STT_MODEL: hima-asr
+      STT_UPSTREAM: http://stt:8001
+    volumes:
+      - ./models.yaml:/app/app/models.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/v1/models',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - stt
+
+  # Opt-in (--profile tunnel): a Cloudflare quick tunnel to this stack's
+  # gateway, over the project's own network. Temporary https://*.trycloudflare.com
+  # URL, no account; it changes on every start. Read it with
+  #   docker logs voicera_hima_test_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com'
+  # https matters: browsers only give a page the microphone on a secure origin.
+  # Same image the box's other tunnels run; pull_policy missing means it is not
+  # re-pulled, so they are never touched.
+  tunnel:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    pull_policy: missing
+    container_name: voicera_hima_test_tunnel
+    restart: "no"
+    command: ["tunnel", "--no-autoupdate", "--url", "http://gateway:8000"]
+    depends_on:
+      - gateway

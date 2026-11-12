@@ -381,3 +381,49 @@ async def test_realtime_unsupported_language_errors_and_ends_turn(hima):
         events = await _until(ws, "input_audio_buffer.committed")
         errors = [e for e in events if e["type"] == "error"]
         assert errors and "ks" in errors[0]["error"]["message"]
+
+
+# ---- standalone test stack ---------------------------------------------------
+
+
+def test_standalone_environment_matches_the_slot_overlay():
+    """compose.standalone.yml must run the deployment the slot would run, or a
+    measurement on the test stack says nothing about the slot."""
+    import yaml
+
+    overlay = yaml.safe_load((MODEL_DIR / "compose.extra.yml").read_text())
+    standalone = yaml.safe_load((MODEL_DIR / "compose.standalone.yml").read_text())
+    slot_env = overlay["services"]["stt"]["environment"]
+    test_env = standalone["services"]["stt"]["environment"]
+    for key, value in slot_env.items():
+        assert test_env.get(key) == value, key
+
+
+def test_standalone_stack_cannot_touch_another_stack():
+    import yaml
+
+    doc = yaml.safe_load((MODEL_DIR / "compose.standalone.yml").read_text())
+    assert doc["name"] == "voicera-hima-test"
+    for name, svc in doc["services"].items():
+        assert svc["container_name"].startswith("voicera_hima_test_"), name
+        if "build" in svc:
+            assert svc["image"].startswith("voicera-hima-test/"), name
+        # localhost only: the box's public model port belongs to prod's gateway
+        assert all(p.startswith("127.0.0.1:") for p in svc.get("ports", [])), name
+    # the model itself publishes nothing; only this stack's gateway does
+    assert "ports" not in doc["services"]["stt"]
+
+
+def test_standalone_demo_is_reachable_at_demo_stt():
+    """The tunnel points at the gateway, and the gateway at hima -- so the page
+    is at /demo/stt and its /stt/... calls resolve, as on the real stack."""
+    import yaml
+
+    doc = yaml.safe_load((MODEL_DIR / "compose.standalone.yml").read_text())
+    services = doc["services"]
+    gw = services["gateway"]["environment"]
+    assert gw["STT_MODEL"] == "hima-asr"
+    assert gw["STT_UPSTREAM"] == "http://stt:8001"
+    tunnel = services["tunnel"]
+    assert tunnel["profiles"] == ["tunnel"]
+    assert tunnel["command"][-1] == "http://gateway:8000"

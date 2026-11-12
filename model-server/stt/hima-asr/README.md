@@ -69,6 +69,8 @@ slot's contract is audio in, text out. `fetch.sh` skips `decide/`.
 | `server.py` | ours |
 | `realtime_ws.py`, `realtime_protocol.py` | indic-conformer's, see above |
 | `static/realtime.html` | indic-conformer's demo page, unchanged |
+| `compose.standalone.yml` | the same server, plus a gateway and an optional quick tunnel, as a separate test project; see below |
+| `tools/probe.py` | transcripts, RTF, time to first partial, concurrency |
 
 ## Why the commit is pinned
 
@@ -101,6 +103,55 @@ Hima's own parts (the projector, its training changes and its inference code)
 and the Qwen3-ASR encoder are Apache-2.0. The decoder is derived from Gemma 3,
 so it is covered by the **Gemma Terms of Use**, including the prohibited-use
 policy. Redistribution has to pass those terms on; see `NOTICE` in the HF repo.
+
+## Trying it on a shared box
+
+`compose.standalone.yml` runs the same server as its own Compose project, so
+nothing else on the box is touched, prod's STT slot included. It has its own
+containers (`voicera_hima_test_{stt,gateway,tunnel}`), images and network, and
+runs on GPU 1 by default. The test asserts that its environment matches
+`compose.extra.yml`.
+
+The stock gateway sits in front of the model, so the demo is at **`/demo/stt`**,
+exactly as on the real stack. With `--profile tunnel`, a Cloudflare quick
+tunnel gives it a public `https://*.trycloudflare.com` URL. That URL needs no
+account, and https is what lets the browser use the microphone.
+
+```bash
+cd model-server
+sh stt/hima-asr/fetch.sh
+docker compose -p voicera-hima-test --project-directory . \
+    -f stt/hima-asr/compose.standalone.yml --profile tunnel up -d --build
+docker logs -f voicera_hima_test_stt          # until "Application startup complete"
+docker logs voicera_hima_test_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com'
+# open <that URL>/demo/stt
+```
+
+**Anyone who has the URL can use the model**, because the gateway has no auth,
+as on the real stack. The URL is random, and it changes every time the tunnel
+starts. Close it with `docker compose -p voicera-hima-test --project-directory . -f
+stt/hima-asr/compose.standalone.yml stop tunnel`. Without the profile, the
+stack is reachable only on the box, at `http://127.0.0.1:18201/demo/stt`.
+
+`tools/probe.py` measures it from inside the container. Copy a few call
+recordings into this folder first; it is mounted at `/app`.
+
+```bash
+docker exec voicera_hima_test_stt python3 tools/probe.py post call1.wav call2.wav --language hi
+docker exec voicera_hima_test_stt python3 tools/probe.py live call1.wav --language hi
+docker exec voicera_hima_test_stt python3 tools/probe.py live call1.wav --language hi --sessions 16
+```
+
+`live` streams at real-time pace in 100 ms chunks, the way Pipecat does. It
+reports two numbers, plus their p50/p95 across sessions when `--sessions` is
+used:
+
+- **`first_partial_ms`:** time from first audio to the first word back.
+- **`final_ms`:** time from commit to the final transcript, which is what a
+  caller waits after they stop talking.
+
+Tear down with
+`docker compose -p voicera-hima-test --project-directory . -f stt/hima-asr/compose.standalone.yml down`.
 
 ## Status
 
