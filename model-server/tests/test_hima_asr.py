@@ -137,6 +137,9 @@ def test_fetch_pins_a_commit_and_image_runs_offline():
     dockerfile = (MODEL_DIR / "Dockerfile").read_text()
     assert "HF_HUB_OFFLINE=1" in dockerfile
     assert "--from=nemo" not in dockerfile
+    # Triton compiles a C helper at first use; without a compiler the first
+    # decode fails after the weights load (ace-h200, first start).
+    assert "build-essential" in dockerfile and "python3-dev" in dockerfile
 
 
 # ---- pure helpers ----------------------------------------------------------

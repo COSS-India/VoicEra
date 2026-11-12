@@ -15,8 +15,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
 
+# build-essential + python3-dev are RUNTIME dependencies here, not build ones.
+# PyTorch dispatches some of Gemma's ops (the rotary-embedding bmm) to Triton
+# kernels, and Triton compiles a small C helper the first time it runs. With no
+# compiler in the image the first decode dies with "Failed to find C compiler"
+# -- which is how the first start on ace-h200 failed, after the weights had
+# loaded fine. indic-conformer's image installs the same two packages.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-pip libsndfile1 curl \
+      python3 python3-pip python3-dev build-essential libsndfile1 curl \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
