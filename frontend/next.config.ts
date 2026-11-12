@@ -22,6 +22,14 @@ const nextConfig: NextConfig = {
   // trailing-slash redirect would strip the slash from `/api/v1/campaign/`
   // before the rewrite ever runs, so this must stay off.
   skipTrailingSlashRedirect: true,
+  // Launchpad: self-signup disabled — accounts are provisioned by operators.
+  // Signup pages and legacy invite links bounce to the login page.
+  async redirects() {
+    return [
+      { source: "/signup", destination: "/", permanent: false },
+      { source: "/add-member/:path*", destination: "/", permanent: false },
+    ];
+  },
   async rewrites() {
     const apiProxyTarget = (
       process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000"

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+// Launchpad: self-signup disabled — accounts are provisioned by operators.
+// import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { AuthHero } from "@/components/auth/AuthHero";
@@ -131,12 +132,14 @@ export default function SignInPage() {
             </button>
           </form>
 
+          {/* Launchpad: self-signup disabled — accounts are provisioned by operators.
           <p className="text-center text-xs text-v-muted">
             Don&rsquo;t have an account?{" "}
             <Link href="/signup" className="font-medium text-v-accent hover:text-v-accent-deep">
               Sign up
             </Link>
           </p>
+          */}
         </motion.div>
       </div>
     </main>

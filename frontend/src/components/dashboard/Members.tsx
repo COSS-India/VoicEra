@@ -237,7 +237,9 @@ export function Members({ onNotify }: { onNotify: (title: string, note: string) 
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [inviteOpen, setInviteOpen] = useState(false);
 
-  const canInvite = session?.role === "admin" || session?.role === "super_admin";
+  // Launchpad: self-signup disabled, so invite links (/signup?org=…) are dead.
+  // const canInvite = session?.role === "admin" || session?.role === "super_admin";
+  const canInvite = false;
   const canManage = session?.role === "super_admin";
 
   const counts = useMemo(
