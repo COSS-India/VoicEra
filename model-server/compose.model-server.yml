@@ -86,7 +86,7 @@ services:
     build:
       context: .
       dockerfile: gateway/Dockerfile
-    image: voicera/model-gateway:latest
+    image: voicera-launchpad/model-gateway:latest
     container_name: voicera_launchpad_model_gateway
     restart: unless-stopped
     ports:
@@ -142,7 +142,7 @@ services:
         # moved a level deeper. Default assumes ~/ai4bharat_nemo beside the
         # repo; override with NEMO_CONTEXT_PATH in .env.
         nemo: ${NEMO_CONTEXT_PATH:-../../ai4bharat_nemo}
-    image: voicera/model-stt:${STT_MODEL:-indic-conformer}
+    image: voicera-launchpad/model-stt:${STT_MODEL:-indic-conformer}
     container_name: voicera_launchpad_model_stt
     restart: unless-stopped
     environment:
@@ -180,7 +180,7 @@ services:
     profiles: ["tts"]
     build:
       context: ./tts/${TTS_MODEL:-indic-parler}
-    image: voicera/model-tts:${TTS_MODEL:-indic-parler}
+    image: voicera-launchpad/model-tts:${TTS_MODEL:-indic-parler}
     container_name: voicera_launchpad_model_tts
     restart: unless-stopped
     environment:
@@ -222,7 +222,7 @@ services:
     profiles: ["llm"]
     build:
       context: ./llm/${LLM_MODEL:-qwen3.5-4b}
-    image: voicera/model-llm:${LLM_MODEL:-qwen3.5-4b}
+    image: voicera-launchpad/model-llm:${LLM_MODEL:-qwen3.5-4b}
     container_name: voicera_launchpad_model_llm
     restart: unless-stopped
     environment:

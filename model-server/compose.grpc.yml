@@ -26,7 +26,7 @@ services:
     profiles: ["stt"]
     build:
       context: ./stt/_grpc
-    image: voicera/model-stt-grpc:latest
+    image: voicera-launchpad/model-stt-grpc:latest
     container_name: voicera_launchpad_model_stt_grpc
     restart: unless-stopped
     environment:
