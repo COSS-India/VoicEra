@@ -274,7 +274,10 @@
   "seo": {
     "metatags": {
       "domain": "voice",
-      "domain1": "voice ai"
+      "domain1": "voice ai",
+      "stt": "stt",
+      "tts": "tts",
+      "llm": "llm"
     },
     "indexing": "navigable"
   },
