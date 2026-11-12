@@ -6,9 +6,9 @@
 # file. Running `docker compose up` against a fresh checkout without .env will
 # fail or come up misconfigured (SECRET_KEY / INTERNAL_API_KEY / PROVIDER_AUTH_ENCRYPTION_KEY).
 #
-# Container names use the voicera_launchpad_* prefix so this stack can run beside
-# other Voicera stacks on a shared host (e.g. ace-k2). Set COMPOSE_PROJECT_NAME
-# in .env too, or volumes/networks collide with any stack named after its folder.
+# Container names use the voicera_launchpad_* prefix so this stack can run
+# alongside other Voicera deployments on the same host. COMPOSE_PROJECT_NAME in
+# .env must also be unique to keep volumes and networks isolated.
 
 services:
   postgres:
