@@ -1,0 +1,8 @@
+# Mintlify serves the repository root and injects every .js and .css file it
+# finds into every docs page. Keep it to docs/ and docs.json only.
+# Leading "/" anchors to the root: docs/developer/{frontend,model-server}/ must stay.
+/.venv/
+/apps/
+/frontend/
+/model-server/
+/scripts/

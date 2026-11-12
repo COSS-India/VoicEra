@@ -115,6 +115,8 @@ Both are uploaded **at call end**, not streamed. The transcript is buffered in m
 
 After each upload the runtime PATCHes the CallLog with a `minio://bucket/key` URI via `PATCH /api/v1/calls/{call_id}`. Upload failures are logged as warnings and leave the URL field `null` — a failed artifact never fails the call.
 
+A third kind of object can appear in the same prefix later: `translation.{lang}.{prompt_version}.txt`, written by the API — not the runtime — the first time someone translates the transcript into `{lang}` with `POST /api/v1/calls/{call_id}/translate`. It is a cache, so later requests for that language skip the LLM; `prompt_version` is a hash of the translation prompt, so changing the prompt makes old translations unreachable rather than serving them. Nothing on the CallLog points at it. Because it shares the call's prefix, deleting a call's artifacts means deleting the whole `{org_id}/{call_id}/` prefix, not just the two files above. See [Calls](../../api-reference/calls#post-callscall_idtranslate) for its limits and errors.
+
 ## Fetching artifacts through the API
 
 You never read `minio://` URIs directly. `transform_call_log_urls()` rewrites them on every read route, so what you see in a call log response is already an authenticated API path:
@@ -124,9 +126,9 @@ You never read `minio://` URIs directly. `transform_call_log_urls()` rewrites th
 | `minio://voicera-calls/{org_id}/{call_id}/recording.wav` | `/api/v1/calls/{call_id}/recording` |
 | `minio://voicera-calls/{org_id}/{call_id}/transcript.txt` | `/api/v1/calls/{call_id}/transcript` |
 
-Both proxy routes require the same Bearer auth as the rest of the API, check that the call belongs to your organisation, verify the object still exists in MinIO, and then stream it in 32 KB chunks. A missing URL field or a missing object is a `404`; an unparseable URI is a `400`. Content type is inferred from the extension — `.wav` to `audio/wav`, `.mp3` to `audio/mpeg`, `.txt` to `text/plain; charset=utf-8`.
+Both proxy routes require the same Bearer auth as the rest of the API, check that the call belongs to your organisation, and then stream the object in 32 KB chunks. A missing URL field is a `404` and an unparseable URI is a `400`. The recording route also verifies the object still exists first, so a missing recording is a `404`; the transcript route does not, so a missing transcript object fails mid-stream after a `200`. Content type is inferred from the extension — `.wav` to `audio/wav`, `.mp3` to `audio/mpeg`, `.txt` to `text/plain; charset=utf-8`.
 
-The eight call routes are:
+The main call routes are:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -136,10 +138,11 @@ The eight call routes are:
 | `PATCH` | `/api/v1/calls/{call_id}` | Patch by call id. Bot JWT supported. |
 | `GET` | `/api/v1/calls/{call_id}/recording` | Stream the recording. |
 | `GET` | `/api/v1/calls/{call_id}/transcript` | Stream the transcript. |
+| `POST` | `/api/v1/calls/{call_id}/translate` | Translate the transcript into `target_lang` with the organisation's LLM; cached in MinIO. |
 | `GET` | `/api/v1/calls/org/{org_id}` | List call logs, newest first. `limit` 1–500 (default 50), `offset` from 0. |
 | `GET` | `/api/v1/calls/{call_id}` | Fetch one call log. Bot JWT supported. |
 
-`GET /calls/org/{org_id}` accepts an organisation other than your active one, but only if you hold a membership in it. The full route reference is in [REST API](../../api-reference/overview).
+`GET /calls/org/{org_id}` accepts an organisation other than your active one, but only if you hold a membership in it. The full route reference, including the web, metrics, and analytics routes not listed here, is in [Calls](../../api-reference/calls).
 
 Raw objects are browsable in the MinIO console at `http://localhost:9001` when you need to check what was written.
 

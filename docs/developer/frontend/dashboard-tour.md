@@ -29,8 +29,8 @@ Sign-in and signup sit outside the shell at `/` and `/signup`, backed by `POST /
 | `/dashboard` | Live | `GET /agents`, `GET /calls/org/{org_id}` |
 | `/agent-creation` | Live | `GET /configuration/*`, `GET /auth/configured`, `POST /agents` |
 | `/agents/{agentId}/edit` | Live | `GET /agents/{id}`, `PATCH /agents/{id}` |
-| `/numbers` | Live | `GET /phone-numbers`, attach/detach, provider inventory |
-| `/history` | Live | `GET /calls/org/{org_id}`, recording and transcript blobs |
+| `/numbers` | Live | `GET /phone-numbers`, attach/detach/delete, provider inventory |
+| `/history` | Live | `GET /calls/org/{org_id}`, recording and transcript blobs, `POST /calls/{call_id}/translate` |
 | `/members` | Live | `GET /members/{org_id}`, invite, assign-admin, remove |
 | `/integrations` | Live | `GET /auth/catalog`, `GET /auth/configured`, `POST /auth` |
 | `/account` | Live | `GET /users/me`, `GET /users/organisations`, switch-organisation |
@@ -74,8 +74,9 @@ Phone number inventory, rendered by `PhoneNumbers.tsx` over the `usePhoneNumbers
 | List numbers on a provider account not yet imported | `GET /phone-numbers/providers/{provider}/inventory` |
 | Import a number, optionally linking it to an agent | `POST /phone-numbers/attach` |
 | Unlink from its agent and from the provider | `DELETE /phone-numbers/detach` |
+| Remove an unattached number from the inventory | `DELETE /phone-numbers/delete` |
 
-Each row carries an audit line built from `last_link_action`, `last_link_by_email`, and `last_link_at` — who attached, detached, or imported the number and when. Detaching keeps the inventory row; it only breaks the agent link and the provider-side binding. Background in [Telephony model](../../guides/concepts/telephony-model).
+Each row carries an audit line built from `last_link_action`, `last_link_by_email`, and `last_link_at` — who attached, detached, or imported the number and when. Detaching keeps the inventory row; it only breaks the agent link and the provider-side binding. **Delete** appears only on unattached rows, asks for confirmation, and removes the inventory row without releasing the number at the telephony provider. Background in [Telephony model](../../guides/concepts/telephony-model).
 
 ## batches
 
@@ -99,6 +100,8 @@ Clicking a row opens `CallDetailSheet.tsx`, which fetches two things:
 
 * `GET /calls/{call_id}/recording` — an authenticated proxy in front of MinIO. It is fetched as a blob because `<audio src>` cannot send an `Authorization` header; the sheet builds an object URL for playback and decodes the same blob for the waveform.
 * `GET /calls/{call_id}/transcript` — parsed by `frontend/src/lib/transcript.ts` into `[timestamp] role: content` lines.
+
+A **Translate** button over the transcript calls `POST /calls/{call_id}/translate` through `useTranscriptTranslation` (`frontend/src/hooks/useTranscriptTranslation.ts`). The target is the browser's language when the API supports it, else English (`translationTargetLang()` in `transcript.ts`). Once translated, the button toggles between **Show original** and **Show translation** without another request. A `423` means another request is already translating that call, and the hook retries every 3 seconds, for up to about 5 minutes (`IN_PROGRESS_MAX_RETRIES = 100`), until the result is cached.
 
 Transcript lines are anchored so the first line is t=0 and later lines are offset by their deltas. There is no shared clock between the transcript's timestamps and the recording's start, so the alignment between text and audio is a close estimate rather than an exact sync.
 

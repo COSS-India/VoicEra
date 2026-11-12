@@ -45,8 +45,9 @@ flowchart LR
 | `factory.py` | Discriminated unions from the registry plus thin `create_*` dispatch |
 | `schema.py` | `provider_schemas` / `configuration_defaults` readable catalog dump |
 | `languages.py` | Canonical language ids → labels; `language_schema_extra()` |
-| `cloud/<vendor>/` | Pipecat-backed vendors (`catalog`, `config`, `languages`, `service`) |
-| `adapters/<vendor>/` | First-party services (`service.py` plus optional `tts.py`) |
+| `preview.py` | Voice-preview registry (`@register_preview`, `import_vendor_previews()`) and shared helpers |
+| `cloud/<vendor>/` | Pipecat-backed vendors (`catalog`, `config`, `languages`, `service`, optional `preview`) |
+| `adapters/<vendor>/` | First-party services (`service.py` plus optional `tts.py`, `preview.py`) |
 | `local/<vendor>/` | Reserved for self-hosted providers |
 
 `factory.py` builds one `Annotated[Union[...], Field(discriminator="provider")]` per kind from the registered classes, then composes them into `AgentConfig`:
@@ -258,6 +259,8 @@ python3 -c "from apps.providers import Kind, provider_schemas; [print(k, sorted(
 | `xai` | xAI | cloud | TTS |
 
 That is 13 STT providers, 15 TTS providers, and 10 LLM providers. No local LLM provider exists yet — see [Adding an AI provider](../guides/adding-a-provider#local-providers-one-extra-registration-call).
+
+Every TTS provider except `lmnt` also has a voice-preview adapter (`<vendor>/preview.py`), which the dashboard's play button calls through `POST /api/v1/tts/preview`. Bhashini's adapter covers both of its TTS backends, Indic Parler over gRPC and Orpheus over NVCF. See [Voice preview adapters](../services/providers#voice-preview-adapters).
 
 <Note>
 Bhashini covers **STT** (Dhruva WebSocket ASR, `api_key`) and **TTS** (NVCF gRPC, `auth_token` + `function_id`) — different transports and different credentials under one provider id. Kenpath is **LLM only**, and authenticates with an RSA private key rather than an API key — see [Providers](../services/providers#kenpath).

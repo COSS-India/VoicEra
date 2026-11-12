@@ -61,7 +61,7 @@ A JWT carries three claims that matter:
 
 Handlers read `org_id` from the token, never from the request body, so a caller cannot reach another tenant's data by changing a payload field.
 
-Signing uses HS256 with `SECRET_KEY`, and tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default **30**).
+Signing uses HS256 with `SECRET_KEY`, and tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default **120**).
 
 <Warning>
 If `SECRET_KEY` is unset, `apps/api/app/auth.py` logs a warning and generates a temporary key at import time. Every restart then invalidates all outstanding tokens, and multiple replicas will not accept each other's. Always set it — `make application-up` does this for you.

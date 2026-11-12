@@ -3,21 +3,22 @@ title: Testing
 description: Running the VoicEra test suites.
 ---
 
-VoicEra has five test suites, one per package. Each lives inside the code it covers — there is no top-level `tests/` directory and no aggregate runner. This page tells you how to run each, what it needs, and what breaks if you skip it.
+VoicEra has six test suites: five Python suites, one per package, and the dashboard's Vitest suite. Each lives inside the code it covers — there is no top-level `tests/` directory and no aggregate runner. This page tells you how to run each, what it needs, and what breaks if you skip it.
 
 <Note>
-There is **no CI**. The repository has no `.github/` directory, no workflows, and no pre-commit hooks. Nothing runs on a push. Every check on this page is one you run yourself, before opening a pull request.
+CI runs every suite on each pull request and on pushes to `main`, `staging`, and `dev`, but it deselects a handful of known-failing tests and several of its checks only report. A green check is not the same as a clean local run. See [Continuous integration](#continuous-integration). There are no pre-commit hooks.
 </Note>
 
-## The five suites
+## The six suites
 
 | Suite | Modules | Covers | Needs Docker |
 | --- | --- | --- | --- |
-| `apps/api/tests` | 20 | Auth, agents, telephony provisioning, campaigns, knowledge base, call artifacts, secret encryption. | No |
+| `apps/api/tests` | 26 | Auth, agents, telephony provisioning, campaigns, knowledge base, call artifacts, secret encryption, TTS voice preview, transcript translation, phone numbers, the retired-Groq-model migration. | No |
 | `apps/runtime/tests` | 7 | Route dispatch, prompt substitution, hold messages, call ending, knowledge injection, call metrics, AI service factory. | No |
 | `apps/telephony/tests` | 6 | Registry, clients, answer XML, serializers, webhooks, catalog schema. | No |
-| `apps/providers/tests` | 5 | The provider registry and catalog dump, plus availability, capabilities, and scoped settings. | No |
-| `model-server/tests` | 27 | Catalogue, gateway streaming, slot behaviour, audio parity, KV page allocation. | Only `test_model_switching` |
+| `apps/providers/tests` | 20 | The provider registry and catalog dump, plus availability, capabilities, scoped settings, the one-shot LLM call behind transcript translation, and the voice-preview registry with one contract module per TTS vendor adapter. | No |
+| `model-server/tests` | 28 | Catalogue, gateway streaming, slot behaviour, audio parity, KV page allocation, the Orpheus codec. | Only `test_model_switching` |
+| `frontend` (Vitest) | 3 files | The translation target language, message-to-plain-text conversion, and the call stage (new-call remount, zoom dialog, Translate toggle). | No |
 
 None of them needs a database, a GPU, or a network. Five model-server modules shell out to `docker compose config`.
 
@@ -25,11 +26,12 @@ Run one at a time (see the warning below), a healthy tree looks like this:
 
 | Suite | Result |
 | --- | --- |
-| `apps/api/tests` | 126 passed, 1 skipped — the skip is the opt-in telephony integration module |
-| `apps/runtime/tests` | 40 passed |
-| `apps/telephony/tests` | 65 passed, 2 failed — see [the Plivo serializer defect](#appstelephony) |
-| `apps/providers/tests` | 69 passed |
-| `model-server/tests` | 241 passed, 64 skipped, 1 failed — see the Docker and NOT VERIFIED notes below |
+| `apps/api/tests` | 270 passed, 1 skipped — the skip is the opt-in telephony integration module |
+| `apps/runtime/tests` | 41 passed |
+| `apps/telephony/tests` | 67 passed |
+| `apps/providers/tests` | 151 passed, 1 failed — `test_sarvam_voice_options_split_by_model` is stale: the Sarvam catalogue no longer has `bulbul:v2` |
+| `model-server/tests` | 433 passed, 44 skipped, 3 failed — see the Docker and NOT VERIFIED notes below, and [the two CI known failures](#continuous-integration) |
+| `frontend` | 27 passed (3 files) |
 
 ## Running them
 
@@ -106,6 +108,64 @@ ruff check .
 Add `pyyaml` as well. Thirteen modules `import yaml` to read `models.yaml` and the compose files, but `requirements-dev.txt` does not list it, so a clean virtualenv built from that file alone fails at collection with `ModuleNotFoundError: No module named 'yaml'`.
 </Note>
 
+CI installs `pyyaml`, `python-dotenv`, and `python-multipart` on top of `requirements-dev.txt`; the workflow notes that the last two are missing from it as well. Do the same locally:
+
+```bash
+pip install -r tests/requirements-dev.txt pyyaml python-dotenv python-multipart
+```
+
+### Dashboard
+
+```bash
+cd frontend
+npm ci
+npm test
+```
+
+`npm test` is `vitest run` under `happy-dom` (`frontend/vitest.config.ts`); test files sit next to the code as `*.test.ts` / `*.test.tsx`. It needs no backend — API calls are mocked. CI also type-checks, which needs Next's generated route types first:
+
+```bash
+npx next typegen
+npx tsc --noEmit
+```
+
+## Continuous integration
+
+Two workflows in `.github/workflows/`. Both run on every pull request, on pushes to `main`, `staging`, and `dev`, and on manual dispatch. Results land on the Actions tab, and each job writes a readable report to the run's Summary page.
+
+The gate policy, from the header of `quality.yml`: a job fails only on checks that are clean today. Checks with an existing backlog **report without failing** until their `STRICT` switch is set to `"true"` in the workflow.
+
+| Workflow | Job | Fails the run | What it runs |
+| --- | --- | --- | --- |
+| `quality.yml` | `python-tests` | Yes | One `pytest` job per suite — `api`, `runtime`, `providers`, `telephony`, `model-server` — on Python 3.11, with line coverage in the summary. Known failures are deselected (below). |
+| `quality.yml` | `python-lint` | Critical rules only | `ruff check apps model-server --select E9,F63,F7,F82` (syntax errors, undefined names) blocks. The full rule set on `apps/` and `model-server/` is counted, not enforced. |
+| `quality.yml` | `frontend` | Types and tests | `npm ci`, `npx next typegen`, `npx tsc --noEmit`, and `npm test` block. ESLint only reports (`STRICT_ESLINT`). |
+| `quality.yml` | `security-scan` | No | Bandit over `apps/` and `model-server/`, excluding tests. |
+| `quality.yml` | `sbom-and-licences` | No | Syft SPDX SBOM, plus a Python and JavaScript licence inventory built into `THIRD_PARTY_LICENSES.md`; strong-copyleft and unknown licences become warning annotations, and weak copyleft (LGPL/MPL) is listed in the summary only. Uploaded as the `dpg-evidence-sbom-and-licences` artifact. |
+| `standards.yml` | `openapi` | Yes | Generates `openapi.json` from `app.main`, validates it with `openapi-spec-validator`, and lints it with Spectral (`spectral:oas`, fails on errors). |
+| `standards.yml` | `language-codes` | No | Checks every id in `apps/providers/languages.py` is a valid BCP 47 tag matching its label. Report-only until the legacy ids `od` and `bh` are migrated. |
+| `standards.yml` | `dockerfiles` | On errors | hadolint over every tracked Dockerfile; error-level findings fail, `DL3022` is ignored. |
+| `standards.yml` | `compose` | Yes | `docker compose -f docker-compose.yaml config --quiet` against a copy of `.env.example`. |
+| `standards.yml` | `vulnerabilities` | No | Trivy filesystem scan for HIGH/CRITICAL vulnerabilities and leaked secrets. |
+
+<Note>
+CI deselects three tests through each matrix entry's `known_failures`, printing a warning annotation for each. They **fail** when you run the suite locally:
+
+* `apps/providers/tests/test_settings_by_model_language.py::test_sarvam_voice_options_split_by_model` — stale; the Sarvam catalogue no longer contains `bulbul:v2`.
+* `model-server/tests/test_env_example.py::test_every_variable_compose_reads_is_documented` — around a hundred variables the compose files read are missing from `model-server/.env.example`.
+* `model-server/tests/test_grpc_facade.py::test_the_facade_folder_is_hidden_from_the_model_menu_and_the_catalogue` — reads `model-server/setup.sh`, which no longer exists.
+
+A new failure in any of the five Python suites still fails its job.
+</Note>
+
+To reproduce the blocking checks locally, run each suite as above, then:
+
+```bash
+pip install ruff==0.17.4
+ruff check apps model-server --select E9,F63,F7,F82
+(cd frontend && npx next typegen && npx tsc --noEmit && npm test)
+```
+
 ## What needs Docker
 
 Five model-server modules shell out to `docker compose config`: `test_model_switching.py`, `test_gpu_placement.py`, `test_grpc_facade.py`, `test_model_extras.py`, and `test_mps.py`. That subcommand only interpolates the compose files, so it needs the `docker` CLI but **no running daemon**. Four of them guard with `skipif(shutil.which("docker") is None)`; `test_grpc_facade.py` instead checks that `docker compose version` exits zero. On a machine with no Docker at all the whole model-server suite still runs; you just lose those modules' coverage.
@@ -136,12 +196,16 @@ sys.path.insert(0, str(ROOT / "gateway"))
 
 Everything *else* is the real code — routing, batching, protocol handling, transport. As the suite's README puts it: the NeMo, torch, and Parler-runner layers are stubbed, so everything else is real. That is what makes it worth running on a laptop: it cannot tell you the model transcribes correctly, but it can tell you the gateway streams instead of buffering, that a client disconnect evicts the upstream request, and that the KV page allocator never hands one page to two calls.
 
-Two scripts in that directory are **not** part of the suite because they need real models on a GPU:
+Two scripts and two directories in that tree are **not** part of the suite because they need real models on a GPU:
 
-| Script | Use |
+| Path | Use |
 | --- | --- |
 | `smoke_gpu.py` | End-to-end round trip on the box: TTS speaks, STT transcribes it back. |
 | `bench_tts.py` | Latency and real-time factor, sequential or at a chosen concurrency. |
+| `concurrency-bench/` | Streaming STT and Orpheus TTS at N concurrent requests up to 256, judged on real-time factor. See [Running on GPUs](../model-server/gpu-operations#checking-a-live-box). |
+| `bench/` | The TTS load-test matrix (`run_matrix.sh` → `sweep.py`) against `POST /v1/audio/speech` through the gateway, with `compare.py` for before/after tables. |
+
+None of them is collected by `pytest` — they are not `test_*.py` modules.
 
 ## Fixtures and stubs
 
@@ -179,17 +243,17 @@ The `sys.modules` assignment has to happen before `apps.runtime.app` is imported
 
 ### apps/providers
 
-Five modules. `test_provider_schemas.py` tests the registry as a whole rather than each vendor: it pins the union member counts (13 STT, 15 TTS, 10 LLM), asserts every registered config has a creator and the reverse, and walks every provider asserting the catalog dump contains no `$defs`, `$ref`, or `anyOf`, that every secret field is marked and carries no `input_mode`, and that every language id emitted exists in the canonical `LANGUAGES` map. `test_availability.py`, `test_capabilities.py`, `test_scoped_settings.py`, and `test_settings_by_model_language.py` cover which providers are reachable, what each declares it can do, and how per-model and per-language settings resolve. See [Adding an AI provider](adding-a-provider#testing).
+Twenty modules. `test_provider_schemas.py` tests the registry as a whole rather than each vendor: it pins the union member counts (13 STT, 15 TTS, 10 LLM), asserts every registered config has a creator and the reverse, and walks every provider asserting the catalog dump contains no `$defs`, `$ref`, or `anyOf`, that every secret field is marked and carries no `input_mode`, and that every language id emitted exists in the canonical `LANGUAGES` map. `test_availability.py`, `test_capabilities.py`, `test_scoped_settings.py`, and `test_settings_by_model_language.py` cover which providers are reachable, what each declares it can do, and how per-model and per-language settings resolve. `test_one_shot_llm.py` covers the non-Pipecat LLM call that transcript translation uses. `test_preview.py` covers the voice-preview registry and its shared helpers in `apps/providers/preview.py`, and each `test_preview_<vendor>.py` pins one vendor adapter's request and WAV output against a mock transport, through the shared `preview_harness.py`. See [Adding an AI provider](adding-a-provider#testing).
+
+<Note>
+Sarvam's preview test lives in the vendor folder, at `apps/providers/cloud/sarvam/tests/test_preview.py`, so `pytest apps/providers/tests` does not collect it — and neither does CI. Run it by path.
+</Note>
 
 ### apps/telephony
 
 `test_registry.py` asserts the registered set is exactly `{"vobiz", "plivo"}` and that the lazy serializer load works. `test_xml.py` pins the answer XML per sample rate — the string most likely to be silently wrong, because malformed XML produces a call that connects and then goes quiet.
 
-<Note>
-Two tests in `test_serializers.py` currently **fail**: `test_create_frame_serializer_known_providers[plivo]` and `[Plivo]`, with `ValueError: auto_hang_up is enabled but missing required parameters: auth_id, auth_token`.
-
-This is a real defect, not a stale test. Pipecat's `PlivoFrameSerializer` defaults `auto_hang_up` to `True` and then requires `auth_id` and `auth_token`, but `apps/telephony/providers/plivo/serializer_service.py` passes neither — and neither does the runtime callsite in `apps/runtime/services/pipecat/runners.py`, so the serializer raises before any Plivo call can start. Vobiz is unaffected because `VobizFrameSerializer.InputParams` sets `auto_hang_up=False` explicitly. The fix is to do the same for Plivo, since the runtime ends calls itself and holds no Plivo API credentials at that point.
-</Note>
+`test_serializers.py::test_create_frame_serializer_known_providers` builds both vendors' serializers. It guards a defect that once stopped every Plivo call from starting: Pipecat's `PlivoFrameSerializer` defaults `auto_hang_up` to `True` and then requires `auth_id` and `auth_token`, which the runtime does not hold. `apps/telephony/providers/plivo/serializer_service.py` now passes `auto_hang_up=False`, as Vobiz always did — the runtime ends calls itself.
 
 ### apps/api
 
@@ -220,7 +284,7 @@ pytestmark = pytest.mark.skipif(
 )
 ```
 
-`voice_2_voice_server` was renamed to `apps/runtime` in the revamp. The directory those tests point at was never recreated, so `V2V.is_dir()` is `False` and 46 tests across the four modules never run. The exact number moves with the catalogue — `test_llm_wiring.py` parametrises over `deployable_llms()`.
+`voice_2_voice_server` was renamed to `apps/runtime` in the revamp. The directory those tests point at was never recreated, so `V2V.is_dir()` is `False` and 44 tests across the four modules never run. The exact number moves with the catalogue — `test_llm_wiring.py` parametrises over `deployable_llms()`.
 
 The suite is honest about it. `conftest.py` installs a `pytest_terminal_summary` hook that prints a red **NOT VERIFIED** block after the summary line, naming what is unverified while that is true:
 

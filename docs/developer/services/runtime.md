@@ -84,7 +84,7 @@ sequenceDiagram
   API-->>RT: "decrypted secrets for the org"
 ```
 
-The cached token is reused for 25 minutes (`_TOKEN_TTL_SECONDS`), a little short of the API's 30-minute `ACCESS_TOKEN_EXPIRE_MINUTES`. A 401 forces a refresh and one retry. A missing `INTERNAL_API_KEY` raises `BackendError` immediately.
+The cached token is reused for 25 minutes (`_TOKEN_TTL_SECONDS`), well inside the API's 120-minute `ACCESS_TOKEN_EXPIRE_MINUTES` default. A 401 forces a refresh and one retry. A missing `INTERNAL_API_KEY` raises `BackendError` immediately.
 
 `services/ai_service_factory.py` then merges the agent's `config.models` with the fetched credentials — one `GET` per kind — and hands the result to `apps.providers` as an `AgentConfig`. Any of `stt_config`, `tts_config`, or `llm_config` missing a `provider` raises `ServiceBuildError`.
 

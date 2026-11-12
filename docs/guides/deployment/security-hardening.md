@@ -129,7 +129,7 @@ For Redis over TLS use a `rediss://` URL; the ARQ settings enable TLS when they 
 
 * `minio/minio:latest` is unpinned — pin a digest for reproducible deployments. The FerretDB, Postgres, and Redis images are already pinned.
 * Rebuild periodically to pick up base-image security updates.
-* VoicEra has no CI, so nothing scans dependencies automatically. Run `pip-audit` or equivalent yourself.
+* CI scans on every pull request — Bandit over the Python code and Trivy over dependencies and leaked secrets — but both are **report-only**, so a finding never blocks a merge. Dependabot opens weekly or monthly version-update PRs against `staging`. Check the scan output before you deploy; see [Continuous integration](../../developer/guides/testing#continuous-integration).
 
 ## Log hygiene
 

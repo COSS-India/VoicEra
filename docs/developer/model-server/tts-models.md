@@ -17,7 +17,7 @@ Three models can fill the TTS slot. They differ in backbone, in how a voice is c
 Set the one you want with `TTS_MODEL` in `model-server/.env`. Statuses are from `model-server/models.yaml`.
 
 <Note>
-Only `indic-parler` has been run on VoicEra's hardware. `models.yaml` records "Not yet run on hardware" against both `orpheus` and `indic-mio`, and their folder READMEs repeat it: for `indic-mio`, "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here.
+`indic-parler` and `orpheus` have run on VoicEra's hardware; `indic-mio` has not. `models.yaml` still records "Not yet run on hardware" against `indic-mio`, and its folder README repeats it: "neither container has been built or started". `ready` means the folder exists with a Dockerfile, not that the model is verified here. Orpheus has also been load-tested — see [Capacity](#capacity).
 </Note>
 
 `omnivoice` is `planned` and needs its own runtime — it is diffusion-style, so not vLLM-servable.
@@ -47,22 +47,54 @@ The Parler checkpoint comes from Drive, but the tokenizer and T5 encoder are pul
 
 ## orpheus
 
-A Llama-3.2-3B backbone with a SNAC codec, served by vLLM with continuous batching. 23 Indian languages on the current (v2) roster.
+A Llama-3.2-3B backbone served by vLLM with continuous batching. The backbone emits SNAC codes; the slot turns them into audio with SNAC's quantizer and the checkpoint's own fine-tuned **Vocos** decoder, not SNAC's decoder. 23 Indian languages on the current (v2) roster.
 
 **The speaker name picks the language.** Every speaker in the roster belongs to exactly one language, so `voice="Amit"` is Hindi and `voice="Anitha"` is Tamil. `voice` and `language` are therefore not independent — which is different from `indic-parler`, where the voice is a free-text description and language is a separate field.
 
-`src/orpheus_server/` is the upstream project as its authors wrote it, excluded from VoicEra's ruff config on purpose. Two changes were made, both about fitting the slot rather than changing the model:
+`src/orpheus_server/` started as the upstream project as its authors wrote it, excluded from VoicEra's ruff config on purpose. It has since been changed to fit the slot and to match the released `bodhan-ai/indic-speak` checkpoint:
 
 1. **Port.** The image listened on 9000; the TTS slot is addressed as `tts:8002`. `PORT` is honoured so the folder is not welded to VoicEra's numbering.
 2. **Self-description.** `POST /v1/audio/speech` now sets `X-Audio-Format`, `X-Sample-Rate` and `X-Channels`. It already sent `X-Language` and `X-Voice`.
+3. **Vocos decoder.** `codec.py` runs `quantizer.from_codes()` and then the Vocos decoder from `vocos/best.pt` beside the checkpoint — the card states "Vocos replaces SNAC's decoder entirely". There is no fallback to SNAC's decoder: a missing `vocos/best.pt` fails at startup rather than decoding with the wrong model.
+4. **Sampling at the card's values.** `temperature` 0.6, `top_p` 0.9, `top_k` 50 (previously not settable at all), `repetition_penalty` 1.0 (off — on SNAC codes a penalty punishes legitimately recurring codes such as silence), and `max_tokens_default` 2520, about 30 s of audio.
+5. **Ending an utterance.** A duration guard caps generation by how long the text should take to read, so a missed `<|end_of_speech|>` cannot babble on to the token limit. The backbone's text eos is treated as a soft stop, obeyed only once the audio is at least half the text's expected length — the checkpoint uses that token as padding too.
+6. **Codebook bounds.** Token ids that map to a code at or above 4096 are rejected as not-audio, not passed to the decoder, where they would trigger a CUDA assert or garble the output.
 
-There is no `fetch.sh` — vLLM downloads the weights from HuggingFace into the `hf_cache` volume on first start. First start therefore takes several minutes with nothing on `/health`; watch `docker compose logs -f tts` rather than assuming it has hung. `/health` returns 503 while loading and 200 once warmup and CUDA graph capture have finished, which is exactly what the gateway's probe wants.
+`fetch.sh` downloads [`bodhan-ai/indic-speak`](https://huggingface.co/bodhan-ai/indic-speak) into `tts/orpheus/models/`, which `compose.extra.yml` bind-mounts read-only at `/models`. The repo is **gated**: accept the licence on the model page, then supply `HF_TOKEN` (or log in with `huggingface-cli login`). `fetch.sh` itself reads only `HF_TOKEN`; `scripts/start-model-server.sh` also accepts `TTS_HF_TOKEN` and passes it to `fetch.sh` as `HF_TOKEN`. Run it **before** `up -d` — Docker creates a missing bind-mount source as an empty root-owned directory, so starting first gets you a model-path error rather than a clear one. `fetch.sh` checks that `model.safetensors` and `vocos/best.pt` both arrived, because a gated repo can return everything except the weights while the CLI still exits 0.
 
-The upstream server also exposes `/v1/tts`, `/v1/tts/stream`, a `/v1/tts/ws` WebSocket, `/v1/voices`, `/v1/styles` and `/metrics`. The gateway forwards only the OpenAI routes, so those are reachable with `docker compose exec` for debugging but are not part of the slot contract.
+The SNAC quantizer, `hubertsiuzdak/snac_24khz`, still downloads on first start into `hf_cache`, which is why `compose.extra.yml` pins `HF_HUB_OFFLINE=0` for this slot. First start therefore takes several minutes with nothing on `/health`; watch `docker compose logs -f tts` rather than assuming it has hung. `/health` returns 503 while loading and 200 once warmup and CUDA graph capture have finished, which is exactly what the gateway's probe wants.
+
+The upstream server also exposes `/v1/tts`, `/v1/tts/stream`, a `/v1/tts/ws` WebSocket, `/v1/voices`, `/v1/styles` (which also returns `"none": "none"`, the no-style sentinel) and `/metrics`. The gateway forwards only the OpenAI routes, so those are reachable with `docker compose exec` for debugging but are not part of the slot contract.
 
 Worth knowing if you touch the streaming path: the authors measured which formats survive being sent in chunks, and `flac` does not — libsndfile seeks back and patches the header at close, and that patch never reaches a client whose first bytes already went out. Only `pcm` and `mp3` stream.
 
 Roughly 7 GB for a 3B backbone in bf16 plus cache. Being vLLM-backed, it takes a memory reservation at startup the same way the LLM slot does; the KV-cache ratios are documented in `tts/orpheus/config.yaml`.
+
+### Tuning
+
+Orpheus settings live in `model-server/.env`, in its Orpheus section. Compose passes them into the container through `tts/orpheus/compose.extra.yml`, where every one has a default, and they override `config.yaml`. The folder's own `tts/orpheus/.env.example` is now only a pointer — nothing reads it.
+
+| Variable | Compose default | What it does |
+| --- | --- | --- |
+| `ORPHEUS_MODEL_PATH` | `/models/indic-speak` | Where `fetch.sh` puts the checkpoint. An older `.env` pinning a previous checkpoint wins over this. |
+| `ORPHEUS_VOCOS_PATH` | empty | Empty means `<model>/vocos/best.pt`. Set only to point elsewhere. |
+| `ORPHEUS_LEFT_CONTEXT_FRAMES` / `ORPHEUS_RIGHT_CONTEXT_FRAMES` | `4` / `4` | Vocos is non-causal, so each emitted frame is decoded with real audio either side. 4 + 4 measured 0.007% peak error against a whole-utterance decode; 3 + 3 left 3.0%. Each right-context frame adds about 30 ms before first audio. |
+| `ORPHEUS_EMIT_FRAMES` | `1` | Frames emitted per decode — 85 ms chunks, the finest barge-in granularity. |
+| `ORPHEUS_DURATION_GUARD`, `ORPHEUS_GUARD_CHARS_PER_SECOND`, `ORPHEUS_GUARD_HEADROOM`, `ORPHEUS_GUARD_FLOOR_TOKENS` | `true`, `8.0`, `3.0`, `512` | The runaway cap: (characters ÷ 8) seconds of expected audio × 3, never below 512 tokens. |
+| `ORPHEUS_SOFT_TEXT_EOS`, `ORPHEUS_SOFT_TEXT_EOS_MIN_FRACTION` | `true`, `0.5` | Believe the backbone's text eos only after this fraction of the expected audio. `0.0` obeys it blindly. |
+| `ORPHEUS_TEMPERATURE`, `ORPHEUS_TOP_P`, `ORPHEUS_TOP_K`, `ORPHEUS_REPETITION_PENALTY` | `0.6`, `0.9`, `50`, `1.0` | Sampling, at the checkpoint card's values. |
+| `ORPHEUS_MAX_TOKENS_DEFAULT` | `2520` | The card's `max_new_tokens`, about 30 s. |
+| `ORPHEUS_MAX_NUM_SEQS`, `ORPHEUS_DECODER_MAX_BATCH` | `32`, `32` | Admission limit and decoder batch. Keep them equal, or decoding queues behind generation. |
+| `ORPHEUS_WARMUP_WIDTHS` | `1,2,4,8,16,32` | Batch widths compiled at startup; should reach `ORPHEUS_MAX_NUM_SEQS`. |
+| `ORPHEUS_GPU_MEMORY_UTILIZATION` | `0.12` | Sized for a card shared with other slots. |
+
+<Warning>
+`model-server/.env.example` does not ship the compose defaults. It sets `ORPHEUS_MAX_NUM_SEQS=64`, `ORPHEUS_DECODER_MAX_BATCH=64`, `ORPHEUS_WARMUP_WIDTHS=1,2,4,8,16,32,64` — sized for Orpheus alone on a dedicated H200 — and `ORPHEUS_REPETITION_PENALTY=1.2`, where compose and `config.yaml` say `1.0`. Copy it to `.env` and those values win. Check which you meant before deploying on a shared card.
+</Warning>
+
+### Capacity
+
+Measured with `tests/concurrency-bench/` on a dedicated H200 NVL: every stream stays real time (p95 RTF below 1) up to **64** concurrent requests; at 128 all of them fall behind (p95 RTF 1.05–1.31). The server runs at most `ORPHEUS_MAX_NUM_SEQS` at once and queues the rest, which is why `.env.example` sets 64. On other GPUs, re-measure before raising it. See [Running on GPUs](gpu-operations#checking-a-live-box).
 
 ## indic-mio
 
@@ -124,7 +156,7 @@ That propagation is what `tests/test_gateway_streaming.py` checks: the gateway s
 
 **indic-parler** — free-text description. `models.yaml` records one preset, `Divya`, plus `free_text_description: true` and no cloning.
 
-**orpheus** — a fixed roster, currently `tts/orpheus/voices-v2.json`: 23 languages, with 14 speaking styles (`news` is the default — `AIR style news`, `TV style news`, `educational lecture`, `single person narration audiobook`, `children's stories`, `advertisements`, `Customer Care`, and six emotion tags: happy, sad, anger, fear, surprise, disgust). Every speaker name is unique, which is what lets an OpenAI client pick a language using only the standard `voice` field. `GET /v1/voices` lists them.
+**orpheus** — a fixed roster, currently `tts/orpheus/voices-v2.json`: 23 languages, with 14 speaking styles (`news` is the default — `AIR style news`, `TV style news`, `educational lecture`, `single person narration audiobook`, `children's stories`, `advertisements`, `Customer Care`, and six emotion tags: happy, sad, anger, fear, surprise, disgust). Every speaker name is unique, which is what lets an OpenAI client pick a language using only the standard `voice` field. `GET /v1/voices` lists them. Pass the style `none` to send the prompt with no style block at all; omitting a style gives the roster default. `none` is reserved — a roster that defines a style by that name fails to load.
 
 <Note>
 The folder also still carries the older `voices.json` (v1): 12 ALL-CAPS styles (`CONV` default, plus `WIKI`, `NEWS`, `BOOK`, ...) across the same 22 languages minus Bhili, and a completely different style vocabulary from v2 — the two rosters are not interchangeable, `model-server/tests/test_orpheus_roster.py` pins that `compose.extra.yml`'s `ORPHEUS_VOICES_FILE` matches whichever checkpoint `models.yaml` records for this slot. Which file is actually loaded is a deployment detail, not a docs one — check `ORPHEUS_VOICES_FILE` in the running `compose.extra.yml` before trusting either list. VoicEra's `indic_orpheus` provider (see [Providers → Indic Orpheus](../services/providers#indic-orpheus-tts)) is written against v2.

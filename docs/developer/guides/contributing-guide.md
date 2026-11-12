@@ -71,26 +71,39 @@ Match the surrounding code. The repository favours explicit registries over if/e
 
 ## Run the checks
 
-There is **no CI**, so nothing runs these for you. Run them before opening a pull request:
+Run them before opening a pull request:
 
 ```bash
 python -m pytest apps/api/tests
 python -m pytest apps/runtime/tests
 python -m pytest apps/telephony/tests
 python -m pytest apps/providers/tests
-cd model-server && python -m pytest tests
+(cd model-server && python -m pytest tests)
+(cd frontend && npm test)
 ```
 
 The model-server suite needs no GPU. See [Testing](testing) for what each suite protects.
 
+CI runs on your pull request too — `.github/workflows/quality.yml` and `standards.yml`. These checks **fail the run** when they fail — and block the merge wherever branch protection marks them as required:
+
+* The five Python suites, each in its own job, with a few known-failing tests deselected.
+* `ruff check apps model-server --select E9,F63,F7,F82` — syntax errors and undefined names only.
+* The dashboard's `npx tsc --noEmit` and `npm test`.
+* The OpenAPI spec generated from the API, validated and Spectral-linted.
+* hadolint errors in any Dockerfile, and `docker compose config` on `docker-compose.yaml`.
+
+The full ruff rule set, ESLint, Bandit, Trivy, the BCP 47 language-code check, and the licence inventory only report. See [Testing → Continuous integration](testing#continuous-integration) for the full table and how to reproduce each check.
+
 ## Opening a pull request
 
-Target `dev`. In the description:
+Target `dev`. The description is pre-filled from `.github/pull_request_template.md`; in it, cover:
 
 * What changed and why.
 * Which suites you ran, and their result.
 * Anything you deliberately left out.
 * For behaviour changes, how a reviewer can reproduce it.
+
+Dependabot opens version-update pull requests against `staging`, not `dev`, for pip, npm, Docker base images, and GitHub Actions (`.github/dependabot.yml`). GitHub reads that file only from the default branch, so it takes effect once it is on `main`. Dependabot security-fix pull requests are switched on separately in the repository settings and target `main`.
 
 Keep pull requests focused — one concern each. A refactor bundled with a feature is hard to review and harder to revert.
 

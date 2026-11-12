@@ -32,6 +32,8 @@ This step also has a toggle for whether the agent should ignore anything the cal
 
 Pick the language(s) your agent should speak, then choose which connected provider handles the transcriber (speech-to-text), the language model, and the voice (text-to-speech).
 
+Each voice in the **Voice** dropdown has a play button. Click it to hear your greeting from the Agent step spoken in that voice, in the first language you picked — playing a voice doesn't select it, so you can compare a few before choosing. Click again to stop. If the buttons are greyed out, the line under the dropdown says why: usually the greeting is empty or too long, or the model doesn't speak that language. A voice you've already played replays instantly; new previews are capped per organisation, 20 a minute by default.
+
 <Note>
 Only vendors you connected on the [Integrations page](sign-up#2-connect-your-ai-services) show up here. If a dropdown looks empty, go back and connect a vendor for that role first.
 </Note>
@@ -68,6 +70,7 @@ See [Test and call with your agent](make-a-call) for what to expect from that te
 | --- | --- |
 | A dropdown for AI services is empty | You haven't connected a vendor for that role — see [Sign up and get set up](sign-up#2-connect-your-ai-services). |
 | The "Next" button stays greyed out | A required field on that step is still empty — the page usually tells you which one. |
+| Playing a voice shows "Too many previews" | Your organisation hit the per-minute preview limit. Wait a minute, or replay voices you've already heard — those don't count. |
 | You picked a template but still can't save | Templates set the script and language, but not AI services — go back to the Engine step and choose them. |
 
 ## Next

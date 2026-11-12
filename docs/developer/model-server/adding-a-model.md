@@ -81,7 +81,7 @@ fi
 
 Not every model has one, and the absence is sometimes deliberate:
 
-* The vLLM-backed models (`llm/qwen3.5-4b`, `tts/orpheus`, `tts/indic-mio`) have none — vLLM downloads its own weights from HuggingFace into the `hf_cache` volume on first start.
+* `llm/qwen3.5-4b` and `tts/indic-mio` have none — vLLM downloads their weights from HuggingFace into the `hf_cache` volume on first start, because they are configured with a repo id. `tts/orpheus` used to be listed here too, wrongly: its model path points inside a read-only bind mount, so vLLM never fetched anything. It now has a `fetch.sh` for the gated `bodhan-ai/indic-speak` checkpoint.
 * `stt/indic-transcribe` has none because preparing it is a download, a conversion and two verification gates, and the conversion has to run *inside the built image*. `scripts/start-model-server.sh` runs `fetch.sh` before it builds, so the ordering the contract offers does not fit. Doing it by hand is honest; a `fetch.sh` that silently could not work is not.
 
 ## compose.extra.yml overlays

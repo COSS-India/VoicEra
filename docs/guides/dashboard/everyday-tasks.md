@@ -1,6 +1,6 @@
 ---
 title: Everyday tasks
-description: Upload documents, check call history, and manage your team.
+description: Upload documents, check call history, delete phone numbers, and manage your team.
 ---
 
 The smaller things you'll come back to often, once your agent is up and running.
@@ -30,11 +30,23 @@ Filter by date, by agent, or by how the call ended (connected, failed, still rin
 * Read the full transcript
 * See how long it lasted and how it ended
 
+To read a transcript in your own language, click **Translate** above it. The whole conversation is translated into your browser's language (English if VoicEra doesn't support that one), using a language model your organisation has connected under [Integrations](sign-up#2-connect-your-ai-services). Click **Show original** to switch back. A call you've translated before opens its translation instantly.
+
 Use the **Export** menu to download a CSV or PDF of what you're currently looking at, or every transcript for the whole organisation.
 
 <Note>
 Phone numbers are partly hidden in the list for privacy. Opening a call still shows you the details you're allowed to see.
 </Note>
+
+## Delete a phone number
+
+You can remove a number you no longer use from the **Numbers** page. It has to be detached from its agent first.
+
+1. Click **Numbers** in the sidebar.
+2. If the number is linked to an agent, click **Detach** on its row and confirm.
+3. Click **Delete** on the row, then **Delete** again to confirm.
+
+Deleting only removes the number from VoicEra. It stays in your telephony provider's account — release it there if you want to stop paying for it — so you can import it again later with **Add New Number** (see [Add a phone number](make-a-call#add-a-phone-number)).
 
 ## Invite a teammate
 
@@ -60,6 +72,9 @@ Click your name at the bottom of the sidebar to open **Account**. From there you
 | --- | --- |
 | A document stays stuck on "Indexing" | Give it a few minutes — larger PDFs take longer. If it moves to "Failed", try re-uploading it. |
 | Upload fails immediately | Check the file is a PDF and under 25 MB. |
+| **Translate** says no language model is configured | Your organisation hasn't connected a language model provider — connect one under [Integrations](sign-up#2-connect-your-ai-services). |
+| **Translate** says there are too many translations | Your organisation hit the per-minute translation limit. Wait a minute and try again. |
+| A number has no **Delete** button | It's still linked to an agent — click **Detach** first. |
 | An invited teammate can't do something | Check their role on the Members page — they may need Admin instead of Member. |
 | A teammate says the invite link doesn't work | Links are shared per-organisation, not per-person — send a fresh one from the Members page. |
 | You can't see an option other users have | You may not have Admin or Super admin access — ask whoever has it on your team. |

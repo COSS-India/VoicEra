@@ -55,6 +55,8 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | GET | `/api/v1/configuration/tts/setting/{provider}` | Bearer | Config schema for one TTS provider. |
 | GET | `/api/v1/configuration/llm/setting/{provider}` | Bearer | Config schema for one LLM provider. |
 | GET | `/api/v1/configuration/telephony/setting/{provider}` | Bearer | Config schema for one telephony provider. |
+| POST | `/api/v1/tts/preview` | Bearer | Speak text with an unsaved TTS config; returns `audio/wav`. Cached, rate-limited per organisation. |
+| GET | `/api/v1/tts/preview/limits` | Bearer | Preview limits the dashboard checks first (`max_chars`). |
 | GET | `/api/v1/auth/catalog` | Bearer | Credential-field catalogue for every provider that takes credentials. |
 | GET | `/api/v1/auth/catalog/{provider}` | Bearer | Credential-field catalogue for one provider. |
 | GET | `/api/v1/auth/configured` | Bearer | Which providers the organisation has stored credentials for. |
@@ -71,6 +73,7 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | GET | `/api/v1/phone-numbers/agent/{agent_id}` | Bearer | The number attached to one agent. |
 | POST | `/api/v1/phone-numbers/attach` | Bearer | Add a number to the inventory and optionally bind it to an agent. |
 | DELETE | `/api/v1/phone-numbers/detach` | Bearer | Unbind a number from its agent; the inventory row stays. |
+| DELETE | `/api/v1/phone-numbers/delete` | Bearer | Remove a detached number from the inventory. Not released at the provider. |
 | GET | `/api/v1/phone-numbers/providers/{provider}/inventory` | Bearer | Numbers held in the telephony provider account. |
 | POST | `/api/v1/calls/outbound` | Bearer | Place an outbound call. |
 | POST | `/api/v1/calls/inbound` | Bearer | Register an inbound call from the runtime answer webhook. |
@@ -79,6 +82,7 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | PATCH | `/api/v1/calls/{call_id}` | Bearer | Patch artifact URLs, end time, status, or disposition. |
 | GET | `/api/v1/calls/{call_id}/recording` | Bearer | Stream the call recording from MinIO. |
 | GET | `/api/v1/calls/{call_id}/transcript` | Bearer | Stream the call transcript from MinIO. |
+| POST | `/api/v1/calls/{call_id}/translate` | Bearer | LLM-translate the transcript into `target_lang`; cached beside it in MinIO. |
 | GET | `/api/v1/calls/{call_id}/metrics` | Bearer | Fetch pipeline metrics for one call. |
 | PUT | `/api/v1/calls/{call_id}/metrics` | Bearer | Upsert pipeline metrics (runtime; write-once). |
 | GET | `/api/v1/calls/org/{org_id}` | Bearer | Paginated call logs for an organisation. |

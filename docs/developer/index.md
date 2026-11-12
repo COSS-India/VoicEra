@@ -40,11 +40,11 @@ Optional. Run STT, TTS, and LLM on your own hardware behind one gateway on `:810
 
 * [**Local setup**](guides/local-setup) · [**Repository layout**](guides/repository-layout)
 * [**Adding an AI provider**](guides/adding-a-provider) · [**Adding a telephony provider**](guides/adding-a-telephony-provider)
-* [**Testing**](guides/testing) — the five suites and what each protects
+* [**Testing**](guides/testing) — the six suites and what each protects
 * [**Contributing**](guides/contributing-guide) — branches, commits, pull requests
 
 <Note>
-There is no CI. Run the test suites yourself before opening a pull request — [Testing](guides/testing) lists all five and what each needs.
+CI runs the test suites, lint, and standards checks on every pull request. Run them yourself first — [Testing](guides/testing) lists all six, what each needs, and which CI checks fail the run.
 </Note>
 
 ## Configuration reference

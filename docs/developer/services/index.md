@@ -18,9 +18,9 @@ Containers and Python packages are not one to one. `apps/api` is a **single** pa
 | `postgres` | `ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0` | image default | none published | Storage engine behind FerretDB. |
 | `ferretdb` | `ghcr.io/ferretdb/ferretdb:2.7.0` | image default | `27018` host → `27017` container | MongoDB wire protocol over PostgreSQL. Network alias `mongodb`. |
 | `api` | `apps/api/Dockerfile` | `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload` | `8000` | The [REST API](api) — auth, agents, campaigns, RAG, telephony provisioning. |
-| `minio` | `minio/minio:latest` | `server /data --console-address ":9001"` | `9000` API, `9001` console | S3-compatible store for recordings and transcripts. |
-| `minio-init` | `minio/mc:latest` | `mc alias set` + `mc mb --ignore-existing` | none | One-shot job that creates the `voicera-calls` bucket, then exits. |
-| `redis` | `redis:7` | `redis-server --requirepass ${REDIS_PASSWORD}` | none published | ARQ job queue, campaign event bus, concurrency slots and rate limits. |
+| `minio` | `minio/minio:latest` | `server /data --console-address ":9001"` | `9000` API, `9001` console | S3-compatible store for recordings, transcripts, translations, and cached voice previews. |
+| `minio-init` | `minio/mc:latest` | `mc alias set` + `mc mb --ignore-existing` + `mc ilm import` | none | One-shot job that creates the `voicera-calls` and `voicera-tts-preview` buckets, sets a 7-day expiry on the preview bucket, then exits. |
+| `redis` | `redis:7` | `redis-server --requirepass ${REDIS_PASSWORD}` | none published | ARQ job queue, campaign event bus, concurrency slots and rate limits, voice-preview and translation limiters, translation locks. |
 | `arq-worker` | `apps/api/Dockerfile` | `python -m arq app.tasks.arq.WorkerSettings` | none | Runs campaign batches and source syncs. See [Workers and orchestrator](workers). |
 | `campaign-orchestrator` | `apps/api/Dockerfile` | `python -m app.services.campaign.campaign_orchestrator` | none | Schedules the next batch and detects campaign completion. |
 | `runtime` | `apps/runtime/Dockerfile` | image `CMD` (uvicorn on `:7860`) | `7860` | The [voice runtime](runtime) — answer webhook and Pipecat pipeline. |
@@ -78,8 +78,8 @@ flowchart LR
 | From | To | Over | For |
 | --- | --- | --- | --- |
 | `api` | `ferretdb` | MongoDB wire protocol | All documents — users, agents, calls, campaigns. |
-| `api` | `redis` | `REDIS_URL` | Enqueue ARQ jobs, publish campaign events, hold concurrency slots. |
-| `api` | `minio` | S3 | Serve recordings and transcripts through proxy routes. |
+| `api` | `redis` | `REDIS_URL` | Enqueue ARQ jobs, publish campaign events, hold concurrency slots, rate-limit voice previews and translations, lock in-flight translations. |
+| `api` | `minio` | S3 | Serve recordings and transcripts through proxy routes; cache translations and voice previews. |
 | `api` | Chroma volume | local filesystem | Per-organisation RAG vector store at `/app/app/rag/chroma_data`. |
 | `arq-worker` | `redis` | ARQ queue | Pull jobs, publish batch results. |
 | `arq-worker` | `ferretdb` | MongoDB wire protocol | Read campaigns and queued runs, write state. |

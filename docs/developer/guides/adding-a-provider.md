@@ -15,6 +15,7 @@ apps/providers/{cloud|adapters|local}/<name>/
   config.py          # Auth, Settings, Config classes — pure Pydantic
   service.py          # @register_stt / @register_tts / @register_llm creators
   __init__.py          # empty
+  preview.py           # optional, TTS only: @register_preview voice-preview adapter
 ```
 
 Which of `cloud/`, `adapters/`, `local/` you pick **is** the `provider_type` — see [Cloud, adapter, or local](#cloud-adapter-or-local).
@@ -63,6 +64,8 @@ These are the steps from `apps/providers/README.md`, which is the authoritative 
 5. In `service.py`, implement `@register_stt` / `@register_tts` / `@register_llm` creators that take the typed config and build the Pipecat (or adapter) service. Import Pipecat **inside** the creator so missing extras do not break package import.
 6. Do **not** edit a central `if`/`elif` in `factory.py` — registration plus `load_providers()` pick up the new module. The schema dump follows automatically.
 
+For a TTS vendor, optionally add `preview.py` so the dashboard's voice play button works for it — see [Voice preview](#voice-preview-tts-only).
+
 Here is what happens to your folder once it exists:
 
 ```mermaid
@@ -79,13 +82,14 @@ flowchart TB
 
 `load_providers()` imports every `*.service` module under `cloud`, `adapters`, and `local`, which runs your decorator, which fills the registry maps, which both the factory unions and the catalog dump read from. One registration reaches all of it.
 
-## The three module files
+## The module files
 
 | File | Holds | Imported by |
 | --- | --- | --- |
 | `catalog.py` | `STT_CAPABILITIES` / `TTS_CAPABILITIES` (languages + per-vendor-code settings), plus voice tuples / URL constants. No Pydantic, no `DEFAULT_*_MODEL`, no `"*"`. | `config.py` |
 | `config.py` | The Auth, Settings, and Config classes. Pure Pydantic — importable without the vendor SDK or Pipecat. | `service.py`, `registry.py` |
 | `service.py` | The `@register_*` creator functions. The only file that touches Pipecat. | `load_providers()` |
+| `preview.py` | Optional, TTS only. One `@register_preview` function that calls the vendor directly. No Pipecat, no `app.*`. | `import_vendor_previews()`, from the API |
 
 One capabilities map per kind keeps models, languages, and settings reviewable in a single diff. Helpers in `apps/providers/capabilities.py` derive model ids, language schema extras, and the canonical-keyed settings tree for `/configuration/*`.
 
@@ -285,6 +289,53 @@ Auth is often unnecessary — the gateway itself has no auth layer, so `indic_or
 No `local` LLM provider exists yet. `model-server/llm/qwen3.5-4b/` is `status: ready` in the model server's own catalog, but nothing in `apps/providers/local/` wires it up, so agents cannot select it. If you are adding the first local LLM provider, `local/indic_orpheus/` and `local/indic_nemotron/` are still the closest structural templates — you'll be writing the `register_llm` creator and the OpenAI-compatible client yourself.
 </Note>
 
+## Voice preview (TTS only)
+
+The play button in the agent wizard calls `POST /api/v1/tts/preview` (see [Configuration API](../../api-reference/configuration)). That path never touches Pipecat or the runtime: the API calls the vendor once, directly, so a preview cannot compete with a live call. A TTS vendor joins in with `preview.py`, registering a plain async function `fn(cfg, text, client) -> wav_bytes`:
+
+```python
+# apps/providers/cloud/elevenlabs/preview.py (trimmed)
+import httpx
+
+from ...preview import PREVIEW_SAMPLE_RATE_HZ, pcm_to_wav, post_for_audio, register_preview, resolve_wire_language
+from .catalog import DEFAULT_BASE_URL, TTS_CAPABILITIES
+from .config import ElevenLabsTTSConfig
+
+
+@register_preview("elevenlabs")
+async def synthesize(cfg: ElevenLabsTTSConfig, text: str, client: httpx.AsyncClient) -> bytes:
+    payload = {"text": text, "model_id": cfg.model, "voice_settings": {"speed": cfg.speed}}
+    if cfg.model in _LANGUAGE_CODE_MODELS:  # other ElevenLabs models reject language_code
+        payload["language_code"] = resolve_wire_language(TTS_CAPABILITIES, cfg.model, cfg.language)
+    response = await post_for_audio(
+        client,
+        "ElevenLabs",
+        f"{DEFAULT_BASE_URL}/v1/text-to-speech/{cfg.voice}",
+        params={"output_format": f"pcm_{PREVIEW_SAMPLE_RATE_HZ}"},
+        json=payload,
+        headers={"xi-api-key": cfg.api_key},
+    )
+    return pcm_to_wav(response.content, sample_rate=PREVIEW_SAMPLE_RATE_HZ)
+```
+
+`cfg` is your typed TTS config with the organisation's secrets merged in; `client` is a shared `httpx.AsyncClient` the caller owns and closes. Unlike `@register_tts`, the decorator takes the provider id as a string. The helpers in `apps/providers/preview.py` carry the rules:
+
+| Helper | Use |
+| --- | --- |
+| `post_for_audio(client, vendor, url, **kwargs)` | POST and return a response with a non-empty body. A transport error, non-2xx status, or empty body becomes `PreviewProviderError`. `send_to_vendor` does the same for a request you build yourself and allows an empty body. |
+| `resolve_wire_language(capabilities, model, canonical)` | Map the canonical language id to the vendor's code for this model, from your `TTS_CAPABILITIES`. |
+| `resolve_preview_sample_rate(cfg)` | The rate to request from a vendor that takes one: the config's own `sample_rate` if it has that field, else `PREVIEW_SAMPLE_RATE_HZ` (16000). |
+| `pcm_to_wav(pcm, sample_rate=…)` | Wrap headerless PCM16 in a WAV header. Pass the vendor's own rate — or the rate its response reports — never a guess. |
+
+Four rules the helpers cannot enforce for you:
+
+* **Never resample or transcode.** Ask the vendor for the rate you want, or wrap what it sends at its native rate. `local/indic_orpheus/preview.py` wraps the model server's 24 kHz PCM as-is.
+* **No `pipecat` or `app.*` imports.** `apps/providers` is shared with the runtime, and the API imports every `<vendor>.preview` module at startup through `import_vendor_previews()`, which walks `cloud/`, `adapters/`, and `local/` like `load_providers()` but never imports `service.py`.
+* **Keep text and keys out of errors.** A `PreviewProviderError` message goes to the server log — status codes and error classes only.
+* **Validate anything that goes into a URL.** ElevenLabs puts the voice id in the path, so its adapter rejects a non-alphanumeric id before sending.
+
+A `preview.py` that fails to import is logged as a warning and skipped. A TTS vendor without an adapter still works on calls; its preview requests return `422` with `Preview is not available for provider …`. Every TTS vendor except `lmnt` has one.
+
 ## Why you never edit factory.py
 
 `factory.py` builds its discriminated unions *from the registry*:
@@ -340,8 +391,10 @@ Bump the number for the kinds you added. That failure is the test doing its job 
 
 Add a vendor-specific test only where your provider does something the generic checks cannot see, such as a non-obvious vendor code inversion. `test_elevenlabs_stt_odia_vendor_code_in_schema` and `test_sarvam_stt_auto_detect_vendor_code_is_unknown` are the models to follow.
 
+If you added `preview.py`, add `apps/providers/tests/test_preview_<vendor>.py`. `preview_harness.run_adapter(synthesize, cfg, httpx.Response(...))` runs your adapter against an `httpx.MockTransport` and returns the audio and the request it sent, so a test asserts the URL, headers, and JSON body (`json_body`) and the WAV's rate (`wav_sample_rate`) without a network. `test_preview_elevenlabs.py` is the model to follow. Keep it in `apps/providers/tests/`: Sarvam's sits in its vendor folder, where neither `pytest apps/providers/tests` nor CI collects it.
+
 <Note>
-There is no CI. Run the suite yourself before opening a pull request. See [Testing](testing).
+CI runs this suite on every pull request and fails on any new test failure. Run it yourself before opening one. See [Testing](testing).
 </Note>
 
 ## A worked example

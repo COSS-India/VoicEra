@@ -125,7 +125,7 @@ See [Daily operations](operations).
 
 ## Is there a CI pipeline?
 
-No. There is no `.github/` directory. Run the test suites yourself before opening a pull request — see [Testing](../../developer/guides/testing).
+Yes. Two GitHub Actions workflows run on every pull request and on pushes to `main`, `staging`, and `dev`: `quality.yml` (tests, lint, type checks, security scan, SBOM) and `standards.yml` (OpenAPI, language codes, Dockerfiles, Compose, dependency scan). See [Continuous integration](../../developer/guides/testing#continuous-integration) for which checks fail the run and which only report.
 
 ## Related
 

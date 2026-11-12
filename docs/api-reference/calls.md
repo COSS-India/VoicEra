@@ -79,6 +79,38 @@ Every field is optional, but an empty body returns `400 No fields to update` —
 
 Bearer. Stream the artifact out of MinIO through the API, so clients never need MinIO credentials. `404` when the call or the object is missing, `400` when the stored URL is not a usable object key.
 
+<Note>
+Only the recording route checks the object exists before responding. The transcript route fetches the object inside the stream, after the `200` headers are sent, so a transcript URL whose object is gone returns `200` and then a broken body, not a `404`.
+</Note>
+
+## `POST /calls/{call_id}/translate`
+
+Bearer. Query parameter `target_lang` (required), e.g. `?target_lang=en`. Translates the call's stored transcript in one LLM request, so every line is translated with the whole conversation as context. The source language is auto-detected.
+
+`target_lang` must be one of the product's languages (the ids from `GET /languages`, minus `multi`), by base code — `en`, `EN`, and `en-US` all mean `en`, and `od` and `or` both mean Odia. Anything else is `422`.
+
+Returns `CallTranslateResponse`:
+
+```json
+{
+  "translated_text": "call_id=…\n---\n[2026-01-01T12:00:01.000+00:00] assistant: Hello, I am speaking from Acme…\n[2026-01-01T12:00:04.000+00:00] user: Yes, tell me.",
+  "target_lang": "en"
+}
+```
+
+Only `[timestamp] role: text` lines are translated. The model is told to leave the timestamp and role unchanged, and the API rejects a result whose line count or line shape changed (`502`); any other line — such as the `call_id=` header — passes through untouched. `target_lang` echoes what you sent.
+
+The LLM is the organisation's own: the first provider it has stored credentials for, in the order `openai`, `groq`, `openrouter`, `atlascloud`, `aws_bedrock`, `google_vertex`, `kenpath`, then the self-hosted model server if it has an LLM deployed. Each attempt gets 60 seconds; a failure falls through to the next. There is no shared server-wide key.
+
+Four things are not obvious:
+
+* **Results are cached beside the transcript** as `translation.{lang}.{prompt_version}.txt` in the same `{org_id}/{call_id}/` MinIO prefix. Reopening a call costs nothing, and a change to the translation prompt yields a new key, so stale translations stop being served. A cache read or write failure never fails the request.
+* **Only one translation per call and language runs at a time.** A concurrent duplicate gets `423` at once, with no LLM call; retry and it lands on the cache once the first finishes.
+* **Uncached translations are rate-limited per organisation** to `TRANSLATE_RATE_LIMIT_PER_MIN` (default `20`) a minute. Over it is `429` with `Retry-After`. The lock and the limit live in Redis and fail closed: Redis unreachable is `503`.
+* **At most five translations run at once per API process.** A request that waits 30 seconds for a slot gets `503`.
+
+Other errors: `404` when the call, its transcript URL, or the transcript object is missing; `400` for an unusable transcript URL or a transcript with no translatable lines; `409` when the organisation has no LLM provider configured; `413` when the transcript is over 22,000 characters; `500` when the stored transcript is not valid UTF-8; `502` when every provider failed or the result changed the transcript's line count; `503` for any MinIO error other than a missing object.
+
 ## `GET /calls/{call_id}/metrics` and `PUT /calls/{call_id}/metrics`
 
 Bearer (bot JWT supported). Pipeline metrics live in the separate `CallMetrics` collection — they are **not** returned by `GET /calls/{call_id}`.

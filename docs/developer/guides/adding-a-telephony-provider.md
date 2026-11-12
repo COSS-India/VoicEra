@@ -325,7 +325,7 @@ python apps/telephony/scripts/print_schemas.py
 ```
 
 <Note>
-There is no CI. Run these yourself before opening a pull request, and test a real inbound call against the vendor's sandbox — the registry tests prove the wiring, not that the vendor accepts your XML.
+CI runs the telephony suite on every pull request, but run it yourself first, and test a real inbound call against the vendor's sandbox — the registry tests prove the wiring, not that the vendor accepts your XML.
 </Note>
 
 ## Related

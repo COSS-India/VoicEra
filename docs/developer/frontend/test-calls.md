@@ -84,6 +84,8 @@ On disconnect / unmount the Pipecat client releases the microphone and closes th
 **Browser test calls are recorded.** The browser registers a `call_type: web` CallLog with `POST /calls/web` before connecting, so a transcript and recording are stored under the same MinIO paths as telephony calls. The captions shown during the call, however, live only in React state and are gone when you close the modal — read the stored transcript through `GET /api/v1/calls/{call_id}/transcript`.
 </Note>
 
+After the call ends, `CallStage` shows a **Translate** button that sends the stored transcript to `POST /api/v1/calls/{call_id}/translate`, the same hook and toggle as the [History call sheet](dashboard-tour#history).
+
 Other constraints worth knowing:
 
 * **Telephony agents cannot take a browser call.** The runtime expects a provider `start` event on that socket. Use `POST /calls/outbound` and a real phone instead.

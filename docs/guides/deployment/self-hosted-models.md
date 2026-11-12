@@ -38,7 +38,7 @@ curl -s localhost:8100/v1/models
 Full detail in [Model server overview](../../developer/model-server/overview) and [Slots and models](../../developer/model-server/slots-and-models).
 
 <Tip>
-Weights are **not** in the repository. `stt/indic-conformer/models/IndicConformer.nemo` and `tts/indic-parler/checkpoints/` are gitignored, and `ai4bharat/indic-parler-tts` is a **gated** HuggingFace repo — you need a token with access, or a pre-populated cache. Build one image at a time on a tight disk; parallel builds double peak usage at the export stage, which is where they fail.
+Weights are **not** in the repository. `stt/indic-conformer/models/IndicConformer.nemo` and `tts/indic-parler/checkpoints/` are gitignored, and `ai4bharat/indic-parler-tts` is a **gated** HuggingFace repo — you need a token with access, or a pre-populated cache. The same goes for `TTS_MODEL=orpheus`: `tts/orpheus/fetch.sh` downloads the gated `bodhan-ai/indic-speak` repo into the gitignored `tts/orpheus/models/`, so accept its licence on HuggingFace and supply `HF_TOKEN`. `make model-server-setup` runs it for you, and there `TTS_HF_TOKEN` also works; by hand, run it before `up -d`, or Docker creates the missing mount as an empty directory and the slot fails with a model-path error. Build one image at a time on a tight disk; parallel builds double peak usage at the export stage, which is where they fail.
 </Tip>
 
 ## Network it to the runtime

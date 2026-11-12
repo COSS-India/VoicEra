@@ -22,10 +22,10 @@ From the `ports:` blocks in `docker-compose.yaml`. "Published?" means Compose ma
 | `minio` | `9000` | `9000` | Yes | `MINIO_API_PORT` | S3 API for recordings, transcripts, CSVs, PDFs. |
 | `minio` (console) | `9001` | `9001` | Yes | `MINIO_CONSOLE_PORT` | MinIO web console. |
 | `postgres` | — | `5432` | **No** | — | FerretDB's storage engine. Internal only. |
-| `redis` | — | `6379` | **No** | — | ARQ job queue and campaign pub/sub. Internal only. |
+| `redis` | — | `6379` | **No** | — | ARQ job queue, campaign pub/sub, rate limiters. Internal only. |
 | `arq-worker` | — | — | No | — | Background job worker. Binds no port. |
 | `campaign-orchestrator` | — | — | No | — | Campaign batch scheduler. Binds no port. |
-| `minio-init` | — | — | No | — | One-shot bucket creation, then exits. |
+| `minio-init` | — | — | No | — | One-shot creation of `voicera-calls` and `voicera-tts-preview` (7-day expiry), then exits. |
 
 ### FerretDB is 27018 on the host, 27017 in the container
 

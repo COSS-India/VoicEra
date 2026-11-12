@@ -30,7 +30,7 @@ flowchart TB
   IN --> STT --> UA --> KB --> LLM --> TTS --> OUT --> AB --> AA
 ```
 
-Two details are worth calling out. The knowledge-base processor is inserted **only** when `configure_knowledge_base()` returns one — see [Knowledge base (RAG)](knowledge-base-rag). And `audiobuffer` sits *after* `transport.output()`, so the recording it produces contains both sides of the conversation as they were actually sent.
+Three details are worth calling out. The knowledge-base processor is inserted **only** when `configure_knowledge_base()` returns one — see [Knowledge base (RAG)](knowledge-base-rag). `audiobuffer` sits *after* `transport.output()`, so the recording it produces contains both sides of the conversation as they were actually sent. And an LLM service can add its own processors straight after `transport.output()` by exposing `pipeline_processors_after_output()` — today only the Kenpath services do, to time their hangup (see [below](#provider-specific-call-ending-kenpath)).
 
 The transport is a `FastAPIWebsocketTransport` with `audio_in_enabled=True`, `audio_out_enabled=True`, and `add_wav_header=False`. Voice activity detection is a `SileroVADAnalyzer` configured with `stop_secs=0.4`, `min_volume=0.5`, `confidence=0.3`, and `start_secs=0.1`.
 
@@ -137,7 +137,11 @@ Tool registration merges rather than overwrites. If a knowledge-base tool is alr
 
 The mechanism above needs an LLM that does OpenAI-style tool calling. Kenpath's Vistaar and Bharat Vistaar services stream plain text instead, so they end calls a different way: `apps/providers/adapters/kenpath/call_ending.py` regex-matches the word **"goodbye"** (case-insensitive, word-boundary) in the streamed LLM output. That word is Kenpath's own hangup convention, not something VoicEra defines.
 
-Both `llm.py` and `bharat_vistaar_llm.py` call `strip_goodbye_for_tts()` on every streamed chunk before it reaches TTS, so the literal word "goodbye" is never spoken to the caller — the rest of that chunk still is. Only after the **entire** response has finished streaming (in the same `finally` block that pushes `LLMFullResponseEndFrame`) does `response_requests_end_call()` check the full text and, if it matched, call `end_call()` to push an `EndWorkerFrame`. So the agent finishes speaking its goodbye-stripped response in full before the call ends — it does not cut off mid-sentence.
+Both `llm.py` and `bharat_vistaar_llm.py` call `strip_goodbye_for_tts()` on every streamed chunk before it reaches TTS, so the literal word "goodbye" is never spoken to the caller — the rest of that chunk still is. Only after the **entire** response has finished streaming (in the same `finally` block that pushes `LLMFullResponseEndFrame`) does `response_requests_end_call()` check the full text. If it matched, `schedule_end_call()` decides when to hang up:
+
+* **Something was spoken** — the hangup is deferred. A `KenpathDeferredCallEndingProcessor`, inserted right after `transport.output()`, pushes the `EndWorkerFrame` on the next `BotStoppedSpeakingFrame`, so the farewell plays out in full rather than being cut off when the text finishes streaming.
+* **The caller interrupts the farewell** — an `InterruptionFrame` cancels the pending hangup and the call carries on.
+* **Nothing was spoken** (the response was only "goodbye") — `end_call()` pushes the `EndWorkerFrame` immediately, since there is no audio to wait for.
 
 This is a second, independent end-call path — it does not use `automatic_call_ending`, does not register a tool, and works even when that config is off. Bharat Vistaar also honours its own vendor-native `end_interaction` flag from the SSE payload as an additional trigger, alongside the same goodbye-word check.
 

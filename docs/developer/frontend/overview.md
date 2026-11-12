@@ -80,15 +80,18 @@ Every request is built in `frontend/src/lib/api-client.ts` or `frontend/src/lib/
 | `api-client.ts` (agents) | `GET /agents`, `GET /agents/{id}`, `POST /agents`, `PATCH /agents/{id}`, `DELETE /agents/{id}` | agents |
 | `api-client.ts` (provider auth) | `GET /auth/catalog`, `GET /auth/configured`, `POST /auth`, `GET /auth/{provider}`, `DELETE /auth/{provider}` | [ProviderAuth](../reference/provider-auth) |
 | `api-client.ts` (catalogs) | `GET /languages`, `GET /configuration/{stt,tts,llm,telephony}`, `GET /configuration/{stt,tts}/setting/{provider}`, `GET /configuration/llm/setting/{provider}` | configuration |
+| `api-client.ts` (voice preview) | `POST /tts/preview`, `GET /tts/preview/limits` | tts |
 | `api/users.ts` | `POST /users/login`, `POST /users/signup`, `GET /users/me`, `GET /users/organisations`, `POST /users/switch-organisation`, `GET /users/check/{email}`, `GET /users/{email}`, `POST /users/forgot-password`, `POST /users/reset-password` | users |
 | `api/members.ts` | `POST /members/invite`, `GET /members/{org_id}`, `POST /members/assign-admin`, `POST /members/remove` | members |
 | `api/organisations.ts` | `DELETE /organisations/{org_id}` | organisations |
-| `api/phone-numbers.ts` | `GET /phone-numbers`, `GET /phone-numbers/providers/{provider}/inventory`, `POST /phone-numbers/attach`, `DELETE /phone-numbers/detach` | phone numbers |
-| `api/calls.ts` | `POST /calls/outbound`, `POST /calls/web`, `GET /calls/org/{org_id}`, `GET /calls/{call_id}`, `GET /calls/{call_id}/recording`, `GET /calls/{call_id}/transcript`, `GET /calls/{call_id}/metrics` | calls |
+| `api/phone-numbers.ts` | `GET /phone-numbers`, `GET /phone-numbers/providers/{provider}/inventory`, `POST /phone-numbers/attach`, `DELETE /phone-numbers/detach`, `DELETE /phone-numbers/delete` | phone numbers |
+| `api/calls.ts` | `POST /calls/outbound`, `POST /calls/web`, `GET /calls/org/{org_id}`, `GET /calls/{call_id}`, `GET /calls/{call_id}/recording`, `GET /calls/{call_id}/transcript`, `POST /calls/{call_id}/translate`, `GET /calls/{call_id}/metrics` | calls |
 | `api/campaigns.ts` | `GET /campaign/`, `POST /campaign/upload`, `POST /campaign/create`, `POST /campaign/{id}/start`, `POST /campaign/{id}/pause`, `POST /campaign/{id}/resume`, `POST /campaign/{id}/redial`, `GET /campaign/{id}/runs` | campaign |
 | `api/knowledge.ts` | `GET /knowledge`, `POST /knowledge/upload`, `DELETE /knowledge/{document_id}` | knowledge |
 
-Recordings and transcripts come back as blobs rather than JSON, because `<audio src>` cannot send an `Authorization` header — `apiFetchBlob` fetches them with the bearer token and the UI builds an object URL.
+Recordings and transcripts come back as blobs rather than JSON, because `<audio src>` cannot send an `Authorization` header — `apiFetchBlob` fetches them with the bearer token and the UI builds an object URL. Voice-preview WAVs come back the same way.
+
+Failed requests throw `ApiError` (`frontend/src/lib/api/http.ts`) with the HTTP `status` and, when the endpoint sends `detail: {code, message}` as voice preview does, a machine-readable `code`.
 
 `frontend/src/lib/api-types.ts` holds the TypeScript shapes for all of the above; it is the frontend's copy of the API contract, not a generated client.
 

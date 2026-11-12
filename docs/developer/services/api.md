@@ -19,6 +19,8 @@ The same package also runs as the ARQ worker and the campaign orchestrator, with
 | Telephony provisioning and phone numbers | `app/services/agent_telephony_service.py`, `app/services/phone_number_service.py` |
 | Provider catalogs and credentials | `app/routers/{configuration,auth}.py`, `app/services/provider_auth_catalog.py` |
 | Call logs and artifact proxying | `app/routers/calls.py`, `app/services/call_log_service.py` |
+| Transcript translation | `app/routers/calls.py`, `app/services/translation_service.py`, `apps/providers/one_shot_llm.py` |
+| Voice preview for unsaved TTS configs | `app/routers/tts_preview.py`, `app/services/tts_preview_service.py` |
 | Campaigns, batching, circuit breaker | `app/routers/campaign.py`, `app/services/campaign/` |
 | Knowledge base ingest and retrieval | `app/routers/{knowledge,rag}.py`, `app/rag/` |
 
@@ -26,7 +28,7 @@ The same package also runs as the ARQ worker and the campaign orchestrator, with
 
 Every router is mounted under `settings.API_V1_PREFIX`, which defaults to `/api/v1`. `app/main.py` includes them in this order:
 
-`users` · `members` · `organisations` · `languages` · `configuration` · `auth` · `agents` · `phone-numbers` · `calls` · `campaign` · `knowledge` · `rag`
+`users` · `members` · `organisations` · `languages` · `configuration` · `auth` · `agents` · `phone-numbers` · `calls` · `campaign` · `knowledge` · `rag` · `tts`
 
 The tables below are reproduced from `apps/api/README.md`. `/docs` on a running instance is always the authoritative list.
 
@@ -108,6 +110,7 @@ Set `VOICE_SERVER_BASE_URL` before creating telephony agents. Answer and hangup 
 | GET | `/phone-numbers/agent/{agent_id}` | Bearer — number attached to agent |
 | POST | `/phone-numbers/attach` | Bearer — add to inventory; with `agent_id` also provider-link + set `Agents.linked_phone_number` |
 | DELETE | `/phone-numbers/detach` | Bearer — provider-unlink + clear agent association (keeps inventory row) |
+| DELETE | `/phone-numbers/delete` | Bearer — body `{phone_number}`; remove from inventory (must be detached first; not released at the provider) |
 | GET | `/phone-numbers/providers/{provider}/inventory` | Bearer — list numbers on the org provider account |
 
 Omit `agent_id` on attach to import a number into inventory only, with no provider link.
@@ -116,13 +119,22 @@ Omit `agent_id` on attach to import a number into inventory only, with no provid
 
 | Router | Prefix | Notable routes |
 | --- | --- | --- |
-| `calls` | `/calls` | `PATCH /{call_id}`, `PATCH /by-provider-sid/{provider_call_sid}`, `GET /{call_id}/recording`, `GET /{call_id}/transcript`, `GET /org/{org_id}` |
+| `calls` | `/calls` | `PATCH /{call_id}`, `PATCH /by-provider-sid/{provider_call_sid}`, `GET /{call_id}/recording`, `GET /{call_id}/transcript`, `POST /{call_id}/translate?target_lang=`, `GET /org/{org_id}` |
 | `campaign` | `/campaign` | `POST /create`, `POST /{campaign_id}/start`, `/pause`, `/resume`, `/redial`, `GET /{campaign_id}/progress`, `GET /{campaign_id}/report`, `POST /internal/call-status` |
 | `knowledge` | `/knowledge` | `GET`, `POST` (PDF upload), `DELETE` |
 | `rag` | `/rag` | `POST /retrieve` |
 | `languages` | — | `GET /languages` |
 
 The recording and transcript routes are authenticated proxies over MinIO — the runtime stores a `minio://` URI and clients never talk to MinIO directly. See [Calls and call artifacts](../../guides/concepts/calls) and the full [REST API reference](../../api-reference/overview).
+
+### Voice preview
+
+| Method | Path | Auth |
+|--------|------|------|
+| POST | `/tts/preview` | Bearer (active org) — body `{tts_config, language, text}` → `audio/wav` |
+| GET | `/tts/preview/limits` | Bearer — `{max_chars}` (`TTS_PREVIEW_MAX_CHARS`, default 300) |
+
+Preview errors carry `detail: {code, message}` rather than a bare string, because several reasons share a status code. Synthesis goes through the per-vendor adapters in [`apps/providers`](providers#voice-preview-adapters).
 
 ## Service layer
 
@@ -139,6 +151,8 @@ Routers stay thin. `app/services/` owns the rules:
 | `secret_crypto.py` | Fernet encrypt and decrypt for `ProviderAuth` blobs. |
 | `call_log_service.py`, `inbound_call_service.py`, `outbound_call_service.py` | CallLog creation and updates for each direction. |
 | `knowledge_service.py` | Knowledge document records and MinIO objects. |
+| `translation_service.py` | Builds the translation prompt and calls the org's first working LLM via `apps/providers/one_shot_llm.py`. The router adds a Redis lock per `(org, call, language)` (`translate_lock:*`, 60 s TTL renewed every 20 s → `423`) and a per-org fixed-window limiter on uncached requests (`translate_rate:*`, `TRANSLATE_RATE_LIMIT_PER_MIN`); both fail closed with `503` when Redis is down. |
+| `tts_preview_service.py` | Validates, caches, and synthesizes voice previews. Has its own Redis fixed-window limiter (`tts_preview_rl:*`, `TTS_PREVIEW_RATE_LIMIT_PER_MINUTE`) that fails open; cache hits are not counted. |
 | `call_concurrency/` | Redis-backed concurrency slots and rate limiting. See [Call concurrency](../reference/call-concurrency). |
 | `campaign/` | Repository, dispatcher, circuit breaker, event protocol, orchestrator. See [Campaigns](../../guides/concepts/campaigns). |
 
@@ -151,7 +165,7 @@ Three stores, each with a different job.
 | Store | Client | Holds |
 | --- | --- | --- |
 | FerretDB | `pymongo` via `app/database.py` | Every document. Collections include `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`. |
-| MinIO | `minio` SDK via `app/storage/minio_client.py` | Call recordings, transcripts, knowledge PDFs. Bucket `MINIO_BUCKET`, default `voicera-calls`. Cached voice-preview clips live in a separate bucket, `TTS_PREVIEW_BUCKET` (default `voicera-tts-preview`), with a 7-day expiry. |
+| MinIO | `minio` SDK via `app/storage/minio_client.py` | Call recordings, transcripts, cached transcript translations (`translation.{lang}.{PROMPT_VERSION}.txt` beside the transcript), knowledge PDFs. Bucket `MINIO_BUCKET`, default `voicera-calls`. Cached voice-preview clips live in a separate bucket, `TTS_PREVIEW_BUCKET` (default `voicera-tts-preview`), with a 7-day expiry. |
 | Chroma | `chromadb`, on-disk | Per-organisation vector store under `CHROMA_BASE_DIR`, `/app/app/rag/chroma_data` in Docker. |
 
 `app/database.py` builds the connection URI from `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USER`, `MONGODB_PASSWORD`, and `MONGODB_DATABASE`. `MONGODB_AUTH_SOURCE` and `MONGODB_AUTH_MECHANISM` default to empty strings because FerretDB authenticates with PostgreSQL users over SCRAM-SHA-256. Connections use `serverSelectionTimeoutMS=5000`.

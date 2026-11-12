@@ -124,11 +124,11 @@ First build takes 20-40 minutes. Budget generously:
 | `stt/indic-conformer` checkpoint | ~2.4 GB, downloaded by `fetch.sh` |
 | `stt/indic-transcribe` | ~30 GB total: ~14 GB image, 4.9 GB HF checkpoint, 4.6 GB converted checkpoint |
 | `llm/qwen3.5-4b` | ~8 GB of bf16 weights, into the `hf_cache` volume on first start |
-| `tts/orpheus` | ~7 GB for a 3B backbone in bf16 plus cache |
+| `tts/orpheus` | ~7 GB for a 3B backbone in bf16 plus cache; the checkpoint is downloaded by `fetch.sh` (gated) |
 
 **Build one image at a time on a tight disk.** Building both in parallel doubles peak usage at the export stage, which is where it fails.
 
-Weights are not in the repository. `stt/indic-conformer/models/IndicConformer.nemo` and `tts/indic-parler/checkpoints/` are gitignored — fetch or copy them before building. They live inside the model's own folder, which is what the slot bind-mounts, so editing a model's `server.py` also does not need a rebuild.
+Weights are not in the repository. `stt/indic-conformer/models/IndicConformer.nemo`, `tts/indic-parler/checkpoints/`, and `tts/orpheus/models/` are gitignored — fetch or copy them before building. They live inside the model's own folder, which is what the slot bind-mounts, so editing a model's `server.py` also does not need a rebuild.
 
 ## Gotchas
 
@@ -148,7 +148,7 @@ These are the ones that have cost time on real hardware, from `model-server/READ
 
 ### Checking a live box
 
-Two scripts are not part of the test suite because they need real models on a GPU:
+Two scripts and two bench directories are not part of the test suite because they need real models on a GPU:
 
 ```bash
 # End-to-end round trip: TTS speaks a sentence, STT transcribes it back
@@ -162,6 +162,23 @@ python tests/bench_tts.py --url http://localhost:8002 # skip the gateway
 ```
 
 `smoke_gpu.py` covers both models plus the full gateway path without needing a sample audio file; listen to `tts_out.wav` afterwards. In `bench_tts.py`, `ttft` is time to first audio byte — what a caller hears as the pause before the bot speaks. Under about 300 ms feels natural.
+
+**`tests/concurrency-bench/`** answers "how many calls can this box carry". It drives the streaming STT model (indic-nemotron, over WebSocket) and Orpheus TTS (`POST /v1/audio/speech`) at N = 1 … 256 concurrent requests, both as one simultaneous burst and as N random arrivals within one second, three rounds each. It only sends traffic, so it runs from any machine that can reach the gateway:
+
+```bash
+cd model-server/tests/concurrency-bench
+./run.sh setup                      # .venv + requirements
+cp config.example.env config.env    # then edit STT_URL / TTS_URL / LANGUAGE
+./run.sh all                        # corpus (first time) -> STT -> TTS -> report
+```
+
+`run.sh` also takes `stt`, `tts`, `report`, and `runaway` separately; the report lands in `results/<RUN_ID>/report.md`. A level **passes** at zero failed requests and p95 RTF below 1. `./run.sh runaway` measures how often Orpheus fails to stop on its own at N = 1; `RUNAWAY_PROTOCOL=ws`, the default, adds the server's `finish_reason` per request. The bench measures the server **as configured** — raise `ORPHEUS_MAX_NUM_SEQS`, `ORPHEUS_DECODER_MAX_BATCH`, and `NEMOTRON_MAX_BATCH` above the highest N first, or you measure the cap. `tests/concurrency-bench/README.md` has the full method.
+
+**`tests/bench/`** is the older Orpheus load-test matrix: `run_matrix.sh <arm>` runs `sweep.py` (single, concurrency, Poisson and staggered arrivals, bursts, length, language) against the gateway and writes one JSON per run to `results/`; `compare.py` puts a before and an after arm side by side. `run_matrix.sh` hardcodes its virtualenv path, so edit it before running elsewhere.
+
+<Note>
+Sizing from `tests/concurrency-bench/`, on a dedicated H200 NVL: Orpheus keeps every stream real time up to 64 concurrent requests and falls behind at 128. `model-server/.env.example` therefore sets `ORPHEUS_MAX_NUM_SEQS=64`, with the decoder batch and warmup widths to match. The compose default is 32, sized for a card shared with other slots. See [TTS models → Tuning](tts-models#tuning).
+</Note>
 
 Everything else in `tests/` runs without a GPU: the NeMo, torch and Parler-runner layers are stubbed, so routing, batching, protocol and transport are all real code.
 

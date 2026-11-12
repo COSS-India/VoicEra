@@ -33,7 +33,17 @@ The uniqueness index on `phone_number` has no `org_id` component, so a number al
 
 ## `DELETE /phone-numbers/detach`
 
-Bearer. Body `{ "phone_number": "+15551234567" }`. Unlinks at the provider and clears the agent association. The inventory row survives. Returns `SuccessResponse`.
+Bearer. Body `{ "phone_number": "+15551234567" }`. Unlinks at the provider and clears the agent association. The inventory row survives — remove it with [`DELETE /phone-numbers/delete`](#delete-phone-numbersdelete). Returns `SuccessResponse`.
+
+## `DELETE /phone-numbers/delete`
+
+Bearer. Body `{ "phone_number": "+15551234567" }`. Permanently removes the number from the organisation's inventory. Returns `SuccessResponse`.
+
+The number must be detached first: a number still attached to an agent returns `409`. `404` when the number is not in any inventory, `403` when it belongs to another organisation.
+
+<Note>
+Delete does **not** release the number at the telephony provider. It stays in your provider account — and still shows in `GET /phone-numbers/providers/{provider}/inventory` — so you can import it again with `POST /phone-numbers/attach`.
+</Note>
 
 ## `GET /phone-numbers/providers/{provider}/inventory`
 

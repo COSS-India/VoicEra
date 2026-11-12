@@ -36,7 +36,7 @@ flowchart LR
 | --- | --- | --- |
 | Setup | `StartStep.tsx` | Choose "start from scratch" or browse the template gallery. |
 | Name & greeting | `NameStep.tsx` | The agent's name and its opening line. |
-| Language & providers | `LanguageProvidersStep.tsx` + `AgentStackFields.tsx` | Pick languages, then STT, TTS and LLM providers, a voice and a model. |
+| Language & providers | `LanguageProvidersStep.tsx` + `AgentStackFields.tsx` | Pick languages, then STT, TTS and LLM providers, a voice and a model. Each voice has a play button that speaks the greeting. |
 | Delivery | `DeliveryStep.tsx` | How the agent is reached — telephony or browser websocket. |
 | Prompt & knowledge base | `PromptKnowledgeStep.tsx` | System prompt, the prompt library, and attaching knowledge documents. |
 | Review & test | `ReviewStep.tsx` | Read the whole config back, create the agent, then open a live browser call in `CallStage`. |
@@ -84,6 +84,20 @@ The language list is narrowed the same way. A separate effect fetches the settin
 When you change languages, providers that no longer appear in the filtered catalogs are dropped and replaced with the first still-valid option. Model and voice selections are reconciled the same way.
 
 `frontend/src/lib/wizard-data.ts` still contains hardcoded `LLM_PROVIDERS`, `STT_PROVIDERS` and `TTS_PROVIDERS` arrays with provider and model names. Nothing imports them — they are leftovers from the pre-API prototype. The live wizard reads catalogs only. Do not use those arrays as a provider inventory.
+
+## Voice preview
+
+When the voice field is a dropdown, `LanguageProvidersStep` passes the greeting to `VoiceSelect` (`frontend/src/components/wizard/VoicePreview.tsx`), which puts a play button before the selected voice and before every option through `Select`'s `renderLeading` prop. A row with its own button turns the menu from a `listbox` into a `grid`. Play speaks the greeting, in the primary language, in that voice; it never changes the selection. Free-text voice inputs get no play button.
+
+Each click builds a TTS config with the same `buildModelConfigsFromCatalogs()` the create payload uses, then calls `useVoicePreview()` (`frontend/src/lib/use-voice-preview.ts`), which posts it to `POST /tts/preview` and plays the returned WAV. One clip at a time: a new request aborts the previous one and revokes its object URL, and changing the TTS model, its extras, or the primary language stops playback.
+
+The buttons are disabled, with the reason shown under the dropdown, when:
+
+* the chosen model declares languages and the primary language isn't one of them;
+* the greeting is empty once `{{placeholders}}` are stripped — "Add a greeting on the Agent step to preview voices.";
+* the greeting is longer than the server's limit, which `getPreviewLimits()` reads from `GET /tts/preview/limits` once on mount (until then the server's `413` is the only check).
+
+Server errors are mapped to messages by the `code` in the response's `detail`, not by status, because `400` and `422` each cover several reasons. The server's own `message` is never shown.
 
 ## The prompt library
 

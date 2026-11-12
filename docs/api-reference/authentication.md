@@ -10,7 +10,7 @@ VoicEra uses two credentials: a **JWT** for human and application callers, and a
 | `Authorization: Bearer <jwt>` | `POST /api/v1/users/login`, `/signup`, `/switch-organisation`, or `/users/bot/token` | `Depends(get_current_user)` |
 | `X-API-Key: <INTERNAL_API_KEY>` | The root `.env`. Service-to-service only. | `Depends(verify_api_key)` |
 
-The JWT carries `sub` (email), `email`, `org_id`, and `role`. `org_id` is the **active** organisation — a user in several organisations holds one token per organisation and swaps with `POST /api/v1/users/switch-organisation`. Tokens are signed with `SECRET_KEY` using `JWT_ALGORITHM` and expire after `ACCESS_TOKEN_EXPIRE_MINUTES`.
+The JWT carries `sub` (email), `email`, `org_id`, and `role`. `org_id` is the **active** organisation — a user in several organisations holds one token per organisation and swaps with `POST /api/v1/users/switch-organisation`. Tokens are signed with `SECRET_KEY` using `JWT_ALGORITHM` and expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default `120`).
 
 Role checks are not dependencies. They are explicit `HTTPException` raises inside the handler after the token has been verified, so an authenticated caller with the wrong role gets `403`, never `401`.
 

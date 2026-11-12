@@ -58,7 +58,7 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `SECRET_KEY` | none | **Yes** | JWT signing key. Compose declares it `${SECRET_KEY:?...}` and refuses to start without it. |
 | `INTERNAL_API_KEY` | empty | Effectively yes | Shared key for `X-API-Key` service routes. When empty, every such route returns `500`. |
 | `PROVIDER_AUTH_ENCRYPTION_KEY` | empty | Effectively yes | Fernet key encrypting `ProviderAuth` credential blobs. |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | No | JWT lifetime. Not present in `.env.example`. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `120` | No | JWT lifetime, in minutes. Not present in `.env.example`. |
 | `JWT_ALGORITHM` | `HS256` | No | JWT signing algorithm. Not present in `.env.example`. |
 | `MAILTRAP_API_TOKEN` | empty | No | Mailtrap token for password-reset email. Empty disables the mail path. |
 | `MAILTRAP_FROM_EMAIL` | `noreply@voicera.com` | No | Sender address on reset emails. |
@@ -67,8 +67,10 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `VOICE_SERVER_BASE_URL` | empty | Yes for telephony | Public base URL of the runtime. Required when creating or updating a telephony agent. |
 | `ENABLE_CAMPAIGN_ORCHESTRATOR` | `True` | No | Lets API startup spawn the orchestrator. Docker runs it as a separate service instead. |
 | `TTS_PREVIEW_MAX_CHARS` | `300` | No | Longest text a voice preview accepts. Longer requests get 413. |
-| `TTS_PREVIEW_RATE_LIMIT_PER_MINUTE` | `20` | No | Voice previews per organisation per minute that call the vendor. Cache hits don't count. |
+| `TTS_PREVIEW_RATE_LIMIT_PER_MINUTE` | `20` | No | Voice previews per organisation per minute. Cache hits don't count; requests rejected with 409 (provider not configured) do. Redis-backed, and fails open: if Redis is unreachable, previews are not limited. Not present in `.env.example`. |
 | `TTS_PREVIEW_TIMEOUT_S` | `15` | No | Seconds to wait for the vendor on one preview before returning 504. |
+| `TRANSLATE_RATE_LIMIT_PER_MIN` | `20` | No | Uncached transcript translations per organisation per minute; over the limit returns 429 with `Retry-After`. Redis-backed, and fails closed: if Redis is unreachable, translation returns 503. Not present in `.env.example`. |
+| `MODEL_SERVER_URL` | none in code; Compose sets `http://host.docker.internal:8100/v1` | No | Model-server gateway. The API reads it for local-provider readiness (`GET /configuration/*`) and as the last fallback LLM for transcript translation, using whichever LLM the gateway's `/models` reports deployed, and for `indic_orpheus` voice previews. The runtime reads it for `indic_orpheus`. |
 
 Rotating `PROVIDER_AUTH_ENCRYPTION_KEY` makes every stored `ProviderAuth` blob undecryptable. Existing provider credentials must be re-entered after a rotation.
 
@@ -116,7 +118,7 @@ Both REST and the browser test-call WebSocket are same-origin from the browser: 
 | Variable | Default | Required | Purpose |
 |---|---|---|---|
 | `REDIS_PASSWORD` | `redissecret` | No | Password for the `redis` service. Interpolated into `REDIS_URL` by Compose. |
-| `REDIS_URL` | `redis://localhost:6379` in code, `redis://:redissecret@localhost:6379` in `.env.example` | No | ARQ job queue and campaign pub/sub. Compose overrides it to `redis://:${REDIS_PASSWORD}@redis:6379`. |
+| `REDIS_URL` | `redis://localhost:6379` in code, `redis://:redissecret@localhost:6379` in `.env.example` | No | ARQ job queue, campaign pub/sub, and the voice-preview and translation rate limiters and translation locks. Compose overrides it to `redis://:${REDIS_PASSWORD}@redis:6379`. |
 | `CAMPAIGN_BATCH_SIZE` | `10` | No | Queued runs the orchestrator processes per campaign batch. |
 | `DEFAULT_ORG_CONCURRENCY_LIMIT` | `10` | No | Default maximum concurrent calls per organisation. |
 | `CAMPAIGN_MAX_CSV_BYTES` | `5242880` (5 MiB) | No | Maximum campaign CSV upload size. Not present in `.env.example`. |
@@ -125,7 +127,7 @@ Both REST and the browser test-call WebSocket are same-origin from the browser: 
 
 ## Object storage
 
-MinIO holds call recordings, transcripts, campaign source CSVs, and knowledge-base PDFs.
+MinIO holds call recordings, transcripts and their cached translations, campaign source CSVs, knowledge-base PDFs, and cached voice-preview clips.
 
 | Variable | Default | Required | Purpose |
 |---|---|---|---|
@@ -171,7 +173,7 @@ A separate stack with its own compose file and its own `model-server/.env`. Copy
 | `INDIC_NEMO_PATH` | `/app/models/IndicConformer.nemo` | No | In-container path to the STT checkpoint. |
 | `BHILI_ENABLE` | `no` | No | Whether to load the Bhili checkpoint. |
 | `BHILI_NEMO_PATH` | empty | No | Path to the Bhili checkpoint when enabled. |
-| `HF_TOKEN` | empty | Yes for gated repos | HuggingFace token with access to `ai4bharat/indic-parler-tts`. |
+| `HF_TOKEN` | empty | Yes for gated repos | HuggingFace token with access to `ai4bharat/indic-parler-tts`, or to `bodhan-ai/indic-speak` for Orpheus's `fetch.sh`. |
 | `HF_CACHE_VOLUME` | `voicera-prod_hf_cache` | No | External cache volume when using the shared-cache overlay. |
 | `USE_SHARED_HF_CACHE` | empty | No | Recorded by `scripts/start-model-server.sh` so a later restart keeps your choice. |
 | `HF_HUB_OFFLINE` | `0` | No | `1` blocks HuggingFace fetches, turning a gated `401` into a clean miss. |
@@ -180,6 +182,30 @@ A separate stack with its own compose file and its own `model-server/.env`. Copy
 | `VLLM_MAX_NUM_SEQS` | `20` | No | vLLM concurrent sequence limit. |
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.10` | No | Deliberately far below vLLM's `0.9` default: the GPU is shared through MPS, which does not partition memory. |
 | `VLLM_QUANTIZATION` | empty | No | Empty means bf16. Set `fp8` only if memory becomes the constraint. |
+
+### Orpheus TTS
+
+Read only when `TTS_MODEL=orpheus`. Defaults come from `model-server/tts/orpheus/compose.extra.yml`; `model-server/.env.example` overrides several of them for Orpheus alone on a dedicated H200 NVL, and those values win once you copy it to `.env`.
+
+| Variable | Compose default | `.env.example` | Purpose |
+|---|---|---|---|
+| `ORPHEUS_MODEL_PATH` | `/models/indic-speak` | not set | Checkpoint directory under the read-only `./tts/orpheus/models` mount, where `fetch.sh` puts it. |
+| `ORPHEUS_VOCOS_PATH` | empty | not set | Vocos decoder checkpoint. Empty means `<model>/vocos/best.pt`. |
+| `ORPHEUS_QUANTIZATION` | `fp8` | not set | Needs compute capability 8.9 or higher. Set `none` on Ampere or older. |
+| `ORPHEUS_GPU_MEMORY_UTILIZATION` | `0.12` | not set | Sized for a shared card. Raise it on a card you own. |
+| `ORPHEUS_MAX_NUM_SEQS` | `32` | `64` | Concurrent generations; the rest queue. 64 stayed real time on a dedicated H200 NVL; re-measure on other GPUs. |
+| `ORPHEUS_DECODER_MAX_BATCH` | `32` | `64` | Keep equal to `ORPHEUS_MAX_NUM_SEQS`. |
+| `ORPHEUS_WARMUP_WIDTHS` | `1,2,4,8,16,32` | `1,2,4,8,16,32,64` | Batch widths compiled at startup; should reach `ORPHEUS_MAX_NUM_SEQS`. |
+| `ORPHEUS_TEMPERATURE` | `0.6` | `0.6` | Sampling temperature. |
+| `ORPHEUS_TOP_P` | `0.9` | `0.9` | Nucleus sampling. |
+| `ORPHEUS_TOP_K` | `50` | empty (compose then uses `50`) | Top-k sampling. |
+| `ORPHEUS_REPETITION_PENALTY` | `1.0` | `1.2` | `1.0` is off. |
+| `ORPHEUS_MAX_TOKENS_DEFAULT` | `2520` | not set | Generation cap, about 30 s of audio. |
+| `ORPHEUS_DURATION_GUARD` | `true` | not set | Caps generation by expected reading time of the text (`ORPHEUS_GUARD_CHARS_PER_SECOND` `8.0`, `ORPHEUS_GUARD_HEADROOM` `3.0`, `ORPHEUS_GUARD_FLOOR_TOKENS` `512`). |
+| `ORPHEUS_SOFT_TEXT_EOS` | `true` | not set | Obeys the text end-of-sequence token only after `ORPHEUS_SOFT_TEXT_EOS_MIN_FRACTION` (`0.5`) of the expected audio. |
+| `ORPHEUS_LEFT_CONTEXT_FRAMES` / `ORPHEUS_RIGHT_CONTEXT_FRAMES` / `ORPHEUS_EMIT_FRAMES` | `4` / `4` / `1` | not set | Streaming Vocos decode window. |
+
+`ORPHEUS_REPETITION_PENALTY` disagrees between the two files: the compose file calls `1.0` (off) the checkpoint's documented value, while `.env.example` ships `1.2`, which is what a copied `.env` runs.
 
 A slot counts as deployed when its `*_MODEL` is named. That is the same variable that picks the build folder, so Compose and the gateway cannot disagree about what is running.
 

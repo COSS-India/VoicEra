@@ -60,6 +60,54 @@ Bearer. Returns the canonical language id → label map that the agent builder's
 
 These ids are what `config.language.primary` accepts. Which of them a given provider actually supports is a separate question — filter with `GET /configuration/stt?languages=`.
 
+## Voice preview
+
+`apps/api/app/routers/tts_preview.py`, prefix `/api/v1/tts`. Speaks text with an **unsaved** TTS config, so a voice can be heard before the agent exists. Synthesis calls the vendor's REST API directly through the provider's preview adapter (`apps/providers/preview.py`) — never through `apps/runtime` or Pipecat — so previews cannot compete with live calls.
+
+### `POST /tts/preview`
+
+Bearer, with an active organisation.
+
+```json
+{
+  "tts_config": { "provider": "sarvam", "model": "bulbul:v3", "voice": "shubh" },
+  "language": "hi",
+  "text": "Namaste {{customer_name}}, thanks for calling."
+}
+```
+
+`tts_config` takes the same non-secret shape as `config.models.tts_config`; the organisation's stored credentials for that provider are merged in server-side. `language` is a canonical id from `GET /languages`, and it overrides any `language` inside `tts_config`. `{{placeholders}}` are stripped from `text` before synthesis.
+
+Returns the clip as `audio/wav` bytes, not JSON.
+
+Errors carry a machine-readable code, `{"detail": {"code": "…", "message": "…"}}`, because several reasons share a status:
+
+| Status | `code` | When |
+| --- | --- | --- |
+| `400` | `no_active_org` | The token has no active organisation. |
+| `400` | `empty_text` | `text` is empty once placeholders are stripped. |
+| `409` | `not_configured` | The organisation has no stored credentials for that provider. |
+| `413` | `oversized` | `text`, once placeholders are stripped, is longer than `TTS_PREVIEW_MAX_CHARS` (default `300`). |
+| `422` | `invalid_config` | `tts_config` fails provider validation. |
+| `422` | `unsupported_voice` | The provider has no preview adapter, or the voice is not offered for `language`. |
+| `429` | `rate_limited` | Over `TTS_PREVIEW_RATE_LIMIT_PER_MINUTE` (default `20`) for the organisation. Carries `Retry-After`. |
+| `502` | `upstream` | The vendor call failed. The message is deliberately generic; the detail is in the API log. |
+| `504` | `timeout` | The vendor took longer than `TTS_PREVIEW_TIMEOUT_S` (default `15`). |
+
+Three things are not obvious:
+
+* **Clips are cached per organisation.** The key is the secret-free config plus the stripped text, stored in the MinIO bucket `TTS_PREVIEW_BUCKET` (default `voicera-tts-preview`) as `{org_id}/{sha256}.wav`, with a 7-day expiry. A cache hit is checked first, so it costs no vendor call, does not count against the rate limit, and still plays after the provider's credentials are removed.
+* **The rate limit is a fixed one-minute window per organisation, held in Redis.** Every uncached request that passes validation counts, including one that then fails with `409`; a `400`, `413`, or `422` from validation never does. If Redis is unreachable the limiter fails open — previews keep working, unlimited.
+* **Every TTS provider except `lmnt` has a preview adapter.** For `lmnt`, `POST /tts/preview` returns `422 unsupported_voice`.
+
+### `GET /tts/preview/limits`
+
+Bearer. The limits the dashboard checks before calling `POST /tts/preview`, so the server stays the source of truth:
+
+```json
+{ "max_chars": 300 }
+```
+
 ## Related
 
 * [Endpoints cheatsheet](endpoints-cheatsheet) — every route on one page

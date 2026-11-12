@@ -59,7 +59,7 @@ RUNTIME_PROXY_TARGET=http://localhost:7860
 npm run dev
 ```
 
-The dashboard comes up on `http://localhost:3000`. The available scripts are exactly the `create-next-app` defaults:
+The dashboard comes up on `http://localhost:3000`. The available scripts are the `create-next-app` defaults plus `test`:
 
 | Script | Command |
 | --- | --- |
@@ -67,6 +67,7 @@ The dashboard comes up on `http://localhost:3000`. The available scripts are exa
 | `npm run build` | `next build` |
 | `npm run start` | `next start` — serves a prior `build` |
 | `npm run lint` | `eslint` |
+| `npm test` | `vitest run` — unit tests |
 
 Open `http://localhost:3000`. You land on the sign-in page. If you have not created an account yet, use the signup link — signup creates the organisation and its first `super_admin`, the same as `POST /users/signup`.
 
@@ -92,7 +93,7 @@ You do not need it. The browser only ever calls same-origin `/api/v1/...`; Next'
 
 ## The Compose service
 
-`frontend` builds from `frontend/Dockerfile` (`node:24-slim`, `npm ci`, then `npm run build`). Its command is `npm run start` — a real production build, not the dev server, and there is no source bind-mount, unlike `api`.
+`frontend` builds from `frontend/Dockerfile` (`node:24-slim`, `npm ci --omit=dev` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, then `npm run build`). Because dev dependencies are skipped, anything `next build` needs — `@tailwindcss/postcss`, `typescript`, the `@types/*` packages — must live in `dependencies`, not `devDependencies`, or the image build fails. Its command is `npm run start` — a real production build, not the dev server, and there is no source bind-mount, unlike `api`.
 
 | Setting | Value |
 | --- | --- |

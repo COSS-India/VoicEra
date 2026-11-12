@@ -116,7 +116,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ### Detach leaves the number in inventory
 
-Intended. `DELETE /phone-numbers/detach` unlinks from the agent and the provider application but keeps the inventory row.
+Intended. `DELETE /phone-numbers/detach` unlinks from the agent and the provider application but keeps the inventory row. To remove the row, call `DELETE /phone-numbers/delete` after detaching — see [Phone numbers](../../api-reference/phone-numbers#delete-phone-numbersdelete). Neither releases the number at the provider.
 
 ## Recording never arrives
 

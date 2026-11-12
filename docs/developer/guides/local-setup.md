@@ -227,8 +227,16 @@ It sets `line-length = 100`, `target-version = "py312"`, and selects `E`, `F`, `
 
 There is no ruff, black, or isort configuration covering `apps/`. Match the surrounding style: `from __future__ import annotations` at the top of every module, PEP 8, and type hints on public functions.
 
+CI runs ruff over `apps/` anyway, with ruff's defaults since there is no config there. Only the critical rules block a pull request — syntax errors and undefined names:
+
+```bash
+ruff check apps model-server --select E9,F63,F7,F82
+```
+
+The full rule set on both trees is counted in the run summary but does not fail the job. See [Testing → Continuous integration](testing#continuous-integration).
+
 <Note>
-There is no CI. Nothing runs lint or tests on a push. Run [the test suites](testing) and `ruff check .` yourself before opening a pull request.
+CI runs the test suites and the critical lint rules on every pull request, but it deselects known-failing tests and lets several checks only report. Run [the test suites](testing) and `ruff check .` in `model-server/` yourself before opening a pull request.
 </Note>
 
 ## Related

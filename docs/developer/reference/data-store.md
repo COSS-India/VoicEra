@@ -144,6 +144,8 @@ Fields and indexes are documented in [Data model](data-model).
 There is no Alembic or migration tool. Schema is enforced by Pydantic models at the edge, and indexes are reconciled at startup.
 </Note>
 
+One-off data fixes live in `apps/api/app/scripts/`. The only one today, `python -m app.scripts.migrate_retired_groq_model [--dry-run] [--yes]`, run from `apps/api` (or inside the `api` container), repoints agents pinned to Groq's retired `llama-3.3-70b-versatile` to the current Groq default model.
+
 ## Backups
 
 Back up **PostgreSQL**, not FerretDB — Postgres holds the bytes.

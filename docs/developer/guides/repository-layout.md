@@ -18,6 +18,7 @@ VoicEra/
 ├── model-server/          Optional self-hosted STT, TTS, and LLM stack
 ├── scripts/               start/stop scripts for the application stack and the model server
 ├── docs/                  This documentation (Mintlify)
+├── .github/               CI workflows, Dependabot config, issue and PR templates
 ├── docker-compose.yaml    The whole local stack
 ├── .env.example           The single environment template
 ├── docs.json              Mintlify navigation, tabs, and redirects
@@ -39,6 +40,7 @@ VoicEra/
 | `.env.example` | The one environment template. Copy it to `.env` at the root. See [Environment variables](../reference/environment-variables). |
 | `scripts/start-application-services.sh` | Creates a root `.env` if one doesn't exist, generating `SECRET_KEY`, `INTERNAL_API_KEY`, and `PROVIDER_AUTH_ENCRYPTION_KEY` if missing, then starts the stack. Run it via `make application-up` rather than calling it directly or using a bare `docker compose up`. |
 | `scripts/stop-application-services.sh` | Stops the stack. |
+| `.github/` | `workflows/quality.yml` (tests, lint, security scan, SBOM, licence inventory) and `workflows/standards.yml` (OpenAPI, BCP 47, hadolint, Compose, Trivy); `dependabot.yml`, which opens version-update pull requests against `staging`; `ISSUE_TEMPLATE/` (`bug_report.md`, `feature_request.md`); and `pull_request_template.md`. See [Testing → Continuous integration](testing#continuous-integration). |
 | `Makefile` | Thin wrappers over those scripts and the Compose commands: `application-up`, `application-down`, `restart`, `application-logs`, `application-ps`, the five `model-server-*` equivalents, and `down-all`. Run `make help` for the list. |
 
 ## apps
@@ -76,7 +78,7 @@ apps/api/
 │   ├── storage/        MinIO helpers
 │   ├── tasks/          ARQ job definitions, including WorkerSettings
 │   └── utils/
-└── tests/              20 test modules plus conftest.py
+└── tests/              26 test modules plus conftest.py
 ```
 
 One package, **three containers**. `api`, `arq-worker`, and `campaign-orchestrator` all build from `apps/api/Dockerfile` and differ only in their `command:`. See [Workers and orchestrator](../services/workers).
@@ -109,14 +111,16 @@ apps/providers/
 ├── factory.py      Discriminated unions from the registry, create_*_service dispatch
 ├── schema.py       provider_schemas() and configuration_defaults() catalog dump
 ├── languages.py    Canonical language ids and language_schema_extra()
+├── preview.py      @register_preview and shared helpers for direct TTS voice preview
+├── one_shot_llm.py Non-Pipecat, single-request LLM calls (transcript translation)
 ├── readme.md
 ├── cloud/          22 vendor folders → provider_type=cloud
 ├── adapters/       bhashini · kenpath → provider_type=adapter
 ├── local/          indic_nemotron (STT) · indic_orpheus (TTS) → provider_type=local
-└── tests/          5 test modules
+└── tests/          20 test modules plus preview_harness.py
 ```
 
-Every STT/TTS vendor folder is three files: `catalog.py` (with `*_CAPABILITIES`), `config.py`, `service.py`. LLM-only vendors may keep an empty stub `languages.py`. See [Adding an AI provider](adding-a-provider).
+Every STT/TTS vendor folder is three files: `catalog.py` (with `*_CAPABILITIES`), `config.py`, `service.py`. A TTS vendor may add a fourth, `preview.py`, for voice preview — every TTS vendor but `lmnt` has one. LLM-only vendors may keep an empty stub `languages.py`. See [Adding an AI provider](adding-a-provider).
 
 ### apps/telephony
 
@@ -160,7 +164,7 @@ model-server/
 ├── stt/                           indic-conformer, indic-transcribe
 ├── tts/                           indic-mio, indic-parler, orpheus
 ├── llm/                           qwen3.5-4b
-├── tests/                         27 test modules plus stubs
+├── tests/                         28 test modules plus stubs and GPU benches
 └── hindi.wav                      Fixture for the GPU smoke script
 ```
 
@@ -183,11 +187,12 @@ Tests sit inside the package they cover. There is no top-level `tests/` director
 
 | Suite | Modules | Covers |
 | --- | --- | --- |
-| `apps/api/tests` | 18 | Auth, agents, telephony provisioning, campaigns, knowledge base, call artifacts. |
-| `apps/runtime/tests` | 5 | Routing, prompt substitution, hold, call ending, knowledge. |
+| `apps/api/tests` | 26 | Auth, agents, telephony provisioning, campaigns, knowledge base, call artifacts, TTS voice preview, transcript translation. |
+| `apps/runtime/tests` | 7 | Routing, prompt substitution, hold, call ending, knowledge, call metrics, AI service factory. |
 | `apps/telephony/tests` | 6 | Registry, clients, XML, serializers, webhooks, schema. |
-| `apps/providers/tests` | 1 | The registry and the catalog dump. |
-| `model-server/tests` | 20 | Catalogue, gateway streaming, slot behaviour, audio parity. |
+| `apps/providers/tests` | 20 | The registry and the catalog dump, one-shot LLM calls, and the voice-preview registry plus one module per TTS vendor adapter, except Sarvam's, which lives in `apps/providers/cloud/sarvam/tests/`. |
+| `model-server/tests` | 28 | Catalogue, gateway streaming, slot behaviour, audio parity, the Orpheus codec. |
+| `frontend/src` | 3 | Vitest: transcript helpers and the call stage (`*.test.ts` / `*.test.tsx`). |
 
 Full instructions in [Testing](testing).
 
@@ -202,10 +207,8 @@ Several files exist so tooling and GitHub find them, but hold no content yet. Do
 | `apps/runtime/services/pipecat/termination/__init__.py` | Empty | The `termination/` package holds nothing but this empty file. Nothing imports it. |
 | `__init__.py` (root) | Empty | Makes the checkout itself importable as a package, which lets pytest import the tree as `voicera.apps.providers` when the parent directory is on `sys.path`. `apps/providers/registry.py` resolves vendor roots from `__package__` rather than a hardcoded `apps.providers` prefix for exactly this reason. |
 
-There is also **no `.github/` directory**, and therefore no CI, no workflows, no issue templates, and no pull-request template. Nothing runs automatically on a push. Every check is something you run locally before opening a pull request.
-
 <Note>
-Because there is no CI, a green local run is the only signal a change has. Run the relevant [test suites](testing) and `ruff check .` in `model-server/` yourself.
+CI runs on every pull request, but it deselects known-failing tests and several of its checks only report — see [Testing → Continuous integration](testing#continuous-integration). Run the relevant [test suites](testing) and `ruff check .` in `model-server/` yourself.
 </Note>
 
 ## Related

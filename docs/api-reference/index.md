@@ -3,7 +3,7 @@ title: API Reference
 description: Every HTTP and WebSocket surface VoicEra exposes.
 ---
 
-The complete VoicEra API: 71 REST routes across twelve routers, plus the realtime media WebSocket. Every page here was extracted from the routers and verified against them.
+The complete VoicEra API: 78 REST routes across thirteen routers, plus the realtime media WebSocket. Every page here was extracted from the routers and verified against them.
 
 <Tip>
 A running API serves an **interactive console** at `http://localhost:8000/docs`, generated from the same code. Use it to fire real requests; use these pages to learn what a route does and how it behaves.
@@ -27,11 +27,11 @@ There is no official Node.js, Python, or other client SDK. Every example on this
 | Page | Routes | What it covers |
 | --- | --- | --- |
 | [Agents](agents) | 6 | Create, read, update, delete voice agents |
-| [Calls](calls) | 9 | Outbound, inbound, web calls; recordings and transcripts |
-| [Campaigns](campaigns) | 14 | CSV upload, scheduling, start/pause/resume, progress, reports |
-| [Phone numbers](phone-numbers) | 5 | Number inventory, attaching to agents |
-| [Knowledge and RAG](knowledge-and-rag) | 4 | Document upload and retrieval |
-| [Configuration catalogs](configuration) | 9 | Which providers exist and what each accepts |
+| [Calls](calls) | 13 | Outbound, inbound, web calls; recordings, transcripts, and transcript translation |
+| [Campaigns](campaigns) | 15 | CSV upload, scheduling, start/pause/resume, progress, reports |
+| [Phone numbers](phone-numbers) | 6 | Number inventory, attaching to agents, deleting |
+| [Knowledge and RAG](knowledge-and-rag) | 5 | Document upload and retrieval |
+| [Configuration catalogs](configuration) | 11 | Which providers exist and what each accepts; voice preview |
 | [Provider credentials](provider-auth) | 6 | Storing encrypted API keys |
 | [Users and organisations](users-and-orgs) | 15 | Signup, login, membership, roles, bot tokens |
 

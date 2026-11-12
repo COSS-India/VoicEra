@@ -142,6 +142,15 @@ curl -X DELETE "$API/api/v1/phone-numbers/detach" \
   -d '{"phone_number": "+919000000000"}'
 ```
 
+To drop the number from inventory as well, delete it once it is detached — an attached number returns `409`. This does not release it at the provider:
+
+```bash
+curl -X DELETE "$API/api/v1/phone-numbers/delete" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"phone_number": "+919000000000"}'
+```
+
 ### Place a test call
 
 ```bash

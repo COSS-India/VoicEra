@@ -78,8 +78,10 @@ These dumps are what `GET /api/v1/configuration/{stt,tts,llm}` returns.
 | `factory.py` | Discriminated unions from registry + thin `create_*` dispatch |
 | `schema.py` | `provider_schemas` / `configuration_defaults` readable catalog dump |
 | `languages.py` | Canonical language ids → labels; `language_schema_extra()` |
-| `cloud/<vendor>/` | Pipecat-backed vendors (`catalog`, `config`, `languages`, `service`) → `provider_type=cloud` |
-| `adapters/<vendor>/` | First-party services (`service.py` + optional `tts.py`) → `provider_type=adapter` |
+| `preview.py` | Voice-preview registry: `@register_preview`, `import_vendor_previews()`, shared helpers (`post_for_audio`, `pcm_to_wav`, `resolve_preview_sample_rate`) |
+| `one_shot_llm.py` | Single non-streaming LLM completion over the org's configured providers; used by transcript translation in the API |
+| `cloud/<vendor>/` | Pipecat-backed vendors (`catalog`, `config`, `languages`, `service`, optional `preview`) → `provider_type=cloud` |
+| `adapters/<vendor>/` | First-party services (`service.py` + optional `tts.py`, `preview.py`) → `provider_type=adapter` |
 | `local/<vendor>/` | VoicEra's own model server, reached via the gateway rather than a vendor SDK → `provider_type=local` |
 
 Each vendor `config.py` stacks three layers. **Auth** holds credentials, with secrets marked `json_schema_extra={"secret": True}`. **Settings** holds vendor knobs — `voice`, `speed`, `base_url`, `grpc_url`. **Config** combines both with the `Base*Config` fields `provider`, `model`, and `language`. Credentials never live on the bases, and endpoints and hosts belong on Settings, not Auth.
@@ -131,9 +133,17 @@ Deferring the import means the registration decorator runs with no vendor SDK pr
 
 `apps/providers/__init__.py` extends the same idea to the package root. `AgentConfig`, `STTConfig`, `TTSConfig`, `LLMConfig`, and the three `create_*_service` functions are resolved lazily through a module-level `__getattr__`, because `factory.py` imports `loguru`. Importing `apps.providers` for a catalog dump therefore does not pull in the factory at all.
 
+Voice-preview modules follow a stricter rule. A vendor `preview.py` must import neither `pipecat` nor `app` — it runs inside the API, which has no Pipecat, and the package is shared with the runtime. `import_vendor_previews()` imports only `*.preview` submodules, never `service`, and logs rather than raises when one fails to import.
+
 <Warning>
 A provider that appears in a catalog is not proof its SDK is installed. `create_*_service` raises at call time — during a live call — if the extra is missing. When you enable a new vendor, add its extra to `apps/runtime/requirements.txt` and rebuild the runtime image before you route a call to it.
 </Warning>
+
+## Voice preview adapters
+
+`POST /api/v1/tts/preview` synthesizes a short clip straight from the API, never through the runtime or Pipecat, so a preview can't compete with a live call. Each vendor's `preview.py` registers one plain async function, `fn(cfg, text, client) -> wav_bytes`, with `@register_preview("<provider>")`; `tts_preview_service.py` calls `import_vendor_previews()` at import time and dispatches through `synthesize_preview()`. A provider with no adapter is rejected up front with `422 unsupported_voice` (`has_preview_adapter()`).
+
+14 of the 15 TTS providers have one: `azure_speech`, `bhashini`, `camb`, `cartesia`, `deepgram`, `elevenlabs`, `google`, `indic_orpheus`, `inworld`, `openai`, `rime`, `sarvam`, `smallest`, `xai`. `lmnt` has none. Adapters return WAV and never resample: Cartesia, Sarvam, and Smallest request `resolve_preview_sample_rate(cfg)` (the config's `sample_rate`, else 16 kHz); the other rate-taking vendors always request 16 kHz (`PREVIEW_SAMPLE_RATE_HZ`); OpenAI, `indic_orpheus`, Camb (per-model rate), and both Bhashini backends stay at their native rate. Error messages carry status codes only, never text or keys, because they reach server logs.
 
 ## The adapters
 

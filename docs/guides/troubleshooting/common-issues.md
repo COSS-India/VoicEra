@@ -127,7 +127,7 @@ If it is blank, set it and restart. See [Security hardening](../deployment/secur
 
 | Symptom | Cause |
 | --- | --- |
-| `401 Invalid authentication credentials` | Missing, malformed, or expired token. Tokens last 30 minutes by default — log in again. |
+| `401 Invalid authentication credentials` | Missing, malformed, or expired token. Tokens last 120 minutes by default — log in again. |
 | `403` on a valid token | Your role is too low for that route. Role checks are explicit, so 403 means authenticated but not permitted. See [Multi-tenancy](../../developer/reference/multi-tenancy). |
 | `404` for a resource you know exists | It belongs to a different organisation. Existence is never leaked across tenants — switch with `POST /users/switch-organisation`. |
 | `401 Missing API key` | An internal route needs `X-API-Key: $INTERNAL_API_KEY`. |
@@ -156,6 +156,21 @@ curl -H "Authorization: Bearer $TOKEN" \
 ### `422 Unprocessable Entity` on agent create
 
 The config blob failed validation. The response body names the offending field path. Common causes: an unregistered `provider`, or **API keys placed in `config.models`** — those belong in `ProviderAuth`, and only non-secret settings go on the agent. See [Agent configuration](../../developer/reference/agent-configuration).
+
+### Transcript translation fails
+
+`POST /calls/{call_id}/translate` (the **Translate** button on a transcript) uses the organisation's own LLM credentials, never a shared key.
+
+| Status | Cause |
+| --- | --- |
+| `409` | No LLM provider is configured for the organisation. Store credentials for one, or deploy an LLM on the self-hosted model server. |
+| `423` | The same transcript is already being translated into that language. Retry in a few seconds — the dashboard does this for you. |
+| `429` | Over `TRANSLATE_RATE_LIMIT_PER_MIN` (default `20`) uncached translations this minute. Wait for `Retry-After`. Cached translations are not counted. |
+| `413` | The transcript is over 22,000 characters — about a 20-minute call. There is no chunking; it cannot be translated. |
+| `502` | Every configured provider failed, or the model changed the transcript's line structure. Retry; the provider's real error is in `docker compose logs api`. |
+| `503` | Redis is unreachable, or five translations are already running. Check `docker compose ps redis`, then retry. |
+
+The full list is under [`POST /calls/{call_id}/translate`](../../api-reference/calls#post-callscall_idtranslate).
 
 ## Import errors when running from source
 
