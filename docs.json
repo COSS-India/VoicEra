@@ -286,5 +286,8 @@
   },
   "background": {
     "decoration": "windows"
+  },
+  "fonts": {
+    "family": "Playfair Display"
   }
 }
