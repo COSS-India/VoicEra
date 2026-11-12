@@ -1,0 +1,32 @@
+# Public access for the launchpad stack: an nginx edge plus a Cloudflare quick
+# tunnel. Overlay on the app stack (same project, same app-network):
+#
+#   docker compose -f docker-compose.yaml -f deploy/launchpad/compose.public.yml up -d --no-deps edge tunnel
+#   docker logs voicera_launchpad_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1
+#
+# The quick-tunnel URL is random and CHANGES whenever the tunnel container
+# restarts; FRONTEND_URL and VOICE_SERVER_BASE_URL in .env must then be updated.
+# When a real domain exists, point host nginx at 127.0.0.1:${EDGE_HOST_PORT}
+# and stop the tunnel; the edge stays as is.
+
+services:
+  edge:
+    image: nginx:1.27-alpine
+    container_name: voicera_launchpad_edge
+    restart: unless-stopped
+    ports:
+      - "${HOST_BIND_IP:-127.0.0.1}:${EDGE_HOST_PORT:-3950}:80"
+    volumes:
+      - ./deploy/launchpad/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - app-network
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: voicera_launchpad_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://edge:80
+    depends_on:
+      - edge
+    networks:
+      - app-network
