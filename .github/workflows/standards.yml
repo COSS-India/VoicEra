@@ -1,0 +1,161 @@
+# .github/workflows/standards.yml
+# Open-standards conformance checks for VoicEra (DPG Standard, Indicator 8).
+# Every tool used here is open source. Results appear on the repo's Actions tab.
+name: Standards conformance
+
+on:
+  push:
+    branches: [main, staging, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  openapi:
+    name: OpenAPI 3.1 — generate, validate, lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install API dependencies and validator
+        run: pip install -r apps/api/requirements.txt openapi-spec-validator
+      - name: Generate openapi.json from the FastAPI app
+        working-directory: apps/api
+        env:
+          SECRET_KEY: ci-only-not-a-secret
+          INTERNAL_API_KEY: ci-only-not-a-secret
+        run: |
+          export PROVIDER_AUTH_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          PYTHONPATH="$GITHUB_WORKSPACE:." python -c "import json; from app.main import app; json.dump(app.openapi(), open('$GITHUB_WORKSPACE/openapi.json', 'w'), indent=2)"
+      - name: Validate against the OpenAPI Specification (openapi-spec-validator)
+        run: openapi-spec-validator openapi.json
+      - name: Lint with Spectral (spectral:oas ruleset)
+        run: |
+          echo 'extends: ["spectral:oas"]' > .spectral.yaml
+          npx -y @stoplight/spectral-cli@6 lint openapi.json --ruleset .spectral.yaml --fail-severity=error
+      - name: Publish the generated spec
+        uses: actions/upload-artifact@v7
+        with:
+          name: openapi-spec
+          path: openapi.json
+
+  language-codes:
+    name: BCP 47 language tags
+    runs-on: ubuntu-latest
+    env:
+      # "false" = report problems as warnings (job stays green).
+      # Set to "true" once the legacy ids "od" and "bh" are migrated to "or" and "bhb"
+      # (they are stored on agents, so the rename needs a data migration).
+      STRICT: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install langcodes language_data
+      - name: Check each language id is a valid BCP 47 tag that matches its label
+        shell: python
+        run: |
+          import ast, os, re, sys, langcodes
+          tree = ast.parse(open("apps/providers/languages.py").read())
+          node = next(n for n in ast.walk(tree)
+                      if isinstance(n, ast.AnnAssign) and getattr(n.target, "id", "") == "LANGUAGES")
+          problems = []
+          for key, val in zip(node.value.keys, node.value.values):
+              tag, label = key.value, val.value
+              if tag == "multi":          # project-specific "auto-detect" id, not a language
+                  continue
+              base = re.sub(r"\s*\(.*\)$", "", label)
+              try:
+                  expected = langcodes.find(base).language
+              except LookupError:
+                  expected = None
+              if not langcodes.tag_is_valid(tag):
+                  problems.append(f'"{tag}" ({label}) is not a valid BCP 47 tag; standard tag: "{expected}"')
+              elif expected and langcodes.Language.get(tag).language != expected:
+                  actual = langcodes.Language.get(tag).display_name()
+                  problems.append(f'"{tag}" is labelled {label} but means {actual}; standard tag: "{expected}"')
+              else:
+                  print(f"OK  {tag:6} {label}")
+          for p in problems:
+              print(f"::warning file=apps/providers/languages.py::{p}")
+          checked = sum(1 for k in node.value.keys if k.value != "multi")
+          print(f"{checked - len(problems)} of {checked} language ids conform to BCP 47")
+          if problems and os.environ.get("STRICT") == "true":
+              sys.exit(1)
+
+  dockerfiles:
+    name: Dockerfile best practices (hadolint)
+    runs-on: ubuntu-latest
+    env:
+      HADOLINT_VERSION: "2.15.1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install hadolint
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/hadolint" \
+            "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-x86_64"
+          chmod +x "$RUNNER_TEMP/hadolint"
+          "$RUNNER_TEMP/hadolint" --version
+      - name: Lint every Dockerfile (findings keep hadolint's own severity)
+        shell: python
+        run: |
+          import json, os, subprocess, sys
+          hadolint = os.path.join(os.environ["RUNNER_TEMP"], "hadolint")
+          files = subprocess.run(["git", "ls-files", "*Dockerfile*"],
+                                 capture_output=True, text=True, check=True).stdout.split()
+          # DL3022 is ignored: model-server Dockerfiles copy from BuildKit named build contexts
+          # (e.g. COPY --from=nemo, defined in model-server/compose.model-server.yml), which hadolint cannot see.
+          run = subprocess.run([hadolint, "--no-fail", "--format", "json", "--ignore", "DL3022", *files],
+                               capture_output=True, text=True)
+          if run.returncode != 0 and not run.stdout.strip():
+              sys.exit(f"hadolint failed to run: {run.stderr}")
+          findings = json.loads(run.stdout or "[]")
+
+          # hadolint level -> GitHub annotation level (the stock action reports everything as "error")
+          annotation = {"error": "error", "warning": "warning", "info": "notice", "style": "notice"}
+          esc = lambda s: s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          for f in findings:
+              print(f'::{annotation[f["level"]]} file={f["file"]},line={f["line"]},'
+                    f'title=hadolint {f["code"]}::{esc(f["message"])}')
+
+          counts = {lvl: sum(f["level"] == lvl for f in findings) for lvl in ("error", "warning", "info", "style")}
+          lines = [f"### hadolint — {len(files)} Dockerfiles checked", "",
+                   f"**{counts['error']} errors** · {counts['warning']} warnings · "
+                   f"{counts['info']} info · {counts['style']} style "
+                   "(DL3022 ignored: BuildKit named build contexts)", ""]
+          if findings:
+              lines += ["| Level | Rule | File | Line | Message |", "| --- | --- | --- | --- | --- |"]
+              lines += [f'| {f["level"]} | {f["code"]} | {f["file"]} | {f["line"]} | {f["message"].replace("|", "/")} |'
+                        for f in sorted(findings, key=lambda f: (f["level"] != "error", f["file"], f["line"]))]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+          print("\n".join(lines[:3]))
+          if counts["error"]:
+              sys.exit(1)
+
+  compose:
+    name: Compose Specification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate docker-compose.yaml against the Compose Specification
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yaml config --quiet
+
+  vulnerabilities:
+    name: Dependency vulnerabilities and leaked secrets (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "0"        # report only; switch to "1" once the baseline is clean
