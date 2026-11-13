@@ -230,8 +230,25 @@ def schedule_for_call(
 # ---------------------------------------------------------------------------
 
 
-def build_payload(call_doc: dict[str, Any], *, attempt: int, sent_at: datetime) -> dict[str, Any]:
+def _load_transcript_turns(call_doc: dict[str, Any]) -> list[dict[str, Any]] | None:
+    from app.services.call_transcript_service import try_load_turns
+
+    if not call_doc.get("transcript_url"):
+        return None
+    return try_load_turns(call_doc)
+
+
+def build_payload(
+    call_doc: dict[str, Any],
+    *,
+    attempt: int,
+    sent_at: datetime,
+    transcript: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     data = {field: call_doc.get(field) for field in _PAYLOAD_FIELDS}
+    # Turn-by-turn transcript, or null when there is none (unanswered call,
+    # or storage unreachable: the transcript_path still works later).
+    data["transcript"] = transcript
     call_id = str(call_doc.get("call_id") or "")
     base = f"{settings.API_V1_PREFIX}/calls/{call_id}"
     has_recording = bool(call_doc.get("recording_url") or call_doc.get("provider_recording_url"))
@@ -325,7 +342,12 @@ async def deliver(
                        error="agent has no webhook signing secret; rotate one first")
 
     sent_at = _now()
-    payload = build_payload(call, attempt=attempt, sent_at=sent_at)
+    payload = build_payload(
+        call,
+        attempt=attempt,
+        sent_at=sent_at,
+        transcript=_load_transcript_turns(call),
+    )
     body = json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8")
     timestamp = int(sent_at.timestamp())
     headers = {

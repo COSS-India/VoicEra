@@ -609,6 +609,24 @@ class AgentWebhookSecretResponse(BaseModel):
     secret: str
 
 
+class CallTranscriptTurn(BaseModel):
+    """One turn of a call transcript."""
+
+    index: int
+    role: Literal["user", "assistant"]
+    speaker: Literal["caller", "agent"]
+    timestamp: Optional[str] = None
+    text: str
+
+
+class CallTranscriptTurnsResponse(BaseModel):
+    """A call's transcript as ordered turns."""
+
+    call_id: str
+    turn_count: int
+    turns: list[CallTranscriptTurn] = Field(default_factory=list)
+
+
 class CallWebhookDeliveryResponse(BaseModel):
     """Delivery status of a call's post-call webhook."""
 

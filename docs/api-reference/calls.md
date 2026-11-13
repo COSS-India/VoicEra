@@ -79,6 +79,23 @@ Every field is optional, but an empty body returns `400 No fields to update` —
 
 Bearer. Stream the artifact out of MinIO through the API, so clients never need MinIO credentials. `404` when the call or the object is missing, `400` when the stored URL is not a usable object key.
 
+## `GET /calls/{call_id}/transcript/turns`
+
+Bearer. The same transcript as ordered turns in JSON, parsed from the runtime's `transcript.txt` (so it works for calls recorded before this route existed):
+
+```json
+{
+  "call_id": "3f6c…",
+  "turn_count": 2,
+  "turns": [
+    { "index": 0, "role": "assistant", "speaker": "agent", "timestamp": "2026-11-13T10:00:01.000+00:00", "text": "Namaste…" },
+    { "index": 1, "role": "user", "speaker": "caller", "timestamp": "2026-11-13T10:00:05.500+00:00", "text": "Haan, boliye." }
+  ]
+}
+```
+
+`speaker` is `agent` or `caller`; a turn spoken over several lines keeps its line breaks in `text`. `404` when the call is missing or has no readable transcript yet (unanswered calls have none). The [post-call webhook](webhooks) carries the same turns in `data.transcript`.
+
 ## `GET /calls/{call_id}/metrics` and `PUT /calls/{call_id}/metrics`
 
 Bearer (bot JWT supported). Pipeline metrics live in the separate `CallMetrics` collection — they are **not** returned by `GET /calls/{call_id}`.
@@ -104,7 +121,24 @@ The runtime writes metrics at call end via `PUT`. Writes are **once per call** �
 
 ## `GET /calls/org/{org_id}`
 
-Bearer, must be a member of that organisation. Query parameters `limit` (default `50`, `1`–`500`) and `offset` (default `0`). Returns `CallLogListResponse`: `{calls: [...], limit, offset, total}`.
+Bearer, must be a member of that organisation. Newest first. Query parameters `limit` (default `50`, `1`–`500`) and `offset` (default `0`), plus optional filters that combine with AND:
+
+| Parameter | Matches |
+| --- | --- |
+| `agent_id` | Calls on this agent |
+| `campaign_id` | Calls in this campaign |
+| `status` | `initiated`, `ringing`, `in_progress`, `completed` or `failed` |
+| `call_response` | `pending`, `answered`, `busy`, `no_answer`, `failed` or `cancelled` |
+| `call_type` | `outbound`, `inbound` or `web` |
+| `created_from` | Created at or after this time (ISO 8601; no offset means UTC) |
+| `created_to` | Created before this time (ISO 8601; no offset means UTC) |
+
+`422` when `created_from` is not before `created_to`. Returns `CallLogListResponse`: `{calls: [...], limit, offset, total}`, where `total` counts the filtered set.
+
+```bash
+curl "http://localhost:8000/api/v1/calls/org/ORG_ID?campaign_id=CAMPAIGN_ID&call_response=answered&created_from=2026-11-13T00:00:00%2B05:30" \
+  -H "Authorization: Bearer YOUR_JWT"
+```
 
 ## `GET /calls/org/{org_id}/analytics`
 

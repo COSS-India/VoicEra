@@ -30,6 +30,12 @@ def _encryption_key(monkeypatch):
     monkeypatch.setattr(settings, "PROVIDER_AUTH_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
 
+@pytest.fixture(autouse=True)
+def _no_storage(monkeypatch):
+    # Transcript loading reads MinIO; these tests cover delivery, not storage.
+    monkeypatch.setattr(svc, "_load_transcript_turns", lambda call: None)
+
+
 @pytest.fixture()
 def db():
     return mongomock.MongoClient()["voicera_test"]

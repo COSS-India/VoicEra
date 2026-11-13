@@ -188,9 +188,8 @@ def get_call_log_by_provider_sid(
 
 
 def _list_query(org_id: str, *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    query: dict[str, Any] = {"org_id": org_id}
-    if extra:
-        query.update(extra)
+    query: dict[str, Any] = dict(extra or {})
+    query["org_id"] = org_id
     return query
 
 
@@ -217,9 +216,51 @@ def _prepare_call_log_list(docs) -> list[dict[str, Any]]:
     )
 
 
-def count_call_logs_by_org(org_id: str) -> int:
-    """Count call logs for an organisation."""
-    return get_database()[COLLECTION].count_documents(_list_query(org_id))
+def call_list_filters(
+    *,
+    agent_id: str | None = None,
+    campaign_id: str | None = None,
+    status: str | None = None,
+    call_response: str | None = None,
+    call_type: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+) -> dict[str, Any]:
+    """Build the Mongo filter for the call list.
+
+    ``created_at`` is stored as a UTC ISO-8601 string, so the date bounds are
+    normalised to UTC ISO strings and compared as strings. ``created_from`` is
+    inclusive and ``created_to`` exclusive.
+    """
+    values = {
+        "agent_id": agent_id,
+        "campaign_id": campaign_id,
+        "status": status,
+        "call_response": call_response,
+        "call_type": call_type,
+    }
+    query: dict[str, Any] = {
+        key: value for key, value in values.items() if value is not None and str(value).strip()
+    }
+    created: dict[str, str] = {}
+    if created_from is not None:
+        created["$gte"] = _utc_iso(created_from)
+    if created_to is not None:
+        created["$lt"] = _utc_iso(created_to)
+    if created:
+        query["created_at"] = created
+    return query
+
+
+def _utc_iso(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def count_call_logs_by_org(org_id: str, *, filters: dict[str, Any] | None = None) -> int:
+    """Count call logs for an organisation, optionally filtered."""
+    return get_database()[COLLECTION].count_documents(_list_query(org_id, extra=filters))
 
 
 def list_call_logs_by_org(
@@ -227,10 +268,11 @@ def list_call_logs_by_org(
     *,
     limit: int = 50,
     offset: int = 0,
+    filters: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """List call logs for an organisation."""
+    """List call logs for an organisation, newest first, optionally filtered."""
     cursor = _paginated_call_log_cursor(
-        _list_query(org_id),
+        _list_query(org_id, extra=filters),
         limit=limit,
         offset=offset,
     )

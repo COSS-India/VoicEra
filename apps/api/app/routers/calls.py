@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,6 +17,7 @@ from app.models.schemas import (
     CallLogUpdateRequest,
     CallMetricsBody,
     CallMetricsResponse,
+    CallTranscriptTurnsResponse,
     CallWebhookDeliveryResponse,
     InboundCallRegisterRequest,
     InboundCallRegisterResponse,
@@ -25,8 +27,10 @@ from app.models.schemas import (
     WebCallRegisterResponse,
 )
 from app.services import call_webhook_service, member_service, org_service
+from app.services.call_transcript_service import TranscriptUnavailableError, load_turns
 from app.services.call_log_service import (
     CallLogNotFoundError,
+    call_list_filters,
     count_call_logs_by_org,
     get_call_log,
     get_org_call_analytics,
@@ -56,6 +60,13 @@ def _require_active_org(current_user: dict[str, Any]) -> str:
             detail="No active organisation in token",
         )
     return str(org_id)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Naive datetimes are UTC; aware ones are converted to UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _raise_outbound_error(exc: OutboundCallError) -> None:
@@ -303,6 +314,27 @@ async def get_call_transcript(
     return _stream_minio_object(bucket_name, object_name, content_type)
 
 
+@router.get("/{call_id}/transcript/turns", response_model=CallTranscriptTurnsResponse)
+async def get_call_transcript_turns(
+    call_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> CallTranscriptTurnsResponse:
+    """The call transcript as ordered turns (caller and agent) in JSON."""
+    org_id = _require_active_org(current_user)
+    try:
+        call = get_call_log(org_id, call_id)
+    except CallLogNotFoundError as exc:
+        _raise_call_not_found(exc)
+    try:
+        turns = load_turns(call)
+    except TranscriptUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=exc.reason,
+        ) from exc
+    return CallTranscriptTurnsResponse(call_id=call_id, turn_count=len(turns), turns=turns)
+
+
 @router.get("/{call_id}/metrics", response_model=CallMetricsResponse)
 async def get_call_metrics_route(
     call_id: str,
@@ -339,9 +371,38 @@ async def list_org_calls(
     org_id: str,
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    agent_id: str | None = Query(default=None, description="Only calls on this agent"),
+    campaign_id: str | None = Query(default=None, description="Only calls in this campaign"),
+    status_filter: str | None = Query(
+        default=None,
+        alias="status",
+        description="initiated, ringing, in_progress, completed or failed",
+    ),
+    call_response: str | None = Query(
+        default=None,
+        description="pending, answered, busy, no_answer, failed or cancelled",
+    ),
+    call_type: str | None = Query(default=None, description="outbound, inbound or web"),
+    created_from: datetime | None = Query(
+        default=None,
+        description="Created at or after this time (ISO 8601; no offset = UTC)",
+    ),
+    created_to: datetime | None = Query(
+        default=None,
+        description="Created before this time (ISO 8601; no offset = UTC)",
+    ),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CallLogListResponse:
-    """List call logs for an organisation (Bearer; must be a member of that org)."""
+    """List call logs for an organisation, newest first (Bearer; must be a member).
+
+    Every filter is optional and they combine with AND; ``total`` counts the
+    filtered set.
+    """
+    if created_from and created_to and _as_utc(created_from) >= _as_utc(created_to):
+        raise HTTPException(
+            status_code=422,
+            detail="created_from must be before created_to",
+        )
     token_org_id = _require_active_org(current_user)
     if org_id != token_org_id:
         membership = member_service.get_membership(current_user["email"], org_id)
@@ -357,8 +418,17 @@ async def list_org_calls(
             detail="Organisation not found",
         )
 
-    logs = list_call_logs_by_org(org_id, limit=limit, offset=offset)
-    total = count_call_logs_by_org(org_id)
+    filters = call_list_filters(
+        agent_id=agent_id,
+        campaign_id=campaign_id,
+        status=status_filter,
+        call_response=call_response,
+        call_type=call_type,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    logs = list_call_logs_by_org(org_id, limit=limit, offset=offset, filters=filters)
+    total = count_call_logs_by_org(org_id, filters=filters)
     return CallLogListResponse(
         calls=[
             transform_call_log_urls(log, api_prefix=settings.API_V1_PREFIX)

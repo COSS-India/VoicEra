@@ -80,9 +80,10 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | PATCH | `/api/v1/calls/{call_id}` | Bearer | Patch artifact URLs, end time, status, or disposition. |
 | GET | `/api/v1/calls/{call_id}/recording` | Bearer | Stream the call recording from MinIO. |
 | GET | `/api/v1/calls/{call_id}/transcript` | Bearer | Stream the call transcript from MinIO. |
+| GET | `/api/v1/calls/{call_id}/transcript/turns` | Bearer | The call transcript as ordered turns in JSON. |
 | GET | `/api/v1/calls/{call_id}/metrics` | Bearer | Fetch pipeline metrics for one call. |
 | PUT | `/api/v1/calls/{call_id}/metrics` | Bearer | Upsert pipeline metrics (runtime; write-once). |
-| GET | `/api/v1/calls/org/{org_id}` | Bearer | Paginated call logs for an organisation. |
+| GET | `/api/v1/calls/org/{org_id}` | Bearer | Paginated call logs for an organisation; filter by agent, campaign, status, response, type and date. |
 | GET | `/api/v1/calls/org/{org_id}/analytics` | Bearer | All-time call analytics for an organisation. |
 | GET | `/api/v1/calls/{call_id}` | Bearer | Fetch one call log. |
 | GET | `/api/v1/calls/{call_id}/webhook` | Bearer | Post-call webhook delivery status for one call. |
