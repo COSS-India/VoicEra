@@ -165,7 +165,7 @@ export const TTS_PROVIDERS: {
     id: "cartesia",
     label: "Cartesia",
     note: "Lowest latency TTS in this list.",
-    model: "sonic-2",
+    model: "sonic-3.5",
     voices: [
       { id: "asha", name: "Asha", note: "Fast, crisp — good for short broadcasts." },
       { id: "vikram", name: "Vikram", note: "Confident, brand-forward tone." },
