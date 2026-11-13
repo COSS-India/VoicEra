@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 Role = Literal["super_admin", "admin", "member"]
 
@@ -330,6 +330,50 @@ def _is_language_keyed_models(models: Any) -> bool:
     return any(_looks_like_model_stack(value) for value in models.values())
 
 
+class AgentWebhook(BaseModel):
+    """Post-call webhook: one signed POST per finished call to ``url``.
+
+    The signing secret is not part of the config; create or rotate it with
+    ``POST /agents/{agent_id}/webhook/secret``.
+    """
+
+    enabled: bool = False
+    url: Optional[str] = Field(
+        default=None,
+        description="HTTPS endpoint that receives the call.ended event.",
+    )
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def validate_url(cls, value: Any) -> Optional[str]:
+        from urllib.parse import urlparse
+
+        from app.config import settings
+
+        if value is None:
+            return None
+        url = str(value).strip()
+        if not url:
+            return None
+        parsed = urlparse(url)
+        allowed = {"https", "http"} if settings.CALL_WEBHOOK_ALLOW_HTTP else {"https"}
+        if parsed.scheme not in allowed or not parsed.netloc:
+            raise ValueError(
+                "webhook url must be an absolute https:// URL"
+                if not settings.CALL_WEBHOOK_ALLOW_HTTP
+                else "webhook url must be an absolute http(s):// URL"
+            )
+        if len(url) > 2048:
+            raise ValueError("webhook url is too long")
+        return url
+
+    @model_validator(mode="after")
+    def require_url_when_enabled(self) -> "AgentWebhook":
+        if self.enabled and not self.url:
+            raise ValueError("webhook url is required when the webhook is enabled")
+        return self
+
+
 class AgentConfigPayload(BaseModel):
     """Typed agent behaviour + AI config blob."""
 
@@ -340,6 +384,7 @@ class AgentConfigPayload(BaseModel):
     # Per-language STT/TTS/LLM stacks, keyed by canonical language id.
     models: dict[str, AgentModels]
     knowledge_base: AgentKnowledgeBase = AgentKnowledgeBase()
+    webhook: AgentWebhook = AgentWebhook()
     custom_variables: dict[str, Any] = Field(
         default_factory=dict,
         description=(
@@ -555,6 +600,30 @@ class AgentResponse(BaseModel):
     config: AgentConfigPayload
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class AgentWebhookSecretResponse(BaseModel):
+    """A newly created signing secret, shown once."""
+
+    agent_id: str
+    secret: str
+
+
+class CallWebhookDeliveryResponse(BaseModel):
+    """Delivery status of a call's post-call webhook."""
+
+    call_id: str
+    agent_id: Optional[str] = None
+    event: Optional[str] = None
+    url: Optional[str] = None
+    state: str
+    attempts: int = 0
+    last_status_code: Optional[int] = None
+    last_error: Optional[str] = None
+    next_attempt_at: Optional[str] = None
+    last_attempt_at: Optional[str] = None
+    delivered_at: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

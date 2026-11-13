@@ -102,6 +102,40 @@ class Settings(BaseSettings):
         description="When true, API startup can spawn orchestrator (docker uses separate service)",
     )
 
+    # Post-call webhooks (see app/services/call_webhook_service.py)
+    CALL_WEBHOOK_SETTLE_SECONDS: int = Field(
+        default=20,
+        description="Wait after a call ends before sending, so transcript/recording patches land",
+    )
+    CALL_WEBHOOK_TIMEOUT_SECONDS: float = Field(
+        default=10.0,
+        description="HTTP timeout for one webhook POST",
+    )
+    CALL_WEBHOOK_MAX_ATTEMPTS: int = Field(
+        default=8,
+        description="Attempts before a delivery is marked failed",
+    )
+    CALL_WEBHOOK_BACKOFF_BASE_SECONDS: int = Field(
+        default=30,
+        description="First retry delay; doubles each attempt",
+    )
+    CALL_WEBHOOK_BACKOFF_MAX_SECONDS: int = Field(
+        default=3600,
+        description="Upper bound on the retry delay",
+    )
+    CALL_WEBHOOK_LEASE_SECONDS: int = Field(
+        default=120,
+        description="How long a worker holds a claimed delivery before another may retry it",
+    )
+    CALL_WEBHOOK_DISPATCH_BATCH: int = Field(
+        default=50,
+        description="Max deliveries sent per dispatcher run",
+    )
+    CALL_WEBHOOK_ALLOW_HTTP: bool = Field(
+        default=False,
+        description="Allow http:// webhook URLs (local development only)",
+    )
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def coerce_debug(cls, value: Any) -> bool:

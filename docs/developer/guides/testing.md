@@ -59,7 +59,7 @@ The API requirements alone are not enough. `apps/telephony/providers/plivo/seria
 ### API
 
 ```bash
-pip install -r apps/api/requirements.txt pytest
+pip install -r apps/api/requirements.txt pytest pytest-asyncio mongomock
 pytest apps/api/tests -v
 ```
 

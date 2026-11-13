@@ -78,6 +78,10 @@ def _merge_config(
 ) -> AgentConfigPayload:
     merged = dict(existing)
     incoming_data = incoming.model_dump(mode="python")
+    # Editors that predate ``webhook`` send a config without it; its default
+    # would otherwise switch a configured webhook off.
+    if "webhook" not in incoming.model_fields_set and "webhook" in merged:
+        incoming_data.pop("webhook", None)
     for key, value in incoming_data.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
             nested = dict(merged[key])

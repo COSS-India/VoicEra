@@ -16,6 +16,7 @@ from app.models.schemas import (
     CallLogUpdateRequest,
     CallMetricsBody,
     CallMetricsResponse,
+    CallWebhookDeliveryResponse,
     InboundCallRegisterRequest,
     InboundCallRegisterResponse,
     OutboundCallRequest,
@@ -23,7 +24,7 @@ from app.models.schemas import (
     WebCallRegisterRequest,
     WebCallRegisterResponse,
 )
-from app.services import member_service, org_service
+from app.services import call_webhook_service, member_service, org_service
 from app.services.call_log_service import (
     CallLogNotFoundError,
     count_call_logs_by_org,
@@ -391,6 +392,46 @@ async def get_org_call_analytics_route(
         )
 
     return CallAnalyticsResponse(**get_org_call_analytics(org_id))
+
+
+@router.get("/{call_id}/webhook", response_model=CallWebhookDeliveryResponse)
+async def get_call_webhook(
+    call_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Post-call webhook delivery status for one call."""
+    org_id = _require_active_org(current_user)
+    delivery = call_webhook_service.get_delivery(org_id, call_id)
+    if not delivery:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No webhook delivery for call: {call_id}",
+        )
+    return delivery
+
+
+@router.post(
+    "/{call_id}/webhook/redeliver",
+    response_model=CallWebhookDeliveryResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def redeliver_call_webhook(
+    call_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Queue the call's webhook to be sent again now (attempt count resets).
+
+    Works for a call that never had a delivery as long as it has ended and
+    its agent has an enabled webhook.
+    """
+    org_id = _require_active_org(current_user)
+    delivery = call_webhook_service.redeliver(org_id, call_id)
+    if not delivery:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Call has not ended or its agent has no enabled webhook",
+        )
+    return delivery
 
 
 @router.get("/{call_id}", response_model=CallLogResponse)

@@ -46,6 +46,12 @@ Set `VOICE_SERVER_BASE_URL` before creating a telephony agent — the answer URL
 
 Failure codes: `422` for a config validation error (with the message as a plain string in `detail`), `409` for a duplicate name in the organisation, and whatever the telephony provider returned when provisioning fails.
 
+`config.webhook` (`{"enabled": bool, "url": "https://…"}`) turns on the [post-call webhook](webhooks) for the agent. It is optional and off by default.
+
+## `POST /agents/{agent_id}/webhook/secret`
+
+Bearer, `admin` or `super_admin`. `201`. Creates or rotates the webhook signing secret and returns it once as `{"agent_id", "secret"}`. See [Post-call webhooks](webhooks).
+
 ## `GET /agents`
 
 Bearer. A JSON array of `AgentResponse` for the active organisation.

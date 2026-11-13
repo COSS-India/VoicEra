@@ -230,6 +230,7 @@
             "pages": [
               "docs/api-reference/agents",
               "docs/api-reference/calls",
+              "docs/api-reference/webhooks",
               "docs/api-reference/campaigns",
               "docs/api-reference/phone-numbers",
               "docs/api-reference/knowledge-and-rag",

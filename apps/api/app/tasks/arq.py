@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from arq import create_pool
+from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
 
 from app.config import settings
 from app.tasks.campaign_tasks import process_campaign_batch, sync_campaign_source
 from app.tasks.function_names import FunctionNames
+from app.tasks.webhook_tasks import dispatch_call_webhooks
 
 parsed_url = urlparse(settings.REDIS_URL)
 use_ssl = parsed_url.scheme == "rediss"
@@ -26,6 +27,15 @@ REDIS_SETTINGS = RedisSettings(
 
 class WorkerSettings:
     functions = [sync_campaign_source, process_campaign_batch]
+    # Post-call webhooks: sweep the outbox every 10 seconds.
+    cron_jobs = [
+        cron(
+            dispatch_call_webhooks,
+            second={0, 10, 20, 30, 40, 50},
+            run_at_startup=True,
+            timeout=300,
+        )
+    ]
     redis_settings = REDIS_SETTINGS
     max_jobs = 10
 

@@ -67,6 +67,7 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | GET | `/api/v1/agents/{agent_id}` | Bearer | Fetch one agent. |
 | PATCH | `/api/v1/agents/{agent_id}` | Bearer | Partial update of an agent. |
 | DELETE | `/api/v1/agents/{agent_id}` | Bearer (admin) | Delete an agent. |
+| POST | `/api/v1/agents/{agent_id}/webhook/secret` | Bearer (admin) | Create or rotate the post-call webhook signing secret; returned once. |
 | GET | `/api/v1/phone-numbers` | Bearer | List numbers in the organisation inventory. |
 | GET | `/api/v1/phone-numbers/agent/{agent_id}` | Bearer | The number attached to one agent. |
 | POST | `/api/v1/phone-numbers/attach` | Bearer | Add a number to the inventory and optionally bind it to an agent. |
@@ -84,6 +85,8 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | GET | `/api/v1/calls/org/{org_id}` | Bearer | Paginated call logs for an organisation. |
 | GET | `/api/v1/calls/org/{org_id}/analytics` | Bearer | All-time call analytics for an organisation. |
 | GET | `/api/v1/calls/{call_id}` | Bearer | Fetch one call log. |
+| GET | `/api/v1/calls/{call_id}/webhook` | Bearer | Post-call webhook delivery status for one call. |
+| POST | `/api/v1/calls/{call_id}/webhook/redeliver` | Bearer | Send the call's post-call webhook again now. |
 | POST | `/api/v1/campaign/upload` | Bearer | Upload a contact CSV; returns the `source_id` to pass to create. |
 | POST | `/api/v1/campaign/create` | Bearer | Create a campaign against an agent and an uploaded CSV. |
 | GET | `/api/v1/campaign/` | Bearer | List campaigns in the active organisation. |

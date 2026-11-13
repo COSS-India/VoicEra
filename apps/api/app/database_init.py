@@ -197,6 +197,23 @@ def _ensure_call_logs(db: Database, existing: set[str]) -> None:
     )
 
 
+def _ensure_call_webhook_deliveries(db: Database, existing: set[str]) -> None:
+    if "CallWebhookDeliveries" not in existing:
+        logger.info("Creating CallWebhookDeliveries collection")
+    deliveries = db["CallWebhookDeliveries"]
+    _ensure_index(deliveries, "call_id", name="webhook_call_id_unique", unique=True)
+    _ensure_index(
+        deliveries,
+        [("state", 1), ("next_attempt_at", 1)],
+        name="webhook_state_next_attempt_index",
+    )
+    _ensure_index(
+        deliveries,
+        [("org_id", 1), ("created_at", -1)],
+        name="webhook_org_created_index",
+    )
+
+
 def _ensure_call_metrics(db: Database, existing: set[str]) -> None:
     if "CallMetrics" not in existing:
         logger.info("Creating CallMetrics collection")
@@ -272,6 +289,7 @@ def initialize_database() -> None:
         _ensure_knowledge_documents(db, existing)
         _ensure_call_logs(db, existing)
         _ensure_call_metrics(db, existing)
+        _ensure_call_webhook_deliveries(db, existing)
         _ensure_campaigns(db, existing)
         _ensure_queued_runs(db, existing)
 

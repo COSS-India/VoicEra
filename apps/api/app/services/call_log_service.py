@@ -50,6 +50,13 @@ def _compute_duration_seconds(start_time_utc: str | None, end_time_utc: str) -> 
         return None
 
 
+def _schedule_webhook(doc: dict[str, Any] | None) -> None:
+    """Queue the post-call webhook once the call is terminal (never raises)."""
+    from app.services import call_webhook_service
+
+    call_webhook_service.schedule_for_call(doc, db=get_database())
+
+
 def create_call_log(doc: dict[str, Any]) -> dict[str, Any]:
     """Insert a new CallLogs document."""
     get_database()[COLLECTION].insert_one(doc)
@@ -78,6 +85,7 @@ def update_call_log(call_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         call_id,
         list(patch.keys()),
     )
+    _schedule_webhook(doc)
     return _to_response(doc) or {}
 
 
@@ -120,6 +128,7 @@ def patch_call_log(org_id: str, call_id: str, patch: dict[str, Any]) -> dict[str
         org_id,
         list(patch.keys()),
     )
+    _schedule_webhook(doc)
     return _to_response(doc) or {}
 
 

@@ -8,3 +8,4 @@ from enum import Enum
 class FunctionNames(str, Enum):
     SYNC_CAMPAIGN_SOURCE = "sync_campaign_source"
     PROCESS_CAMPAIGN_BATCH = "process_campaign_batch"
+    DISPATCH_CALL_WEBHOOKS = "dispatch_call_webhooks"

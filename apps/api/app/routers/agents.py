@@ -14,9 +14,10 @@ from app.models.schemas import (
     AgentCreateRequest,
     AgentResponse,
     AgentUpdateRequest,
+    AgentWebhookSecretResponse,
     SuccessResponse,
 )
-from app.services import agent_service, phone_number_service
+from app.services import agent_service, call_webhook_service, phone_number_service
 from app.services.agent_config_validation import AgentConfigValidationError
 from app.services.agent_service import AgentConflictError, AgentNotFoundError
 from app.services.agent_telephony_service import AgentTelephonyError
@@ -165,3 +166,30 @@ async def delete_agent(
     except AgentNotFoundError as exc:
         _raise_agent_not_found(exc)
     return SuccessResponse(message=f"Agent deleted: {agent_id}")
+
+
+@router.post(
+    "/{agent_id}/webhook/secret",
+    response_model=AgentWebhookSecretResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def rotate_agent_webhook_secret(
+    agent_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> AgentWebhookSecretResponse:
+    """Create or rotate the agent's webhook signing secret (admin / super_admin).
+
+    The secret is returned only in this response; store it on the receiver.
+    The previous secret stops working immediately.
+    """
+    if current_user.get("role") not in _DELETE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can rotate webhook secrets",
+        )
+    org_id = _require_active_org(current_user)
+    try:
+        secret = call_webhook_service.rotate_agent_secret(org_id, agent_id)
+    except call_webhook_service.AgentWebhookNotFoundError:
+        _raise_agent_not_found(AgentNotFoundError(agent_id))
+    return AgentWebhookSecretResponse(agent_id=agent_id, secret=secret)
