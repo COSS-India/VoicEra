@@ -987,6 +987,7 @@ class CampaignResponse(BaseModel):
     total_rows: int = 0
     processed_rows: int = 0
     failed_rows: int = 0
+    invalid_rows: int = 0
     rate_limit_per_second: int = 1
     retry_config: dict[str, Any] = Field(default_factory=dict)
     orchestrator_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -996,6 +997,45 @@ class CampaignResponse(BaseModel):
     updated_at: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+
+
+CampaignContactStatus = Literal[
+    "pending", "in_progress", "retrying", "completed", "unanswered", "failed", "invalid"
+]
+
+
+class CampaignContactCall(BaseModel):
+    """One call attempt for a campaign contact."""
+
+    attempt: int
+    call_id: str
+    queued_run_id: Optional[str] = None
+    status: Optional[str] = None
+    call_response: Optional[str] = None
+    start_time_utc: Optional[str] = None
+    duration: Optional[float] = None
+
+
+class CampaignContact(BaseModel):
+    """One CSV row of a campaign and every call made for it."""
+
+    row: Optional[int] = Field(default=None, description="1-based data row in the CSV (header excluded)")
+    contact_id: str = Field(description="Stable id of the row (its first queued run)")
+    phone_number: Optional[str] = None
+    variables: dict[str, Any] = Field(default_factory=dict)
+    status: CampaignContactStatus
+    invalid_reason: Optional[str] = None
+    attempts: int = 0
+    last_call_id: Optional[str] = None
+    calls: list[CampaignContactCall] = Field(default_factory=list)
+
+
+class CampaignContactsResponse(BaseModel):
+    campaign_id: str
+    total: int
+    limit: int
+    offset: int
+    contacts: list[CampaignContact] = Field(default_factory=list)
 
 
 class CampaignCsvUploadResponse(BaseModel):

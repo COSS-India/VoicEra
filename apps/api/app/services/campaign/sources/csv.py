@@ -57,24 +57,31 @@ class CSVSyncService(CampaignSourceSyncService):
         headers = self.normalize_headers(csv_data[0])
         rows = csv_data[1:]
         file_hash = hashlib.md5(file_key.encode()).hexdigest()[:8]
+        all_runs = []  # in CSV order, so the contacts view lists rows in order
         queued_runs = []
+        invalid_runs = []
         for idx, row_values in enumerate(rows, 1):
             context_vars = self.build_context_variables(headers, row_values)
-            if not context_vars.get("phone_number"):
-                continue
-            queued_runs.append(
-                {
-                    "campaign_id": campaign_id,
-                    "source_uuid": f"csv_{file_hash}_row_{idx}",
-                    "context_variables": context_vars,
-                    "state": "queued",
-                }
-            )
-        if queued_runs:
-            repo.bulk_create_queued_runs(queued_runs)
+            run = {
+                "campaign_id": campaign_id,
+                "source_uuid": f"csv_{file_hash}_row_{idx}",
+                "context_variables": context_vars,
+                "state": "queued",
+            }
+            if not str(context_vars.get("phone_number") or "").strip():
+                # Kept (never dialled) so the contacts view can report the row
+                # as invalid instead of it silently disappearing.
+                run.update(state="invalid", invalid_reason="missing phone_number")
+                invalid_runs.append(run)
+            else:
+                queued_runs.append(run)
+            all_runs.append(run)
+        if all_runs:
+            repo.bulk_create_queued_runs(all_runs)
         repo.update_campaign(
             campaign_id,
             total_rows=len(queued_runs),
+            invalid_rows=len(invalid_runs),
             source_sync_status="completed",
         )
         return len(queued_runs)

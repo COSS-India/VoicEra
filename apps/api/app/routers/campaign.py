@@ -16,6 +16,7 @@ from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.models.schemas import (
     CampaignCallStatusRequest,
+    CampaignContactsResponse,
     CampaignCsvUploadResponse,
     CampaignProgressResponse,
     CampaignResponse,
@@ -28,6 +29,7 @@ from app.services import agent_service
 from app.services.agent_service import AgentNotFoundError
 from app.services.call_log_service import list_call_logs_by_campaign, transform_call_log_urls
 from app.services.campaign import campaign_repository as repo
+from app.services.campaign.campaign_contacts_service import list_campaign_contacts
 from app.services.campaign.campaign_repository import CampaignNotFoundError, get_org_concurrent_limit
 from app.services.campaign.runner import campaign_runner_service
 from app.services.campaign.source_sync_factory import get_sync_service
@@ -369,6 +371,26 @@ async def get_campaign_runs(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     logs = list_call_logs_by_campaign(org_id, campaign_id, limit=limit, offset=offset)
     return [transform_call_log_urls(log) for log in logs]
+
+
+@router.get("/{campaign_id}/contacts", response_model=CampaignContactsResponse)
+async def get_campaign_contacts(
+    campaign_id: str,
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """One entry per CSV row, in upload order: its status and every call made for it.
+
+    Rows not dialled yet appear as ``pending``; rows without a phone number
+    as ``invalid``; retries are folded into the row they retry.
+    """
+    org_id = _require_org(current_user)
+    try:
+        repo.get_campaign_for_org(org_id, campaign_id)
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return list_campaign_contacts(org_id, campaign_id, limit=limit, offset=offset)
 
 
 @router.get("/{campaign_id}/progress", response_model=CampaignProgressResponse)

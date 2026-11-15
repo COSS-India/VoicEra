@@ -29,7 +29,7 @@ The file must end in `.csv`, must be non-empty, must be under `CAMPAIGN_MAX_CSV_
 }
 ```
 
-`contact_rows` counts data rows with a non-blank `phone_number`. Pass `source_id` straight to create. Failure codes: `400` for the wrong extension, an empty file, or a validation error; `413` for oversize; `502` when MinIO is unreachable.
+`contact_rows` counts data rows with a non-blank `phone_number`. Rows with a blank `phone_number` are kept as `invalid` contacts (counted in the campaign's `invalid_rows`, not `total_rows`) and are never dialled. Pass `source_id` straight to create. Failure codes: `400` for the wrong extension, an empty file, or a validation error; `413` for oversize; `502` when MinIO is unreachable.
 
 ## `POST /campaign/create`
 
@@ -125,7 +125,50 @@ Bearer. All fields optional: `name`, `rate_limit_per_second`, `max_concurrency`,
 
 ## `GET /campaign/{campaign_id}/runs`
 
-Bearer. Query `limit` (default `50`, `1`–`500`) and `offset`. Returns an array of **call log** documents for the campaign, not `QueuedRuns` documents.
+Bearer. Query `limit` (default `50`, `1`–`500`) and `offset`. Returns an array of **call log** documents for the campaign, not `QueuedRuns` documents. For one entry per contact instead of per call, use `/contacts`.
+
+## `GET /campaign/{campaign_id}/contacts`
+
+Bearer, same organisation only. One entry per CSV row, in upload order, with every call made for it. Query `limit` (default `100`, `1`–`1000`) and `offset`; `total` counts rows.
+
+```json
+{
+  "campaign_id": "…",
+  "total": 412,
+  "limit": 100,
+  "offset": 0,
+  "contacts": [
+    {
+      "row": 2,
+      "contact_id": "…",
+      "phone_number": "+919845000002",
+      "variables": { "phone_number": "+919845000002", "contact_name": "Asha", "participant_id": "P-2" },
+      "status": "completed",
+      "invalid_reason": null,
+      "attempts": 2,
+      "last_call_id": "c-…",
+      "calls": [
+        { "attempt": 1, "call_id": "b-…", "queued_run_id": "…", "status": "completed", "call_response": "no_answer", "start_time_utc": "…", "duration": 0.0 },
+        { "attempt": 2, "call_id": "c-…", "queued_run_id": "…", "status": "completed", "call_response": "answered", "start_time_utc": "…", "duration": 94.0 }
+      ]
+    }
+  ]
+}
+```
+
+`row` is the 1-based data row (the header is not counted). Retries are folded into the row they retry, so `calls` lists every attempt in order. `contact_id` is stable for the row across retries.
+
+| `status` | Meaning |
+| --- | --- |
+| `pending` | Not called yet |
+| `in_progress` | Being dialled or on a call |
+| `retrying` | Called before; another attempt is queued |
+| `completed` | The latest call was answered |
+| `unanswered` | The latest call was busy, not answered or cancelled, and no retry is queued |
+| `failed` | Could not be dialled, or the call failed |
+| `invalid` | The row has no phone number; never dialled (`invalid_reason` says why) |
+
+`404` when the campaign is not in your organisation.
 
 ## `GET /campaign/{campaign_id}/progress`
 

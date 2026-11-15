@@ -98,6 +98,7 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | POST | `/api/v1/campaign/{campaign_id}/resume` | Bearer | Resume a paused campaign. |
 | PATCH | `/api/v1/campaign/{campaign_id}` | Bearer | Update name, rate limit, concurrency, retry, schedule, or circuit breaker. |
 | GET | `/api/v1/campaign/{campaign_id}/runs` | Bearer | List queued runs for a campaign. |
+| GET | `/api/v1/campaign/{campaign_id}/contacts` | Bearer | One entry per CSV row with its status and every call made for it. |
 | GET | `/api/v1/campaign/{campaign_id}/progress` | Bearer | Row counts and progress percentage. |
 | POST | `/api/v1/campaign/{campaign_id}/redial` | Bearer | Create a follow-up campaign over the failed calls. |
 | GET | `/api/v1/campaign/{campaign_id}/source-download-url` | Bearer | Presigned URL for the uploaded source CSV. |

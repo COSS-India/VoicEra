@@ -258,6 +258,11 @@ def _ensure_queued_runs(db: Database, existing: set[str]) -> None:
     )
     _ensure_index(
         queued,
+        [("campaign_id", 1), ("parent_queued_run_id", 1)],
+        name="campaign_parent_run_index",
+    )
+    _ensure_index(
+        queued,
         [("campaign_id", 1), ("source_uuid", 1), ("retry_count", 1)],
         name="campaign_source_retry_unique",
         unique=True,

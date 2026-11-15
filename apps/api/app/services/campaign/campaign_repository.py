@@ -187,6 +187,7 @@ def bulk_create_queued_runs(runs: list[dict[str, Any]]) -> int:
                 "parent_queued_run_id": run.get("parent_queued_run_id"),
                 "scheduled_for": run.get("scheduled_for"),
                 "retry_reason": run.get("retry_reason"),
+                "invalid_reason": run.get("invalid_reason"),
                 "call_id": None,
                 "created_at": now,
                 "claimed_at": None,
