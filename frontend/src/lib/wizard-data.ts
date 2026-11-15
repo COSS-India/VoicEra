@@ -53,6 +53,19 @@ export const LLM_PROVIDERS: { id: string; label: string; note: string; models: S
     models: [{ value: "kenpath-indic-1", label: "kenpath-indic-1" }],
   },
   {
+    id: "google_vertex",
+    label: "Google Vertex AI",
+    note: "Enterprise Gemini models with GCP region and VPC support.",
+    models: [
+      { value: "gemini-2.5-flash", label: "gemini-2.5-flash" },
+      { value: "gemini-2.5-pro", label: "gemini-2.5-pro" },
+      { value: "gemini-2.0-flash", label: "gemini-2.0-flash" },
+      { value: "gemini-2.0-flash-lite", label: "gemini-2.0-flash-lite" },
+      { value: "gemini-1.5-flash", label: "gemini-1.5-flash" },
+      { value: "gemini-1.5-pro", label: "gemini-1.5-pro" },
+    ],
+  },
+  {
     id: "custom",
     label: "Custom LLM",
     note: "Bring your own hosted endpoint.",

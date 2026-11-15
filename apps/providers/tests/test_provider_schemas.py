@@ -1185,3 +1185,33 @@ def test_provider_level_auth_openai_and_google_merge():
 
     assert provider_level_auth("missing") is None
     assert "openai" in all_provider_level_auth()
+
+
+def test_google_vertex_llm_catalog_and_service():
+    from apps.providers.cloud.google_vertex.catalog import (
+        DEFAULT_LLM_MODEL,
+        LLM_MODELS,
+    )
+    from apps.providers.cloud.google_vertex.config import GoogleVertexLLMConfig
+
+    schema = provider_schemas(Kind.LLM)["google_vertex"]
+    fields = schema["fields"]
+
+    assert schema["provider_type"] == ProviderType.CLOUD
+    assert schema["name"] == "Google Vertex AI"
+    assert "credentials" in schema["secrets"]
+    assert "project_id" in schema["required"]
+    assert fields["model"]["default"] == DEFAULT_LLM_MODEL
+    assert list(fields["model"]["examples"]) == list(LLM_MODELS)
+    assert DEFAULT_LLM_MODEL == "gemini-2.5-flash"
+    assert "gemini-2.5-flash" in LLM_MODELS
+    assert "gemini-3.5-flash" not in LLM_MODELS
+
+    cfg = GoogleVertexLLMConfig(
+        project_id="test-project",
+        location="us-central1",
+        credentials='{"type": "service_account"}',
+    )
+    assert cfg.model == "gemini-2.5-flash"
+    assert cfg.location == "us-central1"
+
