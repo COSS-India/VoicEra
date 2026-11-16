@@ -95,7 +95,7 @@ class SarvamSTTConfig(SarvamAuth, SarvamSTTSettings, BaseSTTConfig):
         default="multi",
         description=(
             "Canonical language id. Use 'multi' for auto-detection "
-            "(saarika:v2.5+). Vendor codes are BCP-47 (e.g. 'hi-IN' → 'hi')."
+            "(saaras:v3+). Vendor codes are BCP-47 (e.g. 'hi-IN' → 'hi')."
         ),
         json_schema_extra=language_schema_extra(
             languages_map(STT_CAPABILITIES),
