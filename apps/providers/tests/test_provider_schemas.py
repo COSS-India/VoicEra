@@ -947,8 +947,23 @@ def test_indic_transcribe_stt_creator(monkeypatch):
 
 def test_sarvam_stt_auto_detect_vendor_code_is_unknown():
     lang = provider_schemas(Kind.STT)["sarvam"]["fields"]["language"]
-    assert lang["language_codes"]["saarika:v2.5"]["multi"] == "unknown"
+    assert lang["language_codes"]["saaras:v4"]["multi"] == "unknown"
     assert lang["language_codes"]["saaras:v3"]["multi"] == "unknown"
+
+
+def test_sarvam_stt_models_and_creator():
+    from apps.providers.cloud.sarvam.catalog import STT_CAPABILITIES
+    from apps.providers.cloud.sarvam.config import SarvamSTTConfig
+    from apps.providers.cloud.sarvam.service import create_stt
+
+    assert "saaras:v4" in STT_CAPABILITIES
+    assert "saaras:v3" in STT_CAPABILITIES
+    assert "saarika:v2.5" not in STT_CAPABILITIES
+
+    cfg = SarvamSTTConfig(api_key="test-key", model="saaras:v4", language="hi")
+    assert cfg.model == "saaras:v4"
+    svc = create_stt(cfg)
+    assert svc is not None
 
 
 def test_deepgram_tts_language_is_options_only():
