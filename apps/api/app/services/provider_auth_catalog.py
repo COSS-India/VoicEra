@@ -52,11 +52,55 @@ def provider_auth_catalog(provider: str) -> dict[str, Any]:
     return media if media is not None else telephony  # type: ignore[return-value]
 
 
+ENABLED_AUTH_PROVIDERS: frozenset[str] = frozenset({
+    "sarvam",
+    "openai",
+    "google",
+    "openrouter",
+    "maya2_native",
+    "indic_parler",
+    "indic_orpheus",
+    "indic_conformer",
+    "indic_transcribe",
+    "indic_nemotron",
+    "plivo",
+    # "assemblyai",
+    # "atlascloud",
+    # "aws_bedrock",
+    # "azure_openai",
+    # "azure_speech",
+    # "bhashini",
+    # "camb",
+    # "cartesia",
+    # "deepgram",
+    # "elevenlabs",
+    # "gladia",
+    # "go2market",
+    # "google_vertex",
+    # "groq",
+    # "higgs_tts",
+    # "indic_mio",
+    # "inworld",
+    # "kenpath",
+    # "kenpath-dls",
+    # "kenpathlabs",
+    # "lmnt",
+    # "raya",
+    # "rime",
+    # "rumik_oss",
+    # "smallest",
+    # "speechmatics",
+    # "vi",
+    # "vobiz",
+    # "xai",
+})
+
+
 def all_auth_catalog() -> dict[str, dict[str, Any]]:
-    """All provider-level auth catalogs keyed by provider id."""
+    """Provider-level auth catalogs for enabled providers, keyed by provider id."""
     catalog = providers_all_level_auth()
     catalog.update(telephony_all_level_auth())
-    return catalog
+    return {k: v for k, v in catalog.items() if k in ENABLED_AUTH_PROVIDERS}
 
 
 def validate_auth_payload(provider: str, auth: dict[str, Any]) -> dict[str, Any]:

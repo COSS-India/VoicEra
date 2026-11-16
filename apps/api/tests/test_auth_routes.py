@@ -104,7 +104,8 @@ def test_auth_catalog_flat_by_provider():
     assert response.status_code == 200
     body = response.json()
     assert "openai" in body
-    assert "vobiz" in body
+    assert "plivo" in body
+    assert "vobiz" not in body
     assert "stt" not in body  # flat by provider, not nested by kind
     openai = body["openai"]
     assert set(openai["kinds"]) == {"stt", "tts", "llm"}
