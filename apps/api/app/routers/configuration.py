@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth import get_current_user
 from app.services import auth_service
+from app.services.provider_auth_catalog import ENABLED_AUTH_PROVIDERS
 from apps.providers.availability import is_authenticated
 from apps.providers.base import Kind
 from apps.providers.languages import UnknownLanguageError
@@ -41,6 +42,7 @@ def _with_authenticated_list(
             "authenticated": is_authenticated(provider, configured),
         }
         for provider, entry in listed.items()
+        if provider in ENABLED_AUTH_PROVIDERS
     }
 
 

@@ -42,21 +42,21 @@ def test_stt_unknown_provider_settings_is_404():
 def test_stt_list_and_setting_ok():
     with patch(
         "app.routers.configuration.auth_service.list_configured_providers",
-        return_value=["deepgram"],
+        return_value=["deepgram", "sarvam"],
     ):
         listed = client.get("/api/v1/configuration/stt", params={"languages": "hi"})
         assert listed.status_code == 200
         body = listed.json()
-        assert "deepgram" in body
-        assert body["deepgram"] == {
-            "provider": "deepgram",
-            "name": "Deepgram",
+        assert "deepgram" not in body
+        assert body["sarvam"] == {
+            "provider": "sarvam",
+            "name": "Sarvam",
             "provider_type": "cloud",
             "authenticated": True,
         }
-        assert "models" not in body["deepgram"]
-        assert "language" not in body["deepgram"]
-        unauth = next(p for p in body if p != "deepgram")
+        assert "models" not in body["sarvam"]
+        assert "language" not in body["sarvam"]
+        unauth = next(p for p in body if p != "sarvam")
         assert body[unauth]["authenticated"] is False
 
         settings = client.get(
@@ -144,7 +144,7 @@ def test_local_authenticated_from_model_server_probe():
     assert tts.json()["indic_orpheus"]["authenticated"] is True
     assert nemotron.json()["authenticated"] is True
     assert orpheus.json()["authenticated"] is True
-    assert stt.json()["deepgram"]["authenticated"] is False
+    assert stt.json()["sarvam"]["authenticated"] is False
 
 
 def test_local_authenticated_false_when_model_missing():
