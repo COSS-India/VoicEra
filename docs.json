@@ -82,6 +82,8 @@
               "docs/guides/operator/running-a-campaign",
               "docs/guides/operator/managing-knowledge",
               "docs/guides/operator/operations",
+              "docs/guides/operator/telephony-provider-requirements",
+              "docs/guides/operator/telephony-sla-endpoints",
               "docs/guides/operator/faq"
             ]
           },

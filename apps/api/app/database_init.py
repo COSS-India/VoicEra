@@ -248,6 +248,38 @@ def _ensure_campaigns(db: Database, existing: set[str]) -> None:
     )
 
 
+def _ensure_sla_telemetry(db: Database, existing: set[str]) -> None:
+    if "GpuTelemetrySamples" not in existing:
+        logger.info("Creating GpuTelemetrySamples collection")
+    samples = db["GpuTelemetrySamples"]
+    _ensure_index(
+        samples,
+        [("recorded_at_dt", -1)],
+        name="recorded_at_dt_index",
+    )
+    _ensure_index(samples, "sample_id", name="sample_id_unique", unique=True)
+
+    if "GpuRestartEvents" not in existing:
+        logger.info("Creating GpuRestartEvents collection")
+    restarts = db["GpuRestartEvents"]
+    _ensure_index(restarts, "restart_id", name="restart_id_unique", unique=True)
+    _ensure_index(
+        restarts,
+        [("status", 1), ("started_at_dt", -1)],
+        name="status_started_index",
+    )
+
+    if "SlaComponentState" not in existing:
+        logger.info("Creating SlaComponentState collection")
+    states = db["SlaComponentState"]
+    _ensure_index(
+        states,
+        [("component_id", 1), ("scope", 1), ("org_id", 1), ("campaign_id", 1)],
+        name="component_scope_org_campaign_unique",
+        unique=True,
+    )
+
+
 def _ensure_queued_runs(db: Database, existing: set[str]) -> None:
     if "QueuedRuns" not in existing:
         logger.info("Creating QueuedRuns collection")
@@ -294,12 +326,14 @@ def initialize_database() -> None:
         _ensure_call_metrics(db, existing)
         _ensure_campaigns(db, existing)
         _ensure_queued_runs(db, existing)
+        _ensure_sla_telemetry(db, existing)
 
         logger.info(
             "Database initialization completed "
             "(Organizations, Users, Memberships, ProviderAuth, Agents, "
             "PhoneNumbers, PhoneNumberEvents, KnowledgeDocuments, CallLogs, "
-            "CallMetrics, Campaigns, QueuedRuns)"
+            "CallMetrics, Campaigns, QueuedRuns, GpuTelemetrySamples, "
+            "GpuRestartEvents, SlaComponentState)"
         )
     except Exception as exc:
         logger.error("Error initializing database: %s", exc)

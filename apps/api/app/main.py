@@ -24,6 +24,7 @@ from app.routers import (
     organisations,
     phone_numbers,
     rag,
+    sla,
     users,
 )
 
@@ -46,9 +47,23 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         logger.error("Failed to start application: %s", exc)
         raise
 
+    # Background nvidia-smi sampler (every 5s) + restart readiness clock.
+    try:
+        from app.services.sla.gpu import start_gpu_sampler
+
+        start_gpu_sampler()
+    except Exception as exc:
+        logger.warning("SLA GPU sampler not started: %s", exc)
+
     yield
 
     logger.info("Shutting down application...")
+    try:
+        from app.services.sla.gpu import stop_gpu_sampler
+
+        await stop_gpu_sampler()
+    except Exception:
+        pass
     close_mongo_connection()
     logger.info("Application shut down successfully")
 
@@ -83,6 +98,7 @@ app.include_router(agents.router, prefix=settings.API_V1_PREFIX)
 app.include_router(phone_numbers.router, prefix=settings.API_V1_PREFIX)
 app.include_router(calls.router, prefix=settings.API_V1_PREFIX)
 app.include_router(campaign.router, prefix=settings.API_V1_PREFIX)
+app.include_router(sla.router, prefix=settings.API_V1_PREFIX)
 app.include_router(knowledge.router, prefix=settings.API_V1_PREFIX)
 app.include_router(rag.router, prefix=settings.API_V1_PREFIX)
 
