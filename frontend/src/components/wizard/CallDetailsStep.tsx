@@ -1,10 +1,16 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Plus, Upload, X } from "lucide-react";
 import { Input } from "@/components/ui/Field";
+import { Spinner } from "@/components/ui/Spinner";
 import { Switch } from "@/components/ui/Switch";
 import { InfoTip } from "@/components/ui/Tooltip";
-import { TIPS, type AgentForm } from "@/lib/wizard-data";
+import { deleteHoldAudio, uploadHoldAudio } from "@/lib/api/hold-audio";
+import { TIPS, type AgentForm, type HoldAudioClipForm } from "@/lib/wizard-data";
+
+const HOLD_AUDIO_MAX_BYTES = 2 * 1024 * 1024;
+const HOLD_AUDIO_MAX_CLIPS = 10;
 
 interface CallDetailsStepProps {
   form: AgentForm;
@@ -85,6 +91,10 @@ function NumberField({
 }
 
 export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
+  const [uploadingHoldAudio, setUploadingHoldAudio] = useState(false);
+  const [holdAudioError, setHoldAudioError] = useState("");
+  const holdAudioInputRef = useRef<HTMLInputElement>(null);
+
   function updateHold(index: number, value: string) {
     const next = [...form.holdPhrases];
     next[index] = value;
@@ -100,6 +110,64 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
       "holdPhrases",
       form.holdPhrases.filter((_, i) => i !== index),
     );
+  }
+
+  async function handleHoldAudioFiles(fileList: FileList | null) {
+    if (!fileList?.length) return;
+    setHoldAudioError("");
+
+    const remaining = HOLD_AUDIO_MAX_CLIPS - form.holdAudioClips.length;
+    if (remaining <= 0) {
+      setHoldAudioError(`At most ${HOLD_AUDIO_MAX_CLIPS} hold clips are allowed.`);
+      return;
+    }
+
+    const files = Array.from(fileList).slice(0, remaining);
+    setUploadingHoldAudio(true);
+    const added: HoldAudioClipForm[] = [];
+    try {
+      for (const file of files) {
+        const lower = file.name.toLowerCase();
+        if (!lower.endsWith(".wav") && !lower.endsWith(".mp3")) {
+          setHoldAudioError("Only WAV and MP3 files are supported.");
+          continue;
+        }
+        if (file.size > HOLD_AUDIO_MAX_BYTES) {
+          setHoldAudioError(
+            `Each file must be at most ${HOLD_AUDIO_MAX_BYTES / (1024 * 1024)} MB.`,
+          );
+          continue;
+        }
+        const uploaded = await uploadHoldAudio(file);
+        added.push({
+          clipId: uploaded.clip_id,
+          storageKey: uploaded.storage_key,
+          filename: uploaded.filename,
+        });
+      }
+      if (added.length) {
+        onChange("holdAudioClips", [...form.holdAudioClips, ...added]);
+      }
+    } catch (err) {
+      setHoldAudioError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setUploadingHoldAudio(false);
+      if (holdAudioInputRef.current) holdAudioInputRef.current.value = "";
+    }
+  }
+
+  async function removeHoldAudio(index: number) {
+    const clip = form.holdAudioClips[index];
+    if (!clip) return;
+    onChange(
+      "holdAudioClips",
+      form.holdAudioClips.filter((_, i) => i !== index),
+    );
+    try {
+      await deleteHoldAudio(clip.clipId, clip.storageKey);
+    } catch {
+      // Form already updated; orphaned MinIO object is acceptable.
+    }
   }
 
   return (
@@ -155,38 +223,121 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
 
       <div className="flex flex-col gap-3 rounded-v-md border border-v-line bg-white p-5">
         <SectionHeader
-          title="Hold phrases"
-          subtitle="Played back if the agent takes a moment to respond, so the line doesn't feel dead."
+          title="Hold messages"
+          subtitle="Played if the agent takes a moment to respond, so the line doesn't feel dead."
           tip={TIPS.holds}
         />
-        <div className="flex flex-col gap-2.5">
-          {form.holdPhrases.map((phrase, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input
-                value={phrase}
-                onChange={(e) => updateHold(i, e.target.value)}
-                placeholder="Ek minute dekh raha hoon"
-                className="flex-1"
-              />
-              <button
-                type="button"
-                onClick={() => removeHold(i)}
-                aria-label="Remove phrase"
-                className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-v-md border border-v-line text-v-muted transition-colors hover:bg-v-soft hover:text-v-fg"
-              >
-                <X className="size-4" strokeWidth={1.8} />
-              </button>
-            </div>
-          ))}
+        <div className="flex items-center gap-3">
+          <Switch
+            checked={form.holdMode === "audio"}
+            onCheckedChange={(checked) => onChange("holdMode", checked ? "audio" : "text")}
+          />
+          <span className="flex items-center gap-1.5 text-[13px] font-medium text-v-fg">
+            Use uploaded WAV clips instead of text phrases
+            <InfoTip text={TIPS.holdMode} />
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={addHold}
-          className="flex w-max cursor-pointer items-center gap-1.5 text-xs font-medium text-v-accent hover:text-v-accent-deep"
-        >
-          <Plus className="size-3.5" strokeWidth={2} />
-          Add phrase
-        </button>
+
+        {form.holdMode === "text" ? (
+          <>
+            <div className="flex flex-col gap-2.5">
+              {form.holdPhrases.map((phrase, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    value={phrase}
+                    onChange={(e) => updateHold(i, e.target.value)}
+                    placeholder="Ek minute dekh raha hoon"
+                    className="flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeHold(i)}
+                    aria-label="Remove phrase"
+                    className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-v-md border border-v-line text-v-muted transition-colors hover:bg-v-soft hover:text-v-fg"
+                  >
+                    <X className="size-4" strokeWidth={1.8} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addHold}
+              className="flex w-max cursor-pointer items-center gap-1.5 text-xs font-medium text-v-accent hover:text-v-accent-deep"
+            >
+              <Plus className="size-3.5" strokeWidth={2} />
+              Add phrase
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-[12px] font-light text-v-muted">
+              WAV (16-bit PCM) or MP3, up to {HOLD_AUDIO_MAX_CLIPS} clips /{" "}
+              {HOLD_AUDIO_MAX_BYTES / (1024 * 1024)} MB each.
+              <InfoTip text={TIPS.holdAudio} />
+            </p>
+            {form.holdAudioClips.length > 0 && (
+              <div className="flex flex-col gap-2.5">
+                {form.holdAudioClips.map((clip, i) => (
+                  <div
+                    key={clip.clipId}
+                    className="flex items-center gap-2 rounded-v-md border border-v-line bg-v-soft px-3 py-2"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-v-fg">
+                      {clip.filename}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void removeHoldAudio(i)}
+                      aria-label="Remove clip"
+                      className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-v-md border border-v-line text-v-muted transition-colors hover:bg-white hover:text-v-fg"
+                    >
+                      <X className="size-4" strokeWidth={1.8} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                void handleHoldAudioFiles(e.dataTransfer.files);
+              }}
+              onClick={() => {
+                if (!uploadingHoldAudio && form.holdAudioClips.length < HOLD_AUDIO_MAX_CLIPS) {
+                  holdAudioInputRef.current?.click();
+                }
+              }}
+              className={`flex cursor-pointer flex-col items-center gap-2 rounded-v-md border border-dashed p-6 text-center transition-colors ${
+                uploadingHoldAudio
+                  ? "border-v-line bg-v-soft opacity-70"
+                  : "border-v-line bg-v-soft hover:border-v-accent"
+              }`}
+            >
+              {uploadingHoldAudio ? (
+                <Spinner light={false} />
+              ) : (
+                <Upload className="size-5 text-v-muted" strokeWidth={1.75} />
+              )}
+              <span className="text-sm font-semibold">
+                {uploadingHoldAudio ? "Uploading…" : "Drop WAV or MP3 files here"}
+              </span>
+              <span className="text-xs text-v-muted">or click to choose</span>
+              <input
+                ref={holdAudioInputRef}
+                type="file"
+                accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg"
+                multiple
+                className="hidden"
+                onChange={(e) => void handleHoldAudioFiles(e.target.files)}
+              />
+            </div>
+            {holdAudioError ? (
+              <p className="text-[12px] font-medium text-red-600">{holdAudioError}</p>
+            ) : null}
+          </>
+        )}
       </div>
 
       <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5">

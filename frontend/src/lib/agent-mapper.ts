@@ -99,7 +99,17 @@ export function formToAgentCreatePayload(
         user_silence_hangup_seconds: form.silenceTimeout,
         call_timeout_seconds: form.callLimit,
         ignore_user_speech_before_greeting: form.ignoreGreetingSpeech,
-        hold_messages: form.holdPhrases.filter(Boolean),
+        hold_mode: form.holdMode,
+        // Exclusive modes: clear the inactive list on save for predictability.
+        hold_messages: form.holdMode === "text" ? form.holdPhrases.filter(Boolean) : [],
+        hold_audio_clips:
+          form.holdMode === "audio"
+            ? form.holdAudioClips.map((c) => ({
+                clip_id: c.clipId,
+                storage_key: c.storageKey,
+                filename: c.filename,
+              }))
+            : [],
         hold_message_timeout_seconds: form.holdMessageTimeoutSeconds,
         user_online_detection_enabled: form.checkStillThere,
         user_online_detection_message: form.onlineDetectionMessage,
@@ -181,9 +191,19 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
     checkStillThere: Boolean(behaviour.user_online_detection_enabled),
     silenceTimeout: Number(behaviour.user_silence_hangup_seconds ?? DEFAULT_FORM.silenceTimeout),
     callLimit: Number(behaviour.call_timeout_seconds ?? DEFAULT_FORM.callLimit),
+    holdMode: behaviour.hold_mode === "audio" ? "audio" : "text",
     holdPhrases: (behaviour.hold_messages as string[] | undefined)?.length
       ? (behaviour.hold_messages as string[])
       : DEFAULT_FORM.holdPhrases,
+    holdAudioClips: Array.isArray(behaviour.hold_audio_clips)
+      ? (behaviour.hold_audio_clips as Array<Record<string, unknown>>)
+          .map((c) => ({
+            clipId: String(c.clip_id ?? ""),
+            storageKey: String(c.storage_key ?? ""),
+            filename: String(c.filename ?? ""),
+          }))
+          .filter((c) => c.clipId && c.storageKey && c.filename)
+      : [],
     holdMessageTimeoutSeconds: Number(
       behaviour.hold_message_timeout_seconds ?? DEFAULT_FORM.holdMessageTimeoutSeconds,
     ),

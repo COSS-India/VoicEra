@@ -48,7 +48,9 @@ Field names, defaults, and bounds come from `AgentConfigPayload` and its nested 
 | `user_silence_hangup_seconds` | float or null | `null` | `>= 0` | Hang up after this many seconds of user silence (null = disabled). |
 | `call_timeout_seconds` | float or null | `null` | `>= 0` | Maximum call duration in seconds (null = no hard limit). |
 | `ignore_user_speech_before_greeting` | bool | `false` | — | Ignore caller speech until the greeting has finished playing. |
-| `hold_messages` | list of string | `[]` | — | Messages played while the agent is on hold / thinking. |
+| `hold_mode` | `"text"` or `"audio"` | `"text"` | — | Hold filler source. Modes are mutually exclusive. |
+| `hold_messages` | list of string | `[]` | — | Phrases spoken on hold when `hold_mode` is `text`. |
+| `hold_audio_clips` | list of `{clip_id, storage_key, filename}` | `[]` | max 10 | WAV/MP3 clips played on hold when `hold_mode` is `audio`. Keys must be under `hold-audio/{org_id}/`. |
 | `hold_message_timeout_seconds` | float or null | `null` | `>= 0` | Seconds to wait after LLM inference starts before playing a single hold message (null = disabled). |
 | `user_online_detection_enabled` | bool | `false` | — | Prompt the caller after silence following bot speech. |
 | `user_online_detection_message` | string | `""` | — | Prompt played when checking if the user is still online. |
@@ -85,7 +87,7 @@ The idle timeout the pipeline uses is `user_online_detection_seconds` when onlin
 
 `ignore_user_speech_before_greeting` installs Pipecat's `MuteUntilFirstBotCompleteUserMuteStrategy`. `interruption_min_words` above zero installs a `MinWordsUserTurnStartStrategy`.
 
-Hold messages need **both** halves: `hold_from_behaviour()` returns nothing unless `hold_message_timeout_seconds` is non-null and greater than zero **and** `hold_messages` contains at least one non-blank string. One message is chosen at random per inference, and only one is played per turn.
+Hold messages need **both** halves: `hold_from_behaviour()` returns nothing unless `hold_message_timeout_seconds` is non-null and greater than zero **and** the active mode has content (`hold_messages` for text, or `hold_audio_clips` for audio). One clip is chosen at random per inference, and only one is played per turn. Upload clips with `POST /api/v1/hold-audio/upload` (16-bit PCM WAV or MP3, max 2 MB).
 
 Online detection speaks `user_online_detection_message` up to `user_online_detection_repeats` times; on the next idle it speaks `user_online_detection_closing_message` and ends the call. With detection disabled, a single idle timeout speaks the closing message and ends the call directly.
 
@@ -107,7 +109,9 @@ Online detection speaks `user_online_detection_message` up to `user_online_detec
   "user_silence_hangup_seconds": 30,
   "call_timeout_seconds": 600,
   "ignore_user_speech_before_greeting": true,
+  "hold_mode": "text",
   "hold_messages": ["One moment please."],
+  "hold_audio_clips": [],
   "hold_message_timeout_seconds": 0.6,
   "user_online_detection_enabled": false,
   "user_online_detection_message": "",
@@ -234,7 +238,9 @@ The example below is `AgentCreateRequest.config` as declared in `apps/api/app/mo
     "user_silence_hangup_seconds": 30,
     "call_timeout_seconds": 600,
     "ignore_user_speech_before_greeting": true,
+    "hold_mode": "text",
     "hold_messages": ["One moment please."],
+    "hold_audio_clips": [],
     "hold_message_timeout_seconds": 0.6,
     "user_online_detection_enabled": false,
     "user_online_detection_message": "",

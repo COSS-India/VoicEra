@@ -73,7 +73,9 @@ The behaviour fields are defined on `AgentBehaviour` in `apps/api/app/models/sch
 | `user_silence_hangup_seconds` | `float \| null` | `null` | `>= 0` | Hang up after this many seconds of user silence (null = disabled). |
 | `call_timeout_seconds` | `float \| null` | `null` | `>= 0` | Maximum call duration in seconds (null = no hard limit). |
 | `ignore_user_speech_before_greeting` | `bool` | `false` | — | Ignore caller speech until the greeting has finished playing. |
-| `hold_messages` | `list[str]` | `[]` | — | Messages played while the agent is on hold / thinking. |
+| `hold_mode` | `"text" \| "audio"` | `"text"` | — | Hold filler source. Text uses TTS phrases; audio plays uploaded WAVs. |
+| `hold_messages` | `list[str]` | `[]` | — | Phrases spoken on hold when `hold_mode` is `text`. |
+| `hold_audio_clips` | `list[HoldAudioClip]` | `[]` | max 10 | Uploaded WAV clips played on hold when `hold_mode` is `audio`. |
 | `hold_message_timeout_seconds` | `float \| null` | `null` | `>= 0` | Seconds to wait after LLM inference starts before playing a single hold message (null = disabled). |
 | `user_online_detection_enabled` | `bool` | `false` | — | Prompt the caller after silence following bot speech. |
 | `user_online_detection_message` | `str` | `""` | — | Prompt played when checking if the user is still online. |
@@ -94,15 +96,17 @@ Full field-by-field configuration guidance is in [Agent configuration](../../dev
 
 ## Hold messages
 
-A hold message covers the gap when the LLM is slow. `hold_from_behaviour()` in `hold.py` returns a `HoldMessageHandler` only when **both** `hold_message_timeout_seconds` is a positive number **and** `hold_messages` contains at least one non-blank string. Otherwise it returns `None` and the feature is off.
+A hold message covers the gap when the LLM is slow. `hold_from_behaviour()` in `apps/runtime/services/pipecat/hold/` returns a `HoldMessageHandler` only when **both** `hold_message_timeout_seconds` is a positive number **and** the active mode has at least one clip: non-blank `hold_messages` for `hold_mode=text`, or at least one `hold_audio_clips` entry for `hold_mode=audio`. Otherwise it returns `None` and the feature is off.
 
 When enabled, the handler:
 
 1. Starts a timer on `on_user_turn_inference_triggered` — that is, when the LLM call begins.
 2. Cancels that timer the moment the LLM pushes its first `TextFrame`, on a new user turn, or when the client disconnects.
-3. If the timer expires first, picks one message at random and queues it as a `TTSSpeakFrame` with `append_to_context=False`.
+3. If the timer expires first, picks one clip at random. Text mode queues a `TTSSpeakFrame` with `append_to_context=False`. Audio mode queues preloaded PCM as `OutputAudioRawFrame` chunks through the TTS stage so they still reach `transport.output()` and the call recording.
 
-Two consequences follow from that flag and from the one-shot design: the hold message never enters the LLM conversation history, and at most **one** hold message plays per turn. It is filler, not a loop.
+Upload WAV (16-bit PCM) or MP3 via `POST /api/v1/hold-audio/upload` (max 2 MB, up to 10 clips). Keys are org-scoped under `hold-audio/{org_id}/{clip_id}/…`.
+
+Two consequences follow from the one-shot design: text hold never enters the LLM conversation history, and at most **one** hold clip plays per turn. It is filler, not a loop.
 
 ## User online detection
 

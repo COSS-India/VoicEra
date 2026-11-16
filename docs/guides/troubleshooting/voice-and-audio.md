@@ -73,7 +73,7 @@ See [Agent configuration](../../developer/reference/agent-configuration) for the
 
 ## Hold messages never play
 
-`hold_messages` play when a turn takes longer than `hold_message_timeout_seconds`. If they never fire, either the list is empty, the timeout is longer than your slowest turn, or nothing is actually slow — which is the good outcome.
+Hold fillers play when a turn takes longer than `hold_message_timeout_seconds`. If they never fire, either the active mode’s list is empty (`hold_messages` for text, or `hold_audio_clips` for audio), the timeout is longer than your slowest turn, audio clips failed to preload, or nothing is actually slow — which is the good outcome.
 
 ## The agent hangs up unexpectedly
 

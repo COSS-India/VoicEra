@@ -69,7 +69,7 @@ The single published entry point of the model server, on port `8100`. Routes to 
 ## H
 
 **Hold message**
-Audio played when the agent needs time — typically while a tool call or retrieval runs. Configured in the agent's behaviour block.
+Filler played when the agent needs time — typically while the LLM is slow. Configured in the agent's behaviour block as TTS phrases (`hold_mode=text`) or uploaded WAV/MP3 clips (`hold_mode=audio`).
 
 ## K
 

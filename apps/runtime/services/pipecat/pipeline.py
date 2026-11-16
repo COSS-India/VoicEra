@@ -45,7 +45,17 @@ async def run_pipeline(
             member.set_spoken_greeting(greeting)
     behaviour = (agent.get("config") or {}).get("behaviour") or {}
     config = pipeline_config_from_behaviour(behaviour)
-    hold_handler = hold_from_behaviour(behaviour, tts)
+    hold_handler = hold_from_behaviour(
+        behaviour,
+        tts,
+        sample_rate=sample_rate,
+        org_id=org_id,
+    )
+    if hold_handler is not None:
+        await hold_handler.prepare()
+        # prepare() may drop all audio clips; treat as disabled.
+        if not hold_handler.is_active:
+            hold_handler = None
 
     idle_handler: UserOnlineDetectionHandler | None = None
     if config.online_detection_enabled:

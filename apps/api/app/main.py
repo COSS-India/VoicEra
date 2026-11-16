@@ -18,6 +18,7 @@ from app.routers import (
     calls,
     campaign,
     configuration,
+    hold_audio,
     knowledge,
     languages,
     members,
@@ -84,6 +85,7 @@ app.include_router(phone_numbers.router, prefix=settings.API_V1_PREFIX)
 app.include_router(calls.router, prefix=settings.API_V1_PREFIX)
 app.include_router(campaign.router, prefix=settings.API_V1_PREFIX)
 app.include_router(knowledge.router, prefix=settings.API_V1_PREFIX)
+app.include_router(hold_audio.router, prefix=settings.API_V1_PREFIX)
 app.include_router(rag.router, prefix=settings.API_V1_PREFIX)
 
 

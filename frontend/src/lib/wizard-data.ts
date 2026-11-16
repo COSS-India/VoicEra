@@ -201,6 +201,8 @@ export const TIPS: Record<string, string> = {
   silence: "If the caller goes quiet this long, the agent politely ends the call.",
   timeout: "A hard ceiling so no single call runs away with cost or a support agent's afternoon.",
   holds: "Said while the agent is thinking on a slow lookup, so the line doesn't feel dead.",
+  holdMode: "Use spoken phrases (TTS) or upload short WAV/MP3 clips. Only one mode is active at a time.",
+  holdAudio: "WAV (16-bit PCM) or MP3 clips played while the agent is thinking. Up to 10 files, 2 MB each.",
   holdTimeout: "How long the agent waits after starting to think before playing a hold message.",
   onlineMessage: "What the agent says when checking whether the caller is still on the line.",
   onlineSeconds: "Seconds of silence after the agent speaks before it checks the caller is still there.",
@@ -221,6 +223,12 @@ export const TIPS: Record<string, string> = {
   vadIdleMinVolume:
     "Idle-profile minimum volume. Lower values treat quieter audio as speech while waiting for the caller.",
 };
+
+export interface HoldAudioClipForm {
+  clipId: string;
+  storageKey: string;
+  filename: string;
+}
 
 export interface AgentForm {
   name: string;
@@ -246,7 +254,9 @@ export interface AgentForm {
   checkStillThere: boolean;
   silenceTimeout: number;
   callLimit: number;
+  holdMode: "text" | "audio";
   holdPhrases: string[];
+  holdAudioClips: HoldAudioClipForm[];
   holdMessageTimeoutSeconds: number;
   onlineDetectionMessage: string;
   onlineDetectionSeconds: number;
@@ -284,7 +294,9 @@ export const DEFAULT_FORM: AgentForm = {
   checkStillThere: true,
   silenceTimeout: 30,
   callLimit: 600,
+  holdMode: "text",
   holdPhrases: ["Ek minute dekh raha hoon"],
+  holdAudioClips: [],
   holdMessageTimeoutSeconds: 5,
   onlineDetectionMessage: "Are you still there?",
   onlineDetectionSeconds: 90,

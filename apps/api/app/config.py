@@ -69,6 +69,14 @@ class Settings(BaseSettings):
         default=25 * 1024 * 1024,
         description="Maximum PDF upload size for knowledge base",
     )
+    HOLD_AUDIO_MAX_UPLOAD_BYTES: int = Field(
+        default=2 * 1024 * 1024,
+        description="Maximum WAV/MP3 upload size for hold-audio clips",
+    )
+    HOLD_AUDIO_MAX_CLIPS: int = Field(
+        default=10,
+        description="Maximum hold-audio clips per agent behaviour config",
+    )
     MINIO_BUCKET: str = Field(
         default="voicera-calls",
         description="Default MinIO bucket (call artifacts and KB objects)",

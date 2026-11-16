@@ -201,6 +201,20 @@ class VadSettings(BaseModel):
     min_volume: float = Field(default=0.5, ge=0, le=1)
 
 
+HoldMode = Literal["text", "audio"]
+
+
+class HoldAudioClip(BaseModel):
+    """One pre-recorded hold filler stored in object storage."""
+
+    clip_id: str = Field(min_length=1, description="Stable id returned by the upload API.")
+    storage_key: str = Field(
+        min_length=1,
+        description="MinIO object key under hold-audio/{org_id}/…",
+    )
+    filename: str = Field(min_length=1, description="Original WAV or MP3 filename.")
+
+
 class AgentBehaviour(BaseModel):
     """Call / turn behaviour settings (aligned with mono voice-server knobs)."""
 
@@ -212,7 +226,9 @@ class AgentBehaviour(BaseModel):
                     "user_silence_hangup_seconds": 30,
                     "call_timeout_seconds": 600,
                     "ignore_user_speech_before_greeting": True,
+                    "hold_mode": "text",
                     "hold_messages": ["One moment please."],
+                    "hold_audio_clips": [],
                     "hold_message_timeout_seconds": 0.6,
                     "user_online_detection_enabled": False,
                     "user_online_detection_message": "",
@@ -262,9 +278,21 @@ class AgentBehaviour(BaseModel):
         default=False,
         description="Ignore caller speech until the greeting has finished playing.",
     )
+    hold_mode: HoldMode = Field(
+        default="text",
+        description=(
+            "Hold filler source: 'text' speaks hold_messages via TTS; "
+            "'audio' plays hold_audio_clips. Modes are mutually exclusive."
+        ),
+    )
     hold_messages: list[str] = Field(
         default_factory=list,
-        description="Messages played while the agent is on hold / thinking.",
+        description="Messages played while the agent is on hold / thinking (hold_mode=text).",
+    )
+    hold_audio_clips: list[HoldAudioClip] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Pre-recorded WAV/MP3 clips played on hold (hold_mode=audio).",
     )
     hold_message_timeout_seconds: float | None = Field(
         default=None,
@@ -475,7 +503,9 @@ class AgentCreateRequest(BaseModel):
                             "user_silence_hangup_seconds": 30,
                             "call_timeout_seconds": 600,
                             "ignore_user_speech_before_greeting": True,
+                            "hold_mode": "text",
                             "hold_messages": ["One moment please."],
+                            "hold_audio_clips": [],
                             "hold_message_timeout_seconds": 0.6,
                             "user_online_detection_enabled": False,
                             "user_online_detection_message": "",
@@ -1139,6 +1169,20 @@ class KnowledgeUploadResponse(BaseModel):
 
 class KnowledgeDeleteResponse(BaseModel):
     """Response after deleting a knowledge document."""
+
+    deleted: bool = True
+
+
+class HoldAudioUploadResponse(BaseModel):
+    """Response after uploading a hold WAV/MP3 clip."""
+
+    clip_id: str
+    storage_key: str
+    filename: str
+
+
+class HoldAudioDeleteResponse(BaseModel):
+    """Response after deleting a hold audio clip from object storage."""
 
     deleted: bool = True
 

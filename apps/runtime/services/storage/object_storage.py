@@ -92,3 +92,30 @@ async def upload_bytes(
             exc_info=True,
         )
         return None
+
+
+def _get_object_bytes_sync(object_key: str) -> bytes:
+    client = _minio_client()
+    response = client.get_object(_minio_bucket(), object_key)
+    try:
+        return response.read()
+    finally:
+        response.close()
+        response.release_conn()
+
+
+async def get_object_bytes(object_key: str) -> bytes | None:
+    """Download object bytes by key; return ``None`` on failure."""
+    key = (object_key or "").strip()
+    if not key:
+        return None
+    try:
+        return await asyncio.to_thread(_get_object_bytes_sync, key)
+    except Exception:
+        logger.warning(
+            "Failed to download {} from MinIO bucket={}",
+            key,
+            _minio_bucket(),
+            exc_info=True,
+        )
+        return None

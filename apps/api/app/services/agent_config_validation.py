@@ -14,7 +14,12 @@ from apps.providers.schema import (
     _config_class,
 )
 
-from app.models.schemas import AgentConfigPayload, AgentKnowledgeBase, AgentModels
+from app.models.schemas import (
+    AgentBehaviour,
+    AgentConfigPayload,
+    AgentKnowledgeBase,
+    AgentModels,
+)
 
 KB_TOOL_LLM_PROVIDERS = frozenset({"openai", "groq", "azure_openai", "anthropic"})
 # Discriminator / display fields from provider config classes — not agent settings.
@@ -135,6 +140,26 @@ def _validate_knowledge_base(
     return kb.model_copy(update={"document_ids": document_ids})
 
 
+def _validate_hold_behaviour(
+    behaviour: AgentBehaviour,
+    *,
+    org_id: str | None,
+) -> AgentBehaviour:
+    """Validate hold-audio clip keys when org context is available."""
+    clips = list(behaviour.hold_audio_clips or [])
+    if not clips:
+        return behaviour
+    if not org_id:
+        return behaviour
+    from app.services import hold_audio_service
+
+    try:
+        hold_audio_service.validate_behaviour_clips(org_id, clips)
+    except hold_audio_service.HoldAudioError as exc:
+        raise AgentConfigValidationError(str(exc)) from exc
+    return behaviour
+
+
 def validate_agent_config(
     config: AgentConfigPayload,
     *,
@@ -183,6 +208,7 @@ def validate_agent_config(
         org_id=org_id,
         llm_provider=llm_provider,
     )
+    behaviour = _validate_hold_behaviour(config.behaviour, org_id=org_id)
 
     return config.model_copy(
         update={
@@ -192,5 +218,6 @@ def validate_agent_config(
             "language": config.language.model_copy(update={"primary": primary}),
             "models": validated_models,
             "knowledge_base": knowledge_base,
+            "behaviour": behaviour,
         }
     )
