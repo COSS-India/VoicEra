@@ -308,6 +308,50 @@ def test_vi_outbound_does_not_create_call_log_at_dial(
     assert "call_id=" not in answer_url
 
 
+@pytest.mark.parametrize(
+    ("dial_call_id", "expect_bound"),
+    [("call-1", True), (None, False)],
+)
+def test_outbound_admission_slot_bound_or_released(
+    dial_call_id: str | None, expect_bound: bool
+) -> None:
+    """A dial with no call_id (stream-time CallLog providers such as VI) has
+    nothing to bind, so its admitted slot must be released rather than left
+    for the reaper; a dial with a call_id binds the slot instead."""
+    admitted = object()
+    result = {
+        "call_id": dial_call_id,
+        "status": "ringing",
+        "provider_call_sid": "sid-1",
+        "from_number": "+919876543210",
+        "to_number": "+919999999999",
+        "agent_id": "agent-1",
+    }
+    with patch.object(
+        calls, "admit_call", new=AsyncMock(return_value=admitted)
+    ), patch.object(
+        calls, "initiate_outbound_call", new=AsyncMock(return_value=result)
+    ), patch.object(
+        calls, "bind_admitted_call", new=AsyncMock()
+    ) as bind_mock, patch.object(
+        calls, "release_admitted_call", new=AsyncMock()
+    ) as release_mock, patch.object(
+        calls, "_require_active_org", return_value="org-1"
+    ):
+        response = _make_client().post(
+            "/api/v1/calls/outbound",
+            json={"agent_id": "agent-1", "to_number": "+919999999999"},
+        )
+
+    assert response.status_code == 201
+    if expect_bound:
+        bind_mock.assert_awaited_once_with(admitted, "call-1")
+        release_mock.assert_not_awaited()
+    else:
+        release_mock.assert_awaited_once_with(admitted)
+        bind_mock.assert_not_awaited()
+
+
 @_patch_db("app.services.call_log_service.get_database")
 @_patch_db("app.services.agent_service.get_database")
 @_patch_db("app.services.phone_number_service.get_database")

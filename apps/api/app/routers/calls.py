@@ -199,6 +199,11 @@ async def create_outbound_call(
     call_id = result.get("call_id")
     if call_id:
         await bind_admitted_call(admitted, str(call_id))
+    else:
+        # Stream-time CallLog providers (e.g. VI) return no call_id at dial
+        # time, so there is nothing to bind and no hangup would ever free the
+        # slot — release it now, as the campaign dispatcher does.
+        await release_admitted_call(admitted)
     return result
 
 
