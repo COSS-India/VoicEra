@@ -103,7 +103,7 @@ def get_provider_dial_credentials(org_id: str, provider: str) -> dict[str, Any]:
     from the registered config.
     """
     config = _build_config(org_id, provider)
-    stored = auth_service.get_provider_auth(org_id, provider, mask_secrets=False) or {}
+    stored = auth_service.get_provider_auth(org_id, provider) or {}
     auth = dict(stored.get("auth") or {})
     for key, value in _nonempty_config_fields(config).items():
         auth.setdefault(key, value)

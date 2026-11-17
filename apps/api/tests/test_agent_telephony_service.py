@@ -138,7 +138,7 @@ async def test_create_websocket_rejects_telephony_provider() -> None:
         await agent_service.create_agent("org-1", "admin@example.com", payload)
 
 
-@patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
+@patch("app.services.agent_telephony_service.auth_service.get_provider_auth", autospec=True)
 def test_vi_load_telephony_client_requires_provider_auth(
     get_auth_mock: MagicMock,
 ) -> None:
@@ -149,7 +149,7 @@ def test_vi_load_telephony_client_requires_provider_auth(
         load_telephony_client("org-1", "vi")
 
 
-@patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
+@patch("app.services.agent_telephony_service.auth_service.get_provider_auth", autospec=True)
 def test_vi_load_telephony_client_from_provider_auth(
     get_auth_mock: MagicMock,
 ) -> None:
@@ -167,7 +167,7 @@ def test_vi_load_telephony_client_from_provider_auth(
     assert client.dni_flows[0]["flow_id"] == "flow-a"
 
 
-@patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
+@patch("app.services.agent_telephony_service.auth_service.get_provider_auth", autospec=True)
 def test_vi_get_provider_dial_credentials_from_auth(
     get_auth_mock: MagicMock,
 ) -> None:
@@ -185,7 +185,7 @@ def test_vi_get_provider_dial_credentials_from_auth(
     assert "dni_flows" in creds
 
 
-@patch("app.services.agent_telephony_service.auth_service.get_provider_auth")
+@patch("app.services.agent_telephony_service.auth_service.get_provider_auth", autospec=True)
 def test_vi_client_default_from_number_from_auth(
     get_auth_mock: MagicMock,
 ) -> None:
