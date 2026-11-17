@@ -21,7 +21,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 if [ -f "$HERE/.env" ]; then
   # Only the keys we need, and only well-formed lines -- this is sourced-ish
   # input, so do not exec it.
-  for key in STT_MODEL TTS_MODEL LLM_MODEL GPU_DEVICE_IDS MPS_PIPE_DIR USE_SHARED_HF_CACHE USE_STT_GRPC; do
+  for key in STT_MODEL TTS_MODEL LLM_MODEL LID_MODEL GPU_DEVICE_IDS MPS_PIPE_DIR USE_SHARED_HF_CACHE USE_STT_GRPC; do
     val=$(grep -E "^${key}=" "$HERE/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"'\r')
     [ -n "$val" ] && eval "$key=\$val"
   done
@@ -30,6 +30,7 @@ fi
 STT_MODEL=${STT_MODEL:-indic-conformer}
 TTS_MODEL=${TTS_MODEL:-indic-parler}
 LLM_MODEL=${LLM_MODEL:-}
+LID_MODEL=${LID_MODEL:-}
 # 0, matching compose.model-server.yml and .env.example. This said 1 -- our
 # allocation on ace-h200 -- which is the same "our card, not a default" bug the
 # base compose file documents at length. It matters here because MPS_PIPE_DIR is
@@ -58,7 +59,7 @@ if [ -n "${USE_STT_GRPC:-}" ]; then
 fi
 
 # A model may bring services of its own.
-for slot_model in "stt/$STT_MODEL" "tts/$TTS_MODEL" "llm/$LLM_MODEL"; do
+for slot_model in "stt/$STT_MODEL" "tts/$TTS_MODEL" "llm/$LLM_MODEL" "lid/$LID_MODEL"; do
   case "$slot_model" in */) continue;; esac
   [ -f "$HERE/$slot_model/compose.extra.yml" ] && \
     FILES="$FILES -f $HERE/$slot_model/compose.extra.yml"
@@ -67,7 +68,7 @@ done
 # MPS is a property of the host: attach only if a daemon is really there.
 if [ -e "$MPS_PIPE_DIR/control" ] || pgrep -x nvidia-cuda-mps-control >/dev/null 2>&1; then
   FILES="$FILES -f $HERE/compose.mps.yml"
-  for slot_model in "stt/$STT_MODEL" "tts/$TTS_MODEL" "llm/$LLM_MODEL"; do
+  for slot_model in "stt/$STT_MODEL" "tts/$TTS_MODEL" "llm/$LLM_MODEL" "lid/$LID_MODEL"; do
     case "$slot_model" in */) continue;; esac
     [ -f "$HERE/$slot_model/compose.mps.yml" ] && \
       FILES="$FILES -f $HERE/$slot_model/compose.mps.yml"

@@ -1,15 +1,17 @@
 # VoicEra model-server
 #
-# Three slots -- stt, tts, llm -- each of which can host many models. A slot is
-# one Compose service whose build context is the folder you named:
+# Four slots -- stt, tts, llm, lid -- each of which can host many models. A slot
+# is one Compose service whose build context is the folder you named:
 #
 #     stt/indic-conformer/     STT_MODEL=indic-conformer
 #     stt/canary/              STT_MODEL=canary
 #     llm/qwen3.5-4b/          LLM_MODEL=qwen3.5-4b
+#     lid/nemotron-lid/        LID_MODEL=nemotron-lid
 #
 # Switching model is one line in .env plus `up -d --build <slot>`. The service
 # name and port never change, so the gateway needs no knowledge of which model
 # is loaded. Adding a model is a folder; it touches nothing in this file.
+# LID coexists with STT (spoken language ID is not a substitute for ASR).
 #
 # `ports:` appears exactly ONCE, on the gateway. The model containers listen
 # inside their own network namespace and are reachable only by service name --
@@ -60,6 +62,15 @@ x-gpu-llm: &gpu-llm
             device_ids: ["${LLM_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}"]
             capabilities: [gpu]
 
+x-gpu-lid: &gpu-lid
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ["${LID_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}"]
+            capabilities: [gpu]
+
 # MPS lives in compose.mps.yml, not here.
 #
 # On ace-h200 our GPU runs in Exclusive Process mode behind an MPS daemon shared
@@ -101,6 +112,7 @@ services:
       STT_MODEL: ${STT_MODEL:-}
       TTS_MODEL: ${TTS_MODEL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      LID_MODEL: ${LID_MODEL:-}
       # Paths GET/WS /{slot}/... forwards: comma-separated, exact. Unset keeps
       # the defaults in gateway/app/config.py; "none" forwards nothing.
       STT_PASSTHROUGH_GET: ${STT_PASSTHROUGH_GET:-}
@@ -109,6 +121,9 @@ services:
       TTS_PASSTHROUGH_WS: ${TTS_PASSTHROUGH_WS:-}
       LLM_PASSTHROUGH_GET: ${LLM_PASSTHROUGH_GET:-}
       LLM_PASSTHROUGH_WS: ${LLM_PASSTHROUGH_WS:-}
+      LID_PASSTHROUGH_GET: ${LID_PASSTHROUGH_GET:-}
+      LID_PASSTHROUGH_WS: ${LID_PASSTHROUGH_WS:-}
+      LID_UPSTREAM: ${LID_UPSTREAM:-}
     volumes:
       # Editing the catalogue takes effect on restart, no rebuild.
       - ./models.yaml:/app/app/models.yaml:ro
@@ -253,6 +268,31 @@ services:
       start_period: 900s
     networks: [model_net]
     <<: *gpu-llm
+
+  # ---- LID slot ---------------------------------------------------------
+  # Spoken language ID (Nemotron probe). Coexists with STT — not a substitute.
+  lid:
+    profiles: ["lid"]
+    build:
+      context: ./lid/${LID_MODEL:-nemotron-lid}
+    image: voicera/model-lid:${LID_MODEL:-nemotron-lid}
+    container_name: voicera_model_lid
+    restart: unless-stopped
+    environment:
+      <<: *alloc
+      PORT: 8004
+      HEALTHCHECK_PORT: ${LID_HEALTHCHECK_PORT:-8004}
+      HUGGING_FACE_HUB_TOKEN: ${LID_HF_TOKEN:-${HF_TOKEN:-}}
+    volumes:
+      - ./lid/${LID_MODEL:-nemotron-lid}:/app
+    healthcheck:
+      test: ["CMD-SHELL", "PY=$$(command -v python3 || command -v python); exec $$PY -c \"import os,sys,urllib.request; p=os.environ.get('HEALTHCHECK_PORT','8004'); sys.exit(0 if urllib.request.urlopen('http://localhost:'+p+'/health',timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 600s
+    networks: [model_net]
+    <<: *gpu-lid
 
 volumes:
   # Compose creates this and the containers download into it, which needs

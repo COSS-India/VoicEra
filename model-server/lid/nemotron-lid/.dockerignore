@@ -1,0 +1,7 @@
+models
+.venv
+__pycache__
+*.pyc
+.git
+.env
+README.md

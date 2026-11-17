@@ -1,0 +1,30 @@
+# nemotron-lid: deployment knobs for the LID slot (identify-only).
+#
+# The package beside this file is vendored from voice_era_repos/nemotron-lid.
+# Everything that differs for VoicEra lives here so the package is not patched.
+
+services:
+
+  lid:
+    environment:
+      PORT: ${LID_PORT:-8004}
+      HEALTHCHECK_PORT: ${LID_HEALTHCHECK_PORT:-8004}
+      DEVICE: ${LID_DEVICE:-cuda}
+      # Exact .nemo file (same weights the probe was trained against).
+      NEMOTRON_NEMO_PATH: ${LID_NEMO_PATH:-/models/indic_nemotron_v1_1_sft_600k_lr1-averaged-40k.nemo}
+      NEMOTRON_MODEL_CACHE_DIR: ${LID_MODEL_CACHE_DIR:-/models}
+      HUGGING_FACE_HUB_TOKEN: ${LID_HF_TOKEN:-${HF_TOKEN:-}}
+
+    volumes:
+      # Must contain the real .nemo file (Docker will not follow host symlinks
+      # that point outside the mounted tree). Reuse indic-nemotron weights with:
+      #   LID_MODELS_DIR=./stt/indic-nemotron/models/indic-asr-nemotron-600m
+      # or run fetch.sh into ./lid/nemotron-lid/models.
+      - ${LID_MODELS_DIR:-./lid/nemotron-lid/models}:/models:ro
+
+  gateway:
+    environment:
+      LID_UPSTREAM: ${LID_UPSTREAM:-http://lid:8004}
+      # GET allowlist under /lid/... (POST identify is a named /v1/lid/identify route).
+      LID_PASSTHROUGH_GET: ${LID_PASSTHROUGH_GET:-/health}
+      LID_PASSTHROUGH_WS: ${LID_PASSTHROUGH_WS:-none}

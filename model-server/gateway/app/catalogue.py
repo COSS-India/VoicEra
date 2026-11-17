@@ -37,7 +37,7 @@ def _find_catalogue() -> Path:
 
 CATALOGUE_PATH = _find_catalogue()
 
-KINDS = ("stt", "tts", "llm")
+KINDS = ("stt", "tts", "llm", "lid")
 
 
 def load(path: Path | None = None) -> list[dict[str, Any]]:

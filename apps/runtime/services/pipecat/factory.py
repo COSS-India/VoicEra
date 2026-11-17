@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
@@ -27,8 +28,16 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from starlette.websockets import WebSocket
 
 from apps.runtime.services.knowledge.setup import configure_knowledge_base
-from apps.runtime.services.pipecat.call_ending import configure_call_ending
+from apps.runtime.services.language_switch.lid import (
+    LANGUAGE_SWITCHING_MODE_DETERMINISTIC,
+    LANGUAGE_SWITCHING_MODE_LID,
+    LidTapProcessor,
+    language_switching_mode,
+    resolve_lid_config,
+)
+from apps.runtime.services.language_switch.pool import configured_languages
 from apps.runtime.services.language_switch.tools import configure_language_switching
+from apps.runtime.services.pipecat.call_ending import configure_call_ending
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
 from apps.runtime.services.pipecat.vad import (
@@ -141,21 +150,54 @@ def build_pipeline_components(
         context=context,
         agent_id=agent.get("agent_id"),
     )
-    configure_language_switching(
-        agent,
-        context=context,
-        stt_switcher=stt,
-        tts_switcher=tts,
-        llm_switcher=llm,
-        agent_id=agent.get("agent_id"),
-    )
+    languages = configured_languages(agent)
+    multilingual = len(languages) > 1
+    switch_mode = language_switching_mode(behaviour)
 
-    pipeline_processors = [
+    # Mutually exclusive: deterministic = LLM tool; lid = audio LID tap.
+    if multilingual and switch_mode == LANGUAGE_SWITCHING_MODE_DETERMINISTIC:
+        configure_language_switching(
+            agent,
+            context=context,
+            stt_switcher=stt,
+            tts_switcher=tts,
+            llm_switcher=llm,
+            agent_id=agent.get("agent_id"),
+        )
+    elif multilingual and switch_mode == LANGUAGE_SWITCHING_MODE_LID:
+        logger.info(
+            "Language switching mode=lid — switch_language tool not registered agent_id={}",
+            agent.get("agent_id"),
+        )
+
+    lid_config = resolve_lid_config(behaviour, multilingual=multilingual)
+    lid_tap: LidTapProcessor | None = None
+    if lid_config is not None:
+        lid_tap = LidTapProcessor(
+            config=lid_config,
+            allowed_languages=languages,
+            primary_language=languages[0],
+            sample_rate=sample_rate,
+        )
+        logger.info(
+            "LID tap enabled url={} languages={} primary={}",
+            lid_config.url,
+            languages,
+            languages[0],
+        )
+
+    pipeline_processors: list[Any] = [
         transport.input(),
         vad_switcher,
-        stt,
-        user_aggregator,
     ]
+    if lid_tap is not None:
+        pipeline_processors.append(lid_tap)
+    pipeline_processors.extend(
+        [
+            stt,
+            user_aggregator,
+        ]
+    )
     if kb_context_processor is not None:
         pipeline_processors.append(kb_context_processor)
     # Official order: … → tts → transport.output() → audiobuffer → …

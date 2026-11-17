@@ -9,13 +9,14 @@ setting to point at a different host.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Compose service names on the internal network. Overridden by <KIND>_UPSTREAM.
 _DEFAULT_URL = {
     "stt": "http://stt:8001",
     "tts": "http://tts:8002",
     "llm": "http://llm:8003",
+    "lid": "http://lid:8004",
 }
 
 
@@ -77,11 +78,13 @@ _PASSTHROUGH_GET = {
     "stt": ("/health", "/v1/languages"),
     "tts": ("/health", "/v1/languages", "/v1/voices", "/v1/styles", "/v1/tts/stream"),
     "llm": (),
+    "lid": ("/health",),
 }
 _PASSTHROUGH_WS = {
     "stt": ("/v1/realtime",),
     "tts": ("/v1/tts/ws",),
     "llm": (),
+    "lid": (),
 }
 
 
@@ -105,7 +108,7 @@ def _paths(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class Upstream:
-    kind: str          # "stt" | "tts" | "llm"
+    kind: str          # "stt" | "tts" | "llm" | "lid"
     url: str           # "" when the slot is not deployed
     model: str         # model id, also the Compose profile name
     demo_path: str = "/demo"   # where this model serves its page; see _demo_path
@@ -133,6 +136,8 @@ class Settings:
     stt: Upstream
     tts: Upstream
     llm: Upstream
+    # Default empty so existing three-arg test constructors stay valid.
+    lid: Upstream = field(default_factory=lambda: Upstream("lid", "", ""))
 
     @staticmethod
     def _slot(kind: str) -> Upstream:
@@ -146,10 +151,10 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
-        return cls(*(cls._slot(k) for k in ("stt", "tts", "llm")))
+        return cls(*(cls._slot(k) for k in ("stt", "tts", "llm", "lid")))
 
     def all(self) -> list[Upstream]:
-        return [self.stt, self.tts, self.llm]
+        return [self.stt, self.tts, self.llm, self.lid]
 
 
 settings = Settings.from_env()

@@ -1,24 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Noto_Sans_Kannada, Noto_Sans_Devanagari, Noto_Sans_Tamil } from "next/font/google";
 import { LogoMark } from "@/components/ui/VoicEraMark";
-
-const notoKannada = Noto_Sans_Kannada({
-  subsets: ["kannada"],
-  weight: ["400", "600"],
-  variable: "--font-kannada",
-});
-const notoDevanagari = Noto_Sans_Devanagari({
-  subsets: ["devanagari"],
-  weight: ["400", "600"],
-  variable: "--font-devanagari",
-});
-const notoTamil = Noto_Sans_Tamil({
-  subsets: ["tamil"],
-  weight: ["400", "600"],
-  variable: "--font-tamil",
-});
+import {
+  notoDevanagari,
+  notoKannada,
+  notoTamil,
+} from "@/fonts/auth-hero";
 
 interface Turn {
   text: string;

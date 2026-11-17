@@ -70,3 +70,8 @@ services:
     volumes:
       - "${LLM_MPS_PIPE_DIR:-${MPS_PIPE_DIR:-/tmp/nvidia-mps-gpu${LLM_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}}}:/tmp/nvidia-mps"
       - "${LLM_MPS_LOG_DIR:-${MPS_LOG_DIR:-/tmp/nvidia-mps-log-gpu${LLM_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}}}:/tmp/nvidia-mps-log"
+  lid:
+    <<: *mps-common
+    volumes:
+      - "${LID_MPS_PIPE_DIR:-${MPS_PIPE_DIR:-/tmp/nvidia-mps-gpu${LID_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}}}:/tmp/nvidia-mps"
+      - "${LID_MPS_LOG_DIR:-${MPS_LOG_DIR:-/tmp/nvidia-mps-log-gpu${LID_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}}}:/tmp/nvidia-mps-log"

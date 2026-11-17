@@ -6,7 +6,7 @@
 [![GPU](https://img.shields.io/badge/GPU-NVIDIA-76B900.svg?logo=nvidia&logoColor=white)](#gpu)
 [![Optional](https://img.shields.io/badge/status-optional-lightgrey.svg)](#)
 
-Three slots — STT, TTS, LLM — each running whichever model you selected, without the gateway knowing which one.
+Four slots — STT, TTS, LLM, LID — each running whichever model you selected, without the gateway knowing which one. LID coexists with STT (spoken language ID is not a substitute for ASR).
 
 ```
 model-server/

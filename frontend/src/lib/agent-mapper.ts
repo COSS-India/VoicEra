@@ -122,6 +122,7 @@ export function formToAgentCreatePayload(
           stop_secs: form.vadIdleStopSecs,
           min_volume: form.vadIdleMinVolume,
         },
+        language_switching_mode: form.languageSwitchingMode,
       },
       language: { primary, secondary },
       models,
@@ -237,6 +238,8 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
       (behaviour.vad_idle as { min_volume?: number } | undefined)?.min_volume ??
         DEFAULT_FORM.vadIdleMinVolume,
     ),
+    languageSwitchingMode:
+      behaviour.language_switching_mode === "lid" ? "lid" : "deterministic",
   };
 }
 

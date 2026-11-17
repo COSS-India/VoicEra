@@ -201,6 +201,30 @@ class VadSettings(BaseModel):
     min_volume: float = Field(default=0.5, ge=0, le=1)
 
 
+LanguageSwitchingMode = Literal["deterministic", "lid"]
+
+
+class LidSettings(BaseModel):
+    """Thresholds for the Nemotron LID tap (used when language_switching_mode is lid)."""
+
+    min_confidence: float = Field(
+        default=0.7,
+        ge=0,
+        le=1,
+        description="Minimum LID confidence required to switch languages.",
+    )
+    min_audio_sec: float = Field(
+        default=1.8,
+        ge=0,
+        description="Minimum user-speech seconds before running identify.",
+    )
+    cooldown_sec: float = Field(
+        default=3.0,
+        ge=0,
+        description="Seconds to wait after a switch before accepting another LID switch.",
+    )
+
+
 class AgentBehaviour(BaseModel):
     """Call / turn behaviour settings (aligned with mono voice-server knobs)."""
 
@@ -296,6 +320,14 @@ class AgentBehaviour(BaseModel):
     automatic_call_ending: AutomaticCallEnding = AutomaticCallEnding()
     vad: VadSettings = VadSettings()
     vad_idle: VadSettings = VadSettings()
+    language_switching_mode: LanguageSwitchingMode = Field(
+        default="deterministic",
+        description=(
+            "How mid-call language changes are decided when multiple languages are configured. "
+            "deterministic = LLM switch_language tool; lid = Nemotron audio LID tap."
+        ),
+    )
+    lid: LidSettings = LidSettings()
 
 
 class AgentLanguage(BaseModel):

@@ -2,7 +2,7 @@
 # =============================================================================
 # model-server — setup & start
 #
-# Configure STT/TTS/LLM slots, fetch weights, build images, and start the
+# Configure STT/TTS/LLM/LID slots, fetch weights, build images, and start the
 # gateway stack. Model-server only — no backend, V2V, or frontend.
 #
 # Usage:
@@ -12,11 +12,13 @@
 #   STT_MODEL=<id>         folder under stt/  (empty = no STT)
 #   TTS_MODEL=<id>         folder under tts/  (empty = no TTS)
 #   LLM_MODEL=<id>         folder under llm/  (empty = no LLM)
+#   LID_MODEL=<id>         folder under lid/  (empty = no LID; coexists with STT)
 #   HF_TOKEN=xxx           HuggingFace token for every slot that has no token
 #                          of its own (needed for gated checkpoints)
 #   STT_HF_TOKEN=xxx       Token for one slot only, overriding HF_TOKEN there.
 #   TTS_HF_TOKEN=xxx       Set these when access was granted to different
 #   LLM_HF_TOKEN=xxx       accounts, or for fine-grained per-repo tokens.
+#   LID_HF_TOKEN=xxx
 #   GPU_DEVICE_IDS=0       which GPU to attach (default: from .env or 0)
 #   USE_SHARED_HF_CACHE=1  reuse an existing HF cache via compose.shared-hf-cache.yml
 #   SKIP_BUILD=1           configure only; do not build images
@@ -36,12 +38,14 @@ HF_TOKEN="${HF_TOKEN:-}"
 STT_HF_TOKEN="${STT_HF_TOKEN:-}"
 TTS_HF_TOKEN="${TTS_HF_TOKEN:-}"
 LLM_HF_TOKEN="${LLM_HF_TOKEN:-}"
+LID_HF_TOKEN="${LID_HF_TOKEN:-}"
 USE_SHARED_HF_CACHE="${USE_SHARED_HF_CACHE:-}"
 SKIP_BUILD="${SKIP_BUILD:-}"
 SKIP_START="${SKIP_START:-}"
 STT_SEL="${STT_MODEL-__ask__}"
 TTS_SEL="${TTS_MODEL-__ask__}"
 LLM_SEL="${LLM_MODEL-__ask__}"
+LID_SEL="${LID_MODEL-__ask__}"
 
 log()  { echo -e "\n\033[1;32m[model-server]\033[0m $1"; }
 ok()   { echo -e "\033[1;34m  ✓\033[0m $1"; }
@@ -51,7 +55,7 @@ err()  { echo -e "\033[1;31m[ERROR]\033[0m $1"; exit 1; }
 warn() { echo -e "\033[1;33m  !\033[0m $1"; }
 ask()  { read -r -p "  $1: " "$2"; }
 
-# Which models can fill a slot? One folder per model under stt/, tts/, llm/.
+# Which models can fill a slot? One folder per model under stt/, tts/, llm/, lid/.
 list_slot_models() {
   [ -d "$MS_DIR/$1" ] || return 0
   find "$MS_DIR/$1" -mindepth 1 -maxdepth 1 -type d \
@@ -101,10 +105,12 @@ echo -e "\033[2m  ────────────────────�
 [ "$STT_SEL" = "__ask__" ] && pick_model stt "Speech to text" STT_SEL
 [ "$TTS_SEL" = "__ask__" ] && pick_model tts "Text to speech" TTS_SEL
 [ "$LLM_SEL" = "__ask__" ] && pick_model llm "Language model" LLM_SEL
+[ "$LID_SEL" = "__ask__" ] && pick_model lid "Spoken language ID" LID_SEL
 
 [ "$STT_SEL" = "__ask__" ] && STT_SEL=""
 [ "$TTS_SEL" = "__ask__" ] && TTS_SEL=""
 [ "$LLM_SEL" = "__ask__" ] && LLM_SEL=""
+[ "$LID_SEL" = "__ask__" ] && LID_SEL=""
 
 # Gated HuggingFace weights are not a TTS-only problem any more.
 #
@@ -137,7 +143,7 @@ hf_logged_in() {
 
 # Any token supplied through the environment -- shared or per-slot -- means the
 # operator has already answered this, so do not ask. The guard has to name every
-# one of the four, or `STT_HF_TOKEN=... ./scripts/start-model-server.sh` would
+# one of the five, or `STT_HF_TOKEN=... ./scripts/start-model-server.sh` would
 # still stop for a prompt and no longer run unattended.
 #
 # A cached `huggingface-cli login` deliberately does NOT suppress this any more.
@@ -150,8 +156,8 @@ hf_logged_in() {
 #
 # The cached login is still honoured -- it is now an offer rather than a
 # silent override. Enter at any prompt falls through to it.
-if [ -n "$STT_SEL$TTS_SEL$LLM_SEL" ] \
-   && [ -z "$HF_TOKEN$STT_HF_TOKEN$TTS_HF_TOKEN$LLM_HF_TOKEN" ] \
+if [ -n "$STT_SEL$TTS_SEL$LLM_SEL$LID_SEL" ] \
+   && [ -z "$HF_TOKEN$STT_HF_TOKEN$TTS_HF_TOKEN$LLM_HF_TOKEN$LID_HF_TOKEN" ] \
    && [ -z "$USE_SHARED_HF_CACHE" ]; then
   echo ""
   echo "  Some checkpoints are gated on HuggingFace and need a token with access"
@@ -180,6 +186,7 @@ if [ -n "$STT_SEL$TTS_SEL$LLM_SEL" ] \
     [ -n "$STT_SEL" ] && ask "HuggingFace token for STT ($STT_SEL)" STT_HF_TOKEN
     [ -n "$TTS_SEL" ] && ask "HuggingFace token for TTS ($TTS_SEL)" TTS_HF_TOKEN
     [ -n "$LLM_SEL" ] && ask "HuggingFace token for LLM ($LLM_SEL)" LLM_HF_TOKEN
+    [ -n "$LID_SEL" ] && ask "HuggingFace token for LID ($LID_SEL)" LID_HF_TOKEN
   else
     ask "HuggingFace token (or Enter to skip)" HF_TOKEN
   fi
@@ -192,6 +199,7 @@ fi
 STT_TOKEN="${STT_HF_TOKEN:-$HF_TOKEN}"
 TTS_TOKEN="${TTS_HF_TOKEN:-$HF_TOKEN}"
 LLM_TOKEN="${LLM_HF_TOKEN:-$HF_TOKEN}"
+LID_TOKEN="${LID_HF_TOKEN:-$HF_TOKEN}"
 
 # Exported so each model's fetch.sh -- run as a child process below -- can see
 # it. Without this the token reached the containers via .env but never the
@@ -207,10 +215,11 @@ MODEL_PROFILES=""
 [ -n "$STT_SEL" ] && MODEL_PROFILES="$MODEL_PROFILES,stt"
 [ -n "$TTS_SEL" ] && MODEL_PROFILES="$MODEL_PROFILES,tts"
 [ -n "$LLM_SEL" ] && MODEL_PROFILES="$MODEL_PROFILES,llm"
+[ -n "$LID_SEL" ] && MODEL_PROFILES="$MODEL_PROFILES,lid"
 MODEL_PROFILES="${MODEL_PROFILES#,}"
 
 echo ""
-echo -e "  STT: ${STT_SEL:-none}  |  TTS: ${TTS_SEL:-none}  |  LLM: ${LLM_SEL:-none}"
+echo -e "  STT: ${STT_SEL:-none}  |  TTS: ${TTS_SEL:-none}  |  LLM: ${LLM_SEL:-none}  |  LID: ${LID_SEL:-none}"
 read -r -p "  Proceed? [Y/n]: " _ok
 [ "$_ok" = "n" ] && exit 0
 
@@ -359,6 +368,17 @@ if [ -n "$LLM_SEL" ]; then
   ok "LLM ready ($LLM_SEL)"
 fi
 
+if [ -n "$LID_SEL" ]; then
+  LID_DIR="$MS_DIR/lid/$LID_SEL"
+  [ -d "$LID_DIR" ] || err "LID model folder not found: lid/$LID_SEL"
+  [ -f "$LID_DIR/fetch.sh" ] && HF_TOKEN="$LID_TOKEN" bash "$LID_DIR/fetch.sh"
+  {
+    echo "PORT=8004"
+    echo "HF_TOKEN=$LID_TOKEN"
+  } > "$LID_DIR/.env"
+  ok "LID ready ($LID_SEL)"
+fi
+
 # ── Compose config ───────────────────────────────────────────────────────────
 [ -f "$MS_DIR/.env" ] || cp "$MS_DIR/.env.example" "$MS_DIR/.env"
 
@@ -415,6 +435,7 @@ GPU_IDS="${GPU_IDS:-0}"
 set_env STT_MODEL "$STT_SEL"
 set_env TTS_MODEL "$TTS_SEL"
 set_env LLM_MODEL "$LLM_SEL"
+set_env LID_MODEL "$LID_SEL"
 set_env COMPOSE_PROFILES "$MODEL_PROFILES"
 set_env HF_TOKEN "$HF_TOKEN"
 # Written as given, not resolved: an empty per-slot key is what tells Compose to
@@ -423,18 +444,19 @@ set_env HF_TOKEN "$HF_TOKEN"
 set_env STT_HF_TOKEN "$STT_HF_TOKEN"
 set_env TTS_HF_TOKEN "$TTS_HF_TOKEN"
 set_env LLM_HF_TOKEN "$LLM_HF_TOKEN"
+set_env LID_HF_TOKEN "$LID_HF_TOKEN"
 set_env GPU_DEVICE_IDS "$GPU_IDS"
 set_env USE_STT_GRPC "${USE_STT_GRPC:-}"
 
 # Leftover from an old native-mode experiment — localhost upstreams break the
-# gateway container, which must reach STT/TTS/LLM by Compose service name.
+# gateway container, which must reach STT/TTS/LLM/LID by Compose service name.
 #
 # This named STT_UPSTREAM only, while .env.example shipped TTS_UPSTREAM
 # uncommented, so the slot that was cleaned worked and the slot that was not
 # failed -- a tts container up and serving on 0.0.0.0:8002 while the gateway
 # reported "All connection attempts failed" against its own localhost. All
-# three slots are covered now, and localhost as well as 127.0.0.1.
-sed -i '/^RUN_MODE=/d; /^\(STT\|TTS\|LLM\)_UPSTREAM=http:\/\/\(127\.0\.0\.1\|localhost\)/d' "$MS_DIR/.env"
+# four slots are covered now, and localhost as well as 127.0.0.1.
+sed -i '/^RUN_MODE=/d; /^\(STT\|TTS\|LLM\|LID\)_UPSTREAM=http:\/\/\(127\.0\.0\.1\|localhost\)/d' "$MS_DIR/.env"
 
 # Always a directory that exists. Compose stats every declared build context
 # whether or not a Dockerfile references it, so the `nemo` context in

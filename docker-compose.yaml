@@ -110,7 +110,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   minio:
-    image: minio/minio:latest
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     container_name: voicera_oss_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -137,7 +137,7 @@ services:
       start_period: 10s
 
   minio-init:
-    image: minio/mc:latest
+    image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
     container_name: voicera_oss_minio_init
     depends_on:
       minio:
@@ -271,9 +271,9 @@ services:
       MINIO_ENDPOINT: minio:9000
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
       MODEL_SERVER_WS_URL: ws://host.docker.internal:8100/v1/asr/ws
-      # OpenAI Realtime transcription (indic_conformer, indic_transcribe).
-      MODEL_SERVER_REALTIME_URL: ws://host.docker.internal:8100/v1/realtime
       MODEL_SERVER_URL: http://host.docker.internal:8100/v1
+      # Nemotron LID via model-server gateway (POST /v1/lid/identify).
+      NEMOTRON_LID_URL: "${NEMOTRON_LID_URL:-http://host.docker.internal:8100/v1/lid}"
     logging:
       driver: "json-file"
       options:
@@ -340,3 +340,4 @@ volumes:
 networks:
   app-network:
     driver: bridge
+

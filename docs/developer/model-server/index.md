@@ -3,7 +3,7 @@ title: Model server
 description: Run STT, TTS, and LLM on your own GPUs behind one gateway.
 ---
 
-An optional, self-contained subsystem for running speech and language models on your own hardware. One gateway on `:8100` fronts three slots — STT, TTS, LLM — and each slot runs whichever model you selected, without the gateway knowing which one.
+An optional, self-contained subsystem for running speech and language models on your own hardware. One gateway on `:8100` fronts four slots — STT, TTS, LLM, LID — and each slot runs whichever model you selected, without the gateway knowing which one. LID coexists with STT for spoken language detection.
 
 <Note>
 The model server is **optional**. VoicEra runs fine against cloud providers alone. Deploy this when data residency, per-minute cost, or Indic-language coverage makes self-hosting worth the GPUs.

@@ -191,7 +191,9 @@ export const TIPS: Record<string, string> = {
   tokens: "Roughly how long a single reply can run. Lower this for tighter, faster answers.",
   temp: "Higher values make the agent's phrasing less predictable call to call.",
   kb: "When on, the agent quotes from the documents you attach instead of guessing. Use text-based PDFs only — PDFs with images are not supported.",
-  langs: "The first language opens the call. Callers who switch mid-call are followed automatically.",
+  langs: "The first language opens the call. Mid-call language changes follow the mode set under Call details.",
+  languageSwitchingMode:
+    "Deterministic lets the LLM call switch_language. LID detects language from the caller's audio via the model-server Nemotron LID slot (runtime NEMOTRON_LID_URL → gateway /v1/lid).",
   voice: "Preview a voice before committing — it's easy to change later, but callers notice a swap.",
   sttProvider: "Indic-only providers won't appear as options once you pick English as a language.",
   ttsProvider: "This also determines which voices are available.",
@@ -262,6 +264,8 @@ export interface AgentForm {
   vadIdleStartSecs: number;
   vadIdleStopSecs: number;
   vadIdleMinVolume: number;
+  /** Mid-call language change strategy when multiple langs are configured. */
+  languageSwitchingMode: "deterministic" | "lid";
 }
 
 export const DEFAULT_FORM: AgentForm = {
@@ -300,6 +304,7 @@ export const DEFAULT_FORM: AgentForm = {
   vadIdleStartSecs: 0.1,
   vadIdleStopSecs: 0.4,
   vadIdleMinVolume: 0.5,
+  languageSwitchingMode: "deterministic",
 };
 
 export const TPL_CATS = [

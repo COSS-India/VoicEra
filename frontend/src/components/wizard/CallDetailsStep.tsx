@@ -189,6 +189,49 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
         </button>
       </div>
 
+      {form.langs.length > 1 ? (
+        <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5">
+          <SectionHeader
+            title="Language switching"
+            subtitle="How the agent changes language mid-call when multiple languages are configured."
+            tip={TIPS.languageSwitchingMode}
+          />
+          <div className="flex flex-col gap-3">
+            <label className="flex cursor-pointer items-start gap-3 rounded-v-md border border-v-line p-3 transition-colors hover:bg-v-soft has-[:checked]:border-v-accent has-[:checked]:bg-v-soft">
+              <input
+                type="radio"
+                name="languageSwitchingMode"
+                className="mt-1 accent-v-accent"
+                checked={form.languageSwitchingMode === "deterministic"}
+                onChange={() => onChange("languageSwitchingMode", "deterministic")}
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-semibold text-v-fg">Deterministic (LLM tool)</span>
+                <span className="text-[12px] font-light text-v-muted">
+                  The model calls switch_language when the caller asks for or clearly shifts language.
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-v-md border border-v-line p-3 transition-colors hover:bg-v-soft has-[:checked]:border-v-accent has-[:checked]:bg-v-soft">
+              <input
+                type="radio"
+                name="languageSwitchingMode"
+                className="mt-1 accent-v-accent"
+                checked={form.languageSwitchingMode === "lid"}
+                onChange={() => onChange("languageSwitchingMode", "lid")}
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-semibold text-v-fg">LID (audio detection)</span>
+                <span className="text-[12px] font-light text-v-muted">
+                  Nemotron LID identifies the spoken language from audio and sets the pipeline
+                  directly. Requires NEMOTRON_LID_URL on the runtime; Indic probe languages only.
+                </span>
+              </span>
+            </label>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-4 rounded-v-md border border-v-line bg-white p-5">
         <SectionHeader
           title="Check caller still there"

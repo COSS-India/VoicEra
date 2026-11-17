@@ -84,7 +84,7 @@ def _not_exposed(slot: str, path: str) -> JSONResponse:
 
 
 async def _probe(client: httpx.AsyncClient, up: Upstream) -> dict:
-    """Health-check an upstream. All three speak HTTP."""
+    """Health-check an upstream. All slots speak HTTP."""
     if not up.enabled:
         return {"deployed": False}
     base = {"deployed": True, "model": up.model}
@@ -191,8 +191,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return RedirectResponse(f"/demo/{live[0].kind}", status_code=307)
         if not live:
             return HTMLResponse(
-                "<h1>No model is deployed</h1><p>Set STT_MODEL, TTS_MODEL or "
-                "LLM_MODEL in .env and include the slot in COMPOSE_PROFILES.</p>",
+                "<h1>No model is deployed</h1><p>Set STT_MODEL, TTS_MODEL, "
+                "LLM_MODEL or LID_MODEL in .env and include the slot in "
+                "COMPOSE_PROFILES.</p>",
                 status_code=503)
         items = "".join(
             f'<li><a href="/demo/{up.kind}">{up.kind.upper()} &mdash; {up.model}</a></li>'
@@ -219,6 +220,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/v1/audio/transcriptions")
     async def transcriptions(request: Request):
         return await _rest(request, conf(request).stt, "/v1/audio/transcriptions")
+
+    @app.post("/v1/lid/identify")
+    async def lid_identify(request: Request):
+        """Spoken language ID. Named POST route — slot passthrough stays GET-only."""
+        return await _rest(request, conf(request).lid, "/identify")
 
     @app.websocket("/v1/asr/ws")
     async def asr_stream(ws: WebSocket):
