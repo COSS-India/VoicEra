@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   BookOpen,
+  ClipboardCheck,
   Clock,
   FileText,
   Hash,
@@ -104,6 +105,13 @@ export function AppSidebar() {
           active: isRoute("/telemetry"),
           onClick: () => router.push("/telemetry"),
           tourId: "nav-telemetry",
+        },
+        {
+          key: "sla-analytics",
+          label: "SLA analytics",
+          icon: <ClipboardCheck className={iconClass} strokeWidth={1.8} />,
+          active: isRoute("/sla-analytics"),
+          onClick: () => router.push("/sla-analytics"),
         },
       ],
     },
