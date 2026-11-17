@@ -53,6 +53,18 @@ export const LLM_PROVIDERS: { id: string; label: string; note: string; models: S
     models: [{ value: "kenpath-indic-1", label: "kenpath-indic-1" }],
   },
   {
+    id: "groq",
+    label: "Groq",
+    note: "Ultra-fast low-latency inference (<100ms), best for real-time voice calls.",
+    models: [
+      { value: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile" },
+      { value: "deepseek-r1-distill-llama-70b", label: "deepseek-r1-distill-llama-70b" },
+      { value: "qwen-qwq-32b", label: "qwen-qwq-32b" },
+      { value: "gemma2-9b-it", label: "gemma2-9b-it" },
+      { value: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant" },
+    ],
+  },
+  {
     id: "custom",
     label: "Custom LLM",
     note: "Bring your own hosted endpoint.",
