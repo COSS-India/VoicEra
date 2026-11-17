@@ -1185,3 +1185,26 @@ def test_provider_level_auth_openai_and_google_merge():
 
     assert provider_level_auth("missing") is None
     assert "openai" in all_provider_level_auth()
+
+
+def test_groq_llm_catalog_and_service():
+    from apps.providers.cloud.groq.catalog import DEFAULT_LLM_MODEL, LLM_MODELS
+    from apps.providers.cloud.groq.config import GroqLLMConfig
+    from apps.providers.cloud.groq.service import create_llm
+
+    schema = provider_schemas(Kind.LLM)["groq"]
+    fields = schema["fields"]
+
+    assert schema["provider_type"] == ProviderType.CLOUD
+    assert schema["name"] == "Groq"
+    assert "api_key" in schema["secrets"]
+    assert "api_key" in schema["required"]
+    assert fields["model"]["default"] == DEFAULT_LLM_MODEL
+    assert list(fields["model"]["examples"]) == list(LLM_MODELS)
+    assert DEFAULT_LLM_MODEL == "llama-3.3-70b-versatile"
+    assert "llama-3.3-70b-versatile" in LLM_MODELS
+
+    cfg = GroqLLMConfig(api_key="gsk_test123", model="llama-3.3-70b-versatile")
+    svc = create_llm(cfg)
+    assert svc is not None
+
