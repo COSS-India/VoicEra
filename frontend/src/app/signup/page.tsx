@@ -53,6 +53,7 @@ function finishAuth(
     access_token?: string;
     org_id?: string;
     role?: string;
+    name?: string | null;
     is_first_login?: boolean;
   },
   email: string,
@@ -64,6 +65,7 @@ function finishAuth(
   saveSession({
     accessToken: data.access_token,
     email,
+    name: data.name?.trim() || undefined,
     orgId: data.org_id,
     orgName,
     role: data.role,
@@ -164,7 +166,7 @@ function SignUpPageInner() {
     setSubmitting(true);
     setError("");
     try {
-      const data = await signup(email.trim(), password, organisationName.trim());
+      const data = await signup(email.trim(), password, organisationName.trim(), fullName.trim());
       const err = finishAuth(data, email.trim(), organisationName.trim());
       if (err) {
         setError(err);
@@ -203,7 +205,7 @@ function SignUpPageInner() {
         return;
       }
 
-      const data = await joinOrganisation(email.trim(), password, orgId);
+      const data = await joinOrganisation(email.trim(), password, orgId, fullName.trim());
       const err = finishAuth(data, email.trim(), inviteOrgName || undefined);
       if (err) {
         setError(err);

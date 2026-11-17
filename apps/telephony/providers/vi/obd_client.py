@@ -24,8 +24,9 @@ DEFAULT_OBD_BASE = "https://cts.myvi.in:8443/Cpaas/api/v1/obdcampaignapi"
 TOKEN_TTL_SECS = 86400
 TOKEN_REFRESH_MARGIN_SECS = 3600
 REQUEST_TIMEOUT_SECS = 30
-BULK_INGEST_CHUNK_SIZE = 500
 DEFAULT_DIAL_TIMEOUT = 30
+# Test and other single calls. Bulk campaigns keep their own window.
+SINGLE_CALL_WINDOW_HOURS = 5 / 60
 IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -142,7 +143,7 @@ class ViObdClient:
         end = now + timedelta(hours=window_hours)
         return {
             "fromdate": now.strftime("%Y-%m-%d"),
-            "todate": now.strftime("%Y-%m-%d"),
+            "todate": end.strftime("%Y-%m-%d"),
             "fromtime": now.strftime("%H:%M:%S"),
             "totime": end.strftime("%H:%M:%S"),
         }
@@ -155,18 +156,37 @@ class ViObdClient:
         name: Optional[str] = None,
         description: str = "VoicERA VI campaign",
         window_hours: float = 1.0,
+        fromdate: Optional[str] = None,
+        todate: Optional[str] = None,
+        fromtime: Optional[str] = None,
+        totime: Optional[str] = None,
         dialtimeout: Optional[int] = None,
         retryintervaltype: int = 0,
         retryintervalvalue: int = 5,
         retrycount: int = 1,
     ) -> dict:
-        """Create an OBD campaign with a near-immediate IST time window."""
+        """Create an OBD campaign.
+
+        Prefer an explicit IST window (fromdate/todate/fromtime/totime) when
+        provided; otherwise derive a near-term window from ``window_hours``.
+        """
         if dialtimeout is None:
             dialtimeout = self._dialtimeout
         if not name:
             name = f"voicera-{datetime.now(IST).strftime('%Y%m%d-%H%M%S')}"
 
-        window = self._campaign_window(window_hours)
+        explicit = all(
+            str(v or "").strip() for v in (fromdate, todate, fromtime, totime)
+        )
+        if explicit:
+            window = {
+                "fromdate": str(fromdate).strip(),
+                "todate": str(todate).strip(),
+                "fromtime": str(fromtime).strip(),
+                "totime": str(totime).strip(),
+            }
+        else:
+            window = self._campaign_window(window_hours)
         payload = {
             "flowid": flow_id,
             **window,
@@ -396,10 +416,8 @@ class ViObdClient:
         campain_key: str,
         dni: Any,
         msisdns: list[str],
-        *,
-        chunk_size: int = BULK_INGEST_CHUNK_SIZE,
     ) -> dict:
-        """Ingest multiple numbers into one campaign (chunked if needed)."""
+        """Ingest every number into one campaign in a single request."""
         if not msisdns:
             raise ViObdError("upload_call_list_bulk requires at least one msisdn")
 
@@ -407,46 +425,29 @@ class ViObdClient:
         if not normalized:
             raise ViObdError("upload_call_list_bulk: no valid msisdns after normalization")
 
-        chunks: list[list[str]] = []
-        for i in range(0, len(normalized), chunk_size):
-            chunks.append(normalized[i : i + chunk_size])
-
-        total_rows = 0
-        chunk_results: list[dict] = []
         logger.info(
-            "VI OBD bulk ingest start: campainKey=%s dni=%s numbers=%d chunks=%d",
+            "VI OBD bulk ingest start: campainKey=%s dni=%s numbers=%d",
             campain_key,
             dni,
             len(normalized),
-            len(chunks),
         )
-        for index, chunk in enumerate(chunks):
-            payload = self._build_bulk_ingestion_payload(campain_key, dni, chunk)
-            body, status = self._request(
-                "staticCampaignDataIngestion",
-                token=token,
-                json_body=payload,
-            )
-            body = body if isinstance(body, dict) else {"_raw": body}
-            body["_request_url"] = self._last_request_url
-            chunk_results.append(
-                {
-                    "chunk_index": index,
-                    "http_status": status,
-                    "rows_in_chunk": len(chunk),
-                }
+        payload = self._build_bulk_ingestion_payload(campain_key, dni, normalized)
+        body, status = self._request(
+            "staticCampaignDataIngestion",
+            token=token,
+            json_body=payload,
+        )
+        body = body if isinstance(body, dict) else {"_raw": body}
+        body["_request_url"] = self._last_request_url
+
+        if not self._ingestion_succeeded(body, status):
+            raise ViObdError(
+                f"staticCampaignDataIngestion failed (HTTP {status}): {body}"
             )
 
-            if not self._ingestion_succeeded(body, status):
-                raise ViObdError(
-                    f"staticCampaignDataIngestion bulk chunk {index} failed "
-                    f"(HTTP {status}): {body}"
-                )
-
-            data = body.get("data") or {}
-            rows = data.get("rowsAffected")
-            total_rows += int(rows) if isinstance(rows, int) else len(chunk)
-
+        data = body.get("data") or {}
+        rows = data.get("rowsAffected")
+        total_rows = int(rows) if isinstance(rows, int) else len(normalized)
         logger.info(
             "VI OBD bulk ingest complete: campainKey=%s total_msisdns=%d rowsAffected=%d",
             campain_key,
@@ -455,7 +456,6 @@ class ViObdClient:
         )
         return {
             "data": {"rowsAffected": total_rows, "status": "success"},
-            "_chunks": chunk_results,
             "_total_msisdns": len(normalized),
         }
 
@@ -520,7 +520,7 @@ class ViObdClient:
         *,
         from_number: str | None = None,
         agent_id: str | None = None,
-        window_hours: float = 1.0,
+        window_hours: float = SINGLE_CALL_WINDOW_HOURS,
     ) -> dict[str, Any]:
         """Auth → resolve flow → live DNI → createCampaign → ingest one MSISDN.
 
@@ -571,8 +571,21 @@ class ViObdClient:
         from_number: str | None = None,
         name: Optional[str] = None,
         description: str = "VoicERA VI campaign",
+        fromdate: Optional[str] = None,
+        todate: Optional[str] = None,
+        fromtime: Optional[str] = None,
+        totime: Optional[str] = None,
+        dialtimeout: Optional[int] = None,
+        retrycount: Optional[int] = None,
+        retryintervalvalue: Optional[int] = None,
+        retryintervaltype: Optional[int] = None,
+        existing_campain_key: Optional[str] = None,
+        campaign_ref_id: Any = None,
     ) -> dict[str, Any]:
-        """Auth → resolve live DNI → create one campaign → bulk ingest MSISDNs."""
+        """Auth → resolve live DNI → create one campaign → bulk ingest MSISDNs.
+
+        ``existing_campain_key`` appends to that campaign instead of creating another.
+        """
         msisdns = [normalize_msisdn(n) for n in to_numbers if str(n).strip()]
         msisdns = [m for m in msisdns if m]
         if not msisdns:
@@ -584,15 +597,54 @@ class ViObdClient:
             )
         except ViAuthError as exc:
             raise ViObdError(str(exc)) from exc
-        window_hours = max(1.0, float(math.ceil(len(msisdns) / 50.0)))
+        explicit_window = all(
+            str(v or "").strip() for v in (fromdate, todate, fromtime, totime)
+        )
+        window_hours = (
+            0.0
+            if explicit_window
+            else max(1.0, float(math.ceil(len(msisdns) / 50.0)))
+        )
         token, _ = self.get_auth_token()
         dni, dni_source = self.resolve_outbound_dni(token, flow_id, configured_dni)
+        reuse_key = str(existing_campain_key or "").strip()
+        if reuse_key:
+            self.upload_call_list_bulk(token, reuse_key, dni, msisdns)
+            return {
+                "status": "success",
+                "message": f"VI bulk outbound queued ({len(msisdns)} numbers)",
+                "campaign_Ref_ID": campaign_ref_id,
+                "campainKey": reuse_key,
+                "dni": dni,
+                "dni_source": dni_source,
+                "configured_dni": configured_dni,
+                "flow_id": flow_id,
+                "msisdns": msisdns,
+                "window_hours": None,
+                "call_uuid": campaign_ref_id,
+                "request_uuid": campaign_ref_id,
+            }
+        create_kwargs: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "window_hours": window_hours if not explicit_window else 1.0,
+            "fromdate": fromdate,
+            "todate": todate,
+            "fromtime": fromtime,
+            "totime": totime,
+        }
+        if dialtimeout is not None:
+            create_kwargs["dialtimeout"] = dialtimeout
+        if retrycount is not None:
+            create_kwargs["retrycount"] = retrycount
+        if retryintervalvalue is not None:
+            create_kwargs["retryintervalvalue"] = retryintervalvalue
+        if retryintervaltype is not None:
+            create_kwargs["retryintervaltype"] = retryintervaltype
         create_response = self.create_campaign(
             token,
             flow_id=flow_id,
-            name=name,
-            description=description,
-            window_hours=window_hours,
+            **create_kwargs,
         )
         campain_key = self._campain_key_from_response(create_response)
         campaign_ref_id = create_response.get("campaign_Ref_ID")
@@ -608,7 +660,7 @@ class ViObdClient:
             "configured_dni": configured_dni,
             "flow_id": flow_id,
             "msisdns": msisdns,
-            "window_hours": window_hours,
+            "window_hours": window_hours if not explicit_window else None,
             "call_uuid": campaign_ref_id,
             "request_uuid": campaign_ref_id,
         }

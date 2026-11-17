@@ -71,6 +71,18 @@ def _unavailable(up: Upstream) -> JSONResponse:
     )
 
 
+def _not_exposed(slot: str, path: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": {
+                "message": f"/{slot}/{path} is not exposed by the gateway.",
+                "type": "not_found",
+            }
+        },
+    )
+
+
 async def _probe(client: httpx.AsyncClient, up: Upstream) -> dict:
     """Health-check an upstream. All three speak HTTP."""
     if not up.enabled:
@@ -293,31 +305,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/{slot}/{path:path}")
     async def slot_passthrough(slot: str, path: str, request: Request):
-        """Everything a model publishes for reading, reachable under its slot.
+        """The read routes a slot's demo page needs, reachable under its slot.
 
-        A catch-all rather than a route per catalogue endpoint, because the
-        alternative is editing the gateway every time a model gains one -- and
-        the gateway is supposed to hold no model-specific knowledge. Declared
-        last, so every named route above still wins.
+        Only paths on the slot's allowlist are forwarded (see
+        Upstream.exposes); a model's /docs, /openapi.json, /metrics and the
+        rest get a 404. Declared last, so every named route above still wins.
 
         **GET only, deliberately.** The models publish mutating routes as well --
-        indic-transcribe has /admin/batcher and /admin/reset_stats -- and a
-        method-agnostic catch-all would put them on the one port this stack
-        publishes. The synthesis routes that need a body already have named
-        entries above; nothing else needs to be reachable this way.
+        indic-transcribe has /admin/batcher and /admin/reset_stats -- and those
+        must never be reachable through the one port this stack publishes.
         """
         up = _slot(request, slot)
+        if not up.exposes("/" + path):
+            return _not_exposed(slot, path)
         return await _rest(request, up, "/" + path)
 
     @app.websocket("/{slot}/{path:path}")
     async def slot_ws_passthrough(slot: str, path: str, ws: WebSocket):
         """The same, for sockets: /tts/v1/tts/ws, /stt/v1/realtime.
 
-        Declared after the named socket routes, so /v1/realtime keeps its own
-        handler and its own error frame.
+        Allowlisted like the GET passthrough. Declared after the named socket
+        routes, so /v1/realtime keeps its own handler and its own error frame.
         """
         slots = {up.kind: up for up in ws.app.state.settings.all()}
         up = slots.get(slot)
+        if up is not None and not up.exposes("/" + path, websocket=True):
+            await ws.accept()
+            await ws.send_json({
+                "type": "error", "reason": "not_exposed",
+                "error": f"/{slot}/{path} is not exposed by the gateway.",
+            })
+            await ws.close(code=1008, reason="not exposed")
+            return
         if up is None or not up.enabled:
             await ws.accept()
             await ws.send_json({

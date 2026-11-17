@@ -11,7 +11,7 @@ from typing import Optional
 from loguru import logger
 from pydantic import Field
 from pipecat.audio.dtmf.types import KeypadEntry
-from pipecat.audio.utils import create_stream_resampler
+from pipecat.audio.utils import create_file_resampler, create_stream_resampler
 from pipecat.frames.frames import (
     AudioRawFrame,
     CancelFrame,
@@ -59,8 +59,14 @@ class ViFrameSerializer(FrameSerializer):
         self._media_chunk_index = 0
         self._stream_start_time = time.monotonic()
         self._output_buffer = bytearray()
+        # Inbound mic: stream resampler (continuous, low-latency).
         self._input_resampler = create_stream_resampler()
-        self._output_resampler = create_stream_resampler()
+        # Outbound wire: file/batch resampler. SOXRStreamAudioResampler often
+        # returns empty mid-utterance while priming/batching; serialize()→None
+        # then makes pipecat-ai==1.8.1 MediaSender skip push_downstream, so
+        # AudioBufferProcessor after transport.output() loses bot frames.
+        # create_file_resampler() yields proportional PCM every chunk.
+        self._output_resampler = create_file_resampler()
         self._exit_sent = False
         self._stop_received = False
         self._playout_deadline = time.monotonic()
@@ -224,12 +230,30 @@ class ViFrameSerializer(FrameSerializer):
             if not data:
                 return None
             self._output_buffer.extend(data)
+            # Prefer ~100 ms aggregates (MIN_CHUNK_BYTES). If still short, emit any
+            # frame-aligned PCM without silence-padding.
+            #
+            # Why: pipecat-ai==1.8.1 FastAPIWebsocketOutputTransport treats
+            # serialize()→None as write failure and MediaSender then skips
+            # push_downstream — AudioBufferProcessor after transport.output()
+            # would miss most bot frames (sounds ~2–3× fast). Stock Pipecat has
+            # no hook for "accepted but buffered"; returning a real payload is
+            # the smallest fix that keeps FastAPIWebsocketTransport unchanged.
             chunk = self._take_output_chunk(force=False)
+            if not chunk:
+                aligned = self._align_down(len(self._output_buffer))
+                if aligned >= CHUNK_ALIGN_BYTES:
+                    chunk = bytes(self._output_buffer[:aligned])
+                    del self._output_buffer[:aligned]
             if chunk:
                 # Transport sleeps on successful writes; only advance our clock.
                 self._advance_pace(len(data))
                 return json.dumps(self._build_media_message(chunk))
-            # Buffering: serialize returned None → transport skips sleep.
+            # Sub-ALIGN remainder only (< 10 ms). MediaSender chunks are typically
+            # ≥40 ms, so after file-resample this path is rare; bytes stay in
+            # _output_buffer and ride the next frame or EndFrame force-drain.
+            # Returning None here still drops that one MediaSender frame from
+            # AudioBuffer (1.8.1 contract) — acceptable for <10 ms tails only.
             await self._pace(len(data))
             return None
 

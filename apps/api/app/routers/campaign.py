@@ -4,29 +4,46 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import uuid
+import zipfile
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.auth import get_current_user, verify_api_key
 from app.constants.campaign import DEFAULT_CAMPAIGN_RETRY_CONFIG
 from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.models.schemas import (
+    CampaignAnalyticsResponse,
     CampaignCallStatusRequest,
     CampaignCsvUploadResponse,
     CampaignProgressResponse,
     CampaignResponse,
+    CampaignRunsListResponse,
     CreateCampaignRequest,
+    ObdCampaignStatusResponse,
+    ObdReportResponse,
     RedialCampaignRequest,
     SuccessResponse,
     UpdateCampaignRequest,
 )
+from app.services.agent_telephony_service import (
+    AgentTelephonyError,
+    load_telephony_client,
+)
 from app.services import agent_service
 from app.services.agent_service import AgentNotFoundError
-from app.services.call_log_service import list_call_logs_by_campaign, transform_call_log_urls
+from app.services.call_log_service import (
+    CallLogListFilters,
+    count_call_logs,
+    get_call_analytics,
+    get_call_log_by_provider_sid,
+    list_call_logs_by_campaign,
+    transform_call_log_urls,
+)
 from app.services.campaign import campaign_repository as repo
 from app.services.campaign.campaign_repository import CampaignNotFoundError, get_org_concurrent_limit
 from app.services.campaign.runner import campaign_runner_service
@@ -34,6 +51,8 @@ from app.services.campaign.source_sync_factory import get_sync_service
 from app.services.campaign.status_processor import handle_call_terminal
 from app.services import phone_number_service
 from app.storage.minio_client import MinIOStorage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 
@@ -45,6 +64,41 @@ def _require_org(current_user: dict[str, Any]) -> str:
     if not org_id:
         raise HTTPException(status_code=400, detail="No active organisation in token")
     return str(org_id)
+
+
+_OBD_CONFLICTS = frozenset({"missing_credentials", "missing_campaign", "missing_dni"})
+
+
+def _load_campaign_client(org_id: str, campaign: dict[str, Any]) -> Any:
+    provider = str(campaign.get("telephony_provider") or "").strip().lower()
+    if not provider:
+        raise HTTPException(
+            status_code=404,
+            detail="Provider report is not available for this campaign",
+        )
+    try:
+        return load_telephony_client(org_id, provider)
+    except AgentTelephonyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+async def _call_obd_method(client: Any, method_name: str, **kwargs: Any) -> dict[str, Any]:
+    method = getattr(client, method_name, None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=404,
+            detail="Provider report is not available for this campaign",
+        )
+    result = await method(**kwargs)
+    if not isinstance(result, dict) or result.get("status") != "success":
+        message = "Provider request failed"
+        code = ""
+        if isinstance(result, dict):
+            message = str(result.get("message") or message)
+            code = str(result.get("code") or "")
+        status_code = 409 if code in _OBD_CONFLICTS else 502
+        raise HTTPException(status_code=status_code, detail=message)
+    return result
 
 
 def _require_delete_role(current_user: dict[str, Any]) -> None:
@@ -61,6 +115,7 @@ def _to_campaign_response(doc: dict[str, Any]) -> CampaignResponse:
         org_id=str(doc["org_id"]),
         name=str(doc["name"]),
         agent_id=str(doc["agent_id"]),
+        telephony_provider=doc.get("telephony_provider"),
         source_type=str(doc.get("source_type") or "csv"),
         source_id=str(doc["source_id"]),
         state=doc.get("state", "created"),
@@ -79,18 +134,26 @@ def _to_campaign_response(doc: dict[str, Any]) -> CampaignResponse:
     )
 
 
+def _agent_from_numbers(org_id: str, agent_id: str, agent: dict[str, Any]) -> list[str]:
+    """CLI numbers attached to the agent (linked + inventory)."""
+    numbers: list[str] = []
+    linked = agent.get("linked_phone_number")
+    if linked:
+        numbers.append(str(linked))
+    for doc in phone_number_service.list_by_org(org_id):
+        if doc.get("agent_id") == agent_id:
+            num = doc.get("phone_number")
+            if num and str(num) not in numbers:
+                numbers.append(str(num))
+    return numbers
+
+
 def _count_agent_from_numbers(org_id: str, agent_id: str) -> int:
-    count = 0
     try:
         agent = agent_service.get_agent(org_id, agent_id)
-        if agent.get("linked_phone_number"):
-            count += 1
     except AgentNotFoundError:
-        pass
-    for doc in phone_number_service.list_by_org(org_id):
-        if doc.get("agent_id") == agent_id and doc.get("phone_number"):
-            count += 1
-    return count
+        agent = {}
+    return len(_agent_from_numbers(org_id, agent_id, agent))
 
 
 def _validate_telephony_agent(org_id: str, agent_id: str) -> dict[str, Any]:
@@ -100,12 +163,39 @@ def _validate_telephony_agent(org_id: str, agent_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if str(agent.get("agent_category") or "") != "telephony":
         raise HTTPException(status_code=422, detail="Campaign requires a telephony agent")
-    if _count_agent_from_numbers(org_id, agent_id) == 0:
+    if not _agent_from_numbers(org_id, agent_id, agent):
         raise HTTPException(
             status_code=422,
             detail="Attach a phone number to this agent before creating a campaign",
         )
     return agent
+
+
+def _snapshot_telephony_binding(
+    org_id: str,
+    agent: dict[str, Any],
+    from_number_override: str | None,
+) -> tuple[str, str]:
+    """Freeze provider + CLI on the campaign so dial-time does not re-resolve agent."""
+    telephony = agent.get("telephony") or {}
+    provider = str(telephony.get("provider") or "").strip().lower()
+    if not provider:
+        raise HTTPException(
+            status_code=422,
+            detail="Agent has no telephony provider configured",
+        )
+    agent_id = str(agent["agent_id"])
+    attached = _agent_from_numbers(org_id, agent_id, agent)
+    if from_number_override:
+        from_number = str(from_number_override).strip()
+        if from_number not in attached:
+            raise HTTPException(
+                status_code=422,
+                detail="from_number must be a phone number attached to this agent",
+            )
+    else:
+        from_number = attached[0]
+    return provider, from_number
 
 
 def _validate_max_concurrency(org_id: str, agent_id: str, max_concurrency: int) -> None:
@@ -191,8 +281,14 @@ async def create_campaign(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignResponse:
     org_id = _require_org(current_user)
-    _validate_telephony_agent(org_id, body.agent_id)
-    _validate_max_concurrency(org_id, body.agent_id, body.max_concurrency)
+    agent = _validate_telephony_agent(org_id, body.agent_id)
+    provider, from_number = _snapshot_telephony_binding(
+        org_id, agent, body.from_number
+    )
+    # VI / OBD bulk campaigns are paced by the provider, not VoicERA concurrency.
+    is_obd = bool(body.obd_config) or provider == "vi"
+    if not is_obd:
+        _validate_max_concurrency(org_id, body.agent_id, body.max_concurrency)
 
     sync_service = get_sync_service(body.source_type)
     validation = await sync_service.validate_source(body.source_id, org_id)
@@ -202,13 +298,16 @@ async def create_campaign(
             detail=validation.error.message if validation.error else "Invalid source",
         )
 
-    orchestrator_metadata: dict[str, Any] = {
-        "max_concurrency": body.max_concurrency,
-    }
-    if body.schedule_config:
-        orchestrator_metadata["schedule_config"] = body.schedule_config.model_dump()
-    if body.circuit_breaker:
-        orchestrator_metadata["circuit_breaker"] = body.circuit_breaker.model_dump()
+    orchestrator_metadata: dict[str, Any] = {}
+    if is_obd:
+        if body.obd_config:
+            orchestrator_metadata["obd_config"] = body.obd_config.model_dump()
+    else:
+        orchestrator_metadata["max_concurrency"] = body.max_concurrency
+        if body.schedule_config:
+            orchestrator_metadata["schedule_config"] = body.schedule_config.model_dump()
+        if body.circuit_breaker:
+            orchestrator_metadata["circuit_breaker"] = body.circuit_breaker.model_dump()
 
     retry_config = (
         body.retry_config.model_dump()
@@ -221,12 +320,15 @@ async def create_campaign(
             "org_id": org_id,
             "name": body.name,
             "agent_id": body.agent_id,
+            "telephony_provider": provider,
             "source_type": body.source_type,
             "source_id": body.source_id,
-            "rate_limit_per_second": body.rate_limit_per_second,
-            "retry_config": retry_config,
+            "rate_limit_per_second": 1 if is_obd else body.rate_limit_per_second,
+            "retry_config": (
+                dict(DEFAULT_CAMPAIGN_RETRY_CONFIG) if is_obd else retry_config
+            ),
             "orchestrator_metadata": orchestrator_metadata,
-            "from_number": body.from_number,
+            "from_number": from_number,
             "created_by": current_user.get("email"),
         }
     )
@@ -355,20 +457,46 @@ async def update_campaign(
     return _to_campaign_response(doc)
 
 
-@router.get("/{campaign_id}/runs")
+@router.get("/{campaign_id}/runs", response_model=CampaignRunsListResponse)
 async def get_campaign_runs(
     campaign_id: str,
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    status_filter: str | None = Query(default=None, alias="status"),
+    call_response: str | None = Query(default=None),
+    created_after: str | None = Query(default=None),
+    created_before: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(get_current_user),
-) -> list[dict[str, Any]]:
+) -> CampaignRunsListResponse:
     org_id = _require_org(current_user)
     try:
         repo.get_campaign_for_org(org_id, campaign_id)
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    logs = list_call_logs_by_campaign(org_id, campaign_id, limit=limit, offset=offset)
-    return [transform_call_log_urls(log) for log in logs]
+    filters = CallLogListFilters(
+        campaign_id=campaign_id,
+        status=status_filter,
+        call_response=call_response,
+        created_after=created_after,
+        created_before=created_before,
+    )
+    logs = list_call_logs_by_campaign(
+        org_id,
+        campaign_id,
+        limit=limit,
+        offset=offset,
+        filters=filters,
+    )
+    total = count_call_logs(org_id, filters)
+    return CampaignRunsListResponse(
+        calls=[
+            transform_call_log_urls(log, api_prefix=settings.API_V1_PREFIX)
+            for log in logs
+        ],
+        limit=limit,
+        offset=offset,
+        total=total,
+    )
 
 
 @router.get("/{campaign_id}/progress", response_model=CampaignProgressResponse)
@@ -382,7 +510,256 @@ async def get_campaign_progress(
         status_doc = await campaign_runner_service.get_campaign_status(campaign_id)
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CampaignProgressResponse(**status_doc)
+
+
+@router.get("/{campaign_id}/analytics", response_model=CampaignAnalyticsResponse)
+async def get_campaign_analytics_route(
+    campaign_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> CampaignAnalyticsResponse:
+    org_id = _require_org(current_user)
+    try:
+        campaign = repo.get_campaign_for_org(org_id, campaign_id)
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    stats = get_call_analytics(org_id, CallLogListFilters(campaign_id=campaign_id))
+    total_rows = int(campaign.get("total_rows") or 0)
+    processed_rows = int(campaign.get("processed_rows") or 0)
+    failed_rows = int(campaign.get("failed_rows") or 0)
+    return CampaignAnalyticsResponse(
+        campaign_id=campaign_id,
+        state=campaign.get("state", "created"),
+        total_rows=total_rows,
+        processed_rows=processed_rows,
+        failed_rows=failed_rows,
+        progress_percentage=(processed_rows / total_rows * 100) if total_rows > 0 else 0.0,
+        **stats,
+    )
+
+
+def _obd_campaign_kwargs(campaign: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "metadata": campaign.get("orchestrator_metadata") or {},
+        "from_number": campaign.get("from_number"),
+        "started_at": campaign.get("started_at"),
+    }
+
+
+_OBD_CSV_FIELDS = (
+    "phone",
+    "dial_status",
+    "when",
+    "duration_seconds",
+    "recording_url",
+    "provider_call_id",
+    "system_call_id",
+    "circle",
+    "operator",
+    "campaign_id",
+    "campaign_name",
+)
+
+
+def _provider_call_id(row: dict[str, Any]) -> str:
+    return str(row.get("provider_call_id") or "").strip()
+
+
+def _call_logs_for_rows(
+    org_id: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """History rows keyed by provider call id."""
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        sid = _provider_call_id(row)
+        if not sid or sid in found:
+            continue
+        log = get_call_log_by_provider_sid(org_id, sid)
+        if log:
+            found[sid] = log
+    return found
+
+
+def _system_call_id(log: dict[str, Any] | None) -> str:
+    if not log:
+        return ""
+    return str(log.get("call_id") or "").strip()
+
+
+def _obd_report_csv_text(
+    rows: list[dict[str, Any]],
+    logs: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    saved = logs or {}
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_OBD_CSV_FIELDS)
+    for row in rows:
+        sid = _provider_call_id(row)
+        writer.writerow(
+            [
+                row.get("phone") or "",
+                row.get("dial_status") or "",
+                row.get("when") or "",
+                "" if row.get("duration_seconds") is None else row.get("duration_seconds"),
+                row.get("recording_url") or "",
+                sid,
+                _system_call_id(saved.get(sid)),
+                row.get("circle") or "",
+                row.get("operator") or "",
+                row.get("campaign_id") or "",
+                row.get("campaign_name") or "",
+            ]
+        )
+    return buffer.getvalue()
+
+
+def _obd_report_csv(
+    campaign_id: str,
+    rows: list[dict[str, Any]],
+    logs: dict[str, dict[str, Any]],
+) -> StreamingResponse:
+    return StreamingResponse(
+        iter([_obd_report_csv_text(rows, logs)]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="obd-report-{campaign_id}.csv"'
+        },
+    )
+
+
+def _call_filename(call_id: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in call_id.strip())
+    return f"calls/{cleaned or 'call'}.txt"
+
+
+async def _transcript_text(log: dict[str, Any] | None) -> str:
+    if not log:
+        return ""
+    parsed = MinIOStorage.parse_minio_url(str(log.get("transcript_url") or ""))
+    if not parsed:
+        return ""
+    bucket, key = parsed
+    try:
+        data = await MinIOStorage().get_object_bytes(key, bucket_name=bucket)
+    except Exception:
+        logger.warning(
+            "OBD transcript read failed call_id=%s",
+            log.get("call_id"),
+            exc_info=True,
+        )
+        return ""
+    return data.decode("utf-8", errors="replace").strip()
+
+
+def _call_file(
+    provider_call_id: str,
+    system_call_id: str,
+    recording_url: str,
+    transcript: str,
+) -> str:
+    body = (
+        f"provider_call_id: {provider_call_id}\n"
+        f"system_call_id: {system_call_id}\n"
+        f"recording_url: {recording_url}\n"
+    )
+    if transcript:
+        body = f"{body}\n{transcript}\n"
+    return body
+
+
+async def _obd_report_zip(
+    campaign_id: str,
+    rows: list[dict[str, Any]],
+    logs: dict[str, dict[str, Any]],
+) -> Response:
+    """Full CSV in ``csv/``, and one file per call in ``calls/``."""
+    buffer = io.BytesIO()
+    seen: set[str] = set()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            f"csv/obd-report-{campaign_id}.csv",
+            _obd_report_csv_text(rows, logs),
+        )
+        for row in rows:
+            sid = _provider_call_id(row)
+            if not sid:
+                continue
+            log = logs.get(sid)
+            system_id = _system_call_id(log)
+            name = _call_filename(system_id or sid)
+            if name in seen:
+                continue
+            seen.add(name)
+            archive.writestr(
+                name,
+                _call_file(
+                    sid,
+                    system_id,
+                    str(row.get("recording_url") or "").strip(),
+                    await _transcript_text(log),
+                ),
+            )
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="obd-report-{campaign_id}.zip"'
+        },
+    )
+
+
+@router.get("/{campaign_id}/obd-report")
+async def get_obd_report_route(
+    campaign_id: str,
+    report_format: str = Query(default="json", alias="format"),
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    if report_format not in {"json", "csv", "zip"}:
+        raise HTTPException(status_code=400, detail="format must be json, csv, or zip")
+    org_id = _require_org(current_user)
+    try:
+        campaign = repo.get_campaign_for_org(org_id, campaign_id)
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    client = _load_campaign_client(org_id, campaign)
+    result = await _call_obd_method(
+        client, "get_obd_report", **_obd_campaign_kwargs(campaign)
+    )
+    rows = result.get("rows") if isinstance(result.get("rows"), list) else []
+    if report_format in {"csv", "zip"}:
+        logs = _call_logs_for_rows(org_id, rows)
+        if report_format == "csv":
+            return _obd_report_csv(campaign_id, rows, logs)
+        return await _obd_report_zip(campaign_id, rows, logs)
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    return ObdReportResponse(summary=summary, rows=rows)
+
+
+@router.get("/{campaign_id}/obd-status", response_model=ObdCampaignStatusResponse)
+async def get_obd_status_route(
+    campaign_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> ObdCampaignStatusResponse:
+    org_id = _require_org(current_user)
+    try:
+        campaign = repo.get_campaign_for_org(org_id, campaign_id)
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    client = _load_campaign_client(org_id, campaign)
+    result = await _call_obd_method(
+        client,
+        "get_obd_status",
+        metadata=campaign.get("orchestrator_metadata") or {},
+    )
+    statuses = result.get("statuses") if isinstance(result.get("statuses"), list) else []
+    return ObdCampaignStatusResponse(statuses=statuses)
 
 
 @router.post("/{campaign_id}/redial", response_model=CampaignResponse, status_code=201)
@@ -409,6 +786,7 @@ async def redial_campaign(
             "org_id": org_id,
             "name": body.name,
             "agent_id": parent["agent_id"],
+            "telephony_provider": parent.get("telephony_provider"),
             "source_type": parent.get("source_type", "csv"),
             "source_id": parent["source_id"],
             "rate_limit_per_second": parent.get("rate_limit_per_second", 1),
@@ -453,6 +831,8 @@ async def source_download_url(
 @router.get("/{campaign_id}/report")
 async def campaign_report(
     campaign_id: str,
+    created_after: str | None = Query(default=None),
+    created_before: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
     org_id = _require_org(current_user)
@@ -460,7 +840,13 @@ async def campaign_report(
         repo.get_campaign_for_org(org_id, campaign_id)
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    logs = list_call_logs_by_campaign(org_id, campaign_id, limit=500, offset=0)
+
+    filters = CallLogListFilters(
+        campaign_id=campaign_id,
+        created_after=created_after,
+        created_before=created_before,
+    )
+    page_size = 500
 
     def generate():
         buffer = io.StringIO()
@@ -468,30 +854,59 @@ async def campaign_report(
         writer.writerow(
             [
                 "call_id",
+                "campaign_id",
+                "agent_id",
+                "from_number",
                 "to_number",
                 "status",
                 "call_response",
                 "duration",
                 "created_at",
+                "recording_url",
+                "transcript_url",
             ]
         )
         yield buffer.getvalue()
         buffer.seek(0)
         buffer.truncate(0)
-        for log in logs:
-            writer.writerow(
-                [
-                    log.get("call_id"),
-                    log.get("to_number"),
-                    log.get("status"),
-                    log.get("call_response"),
-                    log.get("duration"),
-                    log.get("created_at"),
-                ]
+
+        offset = 0
+        while True:
+            logs = list_call_logs_by_campaign(
+                org_id,
+                campaign_id,
+                limit=page_size,
+                offset=offset,
+                filters=filters,
+                enrich_campaign_names=False,
             )
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate(0)
+            if not logs:
+                break
+            for log in logs:
+                transformed = transform_call_log_urls(
+                    log, api_prefix=settings.API_V1_PREFIX
+                )
+                writer.writerow(
+                    [
+                        transformed.get("call_id"),
+                        campaign_id,
+                        transformed.get("agent_id"),
+                        transformed.get("from_number"),
+                        transformed.get("to_number"),
+                        transformed.get("status"),
+                        transformed.get("call_response"),
+                        transformed.get("duration"),
+                        transformed.get("created_at"),
+                        transformed.get("recording_url"),
+                        transformed.get("transcript_url"),
+                    ]
+                )
+                yield buffer.getvalue()
+                buffer.seek(0)
+                buffer.truncate(0)
+            if len(logs) < page_size:
+                break
+            offset += page_size
 
     return StreamingResponse(
         generate(),

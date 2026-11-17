@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
@@ -24,8 +25,36 @@ from apps.telephony import (
     merge_webhook_payload,
     parse_webhook_form,
 )
+from apps.telephony.registry import build_config, create_client
 
 router = APIRouter()
+
+
+async def _start_provider_recording(
+    org_id: str,
+    provider: str,
+    provider_call_sid: str,
+) -> None:
+    """Start a carrier recording when the loaded client exposes the hook."""
+    try:
+        auth = await backend_client.get_provider_auth(provider, org_id)
+        config = build_config(
+            provider,
+            **{k: v for k, v in auth.items() if v is not None and str(v).strip()},
+        )
+        client = create_client(config)
+        starter = getattr(client, "start_provider_recording", None)
+        if not callable(starter):
+            return
+        await starter(provider_call_sid)
+    except Exception as exc:
+        logger.warning(
+            "Provider recording start failed org_id={} provider={} sid={}: {}",
+            org_id,
+            provider,
+            provider_call_sid,
+            exc,
+        )
 
 
 def _websocket_url_for_agent(
@@ -154,6 +183,11 @@ async def telephony_answer(request: Request) -> Response:
             exc,
         )
         return PlainTextResponse(str(exc), status_code=502)
+
+    if provider and webhook.provider_call_sid:
+        asyncio.create_task(
+            _start_provider_recording(org_id, provider, webhook.provider_call_sid)
+        )
 
     websocket_url = _websocket_url_for_agent(org_id, agent_id, call_id)
     xml = build_answer_stream_xml(

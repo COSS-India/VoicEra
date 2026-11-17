@@ -81,18 +81,19 @@ fi
 
 Not every model has one, and the absence is sometimes deliberate:
 
-* The vLLM-backed models (`llm/qwen3.5-4b`, `tts/orpheus`, `tts/indic-mio`) have none — vLLM downloads its own weights from HuggingFace into the `hf_cache` volume on first start.
+* The vLLM-backed models (`llm/qwen3.5-4b`, `tts/orpheus`, `tts/indic-mio`) have none — vLLM downloads its own weights from HuggingFace into the `hf_cache` volume on first start. `tts/higgs-tts-3`'s SGLang-Omni sidecar would too, but its `fetch.sh` pre-pulls the checkpoint into that same volume so a ~10 GB download is not mistaken for a hang.
 * `stt/indic-transcribe` has none because preparing it is a download, a conversion and two verification gates, and the conversion has to run *inside the built image*. `scripts/start-model-server.sh` runs `fetch.sh` before it builds, so the ordering the contract offers does not fit. Doing it by hand is honest; a `fetch.sh` that silently could not work is not.
 
 ## compose.extra.yml overlays
 
 A folder may also contain `compose.extra.yml`, an overlay merged on top of the base Compose file. `compose-files.sh` and `scripts/start-model-server.sh` both find it by existence.
 
-Two quite different needs turned out to have the same answer:
+Quite different needs turned out to have the same answer:
 
 | Folder | What the overlay does |
 | --- | --- |
 | `tts/indic-mio/` | brings a vLLM sidecar it delegates token generation to |
+| `tts/higgs-tts-3/` | brings an SGLang-Omni sidecar that runs the whole model; the slot's container is a thin adapter |
 | `stt/indic-transcribe/` | mounts the weights its image is forbidden to fetch, and declares engine tuning |
 
 Either way the slot contract is unchanged — one service, one port, one route.

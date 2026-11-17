@@ -1,0 +1,8 @@
+# The sidecar is a separate image with its own build context (sidecar/).
+sidecar/
+scripts/
+.env
+__pycache__/
+*.pyc
+README.md
+tools/

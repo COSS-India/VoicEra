@@ -26,7 +26,7 @@ _DNI_FLOWS = f'[{{"dni":"{_DNI}","flow_id":"{_FLOW}"}}]'
 
 def test_provider_schemas_keys():
     schemas = provider_schemas(Kind.TELEPHONY)
-    assert set(schemas) == {"vobiz", "plivo", "vi"}
+    assert set(schemas) == {"vobiz", "plivo", "vi", "go2market"}
 
 
 def test_all_provider_schemas_shape():
@@ -35,6 +35,7 @@ def test_all_provider_schemas_shape():
     assert "vobiz" in schemas["telephony"]
     assert "plivo" in schemas["telephony"]
     assert "vi" in schemas["telephony"]
+    assert "go2market" in schemas["telephony"]
 
 
 def test_vobiz_secrets_and_integration_models():
@@ -90,9 +91,21 @@ def test_catalog_omits_schema_noise():
         assert "allow_custom_input" not in blob, provider
 
 
+def test_go2market_secrets_and_integration_models():
+    schema = provider_schemas()["go2market"]
+    assert schema["name"] == "Go To Market"
+    assert schema["secrets"] == ["obd_profiles"]
+    fields = schema["fields"]
+    assert fields["obd_profiles"]["secret"] is True
+    assert fields["obd_profiles"]["integration_model"] == "Go2MarketObdProfiles"
+    assert fields["obd_profiles"]["ui_label"] == "Go To Market profile"
+    pair_keys = [f["key"] for f in fields["obd_profiles"]["pair_fields"]]
+    assert pair_keys == ["serviceno", "ukey", "ivrtemplateid"]
+
+
 def test_configuration_telephony_envelope():
     defaults = configuration_telephony()
-    assert set(defaults["telephony"]) == {"vobiz", "plivo", "vi"}
+    assert set(defaults["telephony"]) == {"vobiz", "plivo", "vi", "go2market"}
     assert defaults["default_providers"] == DEFAULT_SERVICE_PROVIDERS
     assert DEFAULT_SERVICE_PROVIDERS["telephony"] == "vobiz"
 
@@ -129,7 +142,7 @@ def test_list_providers_summary():
     from apps.telephony.schema import list_providers
 
     listed = list_providers()
-    assert set(listed) == {"vobiz", "plivo", "vi"}
+    assert set(listed) == {"vobiz", "plivo", "vi", "go2market"}
     assert listed["vobiz"] == {"provider": "vobiz", "name": "Vobiz"}
     assert listed["vi"] == {"provider": "vi", "name": "Vodafone Idea"}
     assert "secrets" not in listed["vobiz"]

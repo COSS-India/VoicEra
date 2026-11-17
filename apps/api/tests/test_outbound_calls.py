@@ -13,6 +13,7 @@ from app.auth import get_current_user
 from app.routers import calls
 from app.services import call_log_service, outbound_call_service
 from app.services.agent_service import AgentNotFoundError
+from app.services.agent_telephony_service import AgentTelephonyError
 from app.services.outbound_call_service import OutboundCallError
 
 _CALL_STORE: dict[str, dict[str, Any]] = {}
@@ -253,6 +254,112 @@ def test_outbound_call_happy_path(
     return_value={
         "auth_id": "auth-id",
         "auth_token": "auth-token",
+        "base_url": "https://vi.example.com",
+        "dni_flows": '[{"dni":"+919876543210","flow_id":"flow-1"}]',
+    },
+)
+@patch(
+    "app.services.outbound_call_service.initiate_outbound",
+    new_callable=AsyncMock,
+    return_value={
+        "status": "success",
+        "message": "Call initiated successfully",
+        "call_uuid": "vi-sid-123",
+        "dni": "+919876543210",
+    },
+)
+def test_vi_outbound_does_not_create_call_log_at_dial(
+    dial_mock: AsyncMock,
+    _creds: MagicMock,
+    _phones_db: MagicMock,
+    _agents_db: MagicMock,
+    _calls_db: MagicMock,
+) -> None:
+    """VI registers CallLogs on stream connect, not at dial time."""
+    _AGENT_STORE[("org-1", "agent-1")] = _telephony_agent(
+        linked_phone_number="+919876543210",
+        telephony={
+            "provider": "vi",
+            "application_id": "app-123",
+            "answer_url": "https://voice.example.com/vi/stream",
+        },
+    )
+    client = _make_client()
+
+    response = client.post(
+        "/api/v1/calls/outbound",
+        json={
+            "agent_id": "agent-1",
+            "to_number": "+919999999999",
+            "custom_variables": {"customer_name": "Jane"},
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "ringing"
+    assert body["provider_call_sid"] == "vi-sid-123"
+    assert body["call_id"] is None
+    assert body["from_number"] == "+919876543210"
+    assert body["to_number"] == "+919999999999"
+    assert len(_CALL_STORE) == 0
+    dial_mock.assert_awaited_once()
+    answer_url = dial_mock.await_args.kwargs["answer_url"]
+    assert "call_id=" not in answer_url
+
+
+@pytest.mark.parametrize(
+    ("dial_call_id", "expect_bound"),
+    [("call-1", True), (None, False)],
+)
+def test_outbound_admission_slot_bound_or_released(
+    dial_call_id: str | None, expect_bound: bool
+) -> None:
+    """A dial with no call_id (stream-time CallLog providers such as VI) has
+    nothing to bind, so its admitted slot must be released rather than left
+    for the reaper; a dial with a call_id binds the slot instead."""
+    admitted = object()
+    result = {
+        "call_id": dial_call_id,
+        "status": "ringing",
+        "provider_call_sid": "sid-1",
+        "from_number": "+919876543210",
+        "to_number": "+919999999999",
+        "agent_id": "agent-1",
+    }
+    with patch.object(
+        calls, "admit_call", new=AsyncMock(return_value=admitted)
+    ), patch.object(
+        calls, "initiate_outbound_call", new=AsyncMock(return_value=result)
+    ), patch.object(
+        calls, "bind_admitted_call", new=AsyncMock()
+    ) as bind_mock, patch.object(
+        calls, "release_admitted_call", new=AsyncMock()
+    ) as release_mock, patch.object(
+        calls, "_require_active_org", return_value="org-1"
+    ):
+        response = _make_client().post(
+            "/api/v1/calls/outbound",
+            json={"agent_id": "agent-1", "to_number": "+919999999999"},
+        )
+
+    assert response.status_code == 201
+    if expect_bound:
+        bind_mock.assert_awaited_once_with(admitted, "call-1")
+        release_mock.assert_not_awaited()
+    else:
+        release_mock.assert_awaited_once_with(admitted)
+        bind_mock.assert_not_awaited()
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@_patch_db("app.services.agent_service.get_database")
+@_patch_db("app.services.phone_number_service.get_database")
+@patch(
+    "app.services.outbound_call_service.get_provider_dial_credentials",
+    return_value={
+        "auth_id": "auth-id",
+        "auth_token": "auth-token",
         "base_url": "https://api.vobiz.example.com",
     },
 )
@@ -337,11 +444,16 @@ def test_non_telephony_agent_returns_422(
 @_patch_db("app.services.agent_service.get_database")
 @_patch_db("app.services.phone_number_service.get_database")
 @patch(
+    "app.services.outbound_call_service.load_telephony_client",
+    side_effect=AgentTelephonyError("no auth fallback"),
+)
+@patch(
     "app.services.outbound_call_service.initiate_outbound",
     new_callable=AsyncMock,
 )
 def test_no_caller_id_returns_422(
     _dial: AsyncMock,
+    _load_client: MagicMock,
     _phones_db: MagicMock,
     _agents_db: MagicMock,
     _calls_db: MagicMock,

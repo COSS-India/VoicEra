@@ -29,6 +29,7 @@ def register_all_handlers(
     idle_handler: UserOnlineDetectionHandler | None,
     org_id: str,
     call_id: str | None,
+    agent: dict | None = None,
 ) -> None:
     if call_id:
         components.transcript_writer = register_transcript_file_logging(
@@ -59,10 +60,18 @@ def register_all_handlers(
         org_id=org_id,
         call_id=call_id,
     )
+    llm_config = ((agent or {}).get("config") or {}).get("models") or {}
+    llm_config = llm_config.get("llm_config")
+    llm_config = llm_config if isinstance(llm_config, dict) else {}
+    kenpath_advisory = (
+        llm_config.get("provider") == "kenpath"
+        and bool(llm_config.get("send_greeting_to_llm"))
+    )
     register_transport_handlers(
         components.transport,
         components.worker,
         session_label=session_label,
         greeting=greeting,
         hold_handler=hold_handler,
+        record_greeting_in_llm_context=kenpath_advisory,
     )

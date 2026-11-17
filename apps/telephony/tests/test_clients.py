@@ -10,6 +10,7 @@ import pytest
 
 from apps.telephony import PlivoClient, VobizClient
 from apps.telephony.providers.plivo.client import client_or_fail as plivo_client_or_fail
+from apps.telephony.providers.plivo.recording import parse_recording_callback
 from apps.telephony.providers.vobiz.client import client_or_fail as vobiz_client_or_fail
 
 VOBIZ_BASE = "https://api.vobiz.ai/api/v1"
@@ -232,6 +233,92 @@ async def test_plivo_update_application_name(monkeypatch: pytest.MonkeyPatch):
 
 
 # --- Plivo recording ---
+
+
+def test_plivo_parse_recording_callback() -> None:
+    ref = parse_recording_callback(
+        {
+            "call_uuid": "uuid-1",
+            "record_url": "https://media.plivo.com/rec.mp3",
+            "recording_id": "rec-1",
+        }
+    )
+    assert ref is not None
+    assert ref.call_uuid == "uuid-1"
+    assert ref.recording_url == "https://media.plivo.com/rec.mp3"
+    assert ref.recording_id == "rec-1"
+    pending = parse_recording_callback({"CallUUID": "uuid-1"})
+    assert pending is not None
+    assert pending.call_uuid == "uuid-1"
+    assert pending.recording_url is None
+    assert parse_recording_callback({"record_url": "https://media.plivo.com/x.mp3"}) is None
+
+
+@pytest.mark.anyio
+async def test_plivo_download_retries_until_recording_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.telephony.providers.plivo.recording import download_ready_recording
+
+    state = {"meta": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/Recording/") and request.method == "GET":
+            state["meta"] += 1
+            if state["meta"] < 3:
+                return _json_response({"objects": []})
+            return _json_response(
+                {
+                    "objects": [
+                        {
+                            "recording_id": "rec-1",
+                            "recording_url": "https://media.plivo.com/rec.mp3",
+                        }
+                    ]
+                }
+            )
+        if "media.plivo.com" in str(request.url):
+            return _bytes_response(b"plivo-audio")
+        return httpx.Response(404, text="not found")
+
+    _patch_client(monkeypatch, handler)
+    client = PlivoClient("authid", "token", PLIVO_BASE)
+    audio, url = await download_ready_recording(
+        client,
+        call_uuid="call-uuid-1",
+        max_attempts=5,
+        interval_secs=0,
+    )
+    assert audio == b"plivo-audio"
+    assert url == "https://media.plivo.com/rec.mp3"
+    assert state["meta"] == 3
+
+
+@pytest.mark.anyio
+async def test_plivo_start_recording_sends_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "VOICE_SERVER_BASE_URL", "https://voice.example.com"
+    )
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return _json_response({"recording_id": "rec-1"})
+
+    _patch_client(monkeypatch, handler)
+    client = PlivoClient("authid", "token", PLIVO_BASE)
+    rid = await client.start_provider_recording("call-uuid-1")
+    assert rid == "rec-1"
+    assert captured["body"]["callback_method"] == "POST"
+    assert (
+        captured["body"]["callback_url"]
+        == "https://voice.example.com/plivo/recording-webhook"
+    )
+    assert captured["body"]["file_format"] == "mp3"
+    assert captured["body"]["time_limit"] == 3600
 
 
 @pytest.mark.anyio

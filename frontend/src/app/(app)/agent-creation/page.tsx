@@ -36,6 +36,12 @@ const NEXT_LABEL: Record<string, string> = {
   "call-details": "Next — review",
 };
 
+/** Setup (and template gallery) are chooser layouts — use the full main column
+ * on desktop. Form steps stay narrower for readable line length. */
+function wizardContentWidthClass(stepId: string): string {
+  return stepId === "start" ? "" : "max-w-3xl";
+}
+
 export default function AgentCreationPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -137,7 +143,9 @@ export default function AgentCreationPage() {
           flexbox-overflow gotcha) — deliberately not overflow-hidden on
           <main> itself, since that would clip the top/bottom bars' bleed. */}
       <div data-wizard-scroll className="scrollbar-hide flex min-h-0 flex-1 overflow-y-auto py-6">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+        <div
+          className={`mx-auto flex w-full flex-col gap-8 ${wizardContentWidthClass(currentId)}`}
+        >
           {catalogs.error ? (
             <div className="rounded-v-md border border-v-danger-line bg-v-danger-pale px-4 py-3 text-sm text-v-danger">
               {catalogs.error}
@@ -177,6 +185,7 @@ export default function AgentCreationPage() {
             <ReviewStep
               form={form}
               catalogs={catalogs}
+              onChange={onChange}
               agentId={draftAgentId}
               onAgentSaved={(agent) => setDraftAgentId(agent.agent_id)}
               onFinish={() => router.push("/dashboard")}

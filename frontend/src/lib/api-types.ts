@@ -13,12 +13,14 @@ export interface LoginResponse {
   token_type: string;
   org_id: string;
   role: string;
+  name?: string | null;
   organisations: OrganisationSummary[];
   is_first_login?: boolean;
 }
 
 export interface UserProfile {
   email: string;
+  name?: string | null;
   org_id: string;
   role: UserRole;
   organisation_name?: string;
@@ -126,6 +128,25 @@ export interface PhoneNumberInventoryResponse {
   numbers: string[];
 }
 
+export type PhoneNumberActivityAction = "imported" | "attached" | "detached" | "removed" | string;
+
+export interface PhoneNumberActivityItem {
+  phone_number: string;
+  provider: string;
+  action: PhoneNumberActivityAction;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  by_email?: string | null;
+  at: string;
+}
+
+export interface PhoneNumberActivityResponse {
+  events: PhoneNumberActivityItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export type CallLogStatus = "initiated" | "ringing" | "failed" | "in_progress" | "completed";
 
 export type CallType = "inbound" | "outbound" | "web";
@@ -140,7 +161,8 @@ export interface OutboundCallRequest {
 }
 
 export interface OutboundCallResponse {
-  call_id: string;
+  /** Null for providers that register the CallLog on media connect (e.g. VI). */
+  call_id?: string | null;
   status: CallLogStatus;
   provider_call_sid?: string | null;
   from_number: string;
@@ -195,10 +217,14 @@ export interface CallLogItem {
   start_time_utc?: string | null;
   end_time_utc?: string | null;
   duration?: number | null;
+  /** System (Pipecat AudioBuffer) recording. */
   recording_url?: string | null;
+  /** Carrier / provider recording (parallel artifact). */
+  provider_recording_url?: string | null;
   transcript_url?: string | null;
   error_message?: string | null;
   campaign_id?: string | null;
+  campaign_name?: string | null;
   queued_run_id?: string | null;
 }
 
@@ -286,6 +312,8 @@ export interface CampaignApiResponse {
   org_id: string;
   name: string;
   agent_id: string;
+  /** Snapshot of agent telephony provider at campaign create. */
+  telephony_provider?: string | null;
   source_type: string;
   source_id: string;
   state: CampaignState;
@@ -330,6 +358,19 @@ export interface CampaignScheduleConfig {
   slots: CampaignScheduleSlot[];
 }
 
+/** Core Vodafone OBD createCampaign fields (VI bulk campaigns). */
+export interface ObdCampaignConfig {
+  description: string;
+  fromdate: string;
+  todate: string;
+  fromtime: string;
+  totime: string;
+  dialtimeout: number;
+  retrycount: number;
+  retryintervalvalue: number;
+  retryintervaltype?: number;
+}
+
 export interface CreateCampaignPayload {
   name: string;
   agent_id: string;
@@ -339,6 +380,8 @@ export interface CreateCampaignPayload {
   max_concurrency?: number;
   from_number?: string | null;
   retry_config?: CampaignRetryConfig;
+  schedule_config?: CampaignScheduleConfig;
+  obd_config?: ObdCampaignConfig;
 }
 
 /** GET /campaign/{id}/runs returns raw call-log dicts server-side — only a
@@ -346,11 +389,103 @@ export interface CreateCampaignPayload {
 export interface CampaignRunItem {
   call_id?: string;
   to_number?: string;
+  from_number?: string;
   status?: string;
   call_response?: string | null;
   duration?: number | null;
   created_at?: string | null;
+  agent_id?: string;
+  agent_name?: string | null;
+  campaign_id?: string | null;
+  campaign_name?: string | null;
+  recording_url?: string | null;
+  provider_recording_url?: string | null;
+  transcript_url?: string | null;
   [key: string]: unknown;
+}
+
+export interface CampaignRunsListResponse {
+  calls: CampaignRunItem[];
+  limit: number;
+  offset: number;
+  total: number;
+}
+
+export interface CampaignProgressResponse {
+  campaign_id: string;
+  state: CampaignState;
+  total_rows: number;
+  processed_rows: number;
+  failed_rows: number;
+  progress_percentage: number;
+  rate_limit?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface CampaignAnalyticsResponse {
+  campaign_id: string;
+  state: CampaignState;
+  total_rows: number;
+  processed_rows: number;
+  failed_rows: number;
+  progress_percentage: number;
+  calls_attempted: number;
+  calls_connected: number;
+  connection_rate: number;
+  total_duration_seconds: number;
+  average_duration_seconds: number;
+  by_call_response: Record<string, number>;
+}
+
+export interface ObdReportSummary {
+  attempted: number;
+  connected: number;
+  timeout: number;
+  line_drop: number;
+  connection_rate: number;
+  average_duration_seconds: number;
+}
+
+export interface ObdReportRow {
+  provider_call_id?: string | null;
+  phone?: string | null;
+  dial_status?: string | null;
+  when?: string | null;
+  duration_seconds?: number | null;
+  recording_url?: string | null;
+  circle?: string | null;
+  operator?: string | null;
+  campaign_id?: string | null;
+  campaign_name?: string | null;
+}
+
+export interface ObdReportResponse {
+  summary: ObdReportSummary;
+  rows: ObdReportRow[];
+}
+
+export interface ObdCampaignStatus {
+  campaign_id?: string | null;
+  campaign_name?: string | null;
+  campaign_type?: string | null;
+  current_status?: string | null;
+  total_base_received?: number | null;
+  total_call_initiated?: number | null;
+  total_calls_connected?: number | null;
+  total_calls_not_connected?: number | null;
+  remaining_in_queue?: number | null;
+  success_rate_percentage?: number | null;
+  retry_interval?: string | null;
+  retry_within?: number | null;
+  retry_attempts?: number | null;
+  created_time?: string | null;
+  window?: string | null;
+  end_date?: string | null;
+}
+
+export interface ObdCampaignStatusResponse {
+  statuses: ObdCampaignStatus[];
 }
 
 export interface AgentCallCount {

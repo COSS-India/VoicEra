@@ -2,8 +2,10 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { SessionTimeoutGuard } from "@/components/auth/SessionTimeoutGuard";
 import { getMe } from "@/lib/api-client";
 import { clearSession, getSession, saveSession, type AuthSession } from "@/lib/auth-storage";
+import { getLastActivityAt, markSessionExpiredForLogin, shouldExpire } from "@/lib/session-timeout";
 
 interface AuthContextValue {
   session: AuthSession | null;
@@ -30,12 +32,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Reopening after the inactivity + grace window must not revive the session.
+    const last = getLastActivityAt();
+    if (last && shouldExpire(last)) {
+      clearSession();
+      markSessionExpiredForLogin();
+      setLoading(false);
+      router.replace("/");
+      return;
+    }
+
     getMe()
       .then((me) => {
         const orgName =
           me.organisation_name ??
           me.organisations?.find((o) => o.org_id === stored.orgId)?.name;
-        const merged: AuthSession = orgName ? { ...stored, orgName } : stored;
+        const merged: AuthSession = {
+          ...stored,
+          ...(orgName ? { orgName } : {}),
+          // Prefer the profile `name` field from /users/me — never derive from email.
+          name: me.name?.trim() || stored.name?.trim() || undefined,
+        };
         saveSession(merged);
         setSession(merged);
       })
@@ -64,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ session, loading, signOut }}>
+      <SessionTimeoutGuard />
       {children}
     </AuthContext.Provider>
   );

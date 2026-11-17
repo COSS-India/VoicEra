@@ -4,7 +4,6 @@ import {
   WebSocketTransport,
 } from "@pipecat-ai/websocket-transport";
 import { createWebCall } from "@/lib/api/calls";
-import { ApiError } from "@/lib/api/http";
 
 /** Matches runtime `WEBSOCKET_SAMPLE_RATE` (default 16000). */
 export const BROWSER_SAMPLE_RATE = 16000;
@@ -30,8 +29,9 @@ export function createBrowserPipecatClient(): PipecatClient {
 }
 
 /**
- * Register a CallLog (best-effort), then connect the client to the agent socket.
- * A rate-limit refusal (429/503) is final — falling back would bypass admission.
+ * Register a CallLog, then connect the client to the agent socket.
+ * Registration failures (for example 422 when the agent is not websocket)
+ * are thrown so the UI can show the API reason instead of connecting anyway.
  */
 export async function connectBrowserCall(
   client: PipecatClient,
@@ -42,16 +42,9 @@ export async function connectBrowserCall(
     throw new Error("Missing org or agent id");
   }
 
-  let callId: string | undefined;
-  try {
-    const call = await createWebCall({ agent_id: agentId });
-    callId = call.call_id;
-  } catch (err) {
-    if (err instanceof ApiError && (err.status === 429 || err.status === 503)) throw err;
-    console.warn("Couldn't pre-register web call, connecting without call_id", err);
-  }
+  const call = await createWebCall({ agent_id: agentId });
 
   await client.connect({
-    wsUrl: getBrowserWsUrl(orgId, agentId, callId),
+    wsUrl: getBrowserWsUrl(orgId, agentId, call.call_id),
   });
 }

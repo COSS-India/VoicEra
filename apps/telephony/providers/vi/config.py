@@ -61,6 +61,23 @@ class ViAuth(BaseTelephonyAuth):
         },
     )
 
+    pull_username: str = Field(
+        default="",
+        description="Pull call-details username. Not the OBD auth id.",
+        json_schema_extra={
+            "secret": True,
+            "integration_model": "ViPullUsername",
+        },
+    )
+    pull_password: str = Field(
+        default="",
+        description="Pull call-details password. Not the OBD auth token.",
+        json_schema_extra={
+            "secret": True,
+            "integration_model": "ViPullPassword",
+        },
+    )
+
     @field_validator("dni_flows", mode="before")
     @classmethod
     def _normalize_dni_flows(cls, value: object) -> str:

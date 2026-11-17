@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth import get_current_user
 from app.models.schemas import (
+    PhoneNumberActivityResponse,
     PhoneNumberAttachRequest,
     PhoneNumberDetachRequest,
     PhoneNumberInventoryResponse,
+    PhoneNumberRemoveRequest,
     PhoneNumberResponse,
     SuccessResponse,
 )
@@ -64,6 +66,17 @@ async def list_phone_numbers(
     return phone_number_service.list_by_org(org_id)
 
 
+@router.get("/activity", response_model=PhoneNumberActivityResponse)
+async def list_phone_number_activity(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Append-only activity log for phone-number import/attach/detach/remove."""
+    org_id = _require_active_org(current_user)
+    return phone_number_service.list_activity(org_id, limit=limit, offset=offset)
+
+
 @router.get("/agent/{agent_id}", response_model=PhoneNumberResponse)
 async def get_phone_number_by_agent(
     agent_id: str,
@@ -111,6 +124,25 @@ async def detach_phone_number(
     org_id = _require_active_org(current_user)
     try:
         return await phone_number_service.detach(
+            org_id,
+            body.phone_number,
+            member_email=current_user.get("email"),
+        )
+    except PhoneNumberError as exc:
+        _raise_phone_error(exc)
+    except AgentTelephonyError as exc:
+        _raise_telephony(exc)
+
+
+@router.delete("/remove", response_model=SuccessResponse)
+async def remove_phone_number(
+    body: PhoneNumberRemoveRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Remove from org inventory; detaches and unlinks at the provider first if needed."""
+    org_id = _require_active_org(current_user)
+    try:
+        return await phone_number_service.remove(
             org_id,
             body.phone_number,
             member_email=current_user.get("email"),

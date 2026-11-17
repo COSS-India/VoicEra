@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from loguru import logger
-from pipecat.frames.frames import TTSSpeakFrame
+from pipecat.frames.frames import LLMMessagesAppendFrame, TTSSpeakFrame
 from pipecat.pipeline.worker import PipelineWorker
 
 from apps.runtime.services.pipecat.hold import HoldMessageHandler
@@ -18,13 +18,27 @@ def register_transport_handlers(
     session_label: str,
     greeting: str,
     hold_handler: HoldMessageHandler | None,
+    record_greeting_in_llm_context: bool = False,
 ) -> None:
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport: Any, _client: Any) -> None:
         logger.info("Client connected {}", session_label)
-        if greeting:
-            logger.info("Queuing greeting ({} chars)", len(greeting))
-            await worker.queue_frames([TTSSpeakFrame(greeting)])
+        text = greeting.strip()
+        if not text:
+            return
+        logger.info("Queuing greeting ({} chars)", len(text))
+        if record_greeting_in_llm_context:
+            await worker.queue_frames(
+                [
+                    LLMMessagesAppendFrame(
+                        messages=[{"role": "assistant", "content": text}],
+                        run_llm=False,
+                    ),
+                    TTSSpeakFrame(text, append_to_context=False),
+                ]
+            )
+        else:
+            await worker.queue_frames([TTSSpeakFrame(text)])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(_transport: Any, _client: Any) -> None:

@@ -1,0 +1,192 @@
+# Higgs TTS 3 on its own: a test stack beside the model-server stack.
+#
+# The slot overlay (compose.extra.yml) puts Higgs INTO the model-server stack's
+# TTS slot, which replaces whatever that slot is running. This file runs the
+# same two containers as a separate Compose project instead -- own containers,
+# own network, adapter published on LOCALHOST only -- so a model can be tried on
+# a shared box without taking anything else down. Nothing here is named like,
+# or binds anything used by, another stack: containers voicera_higgs_test_*,
+# images voicera-higgs-test/*, network and cache volume voicera-higgs-test_*,
+# and NO HOST PORT. It is reached one of two opt-in ways:
+#
+#   --profile tunnel                         a Cloudflare quick tunnel: a temporary
+#                                            https://*.trycloudflare.com URL, no
+#                                            account; find it in the tunnel's log.
+#                                            OPEN by default: anyone with the URL
+#                                            can use the model. Export
+#                                            HIGGS_TEST_API_KEY to require a key.
+#   -f compose.standalone.localport.yml      127.0.0.1:${HIGGS_TEST_PORT:-18202}
+#
+#   cd model-server
+#   docker compose -p voicera-higgs-test --project-directory . \
+#       -f tts/higgs-tts-3/compose.standalone.yml \
+#       -f tts/higgs-tts-3/compose.mps.yml \      # only on a host with an MPS daemon
+#       --profile tunnel up -d --build
+#
+# Paths resolve against --project-directory (model-server/), as in the overlay.
+#
+# The higgs-sglang service MUST match compose.extra.yml's -- same image, same
+# command, same memory caps -- or this tests a different deployment from the
+# one the slot runs. tests/test_higgs_adapter.py compares the two.
+# (Compose `extends:` cannot share it: it resolves the overlay's relative paths
+# against the overlay's own folder, which breaks the build context.)
+
+name: voicera-higgs-test
+
+services:
+  higgs-sglang:
+    build:
+      context: ./tts/higgs-tts-3/sidecar
+      args:
+        # Defaults are upstream's v0.1.9 pins (see sidecar/Dockerfile); override
+        # only to move to another release, all three together.
+        SGLANG_IMAGE: ${HIGGS_SGLANG_BASE_IMAGE:-lmsysorg/sglang@sha256:5fc09edb6a0bb1d5b6992b543723c66d08f86d7a507e951e87e0d05db4ac766e}
+        SGLANG_OMNI_REF: v${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
+        SGLANG_OMNI_COMMIT: ${HIGGS_SGLANG_OMNI_COMMIT:-8200f49934d66de591c035cab1c626c0600905fa}
+    # Its own image name, not the slot's: nothing built here can retag an image
+    # another stack runs.
+    image: voicera-higgs-test/sglang:${HIGGS_SGLANG_OMNI_VERSION:-0.1.9}
+    container_name: voicera_higgs_test_sglang
+    restart: unless-stopped
+    stop_grace_period: 60s
+    command:
+      - sgl-omni
+      - serve
+      - --model-path=${HIGGS_MODEL_ID:-bosonai/higgs-tts-3-4b}
+      - --model-name=${HIGGS_MODEL_NAME:-higgs-tts-3}
+      - --host=0.0.0.0
+      - --port=8000
+      - --allowed-local-media-path=/voices
+      - --tts_engine.gpu_memory_fraction=${HIGGS_ENGINE_GPU_MEMORY_FRACTION:-0.12}
+      - --vocoder.gpu_memory_fraction=${HIGGS_VOCODER_GPU_MEMORY_FRACTION:-0.03}
+      - --audio_encoder.gpu_memory_fraction=${HIGGS_ENCODER_GPU_MEMORY_FRACTION:-0.02}
+      # Concurrency. Upstream's v0.1.9 defaults (64/64): at most 64 utterances
+      # generate at once, CUDA graphs are captured up to batch 64, and anything
+      # beyond waits in SGLang's queue. Raising them needs engine memory to hold
+      # the extra sequences (HIGGS_ENGINE_GPU_MEMORY_FRACTION) and lengthens the
+      # first start, which autotunes kernels for every captured batch size.
+      - --tts_engine.factory.max_running_requests=${HIGGS_MAX_RUNNING_REQUESTS:-64}
+      - --tts_engine.factory.cuda_graph_max_bs=${HIGGS_CUDA_GRAPH_MAX_BS:-64}
+      - --log-level=${HIGGS_SIDECAR_LOG_LEVEL:-info}
+    environment:
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      # sglang-omni stops the whole pipeline when any process reports no
+      # startup progress for this long (default 600 s). The first start
+      # autotunes GPU kernels for every CUDA-graph batch size, and on ace-h200
+      # (22 Oct 2026) the reference-encoder process sat silent past 600 s while
+      # the engine tuned. Later starts reuse the compile cache below and are
+      # far shorter; this only has to cover the first.
+      SGLANG_OMNI_STARTUP_TIMEOUT: ${HIGGS_STARTUP_TIMEOUT_S:-3600}
+      # PyTorch Inductor's and Triton's caches default to /tmp in the
+      # container, so every recreate (a rebuild, `down`/`up`) re-ran that
+      # whole autotune. Kept in a volume, it is paid once per host.
+      TORCHINDUCTOR_CACHE_DIR: /compile-cache/inductor
+      TRITON_CACHE_DIR: /compile-cache/triton
+      HF_TOKEN: ${TTS_HF_TOKEN:-${HF_TOKEN:-}}
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - ./tts/higgs-tts-3/voices:/voices:ro
+      - higgs_compile_cache:/compile-cache
+    networks: [higgs_net]
+    ipc: host
+    shm_size: 16gb
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1200s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${TTS_GPU_DEVICE_IDS:-${GPU_DEVICE_IDS:-0}}"]
+              capabilities: [gpu]
+
+  # The adapter. Same code as the slot's `tts` service, but no GPU reservation
+  # (it never creates a CUDA context) and no host port.
+  tts:
+    build:
+      context: ./tts/higgs-tts-3
+    image: voicera-higgs-test/adapter:local
+    container_name: voicera_higgs_test_tts
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      # No key by default (decided 22 Oct 2026): the demo is meant to be shared
+      # by URL, and the URL is random and changes on every tunnel start. Export
+      # HIGGS_TEST_API_KEY before `up` to require `Authorization: Bearer <key>`
+      # on /v1/* -- OpenAI clients send their api_key that way; the demo page
+      # asks for it when the server says 401.
+      HIGGS_API_KEY: ${HIGGS_TEST_API_KEY:-}
+      HIGGS_REQUIRE_API_KEY: "false"
+      PORT: 8002
+      HIGGS_SIDECAR_URL: http://higgs-sglang:8000
+      HIGGS_SIDECAR_TIMEOUT_S: ${HIGGS_SIDECAR_TIMEOUT_S:-60}
+      # Connections to the sidecar = most simultaneous streams. httpx's default
+      # (100) capped the adapter below the model; see upstream.py.
+      HIGGS_SIDECAR_MAX_CONNECTIONS: ${HIGGS_SIDECAR_MAX_CONNECTIONS:-512}
+      HIGGS_SIDECAR_VOICES_DIR: /voices
+      HIGGS_MODEL_NAME: ${HIGGS_MODEL_NAME:-higgs-tts-3}
+      HIGGS_VOICES_DIR: /app/voices
+      HIGGS_LOG_LEVEL: ${HIGGS_LOG_LEVEL:-INFO}
+      HIGGS_MAX_INPUT_CHARS: ${HIGGS_MAX_INPUT_CHARS:-400}
+      HIGGS_DEFAULT_VOICE: ${HIGGS_DEFAULT_VOICE:-Aditi}
+      HIGGS_DEFAULT_INSTRUCTIONS: ${HIGGS_DEFAULT_INSTRUCTIONS:-}
+      # true by default HERE, unlike the slot: the reference clips are not
+      # committed yet, and a test stack has to be able to speak without them.
+      HIGGS_ALLOW_ZERO_SHOT: ${HIGGS_TEST_ALLOW_ZERO_SHOT:-true}
+      HIGGS_TEMPERATURE: ${HIGGS_TEMPERATURE:-0.8}
+      HIGGS_TOP_K: ${HIGGS_TOP_K:-50}
+      HIGGS_TOP_P: ${HIGGS_TOP_P:-0.8}
+      HIGGS_MAX_NEW_TOKENS_DEFAULT: ${HIGGS_MAX_NEW_TOKENS_DEFAULT:-1024}
+      HIGGS_MAX_NEW_TOKENS_LIMIT: ${HIGGS_MAX_NEW_TOKENS_LIMIT:-2048}
+      HIGGS_INITIAL_CHUNK_FRAMES: ${HIGGS_INITIAL_CHUNK_FRAMES:-}
+    volumes:
+      - ./tts/higgs-tts-3:/app
+    networks: [higgs_net]
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/health',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1200s
+    depends_on:
+      - higgs-sglang
+
+  # Opt-in (--profile tunnel): a Cloudflare quick tunnel to the adapter, over
+  # this project's own network -- so no host port is involved. The URL is
+  # temporary and changes on every start; read it with
+  #   docker logs voicera_higgs_test_tunnel 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com'
+  # The image is the one the box's other tunnels already run; pull_policy
+  # missing means it is not re-pulled, so they are never touched.
+  tunnel:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    pull_policy: missing
+    container_name: voicera_higgs_test_tunnel
+    restart: "no"
+    command: ["tunnel", "--no-autoupdate", "--url", "http://tts:8002"]
+    networks: [higgs_net]
+    depends_on:
+      - tts
+
+networks:
+  higgs_net:
+
+volumes:
+  # Its OWN cache, not the model-server stack's: a test stack must not write
+  # into volumes something else owns. fetch.sh fills it when given the same
+  # name (HIGGS_HF_CACHE_VOLUME=voicera-higgs-test_hf_cache).
+  hf_cache:
+    name: ${HIGGS_HF_CACHE_VOLUME:-voicera-higgs-test_hf_cache}
+  # Compiled GPU kernels (Inductor + Triton). Safe to delete: the next start
+  # just autotunes again.
+  higgs_compile_cache:
+    name: voicera-higgs-test_compile_cache

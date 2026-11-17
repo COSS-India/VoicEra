@@ -140,6 +140,25 @@ def _ensure_phone_numbers(db: Database, existing: set[str]) -> None:
     _ensure_index(phones, "provider", name="provider_index")
 
 
+def _ensure_phone_number_events(db: Database, existing: set[str]) -> None:
+    if "PhoneNumberEvents" not in existing:
+        logger.info("Creating PhoneNumberEvents collection")
+    else:
+        logger.debug("PhoneNumberEvents already exists; ensuring indexes")
+
+    events = db["PhoneNumberEvents"]
+    _ensure_index(
+        events,
+        [("org_id", 1), ("at", -1)],
+        name="org_at_index",
+    )
+    _ensure_index(
+        events,
+        [("org_id", 1), ("phone_number", 1), ("at", -1)],
+        name="org_phone_at_index",
+    )
+
+
 def _ensure_knowledge_documents(db: Database, existing: set[str]) -> None:
     if "KnowledgeDocuments" not in existing:
         logger.info("Creating KnowledgeDocuments collection")
@@ -269,6 +288,7 @@ def initialize_database() -> None:
         _ensure_provider_auth(db, existing)
         _ensure_agents(db, existing)
         _ensure_phone_numbers(db, existing)
+        _ensure_phone_number_events(db, existing)
         _ensure_knowledge_documents(db, existing)
         _ensure_call_logs(db, existing)
         _ensure_call_metrics(db, existing)
@@ -278,7 +298,8 @@ def initialize_database() -> None:
         logger.info(
             "Database initialization completed "
             "(Organizations, Users, Memberships, ProviderAuth, Agents, "
-            "PhoneNumbers, KnowledgeDocuments, CallLogs, CallMetrics, Campaigns, QueuedRuns)"
+            "PhoneNumbers, PhoneNumberEvents, KnowledgeDocuments, CallLogs, "
+            "CallMetrics, Campaigns, QueuedRuns)"
         )
     except Exception as exc:
         logger.error("Error initializing database: %s", exc)

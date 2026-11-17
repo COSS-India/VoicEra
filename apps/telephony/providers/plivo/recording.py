@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Optional
+import os
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from apps.telephony.base import (
     DEFAULT_POLL_ATTEMPTS,
@@ -14,6 +16,7 @@ from apps.telephony.base import (
     request_bytes,
     request_json,
 )
+from apps.telephony.provider_recording import ProviderRecordingRef
 
 if TYPE_CHECKING:
     from apps.telephony.providers.plivo.client import PlivoClient
@@ -23,12 +26,121 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "DEFAULT_POLL_ATTEMPTS",
     "DEFAULT_POLL_INTERVAL_SECS",
+    "DEFAULT_RECORDING_TIME_LIMIT_SECS",
     "start_call_recording",
+    "start_provider_recording",
+    "parse_recording_callback",
+    "download_ready_recording",
+    "recording_callback_url",
     "fetch_recording_metadata",
     "list_recordings_for_call",
     "download_recording",
     "wait_and_download_recording",
 ]
+
+DEFAULT_RECORDING_TIME_LIMIT_SECS = 3600
+_CALL_UUID_KEYS = ("call_uuid", "calluuid", "aleguuid", "bleguuid")
+_RECORD_URL_KEYS = ("record_url", "recording_url", "recordurl", "recordingurl")
+_RECORDING_ID_KEYS = ("recording_id", "recordingid", "recording_uuid", "recordinguuid")
+
+
+@dataclass(frozen=True)
+class PlivoRecordingCallback:
+    """Record API callback. ``record_url`` may be empty until the file is ready."""
+
+    call_uuid: str
+    recording_url: str | None = None
+    recording_id: str | None = None
+
+
+def recording_callback_url() -> str | None:
+    """Public URL Plivo POSTs when a Record API recording is ready."""
+    base = (os.environ.get("VOICE_SERVER_BASE_URL") or "").strip().rstrip("/")
+    if not base:
+        return None
+    return f"{base}/plivo/recording-webhook"
+
+
+def _flatten(payload: Mapping[str, Any]) -> dict[str, str]:
+    flat: dict[str, str] = {}
+
+    def add(key: Any, value: Any) -> None:
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else None
+        if isinstance(value, Mapping):
+            for nested_key, nested_value in value.items():
+                add(nested_key, nested_value)
+            return
+        if value is None:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        flat.setdefault(str(key).strip().lower(), text)
+
+    for key, value in payload.items():
+        add(key, value)
+    return flat
+
+
+def _first_text(payload: Mapping[str, str], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if value:
+            return value
+    return None
+
+
+def _http_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = value.strip()
+    if text.startswith("http://") or text.startswith("https://"):
+        return text
+    return None
+
+
+def parse_recording_callback(
+    payload: Mapping[str, Any] | None,
+) -> PlivoRecordingCallback | None:
+    """Map a Plivo Record API callback.
+
+    Documented fields are ``call_uuid``, ``record_url``, and ``recording_id``.
+    ``record_url`` can be absent while Plivo is still publishing the file.
+    """
+    if not payload:
+        return None
+    flat = _flatten(payload)
+    call_uuid = _first_text(flat, _CALL_UUID_KEYS)
+    if not call_uuid:
+        return None
+    record_url = _http_url(_first_text(flat, _RECORD_URL_KEYS))
+    if record_url is None:
+        for key, value in flat.items():
+            if "url" in key and (candidate := _http_url(value)):
+                record_url = candidate
+                break
+    return PlivoRecordingCallback(
+        call_uuid=call_uuid,
+        recording_url=record_url,
+        recording_id=_first_text(flat, _RECORDING_ID_KEYS),
+    )
+
+
+def recording_media_url(client: "PlivoClient", recording_id: str) -> str:
+    """Direct recording file URL documented by Plivo."""
+    auth_id = client.credentials.auth_id
+    return (
+        f"https://media.plivo.com/v1/Account/{auth_id}/Recording/{recording_id}.mp3"
+    )
+
+
+async def _download_url(client: "PlivoClient", url: str) -> Optional[bytes]:
+    """GET a recording file. Public by default; retry with Basic auth if that fails."""
+    audio = await request_bytes(url, provider_label=client.PROVIDER_LABEL)
+    if audio:
+        return audio
+    return await download_recording(client, url)
 
 
 async def start_call_recording(
@@ -38,10 +150,14 @@ async def start_call_recording(
 ) -> Optional[str]:
     """Start Plivo call recording. Returns recording_id or None on failure."""
     url = client.account_url(f"Call/{call_uuid}/Record/")
-    payload = {
+    payload: dict[str, Any] = {
         "time_limit": time_limit_secs,
         "file_format": "mp3",
+        "callback_method": "POST",
     }
+    callback = recording_callback_url()
+    if callback:
+        payload["callback_url"] = callback
     data, err = await request_json(
         "POST",
         url,
@@ -60,6 +176,81 @@ async def start_call_recording(
         recording_id,
     )
     return recording_id
+
+
+async def download_ready_recording(
+    client: "PlivoClient",
+    *,
+    call_uuid: str,
+    recording_id: str | None = None,
+    recording_url: str | None = None,
+    max_attempts: int = DEFAULT_POLL_ATTEMPTS,
+    interval_secs: float = DEFAULT_POLL_INTERVAL_SECS,
+) -> tuple[Optional[bytes], Optional[str]]:
+    """Download the recording, polling Plivo's Recording API until the file exists.
+
+    Tries the callback ``record_url`` and the direct media URL first, then
+    ``GET Recording/{recording_id}/`` and ``GET Recording/?call_uuid=``.
+    """
+    url = _http_url(recording_url)
+    rid = str(recording_id or "").strip() or None
+    for attempt in range(1, max_attempts + 1):
+        candidates: list[str] = []
+        if url:
+            candidates.append(url)
+        if rid:
+            candidates.append(recording_media_url(client, rid))
+        for candidate in candidates:
+            audio = await _download_url(client, candidate)
+            if audio:
+                return audio, candidate
+
+        metadata = None
+        if rid:
+            metadata = await fetch_recording_metadata(client, rid)
+        if metadata is None and call_uuid:
+            metadata = await list_recordings_for_call(client, call_uuid)
+        if metadata:
+            found_id = extract_recording_id(metadata)
+            if found_id:
+                rid = found_id
+            found_url = _http_url(extract_recording_url(metadata))
+            if found_url:
+                url = found_url
+                audio = await _download_url(client, found_url)
+                if audio:
+                    return audio, found_url
+
+        if attempt < max_attempts:
+            logger.info(
+                "Plivo recording not ready (attempt %s/%s) call_uuid=%s recording_id=%s",
+                attempt,
+                max_attempts,
+                call_uuid,
+                rid,
+            )
+            await asyncio.sleep(interval_secs)
+
+    logger.warning(
+        "Plivo recording unavailable after %s attempts call_uuid=%s recording_id=%s",
+        max_attempts,
+        call_uuid,
+        rid,
+    )
+    return None, url
+
+
+async def start_provider_recording(
+    client: "PlivoClient",
+    call_uuid: str,
+) -> Optional[str]:
+    """Start a provider recording for one live Plivo call."""
+    sid = str(call_uuid or "").strip()
+    if not sid:
+        return None
+    return await start_call_recording(
+        client, sid, DEFAULT_RECORDING_TIME_LIMIT_SECS
+    )
 
 
 async def fetch_recording_metadata(

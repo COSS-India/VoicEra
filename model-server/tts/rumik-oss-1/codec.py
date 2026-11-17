@@ -1,0 +1,307 @@
+"""The unit-token layout, and generated ids -> Mimi codec frames.
+
+This arithmetic used to be borrowed: the first build called the checkpoint's own
+``RumikOSSForCausalLM.audio_tokens_to_codes``, deliberately, so that the rule
+deciding whether output is speech or noise lived in one place and that place was
+upstream's.
+
+The vLLM engine gives it up on purpose. Serving through vLLM loads the
+checkpoint through vLLM's own Cohere2 implementation (see rumik_vllm_plugin.py),
+and never imports ``modeling_rumik_oss.py`` -- ``trust_remote_code`` is still
+needed, but only so transformers will read the config class. That removes the
+coupling to upstream's modeling code under whichever `transformers` vLLM happens
+to pin. The cost is this file. It is twenty
+lines of ``divmod``, and ``tests/test_rumik_codec.py`` pins every branch of it
+against the cases upstream's own implementation defines, so a transcription slip
+fails a test rather than producing plausible noise.
+
+Layout, from the checkpoint's configuration_rumik_oss.py, quoted:
+
+    The unit tokens are laid out code-major, quantizer-minor::
+
+        <0_0> <0_1> ... <0_7> <1_0> ... <2047_7>
+
+    so for any id in ``[first_unit_id, last_unit_id]``::
+
+        code      = (token_id - first_unit_id) // num_quantizers
+        quantizer = (token_id - first_unit_id) %  num_quantizers
+
+One difference from upstream, and it is intentional. Theirs raises when no
+complete frame is found, which is right for a one-shot call over a finished
+generation. Ours returns an empty list: it is called incrementally on a growing
+token list, where "no complete frame yet" is the normal state for the first
+eight tokens of every request, not an error.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class CodecLayout:
+    """Where the audio vocabulary lives, read from the checkpoint's config.json.
+
+    Read as plain JSON rather than through a config class: the vLLM path does
+    not import the checkpoint's remote code, and these five numbers are the
+    whole of what it would have given us.
+    """
+
+    first_unit_id: int
+    last_unit_id: int
+    num_quantizers: int
+    codebook_size: int
+    audio_end_token_id: int
+    frame_rate_hz: float
+    speakers: tuple[str, ...]
+    #: The prompt's framing ids. Optional so a layout can be written by hand in
+    #: a test; from_config always fills them, and check_prompt_ids uses them.
+    bos_token_id: int | None = None
+    text_start_token_id: int | None = None
+    audio_start_token_id: int | None = None
+
+    @classmethod
+    def from_config(cls, model_path: str | Path) -> CodecLayout:
+        raw = json.loads((Path(model_path) / "config.json").read_text(encoding="utf-8"))
+        missing = [k for k in ("first_unit_id", "num_quantizers", "codebook_size",
+                               "audio_end_token_id") if raw.get(k) is None]
+        if missing:
+            raise ValueError(
+                f"config.json is missing {missing}, so the audio vocabulary cannot be "
+                f"located. This checkpoint is not a rumik-oss layout."
+            )
+        first = int(raw["first_unit_id"])
+        quantizers = int(raw["num_quantizers"])
+        codebook = int(raw["codebook_size"])
+        # Derivable, and derived rather than trusted: a hand-edited config that
+        # disagrees with itself would otherwise shift every frame silently.
+        last = first + codebook * quantizers - 1
+        declared = raw.get("last_unit_id")
+        if declared is not None and int(declared) != last:
+            raise ValueError(
+                f"config.json says last_unit_id={declared} but first_unit_id + "
+                f"codebook_size * num_quantizers - 1 = {last}. One of them is wrong, "
+                f"and guessing which would shift every frame."
+            )
+        return cls(
+            first_unit_id=first,
+            last_unit_id=last,
+            num_quantizers=quantizers,
+            codebook_size=codebook,
+            audio_end_token_id=int(raw["audio_end_token_id"]),
+            frame_rate_hz=float(raw.get("frame_rate_hz", 12.5)),
+            speakers=tuple(raw.get("speakers") or ()),
+            bos_token_id=_optional_int(raw.get("bos_token_id")),
+            text_start_token_id=_optional_int(raw.get("text_start_token_id")),
+            audio_start_token_id=_optional_int(raw.get("audio_start_token_id")),
+        )
+
+    @property
+    def samples_per_frame_at(self) -> float:
+        """Audio seconds one frame carries. 12.5 Hz -> 80 ms."""
+        return 1.0 / self.frame_rate_hz
+
+    @property
+    def tokens_per_second(self) -> float:
+        """Tokens one second of speech costs. 8 x 12.5 = 100."""
+        return self.frame_rate_hz * self.num_quantizers
+
+    def allowed_token_ids(self) -> list[int]:
+        """Every id the model may legally emit inside an <audio> span.
+
+        The unit range plus ``</audio>`` -- exactly what the checkpoint's
+        ``audio_token_ids()`` returns. NOT passed to vLLM's
+        ``SamplingParams.allowed_token_ids``, which is capped at 1024 entries;
+        the vLLM path applies the same set as a mask in the model's
+        ``compute_logits`` (rumik_vllm_plugin.py). Kept as the reference that
+        mask is checked against. Leaving the end token out would make the model
+        unable to stop; leaving anything else in would let it emit text ids
+        mid-frame.
+        """
+        return [*range(self.first_unit_id, self.last_unit_id + 1), self.audio_end_token_id]
+
+
+def _optional_int(value) -> int | None:
+    return None if value is None else int(value)
+
+
+def check_prompt_ids(ids, layout: CodecLayout) -> None:
+    """Refuse a tokenizer that does not frame the prompt the way the model was trained.
+
+    The model card: ``[BOS] <text>{SPEAKER}: ... {TEXT}<audio>`` -- "the
+    tokenizer adds [BOS] itself". Two ways that silently goes wrong, neither of
+    which errors anywhere downstream:
+
+      * no BOS, because a tokenizer or transformers upgrade changed the default
+        for ``add_special_tokens`` -- the model then conditions on a sequence
+        it never saw, and the voice degrades rather than breaks;
+      * ``<text>`` or ``<audio>`` split into ordinary sub-word pieces, because
+        they were not loaded as added tokens -- the model never sees the cue to
+        start speaking.
+
+    So the ids of one real prompt are checked once, at startup, against the ids
+    config.json declares. Ids the layout does not know are not checked.
+    """
+    ids = [int(i) for i in ids]
+    if not ids:
+        raise ValueError("the tokenizer produced no ids for the prompt")
+    problems = []
+    if layout.bos_token_id is not None and ids[0] != layout.bos_token_id:
+        problems.append(f"it does not start with BOS {layout.bos_token_id} (got {ids[0]})")
+    start = 1 if layout.bos_token_id is not None else 0
+    if (layout.text_start_token_id is not None
+            and (len(ids) <= start or ids[start] != layout.text_start_token_id)):
+        problems.append(f"<text> is not the single id {layout.text_start_token_id} after BOS")
+    if layout.audio_start_token_id is not None and ids[-1] != layout.audio_start_token_id:
+        problems.append(
+            f"it does not end with the single <audio> id {layout.audio_start_token_id} "
+            f"(got {ids[-1]})"
+        )
+    if problems:
+        raise ValueError(
+            "the tokenizer frames the prompt differently from the model card's "
+            "[BOS] <text>...<audio>: " + "; ".join(problems)
+        )
+
+
+def frames_from_tokens(token_ids, layout: CodecLayout) -> list[list[int]]:
+    """Generated ids -> complete codec frames, as ``[[c0..c7], ...]``.
+
+    Transcribed from the checkpoint's ``audio_tokens_to_codes``, including its
+    resynchronisation rule, which is the part worth stating in words:
+
+      * ``</audio>`` ends the audio. Everything after it is ignored.
+      * A token outside the unit range is a stray. The partial frame is dropped
+        and assembly waits for the next frame boundary.
+      * A token whose quantizer index is not the next one expected is off the
+        round robin. The partial frame is dropped -- but if that token is itself
+        a quantizer-0 token it *starts* the next frame rather than being thrown
+        away, so one bad token costs one frame and not the rest of the clip.
+
+    Incomplete trailing frames are not returned; they are not decodable.
+    """
+    first, last = layout.first_unit_id, layout.last_unit_id
+    quantizers, end_id = layout.num_quantizers, layout.audio_end_token_id
+
+    frames: list[list[int]] = []
+    frame: list[int] = []
+    for raw in token_ids:
+        tid = int(raw)
+        if tid == end_id:
+            break
+        if not first <= tid <= last:
+            frame = []
+            continue
+        code, quantizer = divmod(tid - first, quantizers)
+        if quantizer == len(frame):
+            frame.append(code)
+            if len(frame) == quantizers:
+                frames.append(frame)
+                frame = []
+        else:
+            frame = [code] if quantizer == 0 else []
+    return frames
+
+
+class FrameAssembler:
+    """``frames_from_tokens``, one token at a time.
+
+    The streaming path used to call ``frames_from_tokens`` on the whole token
+    list every time it wanted to decode a chunk, which re-walks every token of
+    the utterance per chunk -- quadratic in its length, under the GIL, for every
+    concurrent stream. This keeps the same state the loop above keeps (the
+    partial frame, whether ``</audio>`` has been seen) and applies the same three
+    rules, so feeding it a sequence token by token yields exactly the frames
+    ``frames_from_tokens`` returns for that sequence. tests/test_rumik_codec.py
+    checks that on random sequences, strays and misorderings included.
+    """
+
+    __slots__ = ("_first", "_last", "_q", "_end", "_partial", "ended", "frames")
+
+    def __init__(self, layout: CodecLayout) -> None:
+        self._first, self._last = layout.first_unit_id, layout.last_unit_id
+        self._q, self._end = layout.num_quantizers, layout.audio_end_token_id
+        self._partial: list[int] = []
+        self.ended = False
+        self.frames: list[list[int]] = []
+
+    def push(self, token_id: int) -> bool:
+        """Feed one generated id. True when it completed a frame."""
+        if self.ended:
+            return False
+        tid = int(token_id)
+        if tid == self._end:
+            self.ended = True
+            return False
+        if not self._first <= tid <= self._last:
+            self._partial = []
+            return False
+        code, quantizer = divmod(tid - self._first, self._q)
+        if quantizer == len(self._partial):
+            self._partial.append(code)
+            if len(self._partial) == self._q:
+                self.frames.append(self._partial)
+                self._partial = []
+                return True
+        else:
+            self._partial = [code] if quantizer == 0 else []
+        return False
+
+
+class FrameChunker:
+    """Hands out each stream's frames once, in chunks of ``chunk`` frames.
+
+    The decoder keeps every stream's history itself (streaming.MimiStreamer),
+    so a chunk is only the frames that are new: nothing is re-sent, and every
+    chunk costs the decoder the same however far into the utterance it is.
+    Consecutive chunks tile the stream exactly once -- no gap, no repeat --
+    which tests/test_rumik_decoder.py checks.
+    """
+
+    def __init__(self, assembler: FrameAssembler, *, chunk: int) -> None:
+        if chunk < 1:
+            raise ValueError("chunk must be >= 1")
+        self.assembler = assembler
+        self.chunk = chunk
+        self.emitted = 0
+
+    def _take(self) -> list[list[int]]:
+        frames = self.assembler.frames[self.emitted:]
+        self.emitted = len(self.assembler.frames)
+        return frames
+
+    def push(self, token_id: int) -> list[list[int]] | None:
+        """Feed one token; the new frames once a chunk's worth exists."""
+        if not self.assembler.push(token_id):
+            return None
+        if len(self.assembler.frames) - self.emitted < self.chunk:
+            return None
+        return self._take()
+
+    def flush(self) -> list[list[int]] | None:
+        """The frames still short of a full chunk when generation ends."""
+        return self._take() if len(self.assembler.frames) > self.emitted else None
+
+
+def unit_token(code: int, quantizer: int, layout: CodecLayout) -> int:
+    """The id carrying ``code`` at ``quantizer``. The inverse of the divmod above.
+
+    Only tests and tooling need this, but having the inverse in the same file as
+    the forward direction is what makes the forward direction checkable.
+    """
+    if not 0 <= code < layout.codebook_size:
+        raise ValueError(f"code {code} outside 0..{layout.codebook_size - 1}")
+    if not 0 <= quantizer < layout.num_quantizers:
+        raise ValueError(f"quantizer {quantizer} outside 0..{layout.num_quantizers - 1}")
+    return layout.first_unit_id + code * layout.num_quantizers + quantizer
+
+
+def codes_tensor(frames: list[list[int]]):
+    """Frames -> the ``[1, num_quantizers, num_frames]`` tensor MimiModel.decode wants.
+
+    Imported lazily so the arithmetic above stays testable without torch.
+    """
+    import torch
+
+    return torch.tensor(frames, dtype=torch.long).T.unsqueeze(0)
