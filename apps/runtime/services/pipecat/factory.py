@@ -31,7 +31,10 @@ from apps.runtime.services.pipecat.call_ending import configure_call_ending
 from apps.runtime.services.language_switch.tools import configure_language_switching
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
-from apps.runtime.services.pipecat.vad import vad_params_from_behaviour
+from apps.runtime.services.pipecat.vad import (
+    VadProfileSwitcher,
+    vad_params_from_behaviour,
+)
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
 
@@ -62,21 +65,26 @@ def build_pipeline_components(
     agent: dict[str, Any],
     org_id: str,
     behaviour: dict[str, Any],
-    recording_sample_rate: int | None = None,
 ) -> PipelineComponents:
-    rec_rate = recording_sample_rate or sample_rate
-    capture_tts_before_transport = rec_rate != sample_rate
-
+    speaking_vad = vad_params_from_behaviour(behaviour, key="vad")
+    idle_vad = vad_params_from_behaviour(behaviour, key="vad_idle")
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
-        params=vad_params_from_behaviour(behaviour),
+        params=idle_vad,
+    )
+    vad_switcher = VadProfileSwitcher(
+        vad_analyzer,
+        speaking=speaking_vad,
+        idle=idle_vad,
     )
 
+    # Stock Pipecat 1.8 recording: after transport.output(), at pipeline rate.
+    # AudioBufferProcessor resamples inbound frames; WAV uses on_audio_data rate.
     audiobuffer = AudioBufferProcessor(
         num_channels=1,
         enable_turn_audio=False,
         auto_start_recording=True,
-        sample_rate=rec_rate,
+        sample_rate=sample_rate,
     )
 
     transport = FastAPIWebsocketTransport(
@@ -144,20 +152,14 @@ def build_pipeline_components(
 
     pipeline_processors = [
         transport.input(),
+        vad_switcher,
         stt,
         user_aggregator,
     ]
     if kb_context_processor is not None:
         pipeline_processors.append(kb_context_processor)
-    after_output = getattr(llm, "pipeline_processors_after_output", None)
-    after_output_processors = after_output() if after_output is not None else []
-    tail: list[Any] = [llm, tts]
-    if capture_tts_before_transport:
-        # Record at TTS native rate before transport resamples for the wire.
-        tail.extend([audiobuffer, transport.output(), *after_output_processors])
-    else:
-        tail.extend([transport.output(), *after_output_processors, audiobuffer])
-    tail.append(assistant_aggregator)
+    # Official order: … → tts → transport.output() → audiobuffer → …
+    tail: list[Any] = [llm, tts, transport.output(), audiobuffer, assistant_aggregator]
     pipeline_processors.extend(tail)
 
     pipeline = Pipeline(pipeline_processors)

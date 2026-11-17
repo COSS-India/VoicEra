@@ -85,8 +85,10 @@ stt:
       No "auto" language, deliberately -- the vocabulary is sliced per language
       and an unsliced decode emits cross-script nonsense. Upstream measured two
       language-ID designs and neither discriminated, so callers must name one.
-      Both checkpoints are gated on HuggingFace, and manually: a token is not
-      enough, a maintainer has to approve each account.
+      The multilingual checkpoint is gated on HuggingFace, and manually: a token
+      is not enough, a maintainer has to approve each account. Bhili is
+      AI4Bharat's 2026-10-05 retrain, fetched from Google Drive into a dated
+      folder because it shares the HuggingFace release's filename.
       Running on ace-h200 GPU 1 since 2 September 2026 -- both checkpoints
       loaded, 320 ms confirmed at /health.
 
@@ -132,6 +134,118 @@ tts:
       Llama-3.2-3B backbone with SNAC codec, served by vLLM. The speaker name
       picks the language, so `voice` and `language` are not independent.
       Running on ace-h200 GPU 1, on the bodhan-ai/indic-speak checkpoint (the released model; the deployment was on indic-speak-preview-v2 before). Decoded with SNAC's own decoder -- the release ships a fine-tuned Vocos decoder it was actually tuned for, which is not wired up yet.
+
+  - id: rumik-oss-1
+    name: Rumik OSS-1 3B
+    status: ready
+    runtime: vllm                  # RUMIK_ENGINE=transformers keeps upstream's loop as the reference
+    sample_rate: 24000
+    audio_format: pcm              # OpenAI's 16-bit LE mono, like orpheus
+    streaming: true                # chunked while generating, and SSE audio deltas
+    license: cc-by-nc-4.0          # NON-COMMERCIAL. See the note below.
+    voice: {presets: [Ira, Aisha, Siya, Zoya], free_text_description: true, cloning: false}
+    languages: [22 Indian languages, en]
+    notes: >-
+      Cohere2-style 3B backbone emitting Mimi codec tokens, eight per frame at
+      12.5 Hz -- so eight tokens are one 80 ms frame and realtime is 100 tokens
+      per second of speech. The Mimi decoder ships inside the same repo, so
+      unlike orpheus this folder needs no second HuggingFace repo at startup and
+      runs airgapped once fetch.sh has run. Repo is public, not gated.
+      Every voice covers every language, which is the real difference from
+      orpheus, where the speaker name selects the language and `voice` and
+      `language` are therefore not independent. Delivery is a free-text
+      description -- emotion, accent, pace -- carried on `instructions`, as with
+      indic-parler.
+      LICENCE IS CC-BY-NC-4.0 with an acceptable-use addendum: research and
+      non-commercial use only, and a commercial deployment needs separate
+      permission from Rumik. This is the only model in this catalogue with that
+      restriction, which is why `license` appears here at all.
+      MEASURED ON THE TRANSFORMERS ENGINE, and that does not reach realtime. On ace-h200 GPU 1 (H200 NVL,
+      Exclusive Process behind the shared MPS daemon), 15 Sep 2026: ~45 tok/s
+      warm (43.1-48.9 over three runs), RTF 2.05-2.33, time-to-first-audio
+      ~370 ms. Realtime needs 100 tok/s, so this is about 2.2x too slow to hold
+      a live call -- audio starts promptly and then underruns. The first
+      generation after a cold context runs at 12.5 tok/s (RTF 8.0), which is
+      what the 256-token warmup exists to absorb.
+      The cost is upstream's decode loop, not the slot: one 3B forward per token
+      in Python, eager, no CUDA graphs, no continuous batching. Running
+      `generate_audio` directly with no server, no tap and no streaming decode
+      reproduces the same 45 tok/s to the decimal, so the slot's layer adds no
+      measurable overhead. The vLLM engine (now the default) is the fix: vLLM's
+      own Cohere2 plus a plugin carrying upstream's stop head and the
+      audio-vocabulary mask, sampled at the card's settings (t 0.8, top_k 30,
+      top_p 1.0, <= 3072 tokens). It loads and captures CUDA graphs on the
+      H200 but has NOT yet produced a measured utterance, nor been compared
+      against the transformers reference -- so until it has, treat this as demo
+      and evaluation grade, and RUMIK_MAX_CONCURRENCY stays 1.
+      Mimi is decoded as a streaming codec (streaming.py): per-stream KV and
+      conv state, a fixed cost per chunk, audio equal to a one-shot decode. The
+      windowed decode it replaced was measured 6.7% off at its 32-frame default.
+
+  - id: higgs-tts-3
+    name: Boson AI Higgs TTS 3 4B
+    status: ready
+    runtime: sglang-omni           # a sidecar this folder brings; tts is an adapter
+    sample_rate: 24000
+    audio_format: pcm              # OpenAI's 16-bit LE mono, like orpheus and rumik
+    streaming: true                # chunked while generating, and SSE audio deltas
+    license: boson-higgs-tts-3-research-non-commercial   # NON-COMMERCIAL. See the note below.
+    voice: {presets: [Aditi, Meera, Ananya, Rahul, Arjun], free_text_description: false, cloning: false}
+    languages: [hi, bn, ta, te, kn, ml, mr, gu, as, ne, ur, pa, en]
+    notes: >-
+      ~4B autoregressive decoder emitting 8-codebook Higgs tokenizer codes at
+      25 fps, served by SGLang-Omni 0.1.9 in a sidecar (compose.extra.yml); the
+      slot's tts container is a torch-free adapter that owns the contract.
+      A voice is a reference clip plus its transcript, cloned zero-shot per
+      request -- the same five AI4Bharat Rasa speakers as indic-mio. THE CLIPS
+      ARE NOT IN THE REPO YET: Rasa is gated, so they are fetched once with
+      scripts/fetch_voices.py and committed (CC-BY-4.0 allows it); until then
+      /health is 503 unless HIGGS_ALLOW_ZERO_SHOT is set.
+      `instructions` takes the model's fixed control tags only (emotion,
+      style, prosody pitch/expressive/speed) and anything else is a 400;
+      `speed` is honoured by rounding to Higgs's four speed tags rather than
+      resampling. Languages are Boson's tier 1 Indic set plus en, and pa from
+      tier 2; sd (tier 2) is left out until someone has listened to it, and
+      or, sa, brx, doi, kok, ks, mai, mni, sat are not supported at all.
+      LICENCE: Boson Higgs TTS 3 Research and Non-Commercial License --
+      research and non-commercial use only; a product, hosted API or resale
+      needs a commercial licence from Boson. Deployed here as part of a DPG,
+      not sold. Non-consensual voice cloning is prohibited.
+      NOT YET RUN ON HARDWARE. Upstream's layout reserves 98% of the card; the
+      overlay caps it at 0.12 + 0.03 + 0.02 of an H200, unmeasured. Boson
+      reports 617 ms latency and RTF 0.147 on one H100 at concurrency 1.
+
+  - id: maya2-native
+    name: Maya Research Maya 2 Native
+    status: ready
+    runtime: maya3                 # upstream's own engine: continuous batching + CUDA graphs, not vLLM
+    sample_rate: 24000
+    audio_format: pcm              # OpenAI's 16-bit LE mono; also wav, mp3, opus, flac on request
+    streaming: true                # chunked while generating, and SSE audio deltas
+    license: apache-2.0            # Mimi codec CC-BY-4.0; keep its notice when redistributing
+    voice: {presets: [Ahana, Vaidehi, Malini, Charvi, Jahnavi, Anirban, Nakul, Vasant, Siddhant, Satvik, Abhay, Nivedita, Ishwari, Ritvik, Vrinda, Sreekar, Kayal, Shaunak, Akshat, Tanushree], free_text_description: false, cloning: false}
+    languages: [as, bn, en, gu, hi, kn, ml, mr, or, pa, ta, te]
+    notes: >-
+      Qwen3-1.7B-Base backbone predicting Mimi codebook 0 plus a 555M depth
+      decoder for codebooks 1-31; one 80 ms frame per step at 24 kHz. Upstream
+      ships an OpenAI-compatible server over its own continuous-batching,
+      CUDA-graphed engine, so the folder wraps that server (pinned commit)
+      and adds only the slot contract -- X-Audio-Format, pcm by default, `od`
+      for Odia, OpenAI voice names mapped to the default voice rather than to
+      upstream's random `plain` speaker. See the folder README.
+      The voice does NOT select the language, but it is not free of it either:
+      each of the 20 voices lists the languages it had >= 1 h of data in, from
+      all eleven down to Hindi alone, and no voice lists Assamese. Outside its
+      list a voice is cross-lingual, reported in X-Voice-Untrained-Language.
+      The client must send `language`: Marathi shares Hindi's script and
+      Assamese shares Bengali's, so detection from the script cannot tell them
+      apart.
+      Memory is allocated per seat at startup: 7.7 GB at 1 seat, 11.7 GB at
+      16 (the default, MAYA_MAX_SEATS), 15.8 GB at 32. Upstream measured, on
+      one H100 NVL, 224 concurrent streams at 323 s of audio per second with
+      steady-state TTFA p50/p99 111/242 ms. Public repo, not gated. Voice
+      cloning is supported upstream and disabled here (MAYA_VOICE_CLONING).
+      Not yet run on hardware.
 
   - id: omnivoice
     name: k2-fsa OmniVoice 0.6B

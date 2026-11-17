@@ -33,8 +33,6 @@ from apps.providers.adapters.kenpath.catalog import (
     resolve_languages,
 )
 from apps.providers.adapters.kenpath.call_ending import (
-    KenpathCallEndingController,
-    KenpathDeferredCallEndingProcessor,
     end_call,
     response_requests_end_call,
     strip_goodbye_for_tts,
@@ -47,16 +45,21 @@ from apps.providers.adapters.kenpath.bharat_vistaar_llm import (
 )
 from apps.providers.adapters.kenpath.llm import (
     KenpathLLMService,
+    extract_initial_spoken_greeting,
     extract_last_user_message,
     yield_word_chunks_from_text,
 )
+from apps.providers.adapters.kenpath.llm import ADVISORY_TEXT_PARAM
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     EndWorkerFrame,
     InterruptionFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    UserStartedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -149,6 +152,16 @@ def test_extract_last_user_message():
         {"role": "user", "content": "latest question"},
     ]
     assert extract_last_user_message(context) == "latest question"
+
+
+def test_extract_last_user_message_joins_trailing_users():
+    context = MagicMock()
+    context.get_messages.return_value = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "first chunk"},
+        {"role": "user", "content": "second chunk"},
+    ]
+    assert extract_last_user_message(context) == "first chunk second chunk"
 
 
 def test_parse_bharat_vistaar_voice_delta():
@@ -246,6 +259,79 @@ async def test_stream_vistaar_completions_uses_call_id(
     assert call_kwargs["params"]["query"] == "namaste"
     assert call_kwargs["params"]["source_lang"] == "mr"
     assert call_kwargs["headers"]["Authorization"] == "Bearer signed-token"
+    assert ADVISORY_TEXT_PARAM not in call_kwargs["params"]
+
+
+@pytest.fixture
+def advisory_service() -> KenpathLLMService:
+    return KenpathLLMService(
+        private_key=_TEST_PRIVATE_KEY,
+        jwt_sub="+91-9000000000",
+        base_url="https://vistaar-dev.mahapocra.gov.in",
+        model=VISTAAR_DEV_MODEL,
+        source_lang="mr",
+        target_lang="mr",
+        send_greeting_to_llm=True,
+    )
+
+
+def test_extract_initial_spoken_greeting():
+    context = LLMContext(
+        [
+            {"role": "assistant", "content": "Namaste"},
+            {"role": "user", "content": "help"},
+        ]
+    )
+    assert extract_initial_spoken_greeting(context) == "Namaste"
+
+
+@pytest.mark.asyncio
+async def test_stream_vistaar_sends_advisory_text_once(
+    advisory_service: KenpathLLMService, monkeypatch
+):
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
+    advisory_service.set_spoken_greeting("Spoken greeting")
+    context = LLMContext([{"role": "user", "content": "first"}])
+
+    stream_cm = AsyncMock()
+    response = AsyncMock()
+    response.status_code = 200
+
+    async def aiter_bytes():
+        yield b"ok"
+
+    response.aiter_bytes = aiter_bytes
+    stream_cm.__aenter__.return_value = response
+    stream_cm.__aexit__.return_value = None
+
+    mock_client = MagicMock()
+    mock_client.is_closed = False
+    mock_client.stream.return_value = stream_cm
+    advisory_service._client = mock_client
+
+    async for _ in advisory_service._stream_vistaar_completions(
+        "first", context=context
+    ):
+        pass
+    assert (
+        mock_client.stream.call_args.kwargs["params"][ADVISORY_TEXT_PARAM]
+        == "Spoken greeting"
+    )
+
+    mock_client.stream.reset_mock()
+    stream_cm2 = AsyncMock()
+    response2 = AsyncMock()
+    response2.status_code = 200
+    response2.aiter_bytes = aiter_bytes
+    stream_cm2.__aenter__.return_value = response2
+    stream_cm2.__aexit__.return_value = None
+    mock_client.stream.return_value = stream_cm2
+
+    async for _ in advisory_service._stream_vistaar_completions(
+        "second", context=context
+    ):
+        pass
+    assert ADVISORY_TEXT_PARAM not in mock_client.stream.call_args.kwargs["params"]
 
 
 @pytest.mark.asyncio
@@ -639,7 +725,12 @@ async def test_vistaar_no_goodbye_skips_end_worker(
 
 
 @pytest.mark.asyncio
-async def test_vistaar_spoken_goodbye_defers_end_worker(service: KenpathLLMService, monkeypatch):
+async def test_vistaar_spoken_goodbye_defers_end_worker(
+    service: KenpathLLMService, monkeypatch
+):
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
 
     stream_cm = AsyncMock()
@@ -675,52 +766,70 @@ async def test_vistaar_spoken_goodbye_defers_end_worker(service: KenpathLLMServi
 
     service._push_llm_text.assert_called()
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
-    assert service.pipeline_processors_after_output()
+    assert service._hangup_pending
 
-
-@pytest.mark.asyncio
-async def test_deferred_call_ending_processor_ends_after_bot_stops():
-    controller = KenpathCallEndingController()
-    processor = KenpathDeferredCallEndingProcessor(controller)
-    controller.request_end_after_playback()
-
-    pushed: list = []
-
-    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
-        pushed.append((frame, direction))
-
-    processor.push_frame = capture  # type: ignore[method-assign]
-
-    await processor.process_frame(
-        BotStoppedSpeakingFrame(), FrameDirection.DOWNSTREAM
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
     )
-
-    assert len(pushed) == 2
-    assert isinstance(pushed[0][0], EndWorkerFrame)
-    assert isinstance(pushed[1][0], BotStoppedSpeakingFrame)
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
+    assert any(isinstance(f, EndWorkerFrame) for f in pushed)
 
 
 @pytest.mark.asyncio
-async def test_deferred_call_ending_processor_cancels_on_interruption():
-    controller = KenpathCallEndingController()
-    processor = KenpathDeferredCallEndingProcessor(controller)
-    controller.request_end_after_playback()
+async def test_vistaar_spoken_goodbye_cancelled_on_interruption(
+    service: KenpathLLMService, monkeypatch
+):
+    import asyncio
+
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
+
+    stream_cm = AsyncMock()
+    response = AsyncMock()
+    response.status_code = 200
+
+    async def aiter_bytes():
+        yield b"thanks goodbye"
+
+    response.aiter_bytes = aiter_bytes
+    stream_cm.__aenter__.return_value = response
+    stream_cm.__aexit__.return_value = None
+
+    mock_client = MagicMock()
+    mock_client.is_closed = False
+    mock_client.stream.return_value = stream_cm
+    service._client = mock_client
 
     pushed: list = []
 
     async def capture(frame, direction=FrameDirection.DOWNSTREAM):
         pushed.append(frame)
 
-    processor.push_frame = capture  # type: ignore[method-assign]
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
 
-    await processor.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
-    await processor.process_frame(
-        BotStoppedSpeakingFrame(), FrameDirection.DOWNSTREAM
+    real_sleep = asyncio.sleep
+
+    async def sleep_then_interrupt(_secs: float) -> None:
+        await real_sleep(0)
+        await service.process_frame(InterruptionFrame(), FrameDirection.UPSTREAM)
+
+    monkeypatch.setattr(asyncio, "sleep", sleep_then_interrupt)
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+    assert service._hangup_pending
+
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
     )
-
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
-    assert any(isinstance(f, InterruptionFrame) for f in pushed)
-    assert any(isinstance(f, BotStoppedSpeakingFrame) for f in pushed)
 
 
 @pytest.mark.asyncio
@@ -775,4 +884,174 @@ async def test_bharat_end_interaction_defers_end_worker(monkeypatch):
 
     assert any(isinstance(f, LLMFullResponseEndFrame) for f in pushed)
     assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
-    assert service.pipeline_processors_after_output()
+    assert service._hangup_pending
+
+
+def _bhili_goodbye_service(monkeypatch) -> KenpathLLMService:
+    monkeypatch.setattr(jwt, "encode", lambda *args, **kwargs: "signed-token")
+    service = KenpathLLMService(
+        private_key=_TEST_PRIVATE_KEY,
+        jwt_sub="+91-9000000000",
+        voice_bhili_url=DEFAULT_VOICE_BHILI_DEV_URL,
+        model=VISTAAR_DEV_MODEL,
+        source_lang="bhb",
+        target_lang="bhb",
+    )
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"response": "thanks goodbye"}
+    mock_response.text = ""
+    mock_client = MagicMock()
+    mock_client.is_closed = False
+    mock_client.get = AsyncMock(return_value=mock_response)
+    service._client = mock_client
+    return service
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_goodbye_hangup_after_clean_playback(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+    assert service._hangup_pending
+
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
+    assert any(isinstance(f, EndWorkerFrame) for f in pushed)
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_no_hangup_between_tts_chunks(monkeypatch):
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+    assert service._kenpath_hangup_timer_task is not None
+
+    await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    assert service._kenpath_hangup_timer_task is None
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_goodbye_cancelled_on_interruption(monkeypatch):
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    await service.process_frame(InterruptionFrame(), FrameDirection.UPSTREAM)
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_user_started_during_playback_no_hangup(monkeypatch):
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await service.process_frame(UserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)
+    assert not service._hangup_pending
+
+
+@pytest.mark.asyncio
+async def test_voice_bhili_bot_stopped_before_interruption_no_hangup(monkeypatch):
+    import asyncio
+
+    service = _bhili_goodbye_service(monkeypatch)
+    pushed: list = []
+
+    async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+        pushed.append(frame)
+
+    service.push_frame = capture  # type: ignore[method-assign]
+    service._push_llm_text = AsyncMock()  # type: ignore[method-assign]
+    service.start_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_processing_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.start_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+    service.stop_ttfb_metrics = AsyncMock()  # type: ignore[method-assign]
+
+    real_sleep = asyncio.sleep
+
+    async def sleep_then_interrupt(_secs: float) -> None:
+        await real_sleep(0)
+        await service.process_frame(InterruptionFrame(), FrameDirection.UPSTREAM)
+
+    monkeypatch.setattr(asyncio, "sleep", sleep_then_interrupt)
+
+    context = LLMContext(messages=[{"role": "user", "content": "bye"}])
+    await service.process_frame(LLMContextFrame(context=context), FrameDirection.DOWNSTREAM)
+
+    await service.process_frame(
+        BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM
+    )
+    if service._kenpath_hangup_timer_task is not None:
+        await service._kenpath_hangup_timer_task
+    assert not any(isinstance(f, EndWorkerFrame) for f in pushed)

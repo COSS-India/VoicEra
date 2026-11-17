@@ -15,12 +15,18 @@ export async function joinOrganisation(
   email: string,
   password: string,
   orgId: string,
+  name?: string,
 ): Promise<LoginResponse> {
   return apiFetch<LoginResponse>(
     "/members/join",
     {
       method: "POST",
-      body: JSON.stringify({ email, password, org_id: orgId }),
+      body: JSON.stringify({
+        email,
+        password,
+        org_id: orgId,
+        ...(name ? { name } : {}),
+      }),
     },
     false,
   );

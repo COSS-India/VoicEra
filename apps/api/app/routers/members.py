@@ -67,6 +67,7 @@ async def join_organisation(body: MemberJoin) -> dict[str, Any]:
         body.email,
         body.password,
         body.org_id,
+        name=body.name,
     )
     if result["status"] == "fail":
         raise HTTPException(

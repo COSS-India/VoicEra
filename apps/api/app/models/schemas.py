@@ -15,6 +15,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     organisation_name: str
+    name: Optional[str] = None
 
 
 class OrganisationSummary(BaseModel):
@@ -31,6 +32,7 @@ class UserResponse(BaseModel):
     email: str
     org_id: str
     role: Role
+    name: Optional[str] = None
     organisation_name: Optional[str] = None
     organisations: list[OrganisationSummary] = []
     created_at: Optional[str] = None
@@ -52,6 +54,7 @@ class UserLoginResponse(BaseModel):
     token_type: Optional[str] = None
     org_id: Optional[str] = None
     role: Optional[Role] = None
+    name: Optional[str] = None
     organisations: list[OrganisationSummary] = []
     is_first_login: bool = False
 
@@ -102,6 +105,7 @@ class MemberJoin(BaseModel):
     email: EmailStr
     password: str
     org_id: str
+    name: Optional[str] = None
 
 
 class MemberListItem(BaseModel):
@@ -231,6 +235,12 @@ class AgentBehaviour(BaseModel):
                         "stop_secs": 0.4,
                         "min_volume": 0.5,
                     },
+                    "vad_idle": {
+                        "confidence": 0.3,
+                        "start_secs": 0.1,
+                        "stop_secs": 0.4,
+                        "min_volume": 0.5,
+                    },
                 }
             ]
         }
@@ -291,6 +301,7 @@ class AgentBehaviour(BaseModel):
     )
     automatic_call_ending: AutomaticCallEnding = AutomaticCallEnding()
     vad: VadSettings = VadSettings()
+    vad_idle: VadSettings = VadSettings()
 
 
 class AgentLanguage(BaseModel):
@@ -582,6 +593,12 @@ class PhoneNumberDetachRequest(BaseModel):
     phone_number: str
 
 
+class PhoneNumberRemoveRequest(BaseModel):
+    """Remove a phone number from the org inventory (detaches first if needed)."""
+
+    phone_number: str
+
+
 class PhoneNumberResponse(BaseModel):
     """Phone number inventory document."""
 
@@ -602,6 +619,27 @@ class PhoneNumberInventoryResponse(BaseModel):
 
     status: str = "success"
     numbers: list[str] = []
+
+
+class PhoneNumberActivityItem(BaseModel):
+    """One append-only phone-number activity event."""
+
+    phone_number: str
+    provider: str = ""
+    action: str
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    by_email: Optional[str] = None
+    at: str
+
+
+class PhoneNumberActivityResponse(BaseModel):
+    """Paginated org phone-number activity log."""
+
+    events: list[PhoneNumberActivityItem] = []
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -659,15 +697,40 @@ class OutboundCallRequest(BaseModel):
 
 
 class OutboundCallResponse(BaseModel):
-    """Response after initiating an outbound call."""
+    """Response after initiating an outbound call.
 
-    call_id: str
+    ``call_id`` is null for providers that register the CallLog on media
+    connect (e.g. VI) rather than at dial time.
+    """
+
+    call_id: Optional[str] = None
     status: CallLogStatus
     provider_call_sid: Optional[str] = None
     from_number: str
     to_number: str
     agent_id: str
     custom_variables: dict[str, Any] = Field(default_factory=dict)
+
+
+class OutboundCallRegisterRequest(BaseModel):
+    """Register an outbound call from the voice runtime stream (no dial)."""
+
+    agent_id: str
+    provider_call_sid: str
+    from_number: str
+    to_number: str = "unknown"
+
+
+class OutboundCallRegisterResponse(BaseModel):
+    """Response after registering an outbound call log."""
+
+    call_id: str
+    status: CallLogStatus
+    provider_call_sid: str
+    call_type: CallType
+    from_number: str
+    to_number: str
+    agent_id: str
 
 
 class InboundCallRegisterRequest(BaseModel):
@@ -713,6 +776,10 @@ class CallLogUpdateRequest(BaseModel):
 
     transcript_url: Optional[str] = None
     recording_url: Optional[str] = None
+    provider_recording_url: Optional[str] = Field(
+        default=None,
+        description="Carrier / provider recording (system AudioBuffer uses recording_url)",
+    )
     end_time_utc: Optional[str] = None
     status: Optional[CallLogStatus] = None
     call_response: Optional[CallResponse] = None
@@ -765,9 +832,14 @@ class CallLogResponse(BaseModel):
     end_time_utc: Optional[str] = None
     duration: Optional[float] = None
     recording_url: Optional[str] = None
+    provider_recording_url: Optional[str] = Field(
+        default=None,
+        description="Carrier / provider recording URL (parallel to system recording_url)",
+    )
     transcript_url: Optional[str] = None
     error_message: Optional[str] = None
     campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
     queued_run_id: Optional[str] = None
     end_reason: Optional[str] = None
 
@@ -862,6 +934,25 @@ class CircuitBreakerConfigRequest(BaseModel):
     min_calls_in_window: int = Field(default=5, ge=1, le=100)
 
 
+class ObdCampaignConfig(BaseModel):
+    """Core Vodafone OBD createCampaign fields (VI bulk campaigns)."""
+
+    description: str = "VoicERA VI campaign"
+    fromdate: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    todate: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    fromtime: str = Field(..., pattern=r"^\d{2}:\d{2}:\d{2}$")
+    totime: str = Field(..., pattern=r"^\d{2}:\d{2}:\d{2}$")
+    dialtimeout: int = Field(default=30, ge=1, le=300)
+    retrycount: int = Field(default=1, ge=0, le=10)
+    retryintervalvalue: int = Field(default=5, ge=1, le=1440)
+    retryintervaltype: int = Field(
+        default=0,
+        ge=0,
+        le=2,
+        description="0=minutes (VI default)",
+    )
+
+
 class CreateCampaignRequest(BaseModel):
     name: str
     agent_id: str
@@ -881,6 +972,10 @@ class CreateCampaignRequest(BaseModel):
     retry_config: Optional[RetryConfigRequest] = None
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
+    obd_config: Optional[ObdCampaignConfig] = Field(
+        default=None,
+        description="VI OBD createCampaign settings; used when agent provider is vi",
+    )
 
 
 class UpdateCampaignRequest(BaseModel):
@@ -897,6 +992,10 @@ class CampaignResponse(BaseModel):
     org_id: str
     name: str
     agent_id: str
+    telephony_provider: Optional[str] = Field(
+        default=None,
+        description="Snapshot of agent telephony provider at campaign create",
+    )
     source_type: str
     source_id: str
     state: CampaignState
@@ -906,7 +1005,10 @@ class CampaignResponse(BaseModel):
     rate_limit_per_second: int = 1
     retry_config: dict[str, Any] = Field(default_factory=dict)
     orchestrator_metadata: dict[str, Any] = Field(default_factory=dict)
-    from_number: Optional[str] = None
+    from_number: Optional[str] = Field(
+        default=None,
+        description="CLI / DNI frozen at create (override or agent's attached number)",
+    )
     created_by: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -932,6 +1034,82 @@ class CampaignProgressResponse(BaseModel):
     rate_limit: Optional[int] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+
+
+class CampaignAnalyticsResponse(BaseModel):
+    """Campaign progress + CallLogs analytics (see ``get_call_analytics``)."""
+
+    campaign_id: str
+    state: CampaignState
+    total_rows: int = 0
+    processed_rows: int = 0
+    failed_rows: int = 0
+    progress_percentage: float = 0.0
+    calls_attempted: int = 0
+    calls_connected: int = 0
+    connection_rate: float = 0.0
+    total_duration_seconds: float = 0.0
+    average_duration_seconds: float = 0.0
+    by_call_response: dict[str, int] = Field(default_factory=dict)
+
+
+class ObdReportSummary(BaseModel):
+    attempted: int = 0
+    connected: int = 0
+    timeout: int = 0
+    line_drop: int = 0
+    connection_rate: float = 0.0
+    average_duration_seconds: float = 0.0
+
+
+class ObdReportRow(BaseModel):
+    provider_call_id: Optional[str] = None
+    phone: Optional[str] = None
+    dial_status: Optional[str] = None
+    when: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    recording_url: Optional[str] = None
+    circle: Optional[str] = None
+    operator: Optional[str] = None
+    campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
+
+
+class ObdReportResponse(BaseModel):
+    summary: ObdReportSummary
+    rows: list[ObdReportRow] = Field(default_factory=list)
+
+
+class ObdCampaignStatus(BaseModel):
+    campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
+    campaign_type: Optional[str] = None
+    current_status: Optional[str] = None
+    total_base_received: Optional[int] = None
+    total_call_initiated: Optional[int] = None
+    total_calls_connected: Optional[int] = None
+    total_calls_not_connected: Optional[int] = None
+    remaining_in_queue: Optional[int] = None
+    success_rate_percentage: Optional[float] = None
+    retry_interval: Optional[str] = None
+    retry_within: Optional[int] = None
+    retry_attempts: Optional[int] = None
+    created_time: Optional[str] = None
+    window: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class ObdCampaignStatusResponse(BaseModel):
+    statuses: list[ObdCampaignStatus] = Field(default_factory=list)
+
+
+class CampaignRunsListResponse(BaseModel):
+    """Paginated campaign call runs."""
+
+    calls: list[CallLogResponse] = Field(default_factory=list)
+    limit: int
+    offset: int
+    total: int
 
 
 class CampaignCallStatusRequest(BaseModel):

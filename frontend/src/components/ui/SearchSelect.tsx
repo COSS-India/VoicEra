@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Search } from "lucide-react";
 import { ProviderTypeBadge } from "@/components/ui/ProviderTypeBadge";
 import { dropdownMenuCoords, type DropdownMenuCoords } from "@/lib/dropdown-placement";
+import { compareProviderOptions } from "@/lib/use-wizard-catalogs";
 
 export interface SearchSelectOption {
   value: string;
@@ -73,8 +74,7 @@ export function SearchSelect({
       if (e.key === "Escape") setOpen(false);
     }
     function reposition(e?: Event) {
-      // The option list scrolling doesn't move the trigger — skip the re-render.
-      if (e?.type === "scroll" && menuRef.current?.contains(e.target as Node)) return;
+      if (e?.target instanceof Node && menuRef.current?.contains(e.target)) return;
       if (!btnRef.current) return;
       setCoords(menuCoordsFor(btnRef.current.getBoundingClientRect()));
     }
@@ -93,13 +93,17 @@ export function SearchSelect({
 
   const selected = options.find((o) => o.value === value);
 
+  // Configured (selectable) providers first A–Z, then unconfigured A–Z — so STT /
+  // LLM / TTS pickers never bury live integrations under "(Not configured)".
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => {
-      const type = o.providerType?.toLowerCase() ?? "";
-      return o.label.toLowerCase().includes(q) || type.includes(q);
-    });
+    const list = !q
+      ? options
+      : options.filter((o) => {
+          const type = o.providerType?.toLowerCase() ?? "";
+          return o.label.toLowerCase().includes(q) || type.includes(q);
+        });
+    return [...list].sort(compareProviderOptions);
   }, [options, query]);
 
   function pick(o: SearchSelectOption) {
@@ -166,7 +170,7 @@ export function SearchSelect({
                   className="w-full py-2 pl-8 pr-3 text-[13px] focus:outline-none"
                 />
               </div>
-              <div className="min-h-0 overflow-y-auto py-1" style={{ maxHeight: listMaxHeight }}>
+              <div className="min-h-0 overflow-y-auto overscroll-contain py-1" style={{ maxHeight: listMaxHeight }}>
                 {filtered.length === 0 ? (
                   <div className="px-3.5 py-2.5 text-sm text-v-muted">No matches.</div>
                 ) : (

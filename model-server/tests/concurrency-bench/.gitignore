@@ -1,0 +1,5 @@
+config.env
+.venv/
+results/
+corpus/
+__pycache__/

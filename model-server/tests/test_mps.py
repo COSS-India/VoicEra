@@ -135,9 +135,19 @@ def test_the_gateway_is_left_out():
 # ------------------------------------------------------- models with sidecars
 
 def sidecar_overlays() -> list[tuple[str, str]]:
-    """Model folders that bring GPU sidecars needing their own MPS wiring."""
-    return [(p.parent.parent.name, p.parent.name)
-            for p in sorted(ROOT.glob("*/*/compose.mps.yml"))]
+    """Model folders that bring GPU sidecars needing their own MPS wiring.
+
+    Judged by what the overlay declares, not by the file existing: a model can
+    carry a compose.mps.yml that only adjusts its own slot service --
+    tts/rumik-oss-1's sets `user: "0:0"` so its CUDA client matches a root-owned
+    daemon -- and has no sidecar for this test to attach.
+    """
+    out = []
+    for p in sorted(ROOT.glob("*/*/compose.mps.yml")):
+        services = (yaml.safe_load(p.read_text()) or {}).get("services") or {}
+        if set(services) - {*SLOTS, "gateway"}:
+            out.append((p.parent.parent.name, p.parent.name))
+    return out
 
 
 def test_the_sidecar_convention_is_exercised():

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
@@ -18,10 +18,12 @@ import type { AgentForm } from "@/lib/wizard-data";
 import type { AgentApiResponse } from "@/lib/api-types";
 import type { WizardCatalogs } from "@/lib/use-wizard-catalogs";
 import { languageLabel, telephonyOptions } from "@/lib/use-wizard-catalogs";
+import { AGENT_NAME_MAX_LENGTH } from "@/lib/wizard-data";
 
 interface ReviewStepProps {
   form: AgentForm;
   catalogs: WizardCatalogs;
+  onChange: <K extends keyof AgentForm>(key: K, value: AgentForm[K]) => void;
   /** "create" saves a brand-new agent; "edit" saves changes to an existing one. */
   mode?: "create" | "edit";
   /** Owned by the parent wizard (not this component) so it survives this step
@@ -35,6 +37,8 @@ interface ReviewStepProps {
   /** Jump back to a given step id to fix something — powers the edit icons below. */
   onEditStep?: (stepId: string) => void;
 }
+
+type InlineReviewField = "name" | "welcome";
 
 function SummaryRow({
   label,
@@ -65,6 +69,90 @@ function SummaryRow({
   );
 }
 
+/** Name and greeting are tweaked often on Review — pencil toggles inline edit
+ * instead of leaving the step (other rows still jump back via onEditStep). */
+const inlineFieldClass =
+  "w-full box-border rounded-v-lg border border-v-line-strong bg-white text-v-fg text-[13px] px-3 py-2 transition-colors duration-[120ms] ease-out focus:border-v-accent focus:border-[1.5px] focus:shadow-[0_0_0_4px_rgba(31,78,232,0.10)] focus:outline-none";
+
+function InlineSummaryRow({
+  label,
+  field,
+  readValue,
+  editValue,
+  editingField,
+  onStartEdit,
+  onChangeValue,
+  inputType = "text",
+  maxLength,
+}: {
+  label: string;
+  field: InlineReviewField;
+  readValue: string;
+  editValue: string;
+  editingField: InlineReviewField | null;
+  onStartEdit: (field: InlineReviewField) => void;
+  onChangeValue: (value: string) => void;
+  inputType?: "text" | "textarea";
+  maxLength?: number;
+}) {
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const isEditing = editingField === field;
+
+  useLayoutEffect(() => {
+    if (!isEditing) return;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    if ("setSelectionRange" in el) {
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+    }
+  }, [isEditing]);
+
+  return (
+    <div className="flex items-start justify-between gap-2 border-b border-v-hairline py-2.5 last:border-0">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="font-mono text-[9.5px] uppercase tracking-[.14em] text-v-muted">{label}</span>
+        {isEditing ? (
+          inputType === "textarea" ? (
+            <textarea
+              ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+              value={editValue}
+              rows={2}
+              className={`${inlineFieldClass} resize-none`}
+              onChange={(e) => onChangeValue(e.target.value)}
+            />
+          ) : (
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              type="text"
+              value={editValue}
+              maxLength={maxLength}
+              className={inlineFieldClass}
+              onChange={(e) =>
+                onChangeValue(maxLength ? e.target.value.slice(0, maxLength) : e.target.value)
+              }
+            />
+          )
+        ) : (
+          <span className="truncate text-[13px] text-v-fg">{readValue}</span>
+        )}
+      </div>
+      <button
+        type="button"
+        aria-label={`Edit ${label.toLowerCase()}`}
+        aria-pressed={isEditing}
+        onClick={() => onStartEdit(field)}
+        className={`flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-v-sm border border-v-line transition-colors hover:bg-v-soft hover:text-v-fg ${
+          isEditing ? "bg-v-soft text-v-fg" : "text-v-muted"
+        }`}
+      >
+        <Pencil className="size-3.5" strokeWidth={1.8} />
+      </button>
+    </div>
+  );
+}
+
 function languageStackSummaries(
   form: AgentForm,
   catalogs: WizardCatalogs,
@@ -91,18 +179,26 @@ function languageStackSummaries(
 function SelectionsSummary({
   form,
   catalogs,
+  onChange,
   onEditStep,
 }: {
   form: AgentForm;
   catalogs: WizardCatalogs;
+  onChange: <K extends keyof AgentForm>(key: K, value: AgentForm[K]) => void;
   onEditStep?: (stepId: string) => void;
 }) {
+  const [editingField, setEditingField] = useState<InlineReviewField | null>(null);
+
   const deliveryLabel =
     telephonyOptions(catalogs.telephonyProviders).find((d) => d.value === form.delivery)?.label ??
     "WebSocket — browser test";
 
   const editStep = (id: string) => (onEditStep ? () => onEditStep(id) : undefined);
   const stacks = useMemo(() => languageStackSummaries(form, catalogs), [form, catalogs]);
+
+  const startInlineEdit = (field: InlineReviewField) => {
+    setEditingField(field);
+  };
 
   return (
     <div className="flex h-max flex-col gap-3 rounded-v-md border border-v-line bg-white p-4.5">
@@ -111,8 +207,26 @@ function SelectionsSummary({
       </span>
 
       <div className="flex flex-col">
-        <SummaryRow label="Name" value={form.name || "(unnamed)"} onEdit={editStep("name")} />
-        <SummaryRow label="Greeting" value={form.welcome || "—"} onEdit={editStep("name")} />
+        <InlineSummaryRow
+          label="Name"
+          field="name"
+          readValue={form.name || "(unnamed)"}
+          editValue={form.name}
+          editingField={editingField}
+          onStartEdit={startInlineEdit}
+          onChangeValue={(v) => onChange("name", v)}
+          maxLength={AGENT_NAME_MAX_LENGTH}
+        />
+        <InlineSummaryRow
+          label="Greeting"
+          field="welcome"
+          readValue={form.welcome || "—"}
+          editValue={form.welcome}
+          editingField={editingField}
+          onStartEdit={startInlineEdit}
+          onChangeValue={(v) => onChange("welcome", v)}
+          inputType="textarea"
+        />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -133,12 +247,12 @@ function SelectionsSummary({
                 ? "Off · attach a document to activate"
                 : "Off"
           }
-          onEdit={editStep("prompt")}
+          onEdit={editStep("agent")}
         />
         <SummaryRow
           label="Prompt"
           value={form.prompt.length > 90 ? `${form.prompt.slice(0, 90)}…` : form.prompt || "—"}
-          onEdit={editStep("prompt")}
+          onEdit={editStep("agent")}
         />
       </div>
     </div>
@@ -148,6 +262,7 @@ function SelectionsSummary({
 export function ReviewStep({
   form,
   catalogs,
+  onChange,
   mode = "create",
   agentId,
   onAgentSaved,
@@ -157,18 +272,6 @@ export function ReviewStep({
   const { session } = useAuth();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  // Save the agent as soon as this step is reached instead of waiting for an
-  // explicit click — so the test-call box is there to use right away. Once
-  // `agentId` is set it's owned by the parent, so revisiting this step later
-  // (after going back to tweak something) never re-attempts creation.
-  const autoCreateAttempted = useRef(false);
-  useEffect(() => {
-    if (agentId || autoCreateAttempted.current || catalogs.loading) return;
-    autoCreateAttempted.current = true;
-    handleSubmit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId, catalogs.loading]);
 
   async function handleSubmit() {
     setSaving(true);
@@ -233,20 +336,19 @@ export function ReviewStep({
             {saving ? (
               <>
                 <Spinner light={false} />
-                <span className="text-sm font-semibold text-v-fg">Setting up your test call…</span>
+                <span className="text-sm font-semibold text-v-fg">Creating your agent…</span>
               </>
             ) : (
               <>
-                <span className="text-sm font-semibold text-v-fg">Couldn&apos;t set up the test call</span>
+                <span className="text-sm font-semibold text-v-fg">Test call</span>
                 <span className="max-w-sm text-[13px] font-light text-v-muted">
-                  Try the button above again once everything looks right. Make sure provider credentials are
-                  configured under Integrations.
+                  Create the agent above to save your setup and start a live browser call here.
                 </span>
               </>
             )}
           </div>
         )}
-        <SelectionsSummary form={form} catalogs={catalogs} onEditStep={onEditStep} />
+        <SelectionsSummary form={form} catalogs={catalogs} onChange={onChange} onEditStep={onEditStep} />
       </div>
     </div>
   );

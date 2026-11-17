@@ -1,0 +1,15 @@
+# Optional: publish the standalone test stack's adapter on the host, LOCALHOST
+# ONLY, for tools on the box itself. Not needed with the tunnel.
+#
+#   docker compose -p voicera-higgs-test --project-directory . \
+#       -f tts/higgs-tts-3/compose.standalone.yml \
+#       -f tts/higgs-tts-3/compose.standalone.localport.yml up -d
+#
+# 18202 is unused by the stacks on ace-h200 as of 22 Oct 2026 (they hold 3000,
+# 3600, 3700, 7860, 8000, 8100-8104, 8200, 8460, 8600, 8787, 9000-9001,
+# 9600-9601, 27018, 27618); tools/preflight.sh checks it before you start.
+
+services:
+  tts:
+    ports:
+      - "127.0.0.1:${HIGGS_TEST_PORT:-18202}:8002"

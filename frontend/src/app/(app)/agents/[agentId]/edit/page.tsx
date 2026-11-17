@@ -24,7 +24,7 @@ import { useSyncCustomVariables } from "@/lib/use-sync-custom-variables";
 
 const STEPS: SectionNavItem[] = [
   { id: "agent", title: "Agent", subtitle: "Name, greeting & prompt", icon: User },
-  { id: "language", title: "Language", subtitle: "STT · LLM · TTS", icon: Settings },
+  { id: "language", title: "Engine", subtitle: "STT · LLM · TTS", icon: Settings },
   { id: "delivery", title: "Delivery", subtitle: "Select provider", icon: Phone },
   { id: "call-details", title: "Call", subtitle: "Timeouts & silence", icon: Clock },
   { id: "review", title: "Review", subtitle: "Confirm", icon: CheckCircle2 },
@@ -115,6 +115,7 @@ function EditForm({
                 <ReviewStep
                   form={form}
                   catalogs={catalogs}
+                  onChange={onChange}
                   mode="edit"
                   agentId={agent.agent_id}
                   onAgentSaved={(updated) => {

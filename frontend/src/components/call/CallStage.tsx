@@ -67,6 +67,19 @@ function roleLabel(role: ConversationMessage["role"]): string {
 
 type CallUiState = "idle" | "listening" | "speaking";
 
+/** Turn API / transport failures into something the user can act on. */
+function testCallErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : "Couldn't start the test call";
+  const lower = raw.toLowerCase();
+  if (lower.includes("websocket agent") || lower.includes("must reference a websocket")) {
+    return "Browser test calls need WebSocket delivery. Open Delivery, choose WebSocket, save the agent, then try again.";
+  }
+  if (lower.includes("1011") || lower.includes("websocket connection closed")) {
+    return "The test call closed before it connected. Save the agent with WebSocket delivery, then try again.";
+  }
+  return raw || "Couldn't start the test call";
+}
+
 /**
  * Video-call-style stage built on Pipecat React primitives. Shared by the
  * dashboard test modal and the wizard Review step.
@@ -161,7 +174,7 @@ export function CallStage({
     RTVIEvent.Error,
     useCallback((msg: RTVIMessage) => {
       const data = msg.data as { message?: string } | undefined;
-      setConnectError(data?.message || "Call error");
+      setConnectError(testCallErrorMessage(new Error(data?.message || "Call error")));
       setConnecting(false);
     }, []),
   );
@@ -176,7 +189,7 @@ export function CallStage({
     try {
       await connectBrowserCall(client, orgId, agentId);
     } catch (err) {
-      setConnectError(err instanceof Error ? err.message : "Couldn't start the test call");
+      setConnectError(testCallErrorMessage(err));
       setConnecting(false);
       return;
     }

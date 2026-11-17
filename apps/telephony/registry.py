@@ -249,6 +249,33 @@ def get_client_creator(provider: str) -> Callable[[Any], Any]:
     return creator
 
 
+def get_client_class(provider: str) -> type | None:
+    """Return the registered client class for ``provider``, if annotated."""
+    load_providers()
+    try:
+        pid = _normalize_provider(provider)
+    except ValueError:
+        return None
+    creator = CLIENT_CREATORS.get(pid)
+    if creator is None:
+        return None
+    client_cls = get_type_hints(creator).get("return")
+    if isinstance(client_cls, type):
+        return client_cls
+    return None
+
+
+def defers_call_log_to_stream(provider: str) -> bool:
+    """True when the provider registers CallLogs on media connect, not at dial.
+
+    Providers opt in via ``Client.DEFERS_CALL_LOG_TO_STREAM = True`` (e.g. VI).
+    """
+    client_cls = get_client_class(provider)
+    if client_cls is None:
+        return False
+    return bool(getattr(client_cls, "DEFERS_CALL_LOG_TO_STREAM", False))
+
+
 def get_answer_xml_builder(provider: str) -> Callable[..., str]:
     load_providers()
     pid = _normalize_provider(provider)

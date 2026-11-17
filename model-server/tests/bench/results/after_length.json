@@ -1,0 +1,483 @@
+{
+  "suite": "length",
+  "protocol": "http",
+  "style": "none",
+  "voice": "Kavya",
+  "language": "hi",
+  "max_tokens": 0,
+  "seed": 1234,
+  "environment": {
+    "host": "ip-172-31-23-34",
+    "when_utc": "2026-09-18T10:45:21Z",
+    "gateway": "http://127.0.0.1:8100",
+    "endpoint": "POST /v1/audio/speech (response_format=pcm)",
+    "health": {
+      "status": "ok",
+      "ready": true,
+      "model": "orpheus-indic",
+      "model_path": "/models/indic-speak",
+      "quantization": "fp8",
+      "max_num_seqs": 64,
+      "streams_active": 0
+    },
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 595.91.07, 12.0",
+    "engine_env": {
+      "ORPHEUS_GPU_MEMORY_UTILIZATION": "0.90",
+      "ORPHEUS_MAX_NUM_SEQS": "64",
+      "ORPHEUS_DECODER_MAX_BATCH": "64",
+      "ORPHEUS_MAX_TOKENS_DEFAULT": "2520",
+      "ORPHEUS_TEMPERATURE": "0.6",
+      "ORPHEUS_REPETITION_PENALTY": "1.0",
+      "ORPHEUS_QUANTIZATION": "fp8",
+      "ORPHEUS_MAX_MODEL_LEN": "8192"
+    },
+    "kv_cache_lines": [
+      "Available KV cache memory: 80.76 GiB",
+      "GPU KV cache size: 756,128 tokens",
+      "Maximum concurrency for 8,192 tokens per request: 92.30x"
+    ]
+  },
+  "cells": [
+    {
+      "requests": 20,
+      "ok": 20,
+      "failed": 0,
+      "muted": 0,
+      "errors": [],
+      "ttfa_ms": {
+        "n": 20,
+        "p50": 151.3928,
+        "p95": 152.1363,
+        "p99": 152.1363,
+        "min": 148.9866,
+        "max": 152.1363
+      },
+      "ttfa_service_ms": {
+        "n": 20,
+        "p50": 151.3928,
+        "p95": 152.1363,
+        "p99": 152.1363,
+        "min": 148.9866,
+        "max": 152.1363
+      },
+      "queue_delay_ms": {
+        "n": 20,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "total_s": {
+        "n": 20,
+        "p50": 0.8083,
+        "p95": 0.957,
+        "p99": 0.957,
+        "min": 0.6596,
+        "max": 0.957
+      },
+      "audio_s": {
+        "n": 20,
+        "p50": 2.304,
+        "p95": 2.7307,
+        "p99": 2.7307,
+        "min": 1.8773,
+        "max": 2.7307
+      },
+      "rtf": {
+        "n": 20,
+        "p50": 0.3505,
+        "p95": 0.352,
+        "p99": 0.352,
+        "min": 0.3498,
+        "max": 0.352
+      },
+      "chunk_gap_ms": {
+        "n": 520,
+        "p50": 29.581,
+        "p95": 29.6995,
+        "p99": 29.7546,
+        "min": 2.2412,
+        "max": 29.8164
+      },
+      "chunks": {
+        "n": 20,
+        "p50": 27.0,
+        "p95": 32.0,
+        "p99": 32.0,
+        "min": 22.0,
+        "max": 32.0
+      },
+      "audio_seconds_total": 46.08,
+      "label": "short",
+      "mode": "closed",
+      "concurrency": 1,
+      "arrival_rate_per_s": null,
+      "wall_s": 16.159,
+      "requests_per_s": 1.238,
+      "audio_seconds_per_s": 2.85,
+      "queue_depth": {
+        "p50": 1.0,
+        "p95": 1.0,
+        "max": 1
+      },
+      "server_counters": {
+        "requests_delta": 20,
+        "errors_delta": 0
+      },
+      "gpu": {
+        "n_samples": 130,
+        "hz": 10.0,
+        "utilization.gpu": {
+          "mean": 95.65,
+          "p50": 100.0,
+          "p95": 100.0,
+          "max": 100.0
+        },
+        "utilization.memory": {
+          "mean": 59.28,
+          "p50": 62.0,
+          "p95": 66.0,
+          "max": 66.0
+        },
+        "memory.used": {
+          "mean": 88916.0,
+          "p50": 88916.0,
+          "p95": 88916.0,
+          "max": 88916.0
+        },
+        "clocks.sm": {
+          "mean": 2415.22,
+          "p50": 2415.0,
+          "p95": 2415.0,
+          "max": 2422.0
+        },
+        "clocks.mem": {
+          "mean": 12481.0,
+          "p50": 12481.0,
+          "p95": 12481.0,
+          "max": 12481.0
+        },
+        "power.draw": {
+          "mean": 270.0,
+          "p50": 276.43,
+          "p95": 277.6,
+          "max": 277.81
+        },
+        "temperature.gpu": {
+          "mean": 46.98,
+          "p50": 47.0,
+          "p95": 48.0,
+          "max": 48.0
+        },
+        "sm_active": "NOT MEASURED (needs DCGM; not installed)",
+        "sm_occupancy": "NOT MEASURED (needs DCGM; not installed)",
+        "dram_active": "NOT MEASURED (needs DCGM; not installed)",
+        "pipe_tensor_active": "NOT MEASURED (needs DCGM; not installed)",
+        "prediction_note": "Prediction was: GPU-Util near 100% while SM occupancy is low and tensor pipes near idle, i.e. launch-bound. utilization.gpu alone CANNOT confirm this -- it measures kernel residency, not work. Treat a high value here as consistent with, not evidence for, the launch-bound hypothesis.",
+        "utilization_gpu_summary": {
+          "mean": 95.65,
+          "p50": 100.0,
+          "p95": 100.0,
+          "max": 100.0
+        }
+      },
+      "client_bound_suspected": false,
+      "chars": 23
+    },
+    {
+      "requests": 20,
+      "ok": 20,
+      "failed": 0,
+      "muted": 0,
+      "errors": [],
+      "ttfa_ms": {
+        "n": 20,
+        "p50": 151.6553,
+        "p95": 152.1792,
+        "p99": 152.1792,
+        "min": 151.4276,
+        "max": 152.1792
+      },
+      "ttfa_service_ms": {
+        "n": 20,
+        "p50": 151.6553,
+        "p95": 152.1792,
+        "p99": 152.1792,
+        "min": 151.4276,
+        "max": 152.1792
+      },
+      "queue_delay_ms": {
+        "n": 20,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "total_s": {
+        "n": 20,
+        "p50": 1.8114,
+        "p95": 1.9299,
+        "p99": 1.9299,
+        "min": 1.6933,
+        "max": 1.9299
+      },
+      "audio_s": {
+        "n": 20,
+        "p50": 5.2053,
+        "p95": 5.5467,
+        "p99": 5.5467,
+        "min": 4.864,
+        "max": 5.5467
+      },
+      "rtf": {
+        "n": 20,
+        "p50": 0.3482,
+        "p95": 0.3483,
+        "p99": 0.3483,
+        "min": 0.3479,
+        "max": 0.3483
+      },
+      "chunk_gap_ms": {
+        "n": 1200,
+        "p50": 29.6077,
+        "p95": 29.7022,
+        "p99": 29.7895,
+        "min": 2.261,
+        "max": 31.7771
+      },
+      "chunks": {
+        "n": 20,
+        "p50": 61.0,
+        "p95": 65.0,
+        "p99": 65.0,
+        "min": 57.0,
+        "max": 65.0
+      },
+      "audio_seconds_total": 104.11,
+      "label": "medium",
+      "mode": "closed",
+      "concurrency": 1,
+      "arrival_rate_per_s": null,
+      "wall_s": 36.248,
+      "requests_per_s": 0.552,
+      "audio_seconds_per_s": 2.87,
+      "queue_depth": {
+        "p50": 1.0,
+        "p95": 1.0,
+        "max": 1
+      },
+      "server_counters": {
+        "requests_delta": 20,
+        "errors_delta": 0
+      },
+      "gpu": {
+        "n_samples": 285,
+        "hz": 10.0,
+        "utilization.gpu": {
+          "mean": 98.12,
+          "p50": 100.0,
+          "p95": 100.0,
+          "max": 100.0
+        },
+        "utilization.memory": {
+          "mean": 60.77,
+          "p50": 62.0,
+          "p95": 63.0,
+          "max": 66.0
+        },
+        "memory.used": {
+          "mean": 88916.0,
+          "p50": 88916.0,
+          "p95": 88916.0,
+          "max": 88916.0
+        },
+        "clocks.sm": {
+          "mean": 2414.68,
+          "p50": 2415.0,
+          "p95": 2415.0,
+          "max": 2422.0
+        },
+        "clocks.mem": {
+          "mean": 12481.0,
+          "p50": 12481.0,
+          "p95": 12481.0,
+          "max": 12481.0
+        },
+        "power.draw": {
+          "mean": 274.93,
+          "p50": 277.53,
+          "p95": 279.23,
+          "max": 279.58
+        },
+        "temperature.gpu": {
+          "mean": 46.94,
+          "p50": 47.0,
+          "p95": 47.0,
+          "max": 47.0
+        },
+        "sm_active": "NOT MEASURED (needs DCGM; not installed)",
+        "sm_occupancy": "NOT MEASURED (needs DCGM; not installed)",
+        "dram_active": "NOT MEASURED (needs DCGM; not installed)",
+        "pipe_tensor_active": "NOT MEASURED (needs DCGM; not installed)",
+        "prediction_note": "Prediction was: GPU-Util near 100% while SM occupancy is low and tensor pipes near idle, i.e. launch-bound. utilization.gpu alone CANNOT confirm this -- it measures kernel residency, not work. Treat a high value here as consistent with, not evidence for, the launch-bound hypothesis.",
+        "utilization_gpu_summary": {
+          "mean": 98.12,
+          "p50": 100.0,
+          "p95": 100.0,
+          "max": 100.0
+        }
+      },
+      "client_bound_suspected": false,
+      "chars": 58
+    },
+    {
+      "requests": 20,
+      "ok": 20,
+      "failed": 0,
+      "muted": 0,
+      "errors": [],
+      "ttfa_ms": {
+        "n": 20,
+        "p50": 151.8713,
+        "p95": 152.2448,
+        "p99": 152.2448,
+        "min": 151.3281,
+        "max": 152.2448
+      },
+      "ttfa_service_ms": {
+        "n": 20,
+        "p50": 151.8713,
+        "p95": 152.2448,
+        "p99": 152.2448,
+        "min": 151.3281,
+        "max": 152.2448
+      },
+      "queue_delay_ms": {
+        "n": 20,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "total_s": {
+        "n": 20,
+        "p50": 4.5102,
+        "p95": 10.7689,
+        "p99": 10.7689,
+        "min": 4.3873,
+        "max": 10.7689
+      },
+      "audio_s": {
+        "n": 20,
+        "p50": 12.9707,
+        "p95": 30.72,
+        "p99": 30.72,
+        "min": 12.6293,
+        "max": 30.72
+      },
+      "rtf": {
+        "n": 20,
+        "p50": 0.3476,
+        "p95": 0.3506,
+        "p99": 0.3506,
+        "min": 0.3474,
+        "max": 0.3506
+      },
+      "chunk_gap_ms": {
+        "n": 3245,
+        "p50": 29.6131,
+        "p95": 29.7404,
+        "p99": 31.7159,
+        "min": 2.2919,
+        "max": 33.8325
+      },
+      "chunks": {
+        "n": 20,
+        "p50": 152.0,
+        "p95": 360.0,
+        "p99": 360.0,
+        "min": 148.0,
+        "max": 360.0
+      },
+      "audio_seconds_total": 278.61,
+      "label": "long",
+      "mode": "closed",
+      "concurrency": 1,
+      "arrival_rate_per_s": null,
+      "wall_s": 96.955,
+      "requests_per_s": 0.206,
+      "audio_seconds_per_s": 2.87,
+      "queue_depth": {
+        "p50": 1.0,
+        "p95": 1.0,
+        "max": 1
+      },
+      "server_counters": {
+        "requests_delta": 20,
+        "errors_delta": 0
+      },
+      "gpu": {
+        "n_samples": 755,
+        "hz": 10.0,
+        "utilization.gpu": {
+          "mean": 99.21,
+          "p50": 100.0,
+          "p95": 100.0,
+          "max": 100.0
+        },
+        "utilization.memory": {
+          "mean": 61.99,
+          "p50": 62.0,
+          "p95": 64.0,
+          "max": 66.0
+        },
+        "memory.used": {
+          "mean": 88916.0,
+          "p50": 88916.0,
+          "p95": 88916.0,
+          "max": 88916.0
+        },
+        "clocks.sm": {
+          "mean": 2414.79,
+          "p50": 2415.0,
+          "p95": 2415.0,
+          "max": 2422.0
+        },
+        "clocks.mem": {
+          "mean": 12481.0,
+          "p50": 12481.0,
+          "p95": 12481.0,
+          "max": 12481.0
+        },
+        "power.draw": {
+          "mean": 278.97,
+          "p50": 279.95,
+          "p95": 282.71,
+          "max": 285.5
+        },
+        "temperature.gpu": {
+          "mean": 46.97,
+          "p50": 47.0,
+          "p95": 47.0,
+          "max": 47.0
+        },
+        "sm_active": "NOT MEASURED (needs DCGM; not installed)",
+        "sm_occupancy": "NOT MEASURED (needs DCGM; not installed)",
+        "dram_active": "NOT MEASURED (needs DCGM; not installed)",
+        "pipe_tensor_active": "NOT MEASURED (needs DCGM; not installed)",
+        "prediction_note": "Prediction was: GPU-Util near 100% while SM occupancy is low and tensor pipes near idle, i.e. launch-bound. utilization.gpu alone CANNOT confirm this -- it measures kernel residency, not work. Treat a high value here as consistent with, not evidence for, the launch-bound hypothesis.",
+        "utilization_gpu_summary": {
+          "mean": 99.21,
+          "p50": 100.0,
+          "p95": 100.0,
+          "max": 100.0
+        }
+      },
+      "client_bound_suspected": false,
+      "chars": 157
+    }
+  ]
+}

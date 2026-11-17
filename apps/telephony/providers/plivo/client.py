@@ -74,8 +74,13 @@ class PlivoClient:
         )
 
     async def link_number(
-        self, phone_number: str, application_id: str
+        self,
+        phone_number: str,
+        application_id: str,
+        *,
+        stream_url: Optional[str] = None,
     ) -> Dict[str, Any]:
+        del stream_url  # unused — Plivo binds numbers to applications only
         return await application.link_number(self, phone_number, application_id)
 
     async def unlink_number(self, phone_number: str) -> Dict[str, Any]:
@@ -112,6 +117,10 @@ class PlivoClient:
         self, call_uuid: str, time_limit_secs: int
     ) -> Optional[str]:
         return await recording.start_call_recording(self, call_uuid, time_limit_secs)
+
+    async def start_provider_recording(self, call_uuid: str) -> Optional[str]:
+        """Capability hook: Record API with the provider-recording callback."""
+        return await recording.start_provider_recording(self, call_uuid)
 
     async def fetch_recording_metadata(
         self, recording_id: str

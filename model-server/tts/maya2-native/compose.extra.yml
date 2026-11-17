@@ -1,0 +1,78 @@
+# maya2-native's settings for the TTS slot, merged over compose.model-server.yml
+# when TTS_MODEL=maya2-native (compose-files.sh finds this file by existence).
+#
+# Every variable the server reads is named here, with its default, because a
+# variable Compose does not pass is a variable the container never sees --
+# tests/test_engine_env_surface.py enforces that, and
+# tests/test_maya2_native.py checks these defaults equal config.py's.
+# Document changes in model-server/.env.example too (test_env_example.py).
+#
+# The slot contract is unchanged: one service, `tts`, on 8002.
+
+services:
+  tts:
+    # Long enough for in-flight utterances to finish on a deploy, short enough
+    # that a restart is not a wait.
+    stop_grace_period: 30s
+    environment:
+      # --- model -----------------------------------------------------------
+      # fetch.sh puts the release, the Mimi codec and the ECAPA speaker encoder
+      # side by side under MAYA_MODELS_DIR, mounted read-only at /models. Nothing
+      # is fetched at startup, so the slot runs airgapped once fetch.sh has run.
+      MAYA_MODEL_PATH: ${MAYA_MODEL_PATH:-/models/maya2-native}
+      MAYA_MIMI_DIR: ${MAYA_MIMI_DIR:-/models/mimi}
+      MAYA_ECAPA_DIR: ${MAYA_ECAPA_DIR:-/models/ecapa}
+      # Reported at /v1/models. Equal to the folder and catalogue id, so an agent
+      # asking for this model by name reaches it.
+      MAYA_MODEL_NAME: ${MAYA_MODEL_NAME:-maya2-native}
+      MAYA_DEVICE: ${MAYA_DEVICE:-cuda}
+
+      # --- engine ----------------------------------------------------------
+      # Concurrent streams batched on the GPU per 80 ms tick. Memory is
+      # allocated for every seat at startup, busy or not: 7.7 GB at 1 seat,
+      # 9.7 at 8, 11.7 at 16, 15.8 at 32 (model card, BF16 backbone, FP16
+      # depth). MPS does not partition memory, so on a shared card this is the
+      # number that decides what production is left with.
+      MAYA_MAX_SEATS: ${MAYA_MAX_SEATS:-16}
+      # Backbone KV tokens per seat: prompt plus generated frames. Upstream's
+      # default; the model card's memory figures assume it.
+      MAYA_CAPACITY: ${MAYA_CAPACITY:-2048}
+      # Depth decoder precision. fp16 is upstream's default and the setting its
+      # quality evaluation and memory figures were measured with.
+      MAYA_DEPTH_DTYPE: ${MAYA_DEPTH_DTYPE:-fp16}
+
+      # --- admission -------------------------------------------------------
+      # Requests allowed to wait for their first audio before new ones get a
+      # 503 with Retry-After. 0 means "same as MAYA_MAX_SEATS".
+      MAYA_MAX_PENDING: ${MAYA_MAX_PENDING:-0}
+      # A request with no audio by this deadline is cancelled and refused (503),
+      # rather than starting late into a call that has moved on.
+      MAYA_QUEUE_DEADLINE_MS: ${MAYA_QUEUE_DEADLINE_MS:-2000}
+      # A client this many seconds of audio behind is dropped as a slow consumer.
+      MAYA_HTTP_MAX_LAG_S: ${MAYA_HTTP_MAX_LAG_S:-120}
+
+      # --- requests --------------------------------------------------------
+      # For a request with no voice, or one of OpenAI's names (alloy, nova...).
+      MAYA_DEFAULT_VOICE: ${MAYA_DEFAULT_VOICE:-Ahana}
+      # For a request with no response_format. pcm is 16-bit LE mono, 24 kHz.
+      MAYA_DEFAULT_FORMAT: ${MAYA_DEFAULT_FORMAT:-pcm}
+      # Upstream's text normaliser: digits, currency, dates, OTPs, URLs spoken
+      # as words in the request's language. A request can still opt out with
+      # "normalize": false.
+      MAYA_NORMALISE: ${MAYA_NORMALISE:-true}
+      # POST/DELETE /v1/voices (zero-shot cloning). Off: registered voices would
+      # live only in this container's memory and vanish on restart, and the
+      # gateway's passthrough is read-only anyway. Enable when cloning is built
+      # out properly.
+      MAYA_VOICE_CLONING: ${MAYA_VOICE_CLONING:-false}
+
+      # --- server ----------------------------------------------------------
+      # The port is PORT, set by the slot. There is no MAYA_PORT on purpose.
+      MAYA_HOST: ${MAYA_HOST:-0.0.0.0}
+      MAYA_LOG_LEVEL: ${MAYA_LOG_LEVEL:-INFO}
+    volumes:
+      - ${MAYA_MODELS_DIR:-./tts/maya2-native/models}:/models:ro
+      # The image's HF_HOME. Unused when the three model folders are local,
+      # which is the default; mounted so an operator pointing MAYA_MODEL_PATH at
+      # a repo id gets a cache that survives restarts.
+      - hf_cache:/hf-cache

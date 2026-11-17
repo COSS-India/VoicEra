@@ -56,6 +56,14 @@ class KenpathLLMSettings(BaseLLMSettings):
         default="+91-9036722772",
         description="JWT subject (phone) claim for Vistaar /api/voice/ (ignored for Bharat Vistaar).",
     )
+    send_greeting_to_llm: bool = Field(
+        default=False,
+        description=(
+            "When enabled, record the spoken greeting in LLM context on connect and "
+            "send it as advisory_text on the first GET /api/voice/ request per call."
+        ),
+        json_schema_extra={"examples": [False, True]},
+    )
     base_url: str | None = Field(
         default=None,
         description="Override the catalog base URL for the selected model.",

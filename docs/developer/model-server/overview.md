@@ -43,7 +43,8 @@ model-server/
 ├── tts/                   text-to-speech slot        :8002 (internal)
 │   ├── indic-parler/
 │   ├── indic-mio/
-│   └── orpheus/
+│   ├── orpheus/
+│   └── higgs-tts-3/
 ├── llm/                   language-model slot        :8003 (internal)
 │   └── qwen3.5-4b/
 ├── models.yaml            catalogue of every model, served at /models

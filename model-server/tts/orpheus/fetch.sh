@@ -27,10 +27,14 @@ DEST=${ORPHEUS_MODELS_DIR:-"$HERE/models"}
 REPO=${ORPHEUS_REPO:-bodhan-ai/indic-speak}
 SUB=${ORPHEUS_MODEL_DIRNAME:-indic-speak}
 
-# The one file the server cannot start without. Checked after download rather
-# than trusted: a gated repo can return a directory of everything except the
-# weights, and the CLI still exits 0.
-WANT=model.safetensors
+# The files the server cannot start without. Checked after download rather than
+# trusted: a gated repo can return a directory of everything except the weights,
+# and the CLI still exits 0.
+#
+# vocos/best.pt is on this list because the slot decodes with it. Leave it out
+# and a partial download still passes here, then fails minutes later at
+# container start with a model-path error instead of the licence hint below.
+WANT="model.safetensors vocos/best.pt"
 
 if [ -z "${HF_TOKEN:-}" ] && [ ! -f "$HOME/.cache/huggingface/token" ]; then
   echo "ERROR: no HuggingFace credentials." >&2
@@ -52,21 +56,21 @@ mkdir -p "$DEST"
 
 echo
 echo "--- $REPO -> $DEST/$SUB"
-# Everything, including vocos/. The server decodes with SNAC's own decoder
-# today and ignores those files, but the checkpoint was tuned to be decoded by
-# the Vocos decoder shipped beside it, so porting that is the next step and
-# re-downloading 6.6 GB to get two files would be silly. banner.png is the only
-# thing skipped: it is 860 kB of nothing this needs.
+# Everything, including vocos/ -- that directory holds the decoder the slot
+# actually runs, plus the loader that builds it from the checkpoint's own
+# config. banner.png is the only thing skipped: 860 kB of nothing this needs.
 set -- download "$REPO" --local-dir "$DEST/$SUB" --exclude "banner.png"
 [ -n "${HF_TOKEN:-}" ] && set -- "$@" --token "$HF_TOKEN"
 "$CLI" "$@"
 
-if [ ! -f "$DEST/$SUB/$WANT" ]; then
-  echo "ERROR: $WANT missing from $DEST/$SUB." >&2
-  echo "The download reported success, so this is most likely the licence" >&2
-  echo "accepted on the account but not granted to the token in use." >&2
-  exit 1
-fi
+for want in $WANT; do
+  if [ ! -f "$DEST/$SUB/$want" ]; then
+    echo "ERROR: $want missing from $DEST/$SUB." >&2
+    echo "The download reported success, so this is most likely the licence" >&2
+    echo "accepted on the account but not granted to the token in use." >&2
+    exit 1
+  fi
+done
 
 echo
 echo "done. $(du -sh "$DEST/$SUB" | cut -f1) in $DEST/$SUB"

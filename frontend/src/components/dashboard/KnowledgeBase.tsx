@@ -96,6 +96,7 @@ export function KnowledgeBase({ onNotify }: { onNotify: (title: string, note: st
           <h1 className="text-3xl font-semibold tracking-tight">Knowledge Base</h1>
           <p className="max-w-[62ch] text-sm font-light leading-relaxed text-v-muted">
             Documents here are searched at call time, so agents quote them instead of guessing.
+            Text-based PDFs only (up to 25 MB) — PDFs with images or scanned pages are not supported.
           </p>
         </div>
         <Button onClick={() => setUploadOpen(true)}>

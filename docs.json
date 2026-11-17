@@ -1,11 +1,11 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "VoicEra",
-  "theme": "mint",
+  "theme": "linden",
   "colors": {
-    "primary": "#248F8F",
-    "light": "#8B7FE8",
-    "dark": "#5B4FCF"
+    "primary": "#2563EB",
+    "light": "#0C2D74",
+    "dark": "#82A4F1"
   },
   "navbar": {
     "links": [
@@ -270,5 +270,28 @@
     { "source": "/reference/rest-api", "destination": "/docs/api-reference/overview" },
     { "source": "/reference/endpoints-cheatsheet", "destination": "/docs/api-reference/endpoints-cheatsheet" },
     { "source": "/reference/data-model", "destination": "/docs/developer/reference/data-model" }
-  ]
+  ],
+  "seo": {
+    "metatags": {
+      "domain": "voice",
+      "domain1": "voice ai",
+      "stt": "stt",
+      "tts": "tts",
+      "llm": "llm"
+    },
+    "indexing": "navigable"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "background": {
+    "decoration": "windows"
+  },
+  "fonts": {
+    "family": "Playfair Display"
+  },
+  "description": "Enabling Digital Inclusion in Every Spoken Language"
 }

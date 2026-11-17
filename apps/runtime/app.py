@@ -6,7 +6,7 @@ import os
 
 from fastapi import FastAPI
 
-from apps.runtime.routes import agent, health, telephony, vi_telephony
+from apps.runtime.routes import agent, health, plivo_telephony, telephony, vi_telephony
 
 app = FastAPI(
     title="Voicera Runtime",
@@ -18,6 +18,7 @@ app.include_router(health.router)
 app.include_router(telephony.router)
 app.include_router(agent.router)
 app.include_router(vi_telephony.router)
+app.include_router(plivo_telephony.router)
 
 
 def main() -> None:

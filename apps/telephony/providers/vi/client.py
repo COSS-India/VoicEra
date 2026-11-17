@@ -17,6 +17,8 @@ class ViClient:
     """
 
     PROVIDER_LABEL = "Vodafone Idea"
+    # Dial SIDs and stream call_ids differ; CallLog is created on media connect.
+    DEFERS_CALL_LOG_TO_STREAM = True
 
     def __init__(
         self,
@@ -25,6 +27,8 @@ class ViClient:
         base_url: str,
         *,
         dni_flows: str | list = "",
+        pull_username: str = "",
+        pull_password: str = "",
     ) -> None:
         creds = require_credentials(
             auth_id, auth_token, provider_label=self.PROVIDER_LABEL
@@ -39,6 +43,8 @@ class ViClient:
             raise ValueError(f"{self.PROVIDER_LABEL} {exc}") from exc
         self.credentials: Credentials = creds
         self.base_url = base_url.rstrip("/")
+        self.pull_username = (pull_username or "").strip()
+        self.pull_password = (pull_password or "").strip()
 
     # --- Application ---
 
@@ -58,8 +64,13 @@ class ViClient:
         )
 
     async def link_number(
-        self, phone_number: str, application_id: str
+        self,
+        phone_number: str,
+        application_id: str,
+        *,
+        stream_url: Optional[str] = None,
     ) -> Dict[str, Any]:
+        del stream_url  # unused — VI uses DNI flows, not DID↔WSS attach here
         return await application.link_number(self, phone_number, application_id)
 
     async def unlink_number(self, phone_number: str) -> Dict[str, Any]:
@@ -105,6 +116,16 @@ class ViClient:
         to_numbers: List[str],
         name: Optional[str] = None,
         description: str = "VoicERA VI campaign",
+        fromdate: Optional[str] = None,
+        todate: Optional[str] = None,
+        fromtime: Optional[str] = None,
+        totime: Optional[str] = None,
+        dialtimeout: Optional[int] = None,
+        retrycount: Optional[int] = None,
+        retryintervalvalue: Optional[int] = None,
+        retryintervaltype: Optional[int] = None,
+        existing_campain_key: Optional[str] = None,
+        campaign_ref_id: Any = None,
     ) -> Dict[str, Any]:
         """Capability hook for campaign batch dialing (one OBD campaign)."""
         return await application.initiate_bulk_calls(
@@ -113,6 +134,16 @@ class ViClient:
             to_numbers=to_numbers,
             name=name,
             description=description,
+            fromdate=fromdate,
+            todate=todate,
+            fromtime=fromtime,
+            totime=totime,
+            dialtimeout=dialtimeout,
+            retrycount=retrycount,
+            retryintervalvalue=retryintervalvalue,
+            retryintervaltype=retryintervaltype,
+            existing_campain_key=existing_campain_key,
+            campaign_ref_id=campaign_ref_id,
         )
 
     async def get_bulk_status(
@@ -127,6 +158,29 @@ class ViClient:
             provider_call_sid=provider_call_sid,
             provider_handles=provider_handles,
         )
+
+    async def get_obd_report(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        from_number: Optional[str] = None,
+        started_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Outbound pull report for campaigns submitted through this provider."""
+        return await application.get_obd_report(
+            self,
+            metadata=metadata or {},
+            from_number=from_number,
+            started_at=started_at,
+        )
+
+    async def get_obd_status(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """On-demand OBD campaignstatus for stored provider campaign ids."""
+        return await application.get_obd_status(self, metadata=metadata or {})
 
     # --- Recording (carrier APIs unused; Pipecat AudioBuffer only) ---
 

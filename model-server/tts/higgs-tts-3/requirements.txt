@@ -1,0 +1,10 @@
+# The adapter's dependencies. No torch, no CUDA: generation happens in the
+# SGLang-Omni sidecar (sidecar/Dockerfile), and this process only translates
+# requests and encodes the PCM it is handed. Versions follow tts/rumik-oss-1,
+# the stack already running beside it.
+fastapi==0.136.3
+uvicorn[standard]==0.51.0   # [standard] adds uvloop + httptools: a faster event loop
+pydantic==2.13.4
+httpx==0.28.1               # streaming client to the sidecar
+numpy==2.3.5                # PCM -> array for the mp3/flac/opus encoders
+soundfile==0.14.0           # libsndfile: the mp3/flac/opus response formats

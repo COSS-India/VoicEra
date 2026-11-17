@@ -1,0 +1,16 @@
+# The one thing this model needs when the host has an MPS daemon.
+#
+# An MPS client must run as the same user as the daemon. On ace-h200 the GPU is
+# in Exclusive_Process mode behind a root-owned daemon shared with production,
+# and a CUDA init from an unprivileged user there does not fail -- it BLOCKS in
+# the MPS handshake with no log line, indistinguishable from a model still
+# loading. tts/rumik-oss-1/compose.mps.yml has the full story.
+#
+# compose-files.sh layers this in ONLY when a daemon is really there, so a host
+# whose GPU is in Default mode keeps the image's unprivileged user. The rest of
+# what MPS needs (ipc: host, ulimits, CUDA_MPS_* and the pipe directories) is in
+# the shared model-server/compose.mps.yml.
+
+services:
+  tts:
+    user: "0:0"

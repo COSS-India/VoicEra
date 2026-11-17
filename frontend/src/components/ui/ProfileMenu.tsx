@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, ChevronUp } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
 import { getUserOrganisations, switchOrganisation } from "@/lib/api/users";
-import { saveSession } from "@/lib/auth-storage";
+import { getSession, saveSession } from "@/lib/auth-storage";
 import { formatUserRole } from "@/lib/format";
 import type { OrganisationSummary } from "@/lib/api-types";
 
@@ -83,9 +83,12 @@ export function ProfileMenu({
       if (!result.access_token || !result.org_id || !result.role) {
         throw new Error(result.message || "Couldn't switch organisation.");
       }
+      const existing = getSession();
       saveSession({
         accessToken: result.access_token,
         email,
+        // Keep the account name field — never fall back to email local-part.
+        name: result.name?.trim() || existing?.name?.trim() || (name !== "User" ? name.trim() : undefined) || undefined,
         orgId: result.org_id,
         orgName: result.organisations.find((o) => o.org_id === result.org_id)?.name,
         role: result.role,

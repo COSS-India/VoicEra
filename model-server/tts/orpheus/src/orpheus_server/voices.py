@@ -18,6 +18,11 @@ class VoiceRosterError(ValueError):
     """Raised when voices.json is malformed."""
 
 
+# The one style name that is not a style: a caller passing this asks for the
+# prompt to carry no style block at all. Reserved, so a roster cannot define it.
+NO_STYLE = "none"
+
+
 class Roster:
     """Indexed, validated view of voices.json."""
 
@@ -30,6 +35,11 @@ class Roster:
         self.default_style: Optional[str] = data.get("default_style")
         if self.default_style and self.styles and self.default_style not in self.styles:
             raise VoiceRosterError(f"default_style {self.default_style!r} is not in styles")
+        clash = [s for s in self.styles if s.strip().casefold() == NO_STYLE]
+        if clash:
+            raise VoiceRosterError(
+                f"style {clash[0]!r} collides with the reserved no-style sentinel {NO_STYLE!r}"
+            )
 
         self.languages: list[dict] = list(data.get("languages") or [])
         if not self.languages:
@@ -65,8 +75,11 @@ class Roster:
         voice: str,
         language: Optional[str] = None,
         style: Optional[str] = None,
-    ) -> tuple[str, str, str]:
+    ) -> tuple[str, str, Optional[str]]:
         """Validate a request and return ``(language_code, voice, style)``.
+
+        ``style`` comes back ``None`` only when the caller asked for none by
+        passing :data:`NO_STYLE`; omitting it yields the roster default.
 
         ``language`` is optional whenever the speaker name is unambiguous.
         Raises ``LookupError`` with a message meant for the client.
@@ -93,10 +106,17 @@ class Roster:
                     f"Options: {self.by_code[language]['voices']}"
                 )
 
-        if style is None:
+        if style is not None and style.strip().casefold() == NO_STYLE:
+            # Explicitly asking for no style at all, which is different from not
+            # asking: the prompt then carries no style block rather than the
+            # roster default. Lets a caller hear the checkpoint unconditioned.
+            style = None
+        elif style is None:
             style = self.default_style
         elif self.styles and style not in self.styles:
-            raise LookupError(f"unknown style {style!r}. Options: {self.styles}")
+            raise LookupError(
+                f"unknown style {style!r}. Options: {self.styles}, or {NO_STYLE!r} for none."
+            )
 
         return language, voice, style
 
