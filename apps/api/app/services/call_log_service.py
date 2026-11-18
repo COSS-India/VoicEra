@@ -51,10 +51,19 @@ def _compute_duration_seconds(start_time_utc: str | None, end_time_utc: str) -> 
 
 
 def _schedule_webhook(doc: dict[str, Any] | None) -> None:
-    """Queue the post-call webhook once the call is terminal (never raises)."""
-    from app.services import call_webhook_service
+    """Queue post-call work once the call is terminal (never raises).
 
-    call_webhook_service.schedule_for_call(doc, db=get_database())
+    ``call_output`` is scheduled first so the webhook, which waits for it,
+    sees it pending.
+    """
+    from app.services import call_webhook_service
+    from app.services.call_output import service as call_output_service
+
+    db = get_database()
+    status = call_output_service.schedule_for_call(doc, db=db)
+    if status and doc is not None:
+        doc = {**doc, "call_output_status": status}
+    call_webhook_service.schedule_for_call(doc, db=db)
 
 
 def create_call_log(doc: dict[str, Any]) -> dict[str, Any]:

@@ -374,6 +374,22 @@ class AgentWebhook(BaseModel):
         return self
 
 
+class AgentCallOutput(BaseModel):
+    """Post-call ``call_output``: fields worked out after each answered call."""
+
+    enabled: bool = False
+    provider: Optional[Literal["bluedots"]] = Field(
+        default=None,
+        description="Where the fields come from. 'bluedots' reads AI DPG (Agent Core) logs.",
+    )
+
+    @model_validator(mode="after")
+    def require_provider_when_enabled(self) -> "AgentCallOutput":
+        if self.enabled and not self.provider:
+            raise ValueError("call_output.provider is required when call_output is enabled")
+        return self
+
+
 class AgentConfigPayload(BaseModel):
     """Typed agent behaviour + AI config blob."""
 
@@ -385,6 +401,7 @@ class AgentConfigPayload(BaseModel):
     models: dict[str, AgentModels]
     knowledge_base: AgentKnowledgeBase = AgentKnowledgeBase()
     webhook: AgentWebhook = AgentWebhook()
+    call_output: AgentCallOutput = AgentCallOutput()
     custom_variables: dict[str, Any] = Field(
         default_factory=dict,
         description=(
@@ -854,6 +871,10 @@ class CallLogResponse(BaseModel):
     error_message: Optional[str] = None
     campaign_id: Optional[str] = None
     queued_run_id: Optional[str] = None
+    call_output: Optional[dict[str, Any]] = None
+    call_output_status: Optional[str] = None
+    call_output_error: Optional[str] = None
+    call_output_at: Optional[str] = None
 
 
 class CallLogListResponse(BaseModel):

@@ -61,6 +61,8 @@ The `arq-worker` service sends due deliveries every 10 seconds (`dispatch_call_w
     "duration": 180.0,
     "error_message": null,
     "created_at": "2026-11-13T09:59:58+00:00",
+    "call_output": { "schema": "bluedots.call_output.provisional.v1", "answered": true, "consent": true, "jobs_heard": true, "applied": true, "applications": 1, "last_phase": "apply_confirm", "drop_reason": null },
+    "call_output_status": "ready",
     "transcript": [
       { "index": 0, "role": "assistant", "speaker": "agent", "timestamp": "2026-11-13T10:00:01.000+00:00", "text": "Namaste…" },
       { "index": 1, "role": "user", "speaker": "caller", "timestamp": "2026-11-13T10:00:05.500+00:00", "text": "Haan, boliye." }
@@ -74,7 +76,7 @@ The `arq-worker` service sends due deliveries every 10 seconds (`dispatch_call_w
 }
 ```
 
-`data` is the call log minus internal storage URLs. `data.transcript` holds the turns (same shape as [`GET /calls/{call_id}/transcript/turns`](calls)), or `null` when the call has no transcript (unanswered) or storage could not be read; the event is sent either way. Artifacts are API paths on the same VoicEra API; fetch them with your token. `delivery_id` is the `call_id`; dedupe on it, because a retry or a manual redeliver sends the same call again.
+`data` is the call log minus internal storage URLs. `data.call_output` and `data.call_output_status` are set when the agent has [`call_output`](call-output) turned on; the event then waits for it (up to `CALL_OUTPUT_WEBHOOK_MAX_WAIT_SECONDS`). `data.transcript` holds the turns (same shape as [`GET /calls/{call_id}/transcript/turns`](calls)), or `null` when the call has no transcript (unanswered) or storage could not be read; the event is sent either way. Artifacts are API paths on the same VoicEra API; fetch them with your token. `delivery_id` is the `call_id`; dedupe on it, because a retry or a manual redeliver sends the same call again.
 
 Headers:
 

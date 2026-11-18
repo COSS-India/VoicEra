@@ -44,6 +44,7 @@ EVENT_CALL_ENDED = "call.ended"
 TERMINAL_STATUSES = frozenset({"completed", "failed"})
 SECRET_PREFIX = "whsec_"
 USER_AGENT = "VoicEra-Webhooks/1"
+CALL_OUTPUT_POLL_SECONDS = 10
 
 STATE_PENDING = "pending"
 STATE_IN_FLIGHT = "in_flight"
@@ -73,6 +74,8 @@ _PAYLOAD_FIELDS = (
     "duration",
     "error_message",
     "created_at",
+    "call_output",
+    "call_output_status",
 )
 
 
@@ -336,6 +339,8 @@ async def deliver(
     if not url:
         return _finish(database, delivery, attempt=attempt, ok=False, status_code=None,
                        error="webhook disabled on the agent", retry=False)
+    if _wait_for_call_output(call, agent, delivery):
+        return _postpone(database, delivery)
     secret = agent_secret(agent)
     if not secret:
         return _finish(database, delivery, attempt=attempt, ok=False, status_code=None,
@@ -375,6 +380,28 @@ async def deliver(
                        status_code=response.status_code, error=None)
     return _finish(database, delivery, attempt=attempt, ok=False,
                    status_code=response.status_code, error=f"HTTP {response.status_code}")
+
+
+def _wait_for_call_output(call: dict[str, Any], agent: dict[str, Any] | None, delivery: dict[str, Any]) -> bool:
+    from app.services.call_output import service as call_output_service
+
+    return call_output_service.webhook_should_wait(call, agent, waiting_since=delivery.get("created_at"))
+
+
+def _postpone(database: Any, delivery: dict[str, Any]) -> dict[str, Any]:
+    """Hold the event for call_output; no attempt is used up."""
+    now = _now()
+    update = {
+        "state": STATE_PENDING,
+        "next_attempt_at": now + timedelta(seconds=CALL_OUTPUT_POLL_SECONDS),
+        "lease_until": None,
+        "last_error": "waiting for call_output",
+        "updated_at": now,
+    }
+    doc = database[COLLECTION].find_one_and_update(
+        {"call_id": delivery["call_id"]}, {"$set": update}, return_document=ReturnDocument.AFTER
+    )
+    return doc or {**delivery, **update}
 
 
 def claim_due(*, limit: int, db: Any = None, now: datetime | None = None) -> list[dict[str, Any]]:

@@ -10,6 +10,15 @@ from app.services import call_webhook_service
 logger = logging.getLogger(__name__)
 
 
+async def dispatch_call_outputs(ctx: dict[str, Any]) -> int:
+    from app.services.call_output import service as call_output_service
+
+    done = await call_output_service.dispatch_due()
+    if done:
+        logger.info("Computed call_output for %s call(s)", done)
+    return done
+
+
 async def dispatch_call_webhooks(ctx: dict[str, Any]) -> int:
     sent = await call_webhook_service.dispatch_due()
     if sent:

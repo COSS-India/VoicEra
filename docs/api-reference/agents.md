@@ -48,6 +48,8 @@ Failure codes: `422` for a config validation error (with the message as a plain 
 
 `config.webhook` (`{"enabled": bool, "url": "https://…"}`) turns on the [post-call webhook](webhooks) for the agent. It is optional and off by default.
 
+`config.call_output` (`{"enabled": bool, "provider": "bluedots"}`) turns on [post-call `call_output`](call-output) for the agent. It is optional and off by default.
+
 ## `POST /agents/{agent_id}/webhook/secret`
 
 Bearer, `admin` or `super_admin`. `201`. Creates or rotates the webhook signing secret and returns it once as `{"agent_id", "secret"}`. See [Post-call webhooks](webhooks).

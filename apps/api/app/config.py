@@ -136,6 +136,44 @@ class Settings(BaseSettings):
         description="Allow http:// webhook URLs (local development only)",
     )
 
+    # Post-call call_output (see app/services/call_output/)
+    CALL_OUTPUT_DELAY_SECONDS: int = Field(
+        default=45,
+        description="Wait after an answered call ends before working out call_output",
+    )
+    CALL_OUTPUT_RETRY_SECONDS: int = Field(default=30, description="Delay between call_output attempts")
+    CALL_OUTPUT_MAX_ATTEMPTS: int = Field(default=6, description="Attempts before call_output is marked failed")
+    CALL_OUTPUT_LEASE_SECONDS: int = Field(default=120, description="Worker lease on a call being computed")
+    CALL_OUTPUT_DISPATCH_BATCH: int = Field(default=20, description="Calls computed per dispatcher run")
+    CALL_OUTPUT_LOG_GRACE_SECONDS: int = Field(
+        default=180,
+        description="How long after a call ends missing provider logs mean 'not there yet' rather than 'none'",
+    )
+    CALL_OUTPUT_WEBHOOK_MAX_WAIT_SECONDS: int = Field(
+        default=600,
+        description="Longest the post-call webhook waits for call_output before sending without it",
+    )
+    CALL_OUTPUT_LLM_BASE_URL: str = Field(
+        default="",
+        description="OpenAI-compatible base URL for reading transcripts (e.g. https://api.openai.com/v1)",
+    )
+    CALL_OUTPUT_LLM_MODEL: str = Field(default="", description="Model for reading transcripts, e.g. gpt-4.1-mini")
+    CALL_OUTPUT_LLM_API_KEY: str = Field(default="", description="API key for the transcript model")
+    CALL_OUTPUT_LLM_TIMEOUT_SECONDS: float = Field(default=30.0, description="Timeout per transcript request")
+    CALL_OUTPUT_LLM_JSON_MODE: bool = Field(
+        default=True,
+        description="Send response_format=json_object (turn off for servers that reject it)",
+    )
+    BLUEDOTS_LOKI_URL: str = Field(
+        default="",
+        description="AI DPG Loki base URL reachable from the worker, e.g. http://loki:3100",
+    )
+    BLUEDOTS_LOKI_SELECTOR: str = Field(
+        default='{job=~"agent_core|action_gateway"}',
+        description="LogQL stream selector for AI DPG's Agent Core and Action Gateway logs",
+    )
+    BLUEDOTS_LOKI_TIMEOUT_SECONDS: float = Field(default=10.0, description="Timeout per Loki query")
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def coerce_debug(cls, value: Any) -> bool:

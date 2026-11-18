@@ -27,6 +27,7 @@ from app.models.schemas import (
     WebCallRegisterResponse,
 )
 from app.services import call_webhook_service, member_service, org_service
+from app.services.call_output import service as call_output_service
 from app.services.call_transcript_service import TranscriptUnavailableError, load_turns
 from app.services.call_log_service import (
     CallLogNotFoundError,
@@ -502,6 +503,22 @@ async def redeliver_call_webhook(
             detail="Call has not ended or its agent has no enabled webhook",
         )
     return delivery
+
+
+@router.post("/{call_id}/call-output/recompute", status_code=status.HTTP_202_ACCEPTED)
+async def recompute_call_output(
+    call_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Work out the call's ``call_output`` again (e.g. after a failed attempt)."""
+    org_id = _require_active_org(current_user)
+    doc = call_output_service.recompute(org_id, call_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Call has not ended or its agent has no call_output provider",
+        )
+    return {"call_id": call_id, "call_output_status": doc.get("call_output_status")}
 
 
 @router.get("/{call_id}", response_model=CallLogResponse)

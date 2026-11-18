@@ -88,6 +88,7 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | GET | `/api/v1/calls/{call_id}` | Bearer | Fetch one call log. |
 | GET | `/api/v1/calls/{call_id}/webhook` | Bearer | Post-call webhook delivery status for one call. |
 | POST | `/api/v1/calls/{call_id}/webhook/redeliver` | Bearer | Send the call's post-call webhook again now. |
+| POST | `/api/v1/calls/{call_id}/call-output/recompute` | Bearer | Work out the call's `call_output` again. |
 | POST | `/api/v1/campaign/upload` | Bearer | Upload a contact CSV; returns the `source_id` to pass to create. |
 | POST | `/api/v1/campaign/create` | Bearer | Create a campaign against an agent and an uploaded CSV. |
 | GET | `/api/v1/campaign/` | Bearer | List campaigns in the active organisation. |

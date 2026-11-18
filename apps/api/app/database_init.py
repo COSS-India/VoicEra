@@ -195,6 +195,12 @@ def _ensure_call_logs(db: Database, existing: set[str]) -> None:
         name="org_campaign_created_index",
         sparse=True,
     )
+    _ensure_index(
+        call_logs,
+        [("call_output_status", 1), ("call_output_due_at", 1)],
+        name="call_output_status_due_index",
+        sparse=True,
+    )
 
 
 def _ensure_call_webhook_deliveries(db: Database, existing: set[str]) -> None:
