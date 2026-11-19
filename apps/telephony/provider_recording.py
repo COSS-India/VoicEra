@@ -1,4 +1,4 @@
-"""Shared provider-recording ingest (download URL → MinIO → CallLog).
+"""Shared provider-recording ingest (download URL → object storage → CallLog).
 
 Provider-specific webhook parsing and call-id extraction live under
 ``apps.telephony.providers.<id>``. This module only handles the common
@@ -30,7 +30,7 @@ class ProviderRecordingRef:
 
 
 def recording_filename_for_url(url: str, *, default_ext: str = "wav") -> str:
-    """Choose a MinIO object basename for a provider recording."""
+    """Choose an object-storage basename for a provider recording."""
     path = unquote(urlparse(str(url or "")).path)
     suffix = PurePosixPath(path).suffix.lstrip(".").lower()
     if suffix in {"wav", "mp3", "ogg", "amr", "mpeg"}:

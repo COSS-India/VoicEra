@@ -155,23 +155,28 @@ def patch_call_log_by_provider_sid(
     return patch_call_log(org_id, call_id, patch)
 
 
+def _is_storage_uri(value: Any) -> bool:
+    """True for stored object URIs (``s3://`` or legacy ``minio://``)."""
+    return str(value or "").startswith(("s3://", "minio://"))
+
+
 def transform_call_log_urls(
     doc: dict[str, Any],
     *,
     api_prefix: str = "/api/v1",
 ) -> dict[str, Any]:
-    """Rewrite ``minio://`` artifact URLs to authenticated API proxy paths."""
+    """Rewrite ``s3://`` / ``minio://`` artifact URLs to authenticated API proxy paths."""
     result = dict(doc)
     call_id = str(result.get("call_id") or "")
     if not call_id:
         return result
-    if str(result.get("recording_url") or "").startswith("minio://"):
+    if _is_storage_uri(result.get("recording_url")):
         result["recording_url"] = f"{api_prefix}/calls/{call_id}/recording"
-    if str(result.get("provider_recording_url") or "").startswith("minio://"):
+    if _is_storage_uri(result.get("provider_recording_url")):
         result["provider_recording_url"] = (
             f"{api_prefix}/calls/{call_id}/provider-recording"
         )
-    if str(result.get("transcript_url") or "").startswith("minio://"):
+    if _is_storage_uri(result.get("transcript_url")):
         result["transcript_url"] = f"{api_prefix}/calls/{call_id}/transcript"
     return result
 

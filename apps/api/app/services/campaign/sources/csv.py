@@ -13,15 +13,14 @@ from app.services.campaign.source_sync import (
     ValidationError,
     ValidationResult,
 )
-from app.storage.minio_client import MinIOStorage
+from app.storage.object_storage import get_object_storage
 
 logger = logging.getLogger(__name__)
 
 
 class CSVSyncService(CampaignSourceSyncService):
     async def _fetch_csv_data(self, file_key: str) -> list[list[str]]:
-        storage = MinIOStorage()
-        content = await storage.get_object_bytes(file_key)
+        content = await get_object_storage().get_object_bytes(file_key)
         text = content.decode("utf-8-sig")
         reader = csv.reader(StringIO(text))
         return list(reader)
