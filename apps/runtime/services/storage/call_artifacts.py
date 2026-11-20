@@ -1,4 +1,4 @@
-"""Upload call artifacts to MinIO and link them on the CallLog via the API."""
+"""Upload call artifacts to object storage (S3) and link them on the CallLog via the API."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ async def save_and_link(
     link_once: bool = False,
     linked: bool = False,
 ) -> bool:
-    """Upload artifact bytes and PATCH the CallLog with a ``minio://`` URI.
+    """Upload artifact bytes and PATCH the CallLog with an ``s3://`` URI.
 
     Returns whether the CallLog was linked (``link_once`` may skip repeat PATCHes).
     """

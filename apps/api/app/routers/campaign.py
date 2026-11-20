@@ -50,7 +50,7 @@ from app.services.campaign.runner import campaign_runner_service
 from app.services.campaign.source_sync_factory import get_sync_service
 from app.services.campaign.status_processor import handle_call_terminal
 from app.services import phone_number_service
-from app.storage.minio_client import MinIOStorage
+from app.storage.object_storage import get_object_storage
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +244,7 @@ async def upload_campaign_csv(
 
     safe_name = filename.replace("/", "_").replace("\\", "_")
     source_id = f"campaigns/{org_id}/{uuid.uuid4()}_{safe_name}"
-    storage = MinIOStorage()
+    storage = get_object_storage()
     try:
         await storage.put_object_bytes(source_id, content, content_type="text/csv")
     except Exception as exc:
@@ -640,12 +640,13 @@ def _call_filename(call_id: str) -> str:
 async def _transcript_text(log: dict[str, Any] | None) -> str:
     if not log:
         return ""
-    parsed = MinIOStorage.parse_minio_url(str(log.get("transcript_url") or ""))
+    storage = get_object_storage()
+    parsed = storage.parse_storage_url(str(log.get("transcript_url") or ""))
     if not parsed:
         return ""
     bucket, key = parsed
     try:
-        data = await MinIOStorage().get_object_bytes(key, bucket_name=bucket)
+        data = await storage.get_object_bytes(key, bucket_name=bucket)
     except Exception:
         logger.warning(
             "OBD transcript read failed call_id=%s",
@@ -823,8 +824,10 @@ async def source_download_url(
         doc = repo.get_campaign_for_org(org_id, campaign_id)
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    storage = MinIOStorage()
-    url = storage.presigned_get_url(str(doc["source_id"]))
+    storage = get_object_storage()
+    source_key = str(doc["source_id"])
+    resolved_key = await storage.alocate(source_key) or source_key
+    url = storage.presigned_get_url(resolved_key)
     return {"download_url": url}
 
 

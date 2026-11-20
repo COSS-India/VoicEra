@@ -69,10 +69,6 @@ class Settings(BaseSettings):
         default=25 * 1024 * 1024,
         description="Maximum PDF upload size for knowledge base",
     )
-    MINIO_BUCKET: str = Field(
-        default="voicera-calls",
-        description="Default MinIO bucket (call artifacts and KB objects)",
-    )
     VOICE_SERVER_BASE_URL: str = Field(
         default="",
         description=(
