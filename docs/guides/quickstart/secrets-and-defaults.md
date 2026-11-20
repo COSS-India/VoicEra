@@ -11,7 +11,7 @@ No seeded account, no default login. The first `POST /users/signup` creates the 
 
 ## Generated secrets
 
-`make application-up` (which wraps `./scripts/start-application-services.sh`) generates these into `.env` when blank, and never overwrites an existing value.
+`make application-up` (which wraps `./scripts/start-application-services.sh`) generates these into `.env` when blank, and never overwrites an existing value. `.env.example` ships them blank, so every install gets its own.
 
 | Variable | Protects | If it changes |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ No seeded account, no default login. The first `POST /users/signup` creates the 
 Generate by hand:
 
 ```bash
-# SECRET_KEY, INTERNAL_API_KEY
+# SECRET_KEY, INTERNAL_API_KEY — run once per variable; never reuse a value
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 # PROVIDER_AUTH_ENCRYPTION_KEY
@@ -39,15 +39,15 @@ If `SECRET_KEY` is blank, the API does **not** fail — `apps/api/app/auth.py` l
 
 ## Shipped defaults
 
-These are in `.env.example` and `docker-compose.yaml`. Change every one before exposing anything.
+The passwords ship blank in `.env.example`, and the start script generates a random value for each on first run (it also sets `MINIO_SECRET_KEY` and `REDIS_URL` to match). The values below are only `docker-compose.yaml`'s fallbacks for a blank variable — make sure none of them is in use before exposing anything.
 
 | Service | Variable | Default |
 | --- | --- | --- |
 | FerretDB / PostgreSQL | `MONGODB_USER` | `admin` |
-| | `MONGODB_PASSWORD` | `admin123` |
+| | `MONGODB_PASSWORD` | generated; fallback `admin123` |
 | MinIO | `MINIO_ROOT_USER` / `MINIO_ACCESS_KEY` | `minioadmin` |
-| | `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY` | `minioadmin123` |
-| Redis | `REDIS_PASSWORD` | `redissecret` |
+| | `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY` | generated; fallback `minioadmin123` |
+| Redis | `REDIS_PASSWORD` | generated; fallback `redissecret` |
 
 `MONGODB_USER` and `MONGODB_PASSWORD` are used **twice** — as the PostgreSQL superuser and as the FerretDB credentials. Changing them changes both.
 
@@ -72,10 +72,8 @@ Full list in [Environment variables](../../developer/reference/environment-varia
 ## Before you expose this
 
 - [ ] Signed up the first user
-- [ ] Changed `MONGODB_PASSWORD`
-- [ ] Changed `MINIO_ROOT_PASSWORD` and the matching access keys
-- [ ] Changed `REDIS_PASSWORD`
-- [ ] Confirmed all three generated secrets are non-empty
+- [ ] Confirmed `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, `MINIO_SECRET_KEY`, and `REDIS_PASSWORD` are set and are not the fallback values
+- [ ] Confirmed all three generated secrets are non-empty and are not the values older `.env.example` files shipped (see [Environment variables](../../developer/reference/environment-variables))
 - [ ] Backed up `PROVIDER_AUTH_ENCRYPTION_KEY` somewhere safe
 - [ ] Stopped publishing the MinIO console publicly
 - [ ] Put TLS in front of the API and runtime

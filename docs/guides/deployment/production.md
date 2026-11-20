@@ -14,7 +14,7 @@ Every item below is in `docker-compose.yaml` or `apps/api/app/main.py` today:
 | `uvicorn --reload` on `api` | Enabled | Watches files, uses more memory, restarts on any change |
 | Source bind-mounts | `./apps` mounted into `api`, `arq-worker`, `campaign-orchestrator` | Those containers are not self-contained; the image is not what runs |
 | CORS | `allow_origins=["*"]` with `allow_credentials=True` | Any origin can call the API with credentials |
-| Passwords | `admin123`, `minioadmin123`, `redissecret` | Public knowledge |
+| Passwords | Generated on first run; Compose falls back to `admin123`, `minioadmin123`, `redissecret` when blank | Fallbacks are public knowledge |
 | MinIO console | Published on `9001` | Admin UI exposed |
 | TLS | None | Telephony providers require HTTPS and WSS |
 | Replicas | One of each | No redundancy |

@@ -37,7 +37,7 @@ The mapping is `"${FERRETDB_HOST_PORT:-27018}:27017"`. Which port you use depend
 `mongodb` is a network alias on the `ferretdb` service, not a separate container. The container itself is `voicera_oss_ferretdb`.
 
 ```bash
-mongosh "mongodb://admin:admin123@localhost:27018/voicera"
+mongosh "mongodb://admin:<MONGODB_PASSWORD>@localhost:27018/voicera"
 ```
 
 ### Postgres and Redis publish nothing
@@ -47,7 +47,7 @@ Neither service has a `ports:` block. They are reachable only from `app-network`
 To reach either from your host for debugging, use `docker compose exec` rather than adding a `ports:` block:
 
 ```bash
-docker compose exec redis redis-cli -a redissecret ping
+docker compose exec redis redis-cli -a <REDIS_PASSWORD> ping
 docker compose exec postgres psql -U admin -d postgres
 ```
 
@@ -70,16 +70,16 @@ Override the upstream addresses only to point a slot at a different host entirel
 
 ## Default credentials
 
-These ship in `.env.example` and are what the stack comes up with if you change nothing.
+The passwords ship blank in `.env.example`; the start script generates a random value for each on first run. `docker-compose.yaml` still falls back to the old weak values below if the variable is blank, for example after a manual `cp .env.example .env`.
 
 | What | Username | Password | Where |
 |---|---|---|---|
-| MinIO root and application keys | `minioadmin` | `minioadmin123` | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`, `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` |
-| FerretDB and PostgreSQL | `admin` | `admin123` | `MONGODB_USER` / `MONGODB_PASSWORD`, reused as `POSTGRES_USER` / `POSTGRES_PASSWORD` |
-| Redis | — | `redissecret` | `REDIS_PASSWORD` |
+| MinIO root and application keys | `minioadmin` | Generated into `.env` on first run (fallback `minioadmin123`) | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`, `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` |
+| FerretDB and PostgreSQL | `admin` | Generated into `.env` on first run (fallback `admin123`) | `MONGODB_USER` / `MONGODB_PASSWORD`, reused as `POSTGRES_USER` / `POSTGRES_PASSWORD` |
+| Redis | — | Generated into `.env` on first run (fallback `redissecret`) | `REDIS_PASSWORD` |
 
 <Warning>
-Change all three before any deployment reachable from outside your machine. MinIO and FerretDB are both published on the host by default, so these credentials are live on `localhost:9000` and `localhost:27018` the moment the stack starts. Redis is not published, but its password is interpolated into `REDIS_URL` — changing `REDIS_PASSWORD` alone is enough, because Compose rebuilds the URL from it. See [Security hardening](../../guides/deployment/security-hardening).
+Make sure none of them is still a fallback value before any deployment reachable from outside your machine. MinIO and FerretDB are both published on the host by default, so these credentials are live on `localhost:9000` and `localhost:27018` the moment the stack starts. Redis is not published, but its password is interpolated into `REDIS_URL` — changing `REDIS_PASSWORD` alone is enough, because Compose rebuilds the URL from it. See [Security hardening](../../guides/deployment/security-hardening).
 </Warning>
 
 There is no default VoicEra login. The first `super_admin` is created by `POST /api/v1/users/signup` — see [Create the first user](../../guides/quickstart/install-and-run#5-create-the-first-user).

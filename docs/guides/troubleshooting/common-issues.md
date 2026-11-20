@@ -96,7 +96,7 @@ Setting it to `admin` — correct for real MongoDB, and what the old mono repo u
 You are using the container port from outside Docker. From your host the port is **27018**; `27017` only works inside the Compose network:
 
 ```bash
-mongosh "mongodb://admin:admin123@localhost:27018/voicera"
+mongosh "mongodb://admin:<MONGODB_PASSWORD>@localhost:27018/voicera"
 ```
 
 ## Configuration is ignored
