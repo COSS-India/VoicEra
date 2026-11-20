@@ -239,6 +239,25 @@ async def patch_call(
     return transform_call_log_urls(doc, api_prefix=settings.API_V1_PREFIX)
 
 
+@router.get("/{call_id}/recording/signed")
+async def get_call_recording_signed(
+    call_id: str,
+    org: str = Query(...),
+    expires: int = Query(...),
+    sig: str = Query(...),
+) -> StreamingResponse:
+    """Stream a recording without login, for a link from the post-call webhook."""
+    from app.services.recording_links import verify
+
+    if not verify(org, call_id, expires, sig):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired link")
+    try:
+        call = get_call_log(org, call_id)
+    except CallLogNotFoundError as exc:
+        _raise_call_not_found(exc)
+    return _recording_response(call)
+
+
 @router.get("/{call_id}/recording")
 async def get_call_recording(
     call_id: str,
@@ -250,7 +269,10 @@ async def get_call_recording(
         call = get_call_log(org_id, call_id)
     except CallLogNotFoundError as exc:
         _raise_call_not_found(exc)
+    return _recording_response(call)
 
+
+def _recording_response(call: dict[str, Any]) -> StreamingResponse:
     recording_url = call.get("recording_url")
     if not recording_url:
         raise HTTPException(

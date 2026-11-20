@@ -167,6 +167,30 @@ def verify_signature(
 # ---------------------------------------------------------------------------
 
 
+def webhook_format(agent_doc: dict[str, Any] | None) -> str:
+    webhook = ((agent_doc or {}).get("config") or {}).get("webhook") or {}
+    value = webhook.get("format") if isinstance(webhook, dict) else None
+    return "raya" if value == "raya" else "voicera"
+
+
+def _raya_payload(call: dict[str, Any], database: Any) -> dict[str, Any]:
+    from app.services.raya_webhook import build_raya_payload, contact_id_for
+    from app.services.recording_links import signed_recording_url
+
+    # Only MinIO recordings can be served by the signed link.
+    has_recording = bool(call.get("recording_url"))
+    recording = (
+        signed_recording_url(str(call.get("org_id") or ""), str(call.get("call_id") or ""))
+        if has_recording else None
+    )
+    return build_raya_payload(
+        call,
+        transcript=_load_transcript_turns(call),
+        recording_url=recording,
+        contact_id=contact_id_for(call, database),
+    )
+
+
 def webhook_target(agent_doc: dict[str, Any] | None) -> str | None:
     """Return the agent's webhook URL when the webhook is enabled."""
     webhook = ((agent_doc or {}).get("config") or {}).get("webhook") or {}
@@ -347,12 +371,15 @@ async def deliver(
                        error="agent has no webhook signing secret; rotate one first")
 
     sent_at = _now()
-    payload = build_payload(
-        call,
-        attempt=attempt,
-        sent_at=sent_at,
-        transcript=_load_transcript_turns(call),
-    )
+    if webhook_format(agent) == "raya":
+        payload = _raya_payload(call, database)
+    else:
+        payload = build_payload(
+            call,
+            attempt=attempt,
+            sent_at=sent_at,
+            transcript=_load_transcript_turns(call),
+        )
     body = json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8")
     timestamp = int(sent_at.timestamp())
     headers = {

@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     MAILTRAP_FROM_EMAIL: str = "noreply@voicera.com"
     MAILTRAP_FROM_NAME: str = "Voicera"
     FRONTEND_URL: str = "http://localhost:3000"
+    PUBLIC_BASE_URL: str = Field(
+        default="",
+        description="Public origin for links sent outside (e.g. signed recording links); defaults to FRONTEND_URL",
+    )
+    RECORDING_LINK_TTL_SECONDS: int = Field(
+        default=7 * 24 * 3600, description="How long a signed recording link works"
+    )
 
     INTERNAL_API_KEY: str = ""
     PROVIDER_AUTH_ENCRYPTION_KEY: str = Field(

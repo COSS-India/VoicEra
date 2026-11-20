@@ -342,6 +342,13 @@ class AgentWebhook(BaseModel):
         default=None,
         description="HTTPS endpoint that receives the call.ended event.",
     )
+    format: Literal["voicera", "raya"] = Field(
+        default="voicera",
+        description=(
+            "Body shape: 'voicera' (call.ended envelope) or 'raya' (Raya's flat "
+            "post-call webhook fields, for receivers built for Raya)."
+        ),
+    )
 
     @field_validator("url", mode="before")
     @classmethod

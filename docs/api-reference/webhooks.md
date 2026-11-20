@@ -88,6 +88,39 @@ Headers:
 | `X-VoicEra-Timestamp` | Unix seconds when signed |
 | `X-VoicEra-Signature` | `v1=<hex>` |
 
+## Raya-compatible body
+
+For receivers built for Raya, set `"format": "raya"` on the agent's webhook:
+
+```json
+{ "config": { "webhook": { "enabled": true, "url": "https://receiver.example/hook", "format": "raya" } } }
+```
+
+The body is then Raya's flat post-call webhook (fields from Raya's docs), with no `event`/`data` envelope. The headers, signature, retries and the wait for `call_output` are the same as above.
+
+| Field | Value |
+| --- | --- |
+| `uuid` | `call_id` |
+| `caller_no`, `to_number` | Calling and called numbers, digits only |
+| `in_did` / `out_did` | Our number as a number on inbound / outbound calls, else `null` |
+| `outcome` | `"Completed"` when answered, otherwise `"Failure"` |
+| `call_start_time`, `call_end_time`, `created_at` | ISO 8601 UTC ending in `Z` |
+| `call_duration` | Whole seconds |
+| `agent_id`, `agent_args` | Agent ID and the call's `custom_variables` |
+| `timezone` | `"UTC"` |
+| `call_output` | The call's `call_output`; `{}` on `Failure` |
+| `batch_id`, `contact_id` | Campaign ID and contact ID (the first queued run for the contact, as in `GET /campaign/{id}/contacts`) |
+| `call_transcript` | Turns as `{role, content, timestamp}`; `[]` on `Failure` |
+| `call_recording_url` | Signed link that plays without login; `""` when there is none |
+
+<Warning>
+Raya's docs do not define the `call_transcript` turn shape. The `{role, content, timestamp}` shape is provisional until checked against a real Raya body; it is built in one place, `raya_transcript` in `apps/api/app/services/raya_webhook.py`.
+</Warning>
+
+### Signed recording links
+
+`call_recording_url` is `{PUBLIC_BASE_URL}/api/v1/calls/{call_id}/recording/signed?org=…&expires=…&sig=…`. It streams the recording without a login until it expires (`RECORDING_LINK_TTL_SECONDS`, default 7 days). `sig` is HMAC-SHA256 over `org.call_id.expires` with a key derived from `SECRET_KEY`, so rotating `SECRET_KEY` revokes every link. `PUBLIC_BASE_URL` defaults to `FRONTEND_URL` and must be the address the receiver can reach.
+
 ## Verify the signature
 
 `hex = HMAC-SHA256(secret, "{X-VoicEra-Timestamp}.{raw request body}")`. Compute it over the raw bytes before parsing JSON, compare in constant time, and reject timestamps more than 5 minutes old.
