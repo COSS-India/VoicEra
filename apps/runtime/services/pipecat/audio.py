@@ -49,6 +49,22 @@ def caller_phone(call_log: dict[str, Any] | None) -> str | None:
     return re.sub(r"\D", "", str(call_log.get(field) or "")) or None
 
 
+# Custom variable a browser test call can carry as the caller's number. A
+# phone call never reads it: its number is the call's own (``caller_phone``).
+TEST_CALLER_PHONE_VARIABLE = "caller_phone"
+
+
+def web_caller_phone(custom_variables: dict[str, Any] | None) -> str | None:
+    """A browser test call's stand-in caller number, digits only, or ``None``.
+
+    A web call has no phone number, but an LLM endpoint such as BlueDots' keys
+    the caller's profile on one. Testing from the browser sets the
+    ``caller_phone`` custom variable (on the agent, or on the web call).
+    """
+    value = (custom_variables or {}).get(TEST_CALLER_PHONE_VARIABLE)
+    return re.sub(r"\D", "", str(value or "")) or None
+
+
 def prompts(
     agent: dict[str, Any],
     *,

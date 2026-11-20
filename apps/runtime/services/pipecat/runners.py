@@ -96,6 +96,7 @@ async def run_websocket_bot(
     agent: dict[str, Any],
     call_id: str | None = None,
     custom_variables: dict[str, Any] | None = None,
+    caller_phone: str | None = None,
 ) -> None:
     """Run the Pipecat pipeline for a browser WebSocket client (RTVI/protobuf)."""
     sample_rate = websocket_sample_rate()
@@ -111,6 +112,7 @@ async def run_websocket_bot(
         sample_rate=sample_rate,
         call_id=call_id,
         custom_variables=custom_variables,
+        caller_phone=caller_phone,
         session_label=session_label,
         finalize_call=bool(call_id),
     )
