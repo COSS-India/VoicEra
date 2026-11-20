@@ -10,6 +10,8 @@ from pipecat.processors.aggregators.llm_response_universal import (
     UserTurnStoppedMessage,
 )
 
+from apps.runtime.services.privacy.redaction import redact_if_enabled
+
 
 def register_turn_logging_handlers(
     user_aggregator: Any,
@@ -21,7 +23,7 @@ def register_turn_logging_handlers(
     async def on_user_turn_stopped(
         aggregator: Any, strategy: Any, message: UserTurnStoppedMessage
     ) -> None:
-        logger.info("[{}] user: {}", message.timestamp, message.content)
+        logger.info("[{}] user: {}", message.timestamp, redact_if_enabled(message.content))
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(
@@ -30,4 +32,6 @@ def register_turn_logging_handlers(
         if message.interrupted:
             logger.info("Assistant interrupted {}", session_label)
         if message.content:
-            logger.info("[{}] assistant: {}", message.timestamp, message.content)
+            logger.info(
+                "[{}] assistant: {}", message.timestamp, redact_if_enabled(message.content)
+            )

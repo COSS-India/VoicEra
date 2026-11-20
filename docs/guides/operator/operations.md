@@ -189,6 +189,29 @@ Rotating the Fernet key has no migration path in the code: `apps/api/app/service
 
 Infrastructure passwords — `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, `REDIS_PASSWORD` — need coordinated changes because Compose interpolates each into more than one place. `MONGODB_PASSWORD` is also `POSTGRES_PASSWORD`, and changing it against an initialised Postgres volume does not change the existing database user. `REDIS_PASSWORD` is the easy one: Compose rebuilds `REDIS_URL` from it, so changing it and recreating is enough. Details in [Security hardening](../deployment/security-hardening).
 
+## Redacting PII in transcripts
+
+Set `PII_REDACTION_ENABLED=true` in `.env` and restart the `runtime` service. From then on each transcript line is redacted before it is written to MinIO, so the transcript download and the translate endpoint only ever see redacted text.
+
+| Placeholder | What it replaces |
+| --- | --- |
+| `[REDACTED_EMAIL]` | Email addresses |
+| `[REDACTED_PHONE]` | Indian mobile numbers, with or without `+91` |
+| `[REDACTED_AADHAAR]` | 12-digit Aadhaar-style numbers |
+| `[REDACTED_PAN]` | PAN numbers |
+| `[REDACTED_CARD]` | Payment card numbers (Luhn-checked) |
+| `[REDACTED_DOB]` | Dates written as `DD/MM/YYYY` |
+| `[REDACTED_NUMBER]` | Any other run of nine or more digits |
+
+To redact only some of these, list them in `PII_REDACTION_ENTITIES`, for example `PHONE,EMAIL`.
+
+Limits to know about:
+
+- Redaction is permanent. The original text is not kept anywhere.
+- Transcripts stored before the setting was turned on are not changed.
+- Numbers spoken as words, names and postal addresses are not detected.
+- Call recordings are not redacted.
+
 ## Capacity signals
 
 VoicEra exposes no metrics endpoint. Capacity is read from the API, from Docker, and from the logs.
