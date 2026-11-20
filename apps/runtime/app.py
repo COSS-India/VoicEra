@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from loguru import logger
 
 from apps.runtime.routes import agent, health, plivo_telephony, telephony, vi_telephony
+from apps.runtime.services.storage.object_storage import sse_mode, verify_sse_support
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Uploads only log failures, so a broken SSE setup must stop startup instead.
+    logger.info("Object storage SSE mode={}", sse_mode())
+    await verify_sse_support()
+    yield
+
 
 app = FastAPI(
     title="Voicera Runtime",
     description="Telephony answer webhook + Pipecat WebSocket pipeline",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.include_router(health.router)
