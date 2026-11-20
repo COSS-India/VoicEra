@@ -116,6 +116,67 @@ else
     echo "PROVIDER_AUTH_ENCRYPTION_KEY is already set in $ENV_FILE."
 fi
 
+# Infrastructure passwords (FerretDB/Postgres, MinIO, Redis). Same rule as the
+# secrets above: only a blank value is generated, so an existing install keeps
+# the passwords its data was created with. Alphanumeric only, because these are
+# interpolated into connection URLs and redis-server's command line.
+generate_password() {
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import secrets, string; a = string.ascii_letters + string.digits; print("".join(secrets.choice(a) for _ in range(32)))'; then
+        return
+    fi
+
+    if command -v openssl >/dev/null 2>&1 && openssl rand -hex 16; then
+        return
+    fi
+
+    fail "Could not generate a password. Install python3 or openssl, or set passwords manually in .env."
+}
+
+existing_db_password="$(dotenv_value MONGODB_PASSWORD || true)"
+if [[ -z "$existing_db_password" ]]; then
+    # Postgres applies POSTGRES_PASSWORD only when its data volume is first
+    # created. A new password against an existing volume would lock the stack
+    # out of its own database, so refuse rather than generate one.
+    compose_project="${COMPOSE_PROJECT_NAME:-$(basename "$ROOT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')}"
+    db_volume="${compose_project}_voicera_oss_ferretdb_postgres_data"
+    if command -v docker >/dev/null 2>&1 && docker volume inspect "$db_volume" >/dev/null 2>&1; then
+        fail "MONGODB_PASSWORD is blank in $ENV_FILE, but database volume '$db_volume' already exists. Postgres keeps the password it was created with, so put that password in $ENV_FILE (the old default was admin123), or remove the volume if its data is disposable."
+    fi
+    set_dotenv_value MONGODB_PASSWORD "$(generate_password)"
+    echo "Created MONGODB_PASSWORD in $ENV_FILE."
+else
+    echo "MONGODB_PASSWORD is already set in $ENV_FILE."
+fi
+
+existing_minio_password="$(dotenv_value MINIO_ROOT_PASSWORD || true)"
+if [[ -z "$existing_minio_password" ]]; then
+    existing_minio_password="$(generate_password)"
+    set_dotenv_value MINIO_ROOT_PASSWORD "$existing_minio_password"
+    echo "Created MINIO_ROOT_PASSWORD in $ENV_FILE."
+else
+    echo "MINIO_ROOT_PASSWORD is already set in $ENV_FILE."
+fi
+# The applications authenticate to MinIO with MINIO_SECRET_KEY; it must match.
+if [[ -z "$(dotenv_value MINIO_SECRET_KEY || true)" ]]; then
+    set_dotenv_value MINIO_SECRET_KEY "$existing_minio_password"
+    echo "Set MINIO_SECRET_KEY to match MINIO_ROOT_PASSWORD."
+fi
+
+existing_redis_password="$(dotenv_value REDIS_PASSWORD || true)"
+if [[ -z "$existing_redis_password" ]]; then
+    existing_redis_password="$(generate_password)"
+    set_dotenv_value REDIS_PASSWORD "$existing_redis_password"
+    echo "Created REDIS_PASSWORD in $ENV_FILE."
+else
+    echo "REDIS_PASSWORD is already set in $ENV_FILE."
+fi
+# Compose rebuilds REDIS_URL for the containers; this is the host-side value
+# used when running the apps from source.
+if [[ -z "$(dotenv_value REDIS_URL || true)" ]]; then
+    set_dotenv_value REDIS_URL "redis://:${existing_redis_password}@localhost:6379"
+    echo "Set REDIS_URL from REDIS_PASSWORD."
+fi
+
 echo ""
 echo "This will run:"
 echo "  docker compose -f docker-compose.yaml up --build -d"
