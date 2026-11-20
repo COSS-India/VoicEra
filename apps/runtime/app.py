@@ -15,7 +15,6 @@ from apps.runtime.services.storage.object_storage import sse_mode, verify_sse_su
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    # Uploads only log failures, so a broken SSE setup must stop startup instead.
     logger.info("Object storage SSE mode={}", sse_mode())
     await verify_sse_support()
     yield
