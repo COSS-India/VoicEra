@@ -20,6 +20,10 @@ ENV PYTHONPATH=/app
 # on a runtime download of NLTK's punkt_tab sentence tokenizer — see
 # pipecat/utils/string.py's module docstring.
 ENV NLTK_DATA=/app/apps/runtime/nltk_data
+# NLTK refuses data from a directory other accounts can write to, and COPY keeps
+# the checkout's permissions (a clone made under umask 0002 is group-writable),
+# which cut every reply after its first fragment. Make it owner-writable only.
+RUN chmod -R go-w /app/apps/runtime/nltk_data
 
 EXPOSE 7860
 
