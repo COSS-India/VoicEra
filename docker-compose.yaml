@@ -107,6 +107,7 @@ services:
     working_dir: /app
     networks:
       - app-network
+      - dpg_net  # AI DPG's Loki, for Blue Dots call_output
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   minio:
@@ -217,6 +218,7 @@ services:
     working_dir: /app
     networks:
       - app-network
+      - dpg_net  # AI DPG's Loki, for Blue Dots call_output
     command: python -m arq app.tasks.arq.WorkerSettings
 
   campaign-orchestrator:

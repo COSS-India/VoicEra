@@ -1,4 +1,4 @@
-"""Post-call call_output: Blue Dots adapter (Loki signals -> funnel) and the core."""
+"""Post-call call_output: Blue Dots adapter (KKB Slim output from AI DPG) and the core."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from app.services import call_log_service
 from app.services import call_webhook_service as wh
 from app.services.call_output import service as svc
 from app.services.call_output.base import CallOutputNotReady, CallOutputResult
-from app.services.call_output.bluedots import funnel, llm, loki, provider as bd_provider
+from app.services.call_output.bluedots import llm, loki, provider as bd_provider, schema
 from app.services.call_output.bluedots.signals import CallSignals, ToolCall, Turn, extract
 
 FIXTURE = Path(__file__).parent / "sample_data" / "bluedots_sample_call_loki.jsonl"
@@ -89,72 +89,135 @@ def test_sample_call_signals_use_structured_lines_only():
     assert signals.last_phase == "apply_confirm"
 
 
-def test_sample_call_funnel():
-    output, sources = funnel.build(extract(_fixture_lines()))
-    assert output == {
-        "schema": funnel.SCHEMA,
-        "answered": True,
-        "consent": True,
-        "jobs_heard": True,
-        "applied": True,
-        "applications": 1,
-        "last_phase": "apply_confirm",
-        "drop_reason": None,
-    }
-    assert sources["applied"] == "apply_job succeeded"
-    assert not funnel.needs_drop_judgement(extract(_fixture_lines()))
+def _facts(**kw) -> schema.CallFacts:
+    facts = schema.CallFacts(seeker_name="Ravi", input_location="Hubli", caller_turns=5)
+    for key, value in kw.items():
+        setattr(facts, key, value)
+    return facts
 
 
-def test_funnel_jobs_fetched_but_not_read_out_needs_the_transcript():
-    s = _signals(["profile_resolve", "job_match"], [("fetch_profile", True), ("fetch_jobs", True)])
-    assert funnel.needs_jobs_judgement(s) and funnel.needs_drop_judgement(s)
-    out, src = funnel.build(s)
-    assert out["jobs_heard"] is None and out["drop_reason"] is None
-    out, src = funnel.build(s, funnel.Judgement(jobs_read_out=False, drop_reason="no_suitable_jobs"))
-    assert out["jobs_heard"] is False and out["drop_reason"] == "no_suitable_jobs"
-    assert src["jobs_heard"] == "transcript (llm)"
+JOB = {"job_id": "NA", "role": "Electrician", "company_name": "Sigmatek", "company_location": "Hubli",
+       "salary_offered": "NA", "qualification_required": "ITI"}
 
 
-def test_funnel_consent_declined_and_no_search():
-    s = _signals(["profile_resolve", "consent", "consent_reask", "consent_declined"], [])
-    out, _ = funnel.build(s)
-    assert out["consent"] is False and out["jobs_heard"] is False and out["applied"] is False
-    out, _ = funnel.build(_signals(["profile_resolve"], [("save_profile", True)]))
-    assert out["consent"] is True and out["applied"] is False
+def test_normalise_holds_the_llm_answer_to_the_spec():
+    out = schema.normalise({
+        "call_answered": "yes", "primary_topic": "job SEARCH", "user_intent": "Wants a job",
+        "applications_count": "2", "jobs_offered_count": True,
+        "jobs_recommended": [JOB, "Electrician at Sigmatek", {"role": "Helper"}],
+        "jobs_failed_to_apply": "NA", "pin_code": "11002", "service_callback_slot": "other: after 6",
+        "call_later_request": "Yes: evening", "drop_reason": "  ", "final_summary": None,
+    })
+    assert list(out) == list(schema.FIELDS)  # every field, in the spec's order
+    assert out["call_answered"] == "Yes" and out["primary_topic"] == "Job search"
+    assert out["user_intent"] == "NA"  # off-spec value
+    assert out["applications_count"] == 2 and out["jobs_offered_count"] == 0
+    assert out["jobs_recommended"][0] == JOB and len(out["jobs_recommended"]) == 2
+    assert out["jobs_recommended"][1]["company_name"] == "NA"
+    assert out["jobs_failed_to_apply"] == [] and out["pin_code"] == "NA"  # never repaired
+    assert out["service_callback_slot"] == "Other: after 6"
+    assert out["call_later_request"] == "Yes: evening"
+    assert out["drop_reason"] == "NA" and out["final_summary"] == "NA"
+    assert schema.normalise("not a dict")["jobs_applied"] == []
+
+
+def test_facts_override_what_the_tools_settle():
+    llm_said = schema.normalise({
+        "seeker_name": "Someone", "call_answered": "No", "call_engaged": "Yes",
+        "applied_to_job": "Yes", "applications_count": 3, "jobs_applied": [JOB, JOB, JOB],
+        "jobs_failed_to_apply": [{**JOB, "failure_reason": "x"}], "ready_for_interview": "Yes",
+        "jobs_fetched": "Recommended", "consent_status": "Declined", "input_location_had_jobs": "Yes",
+        "services_pitched": "Yes", "service_offered": "Made Up Trust", "service_interest": "Yes",
+        "preference_mismatch_reason": "Location",
+    })
+    facts = _facts(calls={"fetch_jobs": 1, "save_profile": 2, "apply_job": 2},
+                   successes={"fetch_jobs": 1, "save_profile": 1, "apply_job": 2},
+                   failures={"save_profile": 1})
+    out, sources = schema.apply_facts(llm_said, facts)
+    assert out["seeker_name"] == "Ravi" and out["call_answered"] == "Yes" and out["call_engaged"] == "Yes"
+    assert out["applied_to_job"] == "Yes" and out["applications_count"] == 2
+    assert len(out["jobs_applied"]) == 2 and out["jobs_failed_to_apply"] == []
+    assert out["ready_for_interview"] == "Yes"
+    assert out["jobs_fetched"] == "Search" and out["consent_status"] == "Given"
+    assert out["input_location_had_jobs"] == "NA"  # the job list is not in the logs
+    assert out["service_offered"] == "NA" and out["service_interest"] == "Yes"
+    assert out["preference_mismatch_reason"] == "NA"
+    assert sources["applications_count"] == "apply_job tool calls"
+    assert sources["service_offered"] == "no successful fetch_services"
+
+
+def test_facts_without_jobs_applications_or_services():
+    llm_said = schema.normalise({
+        "call_engaged": "Yes", "jobs_shown": "Yes", "jobs_recommended": [JOB], "jobs_offered_count": 1,
+        "job_roles_offered": "Electrician", "ready_for_interview": "No", "services_pitched": "No",
+        "service_interest": "Maybe", "service_need_matched": "Training",
+    })
+    out, _ = schema.apply_facts(llm_said, _facts(caller_turns=2, phases=["consent", "consent_declined"]))
+    assert out["call_engaged"] == "No"  # fewer than three caller turns
+    assert out["jobs_fetched"] == "No" and out["jobs_shown"] == "No"
+    assert out["jobs_recommended"] == [] and out["jobs_offered_count"] == 0 and out["job_roles_offered"] == "NA"
+    assert out["applied_to_job"] == "No" and out["ready_for_interview"] == "NA"
+    assert out["consent_status"] == "Declined"
+    assert out["service_interest"] == "NA" and out["service_need_matched"] == "NA"
+    out, _ = schema.apply_facts(schema.normalise({}), _facts(calls={"fetch_profile": 1}))
+    assert out["consent_status"] == "NA"  # returning caller: no consent gate
+
+
+def test_unanswered_output_and_inputs():
+    call = {"custom_variables": {"contact_name": "Ravi", "location": "Hubli"}}
+    out = schema.unanswered_output(schema.seeker_name_from(call))
+    assert list(out) == list(schema.FIELDS)
+    assert out["seeker_name"] == "Ravi" and out["call_answered"] == "No"
+    assert out["primary_topic"] == "No engagement" and out["jobs_fetched"] == "No"
+    assert out["jobs_applied"] == [] and out["applications_count"] == 0
+    assert schema.input_location_from(call) == "Hubli"
+    assert schema.seeker_name_from({}) == "Unknown"
+    assert not schema.input_location_is_place("Any") and not schema.input_location_is_place("580020")
+
+
+def test_spec_file_is_blue_dots_kkb_slim_output():
+    text = llm.spec_text()
+    assert "seeker_name" in text and "asked_job_location" in text and "EXAMPLE OUTPUT" in text
+    for name in schema.FIELDS:
+        assert name in text, name
 
 
 # ---------------------------------------------------------------- llm ----
 
 
-def test_parse_judgement_is_defensive():
-    j = llm.parse_judgement('```json\n{"jobs_read_out": true, "drop_reason": "Not_Interested"}\n```',
-                            model="m", ask_jobs=True, ask_drop=True)
-    assert j.jobs_read_out is True and j.drop_reason == "not_interested"
-    j = llm.parse_judgement('{"drop_reason": "made up"}', model="m", ask_jobs=False, ask_drop=True)
-    assert j.drop_reason == "other" and j.jobs_read_out is None
-    j = llm.parse_judgement("no json here", model="m", ask_jobs=True, ask_drop=True)
-    assert j.jobs_read_out is None and j.drop_reason is None
+def test_parse_output_is_strict_about_json():
+    assert llm.parse_output('```json\n{"call_answered": "Yes"}\n```') == {"call_answered": "Yes"}
+    with pytest.raises(llm.OutputParseError):
+        llm.parse_output("no json here")
+    with pytest.raises(llm.OutputParseError):
+        llm.parse_output("{not json}")
 
 
 @pytest.mark.asyncio
-async def test_transcript_judge_request():
+async def test_output_extractor_request():
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["auth"] = request.headers.get("authorization")
         seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json={"choices": [{"message": {"content": '{"jobs_read_out": false, "drop_reason": "already_employed"}'}}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"call_engaged": "Yes"}'}}]})
 
-    judge = llm.TranscriptJudge(base_url=LLM_URL, model="gpt-4.1-mini", api_key="k", timeout=5, json_mode=True)
-    turns = [{"speaker": "agent", "text": "नमस्ते"}, {"speaker": "caller", "text": "मेरे पास नौकरी है"}]
+    extractor = llm.OutputExtractor(base_url=LLM_URL, model="gpt-4.1-mini", api_key="k", timeout=5, json_mode=True)
+    turns = [{"speaker": "agent", "text": "ನಮಸ್ಕಾರ"}, {"speaker": "caller", "text": "ಹೌದು ಕೆಲಸ ಬೇಕು"}]
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        j = await judge.judge(client, turns, facts={"phases": []}, ask_jobs=True, ask_drop=True)
+        raw = await extractor.extract(client, turns, inputs={"seeker_name": "Ravi", "location": "Hubli"},
+                                      tool_calls=[{"tool": "fetch_jobs", "status": "success"}],
+                                      phases=["job_match"])
+    assert raw == {"call_engaged": "Yes"}
     assert seen["url"] == f"{LLM_URL}/chat/completions" and seen["auth"] == "Bearer k"
-    assert seen["body"]["model"] == "gpt-4.1-mini" and seen["body"]["temperature"] == 0
-    assert seen["body"]["response_format"] == {"type": "json_object"}
-    assert "CALLER: मेरे पास नौकरी है" in seen["body"]["messages"][1]["content"]
-    assert j.jobs_read_out is False and j.drop_reason == "already_employed" and j.model == "gpt-4.1-mini"
+    body = seen["body"]
+    assert body["model"] == "gpt-4.1-mini" and body["temperature"] == 0
+    assert body["response_format"] == {"type": "json_object"}
+    system, user = body["messages"][0]["content"], body["messages"][1]["content"]
+    assert system.endswith(llm.spec_text()) and "`save_profile` is create_profile" in system
+    assert "CALLER: ಹೌದು ಕೆಲಸ ಬೇಕು" in user and '"location": "Hubli"' in user
+    assert '"tool": "fetch_jobs"' in user
 
 
 # --------------------------------------------------------------- loki ----
@@ -194,6 +257,7 @@ def _call(**extra) -> dict[str, Any]:
         "to_number": "+919900000001", "from_number": "+918000000000",
         "start_time_utc": "2026-11-17T13:02:53+00:00", "end_time_utc": "2026-11-17T13:04:02+00:00",
         "created_at": "2026-11-17T13:02:50+00:00",
+        "custom_variables": {"contact_name": "Ravi", "location": "Hubli"},
     }
     doc.update(extra)
     return doc
@@ -204,57 +268,89 @@ def bd_settings(monkeypatch):
     monkeypatch.setattr(settings, "BLUEDOTS_LOKI_URL", LOKI)
     monkeypatch.setattr(settings, "CALL_OUTPUT_LLM_BASE_URL", "")
     monkeypatch.setattr(settings, "CALL_OUTPUT_LLM_MODEL", "")
-    monkeypatch.setattr(bd_provider, "_load_transcript", lambda call: [])
+    monkeypatch.setattr(bd_provider, "_load_transcript", lambda call: [
+        {"speaker": "agent", "text": "ನಮಸ್ಕಾರ"}, {"speaker": "caller", "text": "ಹೌದು"},
+        {"speaker": "caller", "text": "ಕೆಲಸ ಬೇಕು"}, {"speaker": "caller", "text": "ಸರಿ"},
+    ])
 
 
-def _client_for(rows: list[dict[str, Any]], llm_reply: str | None = None, llm_status: int = 200) -> httpx.AsyncClient:
+def _with_llm(monkeypatch):
+    monkeypatch.setattr(settings, "CALL_OUTPUT_LLM_BASE_URL", LLM_URL)
+    monkeypatch.setattr(settings, "CALL_OUTPUT_LLM_MODEL", "gpt-4.1-mini")
+
+
+def _client_for(rows: list[dict[str, Any]], llm_reply: str | None = None, llm_status: int = 200,
+                seen: dict[str, Any] | None = None) -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "loki.test":
             return httpx.Response(200, json=_loki_payload(rows))
         if llm_reply is None:
             raise AssertionError("unexpected LLM call")
+        if seen is not None:
+            seen["user"] = json.loads(request.content)["messages"][1]["content"]
         return httpx.Response(llm_status, json={"choices": [{"message": {"content": llm_reply}}]})
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
 @pytest.mark.asyncio
-async def test_provider_computes_the_sample_call(bd_settings):
-    async with _client_for(_fixture_rows()) as client:
+async def test_provider_computes_the_sample_call(bd_settings, monkeypatch):
+    _with_llm(monkeypatch)
+    llm_said = json.dumps({"call_engaged": "Yes", "primary_topic": "Job search",
+                           "user_intent": "Job Application", "jobs_shown": "Yes",
+                           "jobs_applied": [JOB], "drop_reason": "NA", "final_summary": "Applied."})
+    seen: dict[str, Any] = {}
+    async with _client_for(_fixture_rows(), llm_said, seen=seen) as client:
         result = await bd_provider.BlueDotsCallOutputProvider().compute(
             _call(), {}, client=client, now=datetime(2026, 11, 17, 13, 5, tzinfo=timezone.utc))
-    assert result.output["applied"] is True and result.output["consent"] is True
+    out = result.output
+    assert list(out) == list(schema.FIELDS)
+    assert out["seeker_name"] == "Ravi" and out["call_answered"] == "Yes"
+    assert out["applied_to_job"] == "Yes" and out["applications_count"] == 1 and out["jobs_applied"] == [JOB]
+    assert out["consent_status"] == "Given" and out["jobs_fetched"] == "Search"
+    assert out["user_intent"] == "Job Application" and out["final_summary"] == "Applied."
+    assert result.signals["schema"] == schema.SCHEMA and result.signals["llm_model"] == "gpt-4.1-mini"
     assert result.signals["phases"][-1] == "apply_confirm"
-    assert result.signals["sources"]["consent"] == "a consent-gated write succeeded"
-    assert result.signals["llm_model"] is None
+    tools = json.loads(seen["user"].split("TOOL CALLS (in order)\n")[1].split("\n\n")[0])
+    assert tools[3] == {"tool": "save_profile", "status": "failure", "error": "http_error: 400"}
 
 
 @pytest.mark.asyncio
-async def test_provider_waits_for_logs_then_accepts_none(bd_settings):
+async def test_provider_waits_for_logs_then_accepts_none(bd_settings, monkeypatch):
+    _with_llm(monkeypatch)
     end = datetime(2026, 11, 17, 13, 4, 2, tzinfo=timezone.utc)
-    async with _client_for([]) as client:
+    async with _client_for([], "{}") as client:
         with pytest.raises(CallOutputNotReady):
             await bd_provider.BlueDotsCallOutputProvider().compute(
                 _call(), {}, client=client, now=end + timedelta(seconds=60))
         result = await bd_provider.BlueDotsCallOutputProvider().compute(
             _call(), {}, client=client, now=end + timedelta(seconds=settings.CALL_OUTPUT_LOG_GRACE_SECONDS + 1))
-    assert result.output["applied"] is False and result.output["jobs_heard"] is False
-    assert result.output["consent"] is None and result.output["last_phase"] is None
+    assert result.output["applied_to_job"] == "No" and result.output["jobs_fetched"] == "No"
+    assert result.output["consent_status"] == "NA"
 
 
 @pytest.mark.asyncio
-async def test_provider_asks_the_llm_when_needed(bd_settings, monkeypatch):
-    monkeypatch.setattr(settings, "CALL_OUTPUT_LLM_BASE_URL", LLM_URL)
-    monkeypatch.setattr(settings, "CALL_OUTPUT_LLM_MODEL", "gpt-4.1-mini")
-    monkeypatch.setattr(bd_provider, "_load_transcript", lambda call: [{"speaker": "caller", "text": "नहीं"}])
-    rows = [_turn_line(SAMPLE_SESSION, "profile_resolve", 1), _tool_line(SAMPLE_SESSION, "fetch_jobs", True, 2),
-            _turn_line(SAMPLE_SESSION, "job_match", 3)]
+async def test_provider_silent_call_needs_no_llm(bd_settings, monkeypatch):
+    monkeypatch.setattr(bd_provider, "_load_transcript", lambda call: [{"speaker": "agent", "text": "ನಮಸ್ಕಾರ"},
+                                                                         {"speaker": "caller", "text": " ... "}])
+    async with _client_for(_fixture_rows()) as client:
+        result = await bd_provider.BlueDotsCallOutputProvider().compute(
+            _call(), {}, client=client, now=datetime(2026, 11, 17, 13, 5, tzinfo=timezone.utc))
+    assert result.output == schema.unanswered_output("Ravi")
+    assert result.signals["llm_model"] is None
+
+
+@pytest.mark.asyncio
+async def test_provider_needs_llm_settings_and_retries_llm_failures(bd_settings, monkeypatch):
     now = datetime(2026, 11, 17, 13, 5, tzinfo=timezone.utc)
-    async with _client_for(rows, '{"jobs_read_out": true, "drop_reason": "not_interested"}') as client:
-        result = await bd_provider.BlueDotsCallOutputProvider().compute(_call(), {}, client=client, now=now)
-    assert result.output["jobs_heard"] is True and result.output["drop_reason"] == "not_interested"
-    assert result.signals["llm_model"] == "gpt-4.1-mini"
-    async with _client_for(rows, "{}", llm_status=503) as client:
+    async with _client_for(_fixture_rows()) as client:
+        with pytest.raises(RuntimeError, match="CALL_OUTPUT_LLM"):
+            await bd_provider.BlueDotsCallOutputProvider().compute(_call(), {}, client=client, now=now)
+    _with_llm(monkeypatch)
+    async with _client_for(_fixture_rows(), "{}", llm_status=503) as client:
         with pytest.raises(CallOutputNotReady):
+            await bd_provider.BlueDotsCallOutputProvider().compute(_call(), {}, client=client, now=now)
+    async with _client_for(_fixture_rows(), "sorry, I can't") as client:
+        with pytest.raises(CallOutputNotReady, match="no JSON"):
             await bd_provider.BlueDotsCallOutputProvider().compute(_call(), {}, client=client, now=now)
 
 
@@ -304,7 +400,7 @@ def test_schedule_answered_unanswered_and_opt_out(db):
     assert row["call_output_status"] == "pending" and row["call_output_attempts"] == 0
     assert svc.schedule_for_call(db["CallLogs"].find_one({"call_id": "c-busy"}), db=db) == "skipped"
     busy = db["CallLogs"].find_one({"call_id": "c-busy"})
-    assert busy["call_output"] == {}
+    assert busy["call_output"] == schema.unanswered_output("Ravi")
     assert svc.schedule_for_call(_call(status="in_progress", call_id="live"), db=db) is None
 
     other = mongomock.MongoClient()["other"]
@@ -388,7 +484,11 @@ async def test_unknown_response_waits_then_skips(db, monkeypatch):
     _agent(db)
     db["CallLogs"].insert_one(_call(call_response="pending"))
     svc.schedule_for_call(db["CallLogs"].find_one({}), db=db)
-    with patch.object(svc, "get_provider", side_effect=AssertionError("must not compute")):
+    class _NoCompute(bd_provider.BlueDotsCallOutputProvider):
+        async def compute(self, *args, **kwargs):
+            raise AssertionError("must not compute")
+
+    with patch.object(svc, "get_provider", return_value=_NoCompute()):
         async with httpx.AsyncClient() as client:
             _make_due(db)
             await svc.dispatch_due(client=client, db=db)
@@ -396,7 +496,7 @@ async def test_unknown_response_waits_then_skips(db, monkeypatch):
             _make_due(db)
             await svc.dispatch_due(client=client, db=db)
     row = db["CallLogs"].find_one({})
-    assert row["call_output_status"] == "skipped" and row["call_output"] == {}
+    assert row["call_output_status"] == "skipped" and row["call_output"]["call_answered"] == "No"
 
 
 def test_skipped_call_is_revived_when_answered_arrives(db):

@@ -2,7 +2,8 @@
 
 Lifecycle on the call log (``call_output_status``):
 
-* ``skipped``   the call was not answered: ``call_output`` is ``{}``.
+* ``skipped``   the call was not answered: ``call_output`` is the provider's
+                output for an unanswered call (``{}`` if it has none).
 * ``pending``   due at ``call_output_due_at`` (a short delay after the call
                 ends, so the provider's data has landed).
 * ``computing`` leased by a worker.
@@ -73,6 +74,17 @@ def agent_provider_name(agent_doc: dict[str, Any] | None) -> str | None:
     return name or None
 
 
+def unanswered_output(call: dict[str, Any], agent: dict[str, Any] | None) -> dict[str, Any]:
+    """The provider's ``call_output`` for a call nobody answered, or ``{}``."""
+    try:
+        provider = get_provider(agent_provider_name(agent))
+        build = getattr(provider, "unanswered_output", None)
+        return build(call) if build is not None else {}
+    except Exception:
+        logger.exception("unanswered_output failed call_id=%s", call.get("call_id"))
+        return {}
+
+
 def schedule_for_call(call_doc: dict[str, Any] | None, *, db: Any = None) -> str | None:
     """Mark a terminal call for ``call_output`` once. Never raises.
 
@@ -96,7 +108,11 @@ def schedule_for_call(call_doc: dict[str, Any] | None, *, db: Any = None) -> str
             return None
         now = _now()
         if response in UNANSWERED:
-            update = {"call_output_status": SKIPPED, "call_output": {}, "call_output_at": now.isoformat()}
+            update = {
+                "call_output_status": SKIPPED,
+                "call_output": unanswered_output(call_doc, agent),
+                "call_output_at": now.isoformat(),
+            }
         else:
             # Answered, or not known yet (``pending``): compute_one decides.
             update = {
@@ -164,9 +180,10 @@ def _retry_or_fail(database: Any, call: dict[str, Any], error: str) -> dict[str,
 
 
 def _skip(database: Any, call: dict[str, Any], note: str | None = None) -> dict[str, Any]:
+    agent = database[AGENTS].find_one({"org_id": call.get("org_id"), "agent_id": call.get("agent_id")})
     return _finish(database, call, {
         "call_output_status": SKIPPED,
-        "call_output": {},
+        "call_output": unanswered_output(call, agent),
         "call_output_error": note,
         "call_output_at": _now().isoformat(),
     })

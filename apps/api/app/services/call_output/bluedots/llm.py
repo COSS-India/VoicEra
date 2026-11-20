@@ -1,29 +1,46 @@
-"""Read a finished call's transcript with an OpenAI-compatible model.
+"""Run Raya's KKB Slim output prompt over a finished call.
 
-Provider, model and key are settings (``CALL_OUTPUT_LLM_*``), so OpenAI's
-``gpt-4.1-mini`` or a self-hosted OpenAI-compatible model both work. With
-no settings the step still runs; the fields that need the transcript are
-left None.
+The prompt is ``kkb_slim_output.md`` verbatim (Blue Dots' spec). What the
+call gives it: the input variables, the AI DPG tool calls and phases from
+Loki, and the VoicEra transcript. Provider, model and key are settings
+(``CALL_OUTPUT_LLM_*``): any OpenAI-compatible endpoint works.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from functools import lru_cache
 from typing import Any
 
 import httpx
 
 from app.config import settings
-from app.services.call_output.bluedots.funnel import DROP_REASONS, Judgement
+from app.services.call_output.bluedots.schema import SPEC_FILE
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "You review a finished phone call between a Blue Dots job-matching voice agent "
-    "and a job seeker. The call is in Hindi or another Indian language. "
-    "Answer only with a JSON object."
+SYSTEM_PREAMBLE = (
+    "You analyse one finished phone call between the Blue Dots job-seeker voice agent "
+    "and a caller. The conversation may be in Kannada, Hindi or English. "
+    "Follow the output specification below exactly and answer with one JSON object "
+    "and nothing else.\n\n"
+    "Notes on this system (they override tool names in the specification):\n"
+    "- Tool names: `fetch_jobs` is the job search (the specification's get_jobs; there is no "
+    "get_recommended_jobs), `save_profile` is create_profile, `update_profile` updates a "
+    "profile, `fetch_services` is get_services, `connect_service` registers a service request, "
+    "`apply_job` applies to a job.\n"
+    "- Tool results (job lists, job ids, organisation names) are not available to you. Fill job "
+    "objects only from what was said in the call; use \"NA\" for any part that was not said, "
+    "including job_id. For failure_reason use the tool error given in the tool calls.\n"
+    "- Transcript lines are speech-to-text and may contain recognition errors.\n\n"
+    "OUTPUT SPECIFICATION\n====================\n"
 )
+
+
+@lru_cache(maxsize=1)
+def spec_text() -> str:
+    return SPEC_FILE.read_text(encoding="utf-8")
 
 
 def _format_transcript(turns: list[dict[str, Any]]) -> str:
@@ -37,59 +54,45 @@ def _format_transcript(turns: list[dict[str, Any]]) -> str:
 def build_messages(
     turns: list[dict[str, Any]],
     *,
-    facts: dict[str, Any],
-    ask_jobs: bool,
-    ask_drop: bool,
+    inputs: dict[str, Any],
+    tool_calls: list[dict[str, Any]],
+    phases: list[str],
 ) -> list[dict[str, str]]:
-    questions = []
-    if ask_jobs:
-        questions.append(
-            '"jobs_read_out": true if the agent read out at least one specific job '
-            "(employer or role with details) to the caller, false otherwise."
-        )
-    if ask_drop:
-        questions.append(
-            '"drop_reason": why the caller did not apply for a job, exactly one of: '
-            + ", ".join(DROP_REASONS)
-            + "."
-        )
     user = (
-        "Facts from the system: "
-        + json.dumps(facts, ensure_ascii=False)
-        + "\n\nTranscript:\n"
+        "CALL INPUT VARIABLES\n"
+        + json.dumps(inputs, ensure_ascii=False)
+        + "\n\nTOOL CALLS (in order)\n"
+        + json.dumps(tool_calls, ensure_ascii=False)
+        + "\n\nCONVERSATION PHASES (in order)\n"
+        + json.dumps(phases, ensure_ascii=False)
+        + "\n\nTRANSCRIPT\n"
         + _format_transcript(turns)
-        + "\n\nReturn a JSON object with these keys:\n- "
-        + "\n- ".join(questions)
     )
-    return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
+    return [
+        {"role": "system", "content": SYSTEM_PREAMBLE + spec_text()},
+        {"role": "user", "content": user},
+    ]
 
 
-def parse_judgement(content: str, *, model: str, ask_jobs: bool, ask_drop: bool) -> Judgement:
+class OutputParseError(ValueError):
+    """The model did not answer with a JSON object."""
+
+
+def parse_output(content: str) -> dict[str, Any]:
     text = (content or "").strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text[text.find("{"):] if "{" in text else text
     start, end = text.find("{"), text.rfind("}")
-    data: dict[str, Any] = {}
-    if start != -1 and end > start:
-        try:
-            data = json.loads(text[start : end + 1])
-        except ValueError:
-            data = {}
-    jobs = data.get("jobs_read_out") if ask_jobs else None
-    drop = data.get("drop_reason") if ask_drop else None
-    if drop is not None:
-        drop = str(drop).strip().lower()
-        if drop not in DROP_REASONS:
-            drop = "other"
-    return Judgement(
-        jobs_read_out=jobs if isinstance(jobs, bool) else None,
-        drop_reason=drop or None,
-        model=model,
-    )
+    if start == -1 or end <= start:
+        raise OutputParseError("no JSON object in the model's answer")
+    try:
+        data = json.loads(text[start : end + 1])
+    except ValueError as exc:
+        raise OutputParseError(f"invalid JSON from the model: {exc}") from exc
+    if not isinstance(data, dict):
+        raise OutputParseError("the model's answer is not a JSON object")
+    return data
 
 
-class TranscriptJudge:
+class OutputExtractor:
     def __init__(self, *, base_url: str, model: str, api_key: str, timeout: float, json_mode: bool) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -97,19 +100,19 @@ class TranscriptJudge:
         self.timeout = timeout
         self.json_mode = json_mode
 
-    async def judge(
+    async def extract(
         self,
         client: httpx.AsyncClient,
         turns: list[dict[str, Any]],
         *,
-        facts: dict[str, Any],
-        ask_jobs: bool,
-        ask_drop: bool,
-    ) -> Judgement:
+        inputs: dict[str, Any],
+        tool_calls: list[dict[str, Any]],
+        phases: list[str],
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "model": self.model,
             "temperature": 0,
-            "messages": build_messages(turns, facts=facts, ask_jobs=ask_jobs, ask_drop=ask_drop),
+            "messages": build_messages(turns, inputs=inputs, tool_calls=tool_calls, phases=phases),
         }
         if self.json_mode:
             body["response_format"] = {"type": "json_object"}
@@ -119,15 +122,15 @@ class TranscriptJudge:
         )
         response.raise_for_status()
         content = ((response.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-        return parse_judgement(content, model=self.model, ask_jobs=ask_jobs, ask_drop=ask_drop)
+        return parse_output(content)
 
 
-def judge_from_settings() -> TranscriptJudge | None:
+def extractor_from_settings() -> OutputExtractor | None:
     base_url = (settings.CALL_OUTPUT_LLM_BASE_URL or "").strip()
     model = (settings.CALL_OUTPUT_LLM_MODEL or "").strip()
     if not base_url or not model:
         return None
-    return TranscriptJudge(
+    return OutputExtractor(
         base_url=base_url,
         model=model,
         api_key=(settings.CALL_OUTPUT_LLM_API_KEY or "").strip(),

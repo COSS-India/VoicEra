@@ -22,7 +22,7 @@ description: Fields worked out after each answered call, carried on the call rec
 | `pending` | Due shortly after the call ends (`CALL_OUTPUT_DELAY_SECONDS`, default 45) |
 | `computing` | A worker has it |
 | `ready` | `call_output` is set |
-| `skipped` | The call was not answered (`busy`, `no_answer`, `failed`, `cancelled`); `call_output` is `{}` |
+| `skipped` | The call was not answered (`busy`, `no_answer`, `failed`, `cancelled`); `call_output` is the provider's unanswered output (`{}` if it has none) |
 | `failed` | Gave up after `CALL_OUTPUT_MAX_ATTEMPTS`; `call_output_error` says why |
 
 Answered or not is decided when the output is computed: the telephony hangup can mark a call `completed` before the runtime marks it `answered`. A call still not `answered` after the attempts run out is `skipped`.
@@ -37,28 +37,42 @@ Bearer. `202` with `{call_id, call_output_status}`. Works it out again now (atte
 
 ## Provider: `bluedots`
 
-Blue Dots' conversation runs in AI DPG's Agent Core, which produces no `call_output`. The provider reads the call's lines from AI DPG's Loki, keyed by `session_id = <caller_phone>:<call_id>`, and only the structured lines:
+`call_output` is Raya's **KKB Slim output**: the fields, values and rules in Blue Dots' `KKB Slim Output.md` ([AI-Agent-Prompts](https://github.com/Blue-Dots-Economy/AI-Agent-Prompts), `Blue Dots/KKB-Slim/`, commit `5056dd0`), so Blue Dots' receiver works unchanged. The spec is copied verbatim to `bluedots/kkb_slim_output.md`; to take a new version, replace that file and update `SPEC_SOURCE` in `bluedots/schema.py`.
 
-* `orchestrator.stream_turn_complete` (agent_core): the phase each turn moved to (`next_subagent_id`).
-* `RestApiAdapter.execute` (action_gateway): each tool call's `tool_name` and `status`.
+Blue Dots' conversation runs in AI DPG's Agent Core, which produces no `call_output`. For each answered call the provider:
 
-It maps them, plus the VoicEra transcript, onto the funnel:
+1. Reads the call's structured lines from AI DPG's Loki, keyed by `session_id = <caller_phone>:<call_id>`: `orchestrator.stream_turn_complete` (the phase each turn moved to) and `RestApiAdapter.execute` (each tool call's `tool_name`, `status` and `error`).
+2. Runs the spec as the prompt over the VoicEra transcript, the call's input variables (`contact_name`, `location` from `custom_variables`) and those tool calls and phases, as Raya does. The prompt tells the model AI DPG's tool names.
+3. Holds the answer to the spec: every field present in the spec's order, enum values checked, counts as integers, job lists as complete objects. Anything off-spec becomes the spec's empty value (`"NA"`, `[]` or `0`). A PIN that is not exactly six digits is `"NA"`, never repaired.
+4. Overrides what the system knows for certain, so the model cannot contradict a tool result:
 
 | Field | Rule |
 | --- | --- |
-| `answered` | Always true (unanswered calls are skipped) |
-| `consent` | `true` when a consent-gated write succeeded (`save_profile` or `apply_job`); `false` when the call reached `consent_declined`; otherwise `null` |
-| `jobs_heard` | `true` when the call reached `job_details` or `apply_confirm`, or applied; `false` when no `fetch_jobs` succeeded; otherwise read from the transcript (`null` without a model) |
-| `applied` | An `apply_job` call succeeded |
-| `applications` | Number of successful `apply_job` calls |
-| `last_phase` | The last phase recorded |
-| `drop_reason` | For calls that did not apply, read from the transcript: one of `hung_up_or_disengaged`, `not_interested`, `already_employed`, `no_suitable_jobs`, `declined_consent`, `call_back_later`, `language_barrier`, `technical_issue`, `other` (`null` without a model) |
+| `seeker_name` | `contact_name` from the contact list, else `"Unknown"` |
+| `call_answered` | `"Yes"` when the caller said anything in the transcript |
+| `call_engaged` | `"No"` with fewer than three caller turns |
+| `applied_to_job`, `applications_count` | Successful `apply_job` calls; `jobs_applied` is cut to that many, `[]` when none |
+| `jobs_failed_to_apply` | `[]` when no `apply_job` failed |
+| `ready_for_interview` | `"NA"` when no application was attempted |
+| `jobs_fetched` | `"Search"` when `fetch_jobs` ran, else `"No"` (AI DPG has no recommended-jobs tool) |
+| `jobs_shown`, `jobs_recommended`, `jobs_offered_count`, `job_roles_offered` | Empty when no `fetch_jobs` succeeded |
+| `consent_status` | `"Given"` when `save_profile` (Raya's `create_profile`) was called; `"Declined"` when the call reached `consent_declined`; else `"NA"` |
+| `input_location_had_jobs` | `"NA"`: the job list is not in AI DPG's logs (see below) |
+| `service_offered` | `"NA"` when no `fetch_services` succeeded (never a name the tool did not return) |
+| `service_*` | `"NA"` when `services_pitched` is not `"Yes"` |
+| `preference_mismatch_reason` | `"NA"` when the caller applied |
+
+A call where the caller never spoke gets the unanswered output without a model call (`call_answered` `"No"`, `primary_topic` `"No engagement"`, everything else empty). Unanswered calls (`skipped`) get the same output.
 
 <Warning>
-The field names and values are provisional (`call_output.schema` = `bluedots.call_output.provisional.v1`) until they are checked against Raya's output spec, so Blue Dots' receiver works unchanged. They all live in `bluedots/funnel.py`.
+AI DPG logs whether each tool call succeeded, not what it returned. Until it logs tool results, job objects are filled from what was said on the call (`job_id` is `"NA"` unless spoken) and `input_location_had_jobs` is `"NA"`.
 </Warning>
 
-If no log lines are found yet, the provider retries until `CALL_OUTPUT_LOG_GRACE_SECONDS` (default 180) after the call ended; after that a call with no lines is treated as having no turns. The raw signals behind each output (phases, tool outcomes, where each field came from) are stored on the call log as `call_output_signals` for audits.
+If no log lines are found yet, the provider retries until `CALL_OUTPUT_LOG_GRACE_SECONDS` (default 180) after the call ended; after that a call with no lines is treated as having no tool calls. A model error or an answer that is not JSON is retried. Without the `CALL_OUTPUT_LLM_*` settings an answered call ends `failed`; set them and use recompute. What was overridden and why, plus the phases and tool calls behind each output, is stored on the call log as `call_output_signals`.
+
+### Deployment
+
+The `api` and `arq-worker` containers join AI DPG's external `dpg_net` Docker network (as the `runtime` does to reach the bridge), so `BLUEDOTS_LOKI_URL=http://loki:3100`. The agent's LLM URL is the AI DPG bridge: `http://reach_layer_bridge:8008/v1`.
 
 ## Settings
 
@@ -70,6 +84,7 @@ If no log lines are found yet, the provider retries until `CALL_OUTPUT_LOG_GRACE
 | `CALL_OUTPUT_LLM_BASE_URL` | — | Any OpenAI-compatible endpoint, e.g. `https://api.openai.com/v1` |
 | `CALL_OUTPUT_LLM_MODEL` | — | e.g. `gpt-4.1-mini` |
 | `CALL_OUTPUT_LLM_API_KEY` | — | Key for that endpoint |
+| `CALL_OUTPUT_LLM_TIMEOUT_SECONDS` | `90` | Per request (the prompt is long) |
 | `CALL_OUTPUT_LLM_JSON_MODE` | `true` | Send `response_format: json_object`; turn off for servers that reject it |
 | `CALL_OUTPUT_DELAY_SECONDS` | `45` | Wait after the call before the first attempt |
 | `CALL_OUTPUT_RETRY_SECONDS` | `30` | Between attempts |
@@ -77,4 +92,3 @@ If no log lines are found yet, the provider retries until `CALL_OUTPUT_LOG_GRACE
 | `CALL_OUTPUT_LOG_GRACE_SECONDS` | `180` | How long missing logs mean "not there yet" |
 | `CALL_OUTPUT_WEBHOOK_MAX_WAIT_SECONDS` | `600` | Longest the webhook waits |
 
-Without the `CALL_OUTPUT_LLM_*` settings the step still runs; only `jobs_heard` (when ambiguous) and `drop_reason` are left `null`.

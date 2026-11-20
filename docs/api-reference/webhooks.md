@@ -61,7 +61,7 @@ The `arq-worker` service sends due deliveries every 10 seconds (`dispatch_call_w
     "duration": 180.0,
     "error_message": null,
     "created_at": "2026-11-13T09:59:58+00:00",
-    "call_output": { "schema": "bluedots.call_output.provisional.v1", "answered": true, "consent": true, "jobs_heard": true, "applied": true, "applications": 1, "last_phase": "apply_confirm", "drop_reason": null },
+    "call_output": { "seeker_name": "Ravi", "call_answered": "Yes", "call_engaged": "Yes", "applied_to_job": "Yes", "applications_count": 1, "consent_status": "Given", "drop_reason": "NA", "final_summary": "…", "…": "the rest of the KKB Slim fields (see call_output)" },
     "call_output_status": "ready",
     "transcript": [
       { "index": 0, "role": "assistant", "speaker": "agent", "timestamp": "2026-11-13T10:00:01.000+00:00", "text": "Namaste…" },

@@ -1,8 +1,9 @@
-"""Blue Dots ``call_output`` provider: Loki signals + transcript -> funnel."""
+"""Blue Dots ``call_output`` provider: KKB Slim output from AI DPG logs + transcript."""
 
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -10,13 +11,15 @@ import httpx
 
 from app.config import settings
 from app.services.call_output.base import CallOutputNotReady, CallOutputResult
-from app.services.call_output.bluedots import funnel
-from app.services.call_output.bluedots.llm import judge_from_settings
+from app.services.call_output.bluedots import schema
+from app.services.call_output.bluedots.llm import OutputParseError, extractor_from_settings
 from app.services.call_output.bluedots.loki import fetch_call_lines
-from app.services.call_output.bluedots.signals import extract
+from app.services.call_output.bluedots.signals import CallSignals, extract
 from app.services.call_transcript_service import try_load_turns
 
 logger = logging.getLogger(__name__)
+
+_SPOKEN = re.compile(r"\w", re.UNICODE)
 
 
 def _as_utc(value: Any) -> datetime | None:
@@ -35,8 +38,36 @@ def _load_transcript(call: dict[str, Any]) -> list[dict[str, Any]]:
     return try_load_turns(call) or []
 
 
+def caller_turns(turns: list[dict[str, Any]]) -> int:
+    return sum(
+        1 for turn in turns
+        if turn.get("speaker") != "agent" and _SPOKEN.search(str(turn.get("text") or ""))
+    )
+
+
+def call_facts(call: dict[str, Any], signals: CallSignals, turns: list[dict[str, Any]]) -> schema.CallFacts:
+    facts = schema.CallFacts(
+        seeker_name=schema.seeker_name_from(call),
+        input_location=schema.input_location_from(call),
+        caller_turns=caller_turns(turns),
+        phases=signals.phases,
+    )
+    for tool_call in signals.tools:
+        facts.calls[tool_call.tool] = facts.calls.get(tool_call.tool, 0) + 1
+        bucket = facts.successes if tool_call.ok else facts.failures
+        bucket[tool_call.tool] = bucket.get(tool_call.tool, 0) + 1
+    return facts
+
+
+def unanswered_output(call: dict[str, Any]) -> dict[str, Any]:
+    return schema.unanswered_output(schema.seeker_name_from(call))
+
+
 class BlueDotsCallOutputProvider:
     name = "bluedots"
+
+    def unanswered_output(self, call: dict[str, Any]) -> dict[str, Any]:
+        return unanswered_output(call)
 
     async def compute(
         self,
@@ -49,6 +80,7 @@ class BlueDotsCallOutputProvider:
         base_url = (settings.BLUEDOTS_LOKI_URL or "").strip()
         if not base_url:
             raise RuntimeError("BLUEDOTS_LOKI_URL is not set")
+        extractor = extractor_from_settings()
         current = now or datetime.now(timezone.utc)
         call_id = str(call["call_id"])
         started = _as_utc(call.get("start_time_utc")) or _as_utc(call.get("created_at")) or current
@@ -68,33 +100,40 @@ class BlueDotsCallOutputProvider:
         if signals.empty and current < ended + grace:
             raise CallOutputNotReady("no Agent Core log lines for this call yet")
 
-        transcript = _load_transcript(call)
-        ask_jobs = funnel.needs_jobs_judgement(signals)
-        ask_drop = funnel.needs_drop_judgement(signals)
-        judgement = None
-        judge = judge_from_settings()
-        if judge is not None and transcript and (ask_jobs or ask_drop):
-            facts = {
-                "phases": signals.phases,
-                "tools": [{"tool": t.tool, "ok": t.ok} for t in signals.tools],
-            }
-            try:
-                judgement = await judge.judge(
-                    client, transcript, facts=facts, ask_jobs=ask_jobs, ask_drop=ask_drop
-                )
-            except httpx.HTTPError as exc:
-                # Retried by the core: a transient LLM failure should not
-                # leave the funnel without a drop reason for good.
-                raise CallOutputNotReady(f"transcript judge failed: {exc}") from exc
+        turns = _load_transcript(call)
+        facts = call_facts(call, signals, turns)
+        meta: dict[str, Any] = {
+            **signals.to_dict(),
+            "schema": schema.SCHEMA,
+            "spec": schema.SPEC_SOURCE,
+            "transcript_turns": len(turns),
+            "caller_turns": facts.caller_turns,
+            "log_lines": len(lines),
+            "llm_model": None,
+        }
 
-        output, sources = funnel.build(signals, judgement)
-        return CallOutputResult(
-            output=output,
-            signals={
-                **signals.to_dict(),
-                "sources": sources,
-                "llm_model": judgement.model if judgement else None,
-                "transcript_turns": len(transcript),
-                "log_lines": len(lines),
-            },
-        )
+        if not facts.caller_turns:
+            output = unanswered_output(call)
+            meta["sources"] = {"*": "no caller speech in the transcript"}
+            return CallOutputResult(output=output, signals=meta)
+
+        if extractor is None:
+            # Retried, then ``failed``; recompute once the settings are in.
+            raise RuntimeError("CALL_OUTPUT_LLM_BASE_URL / CALL_OUTPUT_LLM_MODEL are not set")
+
+        inputs = {"seeker_name": facts.seeker_name, "location": facts.input_location}
+        tool_calls = [
+            {"tool": t.tool, "status": "success" if t.ok else "failure", **({"error": t.error} if t.error else {})}
+            for t in signals.tools
+        ]
+        try:
+            raw = await extractor.extract(
+                client, turns, inputs=inputs, tool_calls=tool_calls, phases=signals.phases
+            )
+        except (httpx.HTTPError, OutputParseError) as exc:
+            raise CallOutputNotReady(f"output model failed: {exc}") from exc
+
+        output, sources = schema.apply_facts(schema.normalise(raw), facts)
+        meta["sources"] = sources
+        meta["llm_model"] = extractor.model
+        return CallOutputResult(output=output, signals=meta)

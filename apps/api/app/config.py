@@ -155,11 +155,13 @@ class Settings(BaseSettings):
     )
     CALL_OUTPUT_LLM_BASE_URL: str = Field(
         default="",
-        description="OpenAI-compatible base URL for reading transcripts (e.g. https://api.openai.com/v1)",
+        description="OpenAI-compatible base URL for the call_output model (e.g. https://api.openai.com/v1)",
     )
-    CALL_OUTPUT_LLM_MODEL: str = Field(default="", description="Model for reading transcripts, e.g. gpt-4.1-mini")
-    CALL_OUTPUT_LLM_API_KEY: str = Field(default="", description="API key for the transcript model")
-    CALL_OUTPUT_LLM_TIMEOUT_SECONDS: float = Field(default=30.0, description="Timeout per transcript request")
+    CALL_OUTPUT_LLM_MODEL: str = Field(default="", description="Model that fills call_output from the transcript, e.g. gpt-4.1-mini")
+    CALL_OUTPUT_LLM_API_KEY: str = Field(default="", description="API key for the call_output model")
+    CALL_OUTPUT_LLM_TIMEOUT_SECONDS: float = Field(
+        default=90.0, description="Timeout per output request (the prompt is long; allow for it)"
+    )
     CALL_OUTPUT_LLM_JSON_MODE: bool = Field(
         default=True,
         description="Send response_format=json_object (turn off for servers that reject it)",
