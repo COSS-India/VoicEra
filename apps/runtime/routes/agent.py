@@ -153,7 +153,7 @@ async def agent_websocket(websocket: WebSocket, org_id: str, agent_id: str) -> N
             test_phone = web_caller_phone(custom_variables)
             if test_phone:
                 logger.info(
-                    "Web call call_id={} uses the caller_phone custom variable (…{})",
+                    "Web call call_id={} uses a stand-in caller_phone (…{})",
                     call_id,
                     test_phone[-4:],
                 )
