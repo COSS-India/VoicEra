@@ -182,6 +182,41 @@ def test_spec_file_is_blue_dots_kkb_slim_output():
         assert name in text, name
 
 
+def _gateway_line(session: str, tool: str, ts: int, *, body: str, level: str, status: str,
+                  **extra: Any) -> dict[str, Any]:
+    attrs = {"operation": "RestApiAdapter.execute", "session_id": session, "tool_name": tool,
+             "status": status, **extra}
+    return {"ts_ns": ts, "stream": {"job": "action_gateway", "level": level},
+            "line": json.dumps({"body": body, "traceid": f"t{ts}", "attributes": attrs})}
+
+
+def test_debug_logging_counts_each_tool_call_once():
+    """At DEBUG, AI DPG logs request, response and session-values lines too (seen on the box)."""
+    s = SAMPLE_SESSION
+    rows = []
+    for i, tool in enumerate(("fetch_profile", "apply_job")):
+        base = (i + 1) * 100
+        rows += [
+            _gateway_line(s, tool, base + 1, body=f"rest_api_request tool={tool} method=GET", level="DEBUG",
+                          status="pending", method="GET"),
+            _gateway_line(s, tool, base + 2, body=f"rest_api_response tool={tool} status=200", level="DEBUG",
+                          status="received", status_code=200, latency_ms=300),
+            _gateway_line(s, tool, base + 3, body=f"rest_api_session_values tool={tool} keys=['x']",
+                          level="INFO", status="success"),
+            _gateway_line(s, tool, base + 4, body="rest_api_execute", level="INFO", status="success",
+                          latency_ms=300),
+        ]
+    rows.append(_gateway_line(s, "apply_job", 900, body="rest_api_http_error tool=apply_job status=404",
+                              level="WARN", status="failure", error="http_error: 404"))
+    lines = [loki.parse_line(r["ts_ns"], r["stream"], r["line"]) for r in rows]
+    signals = extract(lines)
+    assert [(t.tool, t.ok) for t in signals.tools] == [
+        ("fetch_profile", True), ("apply_job", True), ("apply_job", False),
+    ]
+    assert signals.succeeded("apply_job") == 1 and signals.failed("apply_job") == 1
+    assert signals.tools[-1].error == "http_error: 404"
+
+
 # ---------------------------------------------------------------- llm ----
 
 

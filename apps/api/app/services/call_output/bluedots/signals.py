@@ -7,9 +7,14 @@ Only structured lines are read, as Blue Dots asked:
   ``tool_used``. Some turns (first turn, fixed lines, goodbye) only have a
   free-text line today; Blue Dots is adding the structured line to every
   turn, so the free text is deliberately ignored.
-* ``RestApiAdapter.execute`` (action_gateway): one per tool call, with
-  ``tool_name`` and ``status`` (``success`` / ``failure``). Request and
-  response bodies are not read: they are only logged at DEBUG level.
+* ``RestApiAdapter.execute`` (action_gateway): several lines per tool call
+  share this ``operation``: a DEBUG ``rest_api_request`` (``status``
+  ``pending``), a DEBUG ``rest_api_response`` (``received``), an INFO
+  ``rest_api_session_values`` (``success``) and the final INFO
+  ``rest_api_execute`` (``success``) or a ``failure`` line such as WARN
+  ``rest_api_http_error``. Only the final line counts, so one call is one
+  ``ToolCall`` whatever the log level. Request and response bodies are not
+  read.
 """
 
 from __future__ import annotations
@@ -21,6 +26,20 @@ from app.services.call_output.bluedots.loki import LogLine
 
 TURN_COMPLETE = "orchestrator.stream_turn_complete"
 TOOL_OPERATION = "RestApiAdapter.execute"
+TOOL_SUCCESS_BODY = "rest_api_execute"
+
+
+def tool_outcome(line: LogLine) -> bool | None:
+    """True/False for a tool call's final line, None for its other lines."""
+    attrs = line.attributes
+    if attrs.get("operation") != TOOL_OPERATION or not attrs.get("tool_name"):
+        return None
+    status = str(attrs.get("status") or "").lower()
+    if status == "failure":
+        return False
+    if status == "success" and line.record.get("body") == TOOL_SUCCESS_BODY:
+        return True
+    return None  # request, response, session values: not an outcome
 
 
 @dataclass
@@ -93,14 +112,13 @@ def extract(lines: list[LogLine]) -> CallSignals:
                     tool_used=bool(tool_used) if tool_used is not None else None,
                 )
             )
-        elif attrs.get("operation") == TOOL_OPERATION and attrs.get("tool_name"):
-            status = str(attrs.get("status") or "").lower()
+        elif (outcome := tool_outcome(line)) is not None:
             signals.tools.append(
                 ToolCall(
                     ts_ns=line.ts_ns,
                     trace_id=trace_id,
                     tool=str(attrs["tool_name"]),
-                    ok=status == "success",
+                    ok=outcome,
                     error=(str(attrs["error"]) if attrs.get("error") else None),
                 )
             )
