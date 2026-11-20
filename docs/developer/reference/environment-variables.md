@@ -37,6 +37,7 @@ These only affect how Compose wires the stack. Nothing in application code reads
 | `MINIO_ROOT_USER` | `minioadmin` | No | MinIO root account, used by the `minio` and `minio-init` services. |
 | `MINIO_ROOT_PASSWORD` | `minioadmin123` | No | MinIO root password. Change it before exposing MinIO. |
 | `MINIO_BUCKET` | `voicera-calls` | No | Bucket `minio-init` creates for call artifacts and knowledge-base objects. |
+| `MINIO_KMS_SECRET_KEY` | empty | When `MINIO_ENCRYPTION=sse-s3` | MinIO's built-in KMS key, `<name>:<base64 of 32 bytes>`. Must not change once MinIO has started with it. See [Encryption at rest](../../guides/deployment/security-hardening#encryption-at-rest). |
 
 ## API
 
@@ -139,6 +140,7 @@ MinIO holds call recordings, transcripts, campaign source CSVs, and knowledge-ba
 | `MINIO_SECRET_KEY` | `minioadmin123` | No | Secret key. |
 | `MINIO_SECURE` | `false` | No | Whether to use TLS to reach MinIO. Compose pins it to `false` inside the stack. |
 | `MINIO_BUCKET` | `voicera-calls` | No | Bucket for call artifacts and knowledge-base objects. |
+| `MINIO_ENCRYPTION` | `none` | No | Server-side encryption for recordings and transcripts: `none` or `sse-s3`. Read by the runtime, which will not start if the value is invalid or encryption cannot be verified. |
 
 `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` configure the MinIO server; `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` are what the applications authenticate with. `.env.example` ships them as the same pair, so changing only one half locks the applications out.
 
