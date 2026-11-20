@@ -1,0 +1,17 @@
+# docs.json lives at the repo root, so Mintlify scans the whole repository.
+# Only docs/ is documentation; keep everything else out of the site build,
+# the broken-link checker, and custom script/style injection.
+
+# Source trees
+/apps/
+/frontend/
+/model-server/
+/scripts/
+/.github/
+
+# Repo-level markdown (read on GitHub, not part of the docs site)
+/README.md
+/CHANGELOG.md
+/CODE_OF_CONDUCT.md
+/CONTRIBUTING.md
+/SECURITY.md
