@@ -70,6 +70,33 @@ async def test_recv_media_stream_start_flat_top_level_stream_sid() -> None:
 @pytest.mark.asyncio
 async def test_recv_media_stream_start_rejects_unknown() -> None:
     ws = AsyncMock()
-    ws.receive_text = AsyncMock(return_value=json.dumps({"event": "media"}))
+    ws.receive_text = AsyncMock(return_value=json.dumps({"event": "stop"}))
     with pytest.raises(ValueError, match="Expected start"):
         await recv_media_stream_start(ws)
+
+
+@pytest.mark.asyncio
+async def test_recv_media_stream_start_skips_media_before_start() -> None:
+    """Vobiz inbound legs can send media frames before start (issue #8)."""
+    media = json.dumps({"event": "media", "media": {"payload": "AAAA"}})
+    ws = AsyncMock()
+    ws.receive_text = AsyncMock(
+        side_effect=[
+            json.dumps({"event": "connected"}),
+            media,
+            media,
+            media,
+            json.dumps({"event": "start", "start": {"callSid": "CA1", "streamSid": "MZ1"}}),
+        ]
+    )
+    data = await recv_media_stream_start(ws)
+    assert data["event"] == "start"
+    assert data["start"]["callSid"] == "CA1"
+
+
+@pytest.mark.asyncio
+async def test_recv_media_stream_start_media_only_hits_limit() -> None:
+    ws = AsyncMock()
+    ws.receive_text = AsyncMock(return_value=json.dumps({"event": "media"}))
+    with pytest.raises(ValueError, match="message limit"):
+        await recv_media_stream_start(ws, max_messages=5)
