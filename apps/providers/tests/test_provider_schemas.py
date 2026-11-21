@@ -1185,3 +1185,34 @@ def test_provider_level_auth_openai_and_google_merge():
 
     assert provider_level_auth("missing") is None
     assert "openai" in all_provider_level_auth()
+
+
+def test_azure_openai_llm_catalog_and_service():
+    from apps.providers.cloud.azure_openai.catalog import (
+        DEFAULT_LLM_MODEL,
+        LLM_MODELS,
+    )
+    from apps.providers.cloud.azure_openai.config import AzureOpenAILLMConfig
+    from apps.providers.cloud.azure_openai.service import create_llm
+
+    schema = provider_schemas(Kind.LLM)["azure_openai"]
+    fields = schema["fields"]
+
+    assert schema["provider_type"] == ProviderType.CLOUD
+    assert schema["name"] == "Azure OpenAI"
+    assert "api_key" in schema["secrets"]
+    assert "endpoint" in schema["required"]
+    assert fields["model"]["default"] == DEFAULT_LLM_MODEL
+    assert list(fields["model"]["examples"]) == list(LLM_MODELS)
+    assert DEFAULT_LLM_MODEL == "gpt-4o-mini"
+    assert "gpt-4o-mini" in LLM_MODELS
+    assert "gpt-4.1-mini" not in LLM_MODELS
+
+    cfg = AzureOpenAILLMConfig(
+        api_key="test-key",
+        endpoint="https://myresource.openai.azure.com",
+        model="gpt-4o-mini",
+    )
+    svc = create_llm(cfg)
+    assert svc is not None
+
