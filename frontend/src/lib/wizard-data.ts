@@ -59,10 +59,15 @@ export const LLM_PROVIDERS: { id: string; label: string; note: string; models: S
     models: [{ value: "gemma-4-26b-it", label: "google/gemma-4-26B-it" }],
   },
   {
-    id: "azure",
+    id: "azure_openai",
     label: "Azure OpenAI",
-    note: "Not integrated yet.",
-    models: [{ value: "azure-na", label: "Not available", disabled: true }],
+    note: "Enterprise OpenAI models hosted on Microsoft Azure cloud infrastructure.",
+    models: [
+      { value: "gpt-4o", label: "gpt-4o" },
+      { value: "gpt-4o-mini", label: "gpt-4o-mini" },
+      { value: "gpt-4-turbo", label: "gpt-4-turbo" },
+      { value: "gpt-35-turbo", label: "gpt-35-turbo" },
+    ],
   },
   {
     id: "anthropic",
