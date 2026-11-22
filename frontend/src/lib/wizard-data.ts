@@ -70,6 +70,19 @@ export const LLM_PROVIDERS: { id: string; label: string; note: string; models: S
     note: "Not integrated yet.",
     models: [{ value: "anthropic-na", label: "Not available", disabled: true }],
   },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    note: "Unified gateway for 300+ AI models.",
+    models: [
+      { value: "openai/gpt-4o", label: "openai/gpt-4o" },
+      { value: "openai/gpt-4o-mini", label: "openai/gpt-4o-mini" },
+      { value: "anthropic/claude-3.5-sonnet", label: "anthropic/claude-3.5-sonnet" },
+      { value: "google/gemini-2.0-flash-001", label: "google/gemini-2.0-flash-001" },
+      { value: "meta-llama/llama-3.3-70b-instruct", label: "meta-llama/llama-3.3-70b-instruct" },
+      { value: "deepseek/deepseek-chat", label: "deepseek/deepseek-chat" },
+    ],
+  },
 ];
 
 export const STT_PROVIDERS: {

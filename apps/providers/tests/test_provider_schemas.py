@@ -1185,3 +1185,23 @@ def test_provider_level_auth_openai_and_google_merge():
 
     assert provider_level_auth("missing") is None
     assert "openai" in all_provider_level_auth()
+
+
+def test_openrouter_llm_schema_and_models():
+    schemas = provider_schemas(Kind.LLM)
+    assert "openrouter" in schemas
+    openrouter = schemas["openrouter"]
+    assert openrouter["provider"] == "openrouter"
+    assert openrouter["name"] == "OpenRouter"
+    assert openrouter["provider_type"] == ProviderType.CLOUD.value
+    fields = openrouter["fields"]
+    assert "api_key" in fields
+    assert fields["api_key"]["secret"] is True
+    assert fields["model"]["default"] == "openai/gpt-4o"
+    assert "openai/gpt-4o" in fields["model"]["examples"]
+    assert "openai/gpt-4o-mini" in fields["model"]["examples"]
+    assert "anthropic/claude-3.5-sonnet" in fields["model"]["examples"]
+    assert "google/gemini-2.0-flash-001" in fields["model"]["examples"]
+    assert "meta-llama/llama-3.3-70b-instruct" in fields["model"]["examples"]
+    assert "deepseek/deepseek-chat" in fields["model"]["examples"]
+
