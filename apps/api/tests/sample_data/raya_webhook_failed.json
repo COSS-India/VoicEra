@@ -1,0 +1,27 @@
+{
+  "uuid": "00000000-0000-4000-8000-000000000008",
+  "caller_no": null,
+  "to_number": "+919999999999",
+  "in_did": null,
+  "out_did": 919999999999,
+  "call_transcript": null,
+  "call_recording_url": null,
+  "enhanced_recording_url": null,
+  "outcome": "Failure",
+  "call_start_time": "2026-11-23T07:13:32.760Z",
+  "call_end_time": "2026-11-23T07:14:00.058Z",
+  "call_duration": 0,
+  "agent_id": "00000000-0000-4000-8000-000000000002",
+  "agent_args": {
+    "location": "Ghaziabad",
+    "college_name": "Example College",
+    "contact_name": "Test Seeker",
+    "contact_phone": "+919999999999",
+    "contact_memory": "<notes from earlier calls>",
+    "recommendations": "<job list given to the bot>",
+    "_scheduler_country_code": 91
+  },
+  "timezone": null,
+  "call_output": null,
+  "created_at": "2026-11-23T07:13:32.760Z"
+}

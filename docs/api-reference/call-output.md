@@ -68,7 +68,7 @@ A call where the caller never spoke gets the unanswered output without a model c
 AI DPG logs whether each tool call succeeded, not what it returned. Until it logs tool results, job objects are filled from what was said on the call (`job_id` is `"NA"` unless spoken) and `input_location_had_jobs` is `"NA"`.
 </Warning>
 
-If no log lines are found yet, the provider retries until `CALL_OUTPUT_LOG_GRACE_SECONDS` (default 180) after the call ended; after that a call with no lines is treated as having no tool calls. A model error or an answer that is not JSON is retried. Without the `CALL_OUTPUT_LLM_*` settings an answered call ends `failed`; set them and use recompute. What was overridden and why, plus the phases and tool calls behind each output, is stored on the call log as `call_output_signals`.
+If no log lines are found yet, the provider retries until `CALL_OUTPUT_LOG_GRACE_SECONDS` (default 180) after the call ended; after that a call with no lines is treated as having no tool calls. A model error or an answer that is not JSON is retried. Without the `CALL_OUTPUT_LLM_*` settings an answered call ends `failed`; set them and use recompute. What was overridden and why, plus the phases and tool calls behind each output, is stored on the call log as `call_output_signals`. Each tool call is counted once, from its final log line. When AI DPG logs at DEBUG, each one also keeps its `arguments` and `result` (AI DPG's response body, cut at 2,000 characters); no field rule reads them, but the [Raya-format webhook](webhooks#raya-compatible-body) puts them in its transcript.
 
 ### Deployment
 

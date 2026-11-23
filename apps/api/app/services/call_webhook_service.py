@@ -173,8 +173,8 @@ def webhook_format(agent_doc: dict[str, Any] | None) -> str:
     return "raya" if value == "raya" else "voicera"
 
 
-def _raya_payload(call: dict[str, Any], database: Any) -> dict[str, Any]:
-    from app.services.raya_webhook import build_raya_payload, contact_id_for
+def _raya_payload(call: dict[str, Any], agent: dict[str, Any] | None) -> dict[str, Any]:
+    from app.services.raya_webhook import build_raya_payload
     from app.services.recording_links import signed_recording_url
 
     # Only MinIO recordings can be served by the signed link.
@@ -183,11 +183,16 @@ def _raya_payload(call: dict[str, Any], database: Any) -> dict[str, Any]:
         signed_recording_url(str(call.get("org_id") or ""), str(call.get("call_id") or ""))
         if has_recording else None
     )
+    prompts = ((agent or {}).get("config") or {}).get("prompts") or {}
+    # Tool calls the call_output provider read from the conversation service's
+    # logs (Blue Dots: AI DPG), with arguments and results when logged.
+    tools = (call.get("call_output_signals") or {}).get("tools") or []
     return build_raya_payload(
         call,
         transcript=_load_transcript_turns(call),
         recording_url=recording,
-        contact_id=contact_id_for(call, database),
+        system_prompt=str(prompts.get("system_prompt") or "") or None,
+        tool_calls=[tool for tool in tools if isinstance(tool, dict)],
     )
 
 
@@ -372,7 +377,7 @@ async def deliver(
 
     sent_at = _now()
     if webhook_format(agent) == "raya":
-        payload = _raya_payload(call, database)
+        payload = _raya_payload(call, agent)
     else:
         payload = build_payload(
             call,

@@ -1,0 +1,250 @@
+{
+  "uuid": "00000000-0000-4000-8000-000000000001",
+  "caller_no": null,
+  "to_number": "+919999999999",
+  "in_did": null,
+  "out_did": 919999999999,
+  "call_transcript": [
+    {
+      "role": "system",
+      "content": "<system prompt, 1425 chars>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_e627b50adbe246be900f3587",
+          "type": "function",
+          "function": {
+            "name": "get_profile",
+            "arguments": "{\"hold_message\": \"<bot speech, Hindi>\", \"phone_number\": \"919999999999\"}"
+          },
+          "thought_signature": "<opaque model signature>"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "<tool result as a Python-dict string, e.g. \"{'user_id': '...', 'items': [...]}\">",
+      "tool_call_id": "call_e627b50adbe246be900f3587"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_WQtSbBbXoHBb76nUSraKTLYu",
+          "type": "function",
+          "function": {
+            "name": "record_consent",
+            "arguments": "{\"age\": 26, \"name\": \"Test Seeker\", \"phone\": \"919999999999\", \"profile_id\": \"00000000-0000-4000-8000-000000000006\", \"terms_check\": \"disclosure-read-and-agreed-this-call\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "<tool result as a Python-dict string, e.g. \"{'user_id': '...', 'items': [...]}\">",
+      "tool_call_id": "call_WQtSbBbXoHBb76nUSraKTLYu"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    },
+    {
+      "role": "user",
+      "content": "<caller speech, Hindi>"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_f7ce1942dd634c1b912c8cf6",
+          "type": "function",
+          "function": {
+            "name": "apply_job",
+            "arguments": "{\"job_id\": \"00000000-0000-4000-8000-000000000003\", \"profile_id\": \"00000000-0000-4000-8000-000000000006\", \"duplicate_check\": \"not-applied-before\", \"acting_as_user_id\": \"00000000-0000-4000-8000-000000000007\"}"
+          },
+          "thought_signature": "<opaque model signature>"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "<tool result as a Python-dict string, e.g. \"{'user_id': '...', 'items': [...]}\">",
+      "tool_call_id": "call_f7ce1942dd634c1b912c8cf6"
+    },
+    {
+      "role": "assistant",
+      "content": "<bot speech, Hindi>"
+    }
+  ],
+  "call_recording_url": "https://api.getraya.app/call_recording/?audiofile=/00000000-0000-4000-8000-000000000001",
+  "enhanced_recording_url": null,
+  "outcome": "Completed",
+  "call_start_time": "2026-11-20T14:40:42.670Z",
+  "call_end_time": "2026-11-20T14:43:58.867Z",
+  "call_duration": 193,
+  "agent_id": "00000000-0000-4000-8000-000000000002",
+  "agent_args": {
+    "location": "Ghaziabad",
+    "college_name": "Example College",
+    "contact_name": "Test Seeker",
+    "contact_phone": "+919999999999",
+    "contact_memory": "<notes from earlier calls>",
+    "recommendations": "<job list given to the bot>",
+    "_scheduler_country_code": 91
+  },
+  "timezone": null,
+  "call_output": {
+    "jobs_shown": "Yes",
+    "drop_reason": "NA",
+    "seeker_name": "Test Seeker",
+    "user_intent": "Job Application",
+    "call_engaged": "Yes",
+    "jobs_applied": [
+      {
+        "role": "Electrical Engineer",
+        "job_id": "00000000-0000-4000-8000-000000000003",
+        "company_name": "Example Company Pvt Ltd",
+        "salary_offered": "35000-40000",
+        "company_location": "<company address>",
+        "qualification_required": "Diploma in Electrical"
+      }
+    ],
+    "call_answered": "Yes",
+    "final_summary": "<bot's call summary text>",
+    "primary_topic": "Job search",
+    "applied_to_job": "Yes",
+    "consent_status": "Given",
+    "jobs_recommended": [
+      {
+        "role": "Electrical Engineer",
+        "job_id": "00000000-0000-4000-8000-000000000003",
+        "benefits": "NA",
+        "company_name": "Example Company Pvt Ltd",
+        "salary_offered": "35000-40000",
+        "company_location": "<company address>",
+        "qualification_required": "Diploma in Electrical"
+      },
+      {
+        "role": "Fabrication Fitter",
+        "job_id": "00000000-0000-4000-8000-000000000004",
+        "benefits": "NA",
+        "company_name": "Example Company Pvt Ltd",
+        "salary_offered": "1520",
+        "company_location": "<company address>",
+        "qualification_required": "Minimum 4 years experience required"
+      },
+      {
+        "role": "Solar Sales executive",
+        "job_id": "00000000-0000-4000-8000-000000000005",
+        "benefits": "NA",
+        "company_name": "Example Company Pvt Ltd",
+        "salary_offered": "25000-45000",
+        "company_location": "<company address>",
+        "qualification_required": "B.A. (3-5 Years exp)"
+      }
+    ],
+    "college_confirmed": "NA",
+    "hr_contact_shared": "No",
+    "applications_count": 1,
+    "benefits_mentioned": "No",
+    "callback_requested": null,
+    "experience_captured": "No",
+    "ready_for_interview": "NA",
+    "jobs_failed_to_apply": [],
+    "profile_save_consent": "NA",
+    "unbacked_apply_claim": "No",
+    "not_interested_in_jobs": "No",
+    "service_provider_pitched": "No",
+    "service_provider_interest": "NA"
+  },
+  "created_at": "2026-11-20T14:40:26.449Z"
+}

@@ -96,26 +96,41 @@ For receivers built for Raya, set `"format": "raya"` on the agent's webhook:
 { "config": { "webhook": { "enabled": true, "url": "https://receiver.example/hook", "format": "raya" } } }
 ```
 
-The body is then Raya's flat post-call webhook (fields from Raya's docs), with no `event`/`data` envelope. The headers, signature, retries and the wait for `call_output` are the same as above.
+The body is then Raya's flat post-call webhook, matching real Raya bodies Blue Dots shared (`apps/api/tests/sample_data/raya_webhook_*.json`): the same keys in the same order, the same types and the same nulls, with no `event`/`data` envelope. The headers, signature, retries and the wait for `call_output` are the same as above.
 
 | Field | Value |
 | --- | --- |
 | `uuid` | `call_id` |
-| `caller_no`, `to_number` | Calling and called numbers, digits only |
+| `caller_no` | Caller's number, `+` and digits; `null` on outbound calls |
+| `to_number` | Called number, `+` and digits |
 | `in_did` / `out_did` | Our number as a number on inbound / outbound calls, else `null` |
+| `call_transcript` | Message list (below); `null` on `Failure` |
+| `call_recording_url` | Signed link that plays without login; `null` on `Failure` or when there is none |
+| `enhanced_recording_url` | Always `null` |
 | `outcome` | `"Completed"` when answered, otherwise `"Failure"` |
-| `call_start_time`, `call_end_time`, `created_at` | ISO 8601 UTC ending in `Z` |
-| `call_duration` | Whole seconds |
+| `call_start_time`, `call_end_time`, `created_at` | ISO 8601 UTC with milliseconds, e.g. `2026-11-20T14:40:42.670Z` |
+| `call_duration` | Whole seconds; `0` on `Failure` |
 | `agent_id`, `agent_args` | Agent ID and the call's `custom_variables` |
-| `timezone` | `"UTC"` |
-| `call_output` | The call's `call_output`; `{}` on `Failure` |
-| `batch_id`, `contact_id` | Campaign ID and contact ID (the first queued run for the contact, as in `GET /campaign/{id}/contacts`) |
-| `call_transcript` | Turns as `{role, content, timestamp}`; `[]` on `Failure` |
-| `call_recording_url` | Signed link that plays without login; `""` when there is none |
+| `timezone` | `null` |
+| `call_output` | The call's `call_output`; `null` on `Failure` |
 
-<Warning>
-Raya's docs do not define the `call_transcript` turn shape. The `{role, content, timestamp}` shape is provisional until checked against a real Raya body; it is built in one place, `raya_transcript` in `apps/api/app/services/raya_webhook.py`.
-</Warning>
+Raya's docs also list `batch_id` and `contact_id`, but real Raya bodies do not carry them, so neither do we.
+
+`call_transcript` is an OpenAI-style message list, in time order:
+
+```json
+[
+  { "role": "system", "content": "<agent system prompt>" },
+  { "role": "assistant", "content": "<bot speech>" },
+  { "role": "user", "content": "<caller speech>" },
+  { "role": "assistant", "content": null, "tool_calls": [
+    { "id": "call_<trace id>", "type": "function",
+      "function": { "name": "apply_job", "arguments": "{\"job_id\": \"…\"}" } } ] },
+  { "role": "tool", "content": "{'status': 'ok', …}", "tool_call_id": "call_<trace id>" }
+]
+```
+
+Tool calls come from the `call_output` provider's read of the conversation service's logs (for Blue Dots, AI DPG's Loki; see [call_output](call-output)), so they appear only for agents with `call_output` on. They keep AI DPG's tool names (`fetch_profile`, `fetch_jobs`, `apply_job`, …). `arguments` and the result are filled when AI DPG logs at DEBUG; the result is AI DPG's response body, cut at 2,000 characters by AI DPG, written as a Python dict string when it is complete JSON, as Raya writes it.
 
 ### Signed recording links
 

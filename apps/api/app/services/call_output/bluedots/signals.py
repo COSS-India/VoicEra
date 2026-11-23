@@ -13,14 +13,20 @@ Only structured lines are read, as Blue Dots asked:
   ``rest_api_session_values`` (``success``) and the final INFO
   ``rest_api_execute`` (``success``) or a ``failure`` line such as WARN
   ``rest_api_http_error``. Only the final line counts, so one call is one
-  ``ToolCall`` whatever the log level. Request and response bodies are not
-  read.
+  ``ToolCall`` whatever the log level.
+
+  When AI DPG logs at DEBUG, the request line's ``params`` (or the URL's
+  query) and the response line's ``body`` (cut at 2,000 characters by AI DPG)
+  are kept on the ``ToolCall`` as ``arguments`` and ``result``, matched by
+  trace id. They feed the Raya-format transcript only; no ``call_output``
+  rule reads them.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import parse_qsl, urlparse
 
 from app.services.call_output.bluedots.loki import LogLine
 
@@ -58,6 +64,33 @@ class ToolCall:
     tool: str
     ok: bool
     error: str | None = None
+    # From AI DPG's DEBUG request/response lines, when logged.
+    arguments: dict[str, Any] | None = None
+    result: str | None = None
+
+
+def _request_arguments(attrs: dict[str, Any]) -> dict[str, Any]:
+    params = attrs.get("params")
+    if isinstance(params, dict) and params:
+        return dict(params)
+    query = urlparse(str(attrs.get("url") or "")).query
+    return dict(parse_qsl(query)) if query else {}
+
+
+def _tool_details(lines: list[LogLine]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Request arguments and response body per (trace id, tool name)."""
+    details: dict[tuple[str, str], dict[str, Any]] = {}
+    for line in lines:
+        attrs = line.attributes
+        if attrs.get("operation") != TOOL_OPERATION or not attrs.get("tool_name"):
+            continue
+        key = (str(line.record.get("traceid") or ""), str(attrs["tool_name"]))
+        status = str(attrs.get("status") or "").lower()
+        if status == "pending":
+            details.setdefault(key, {})["arguments"] = _request_arguments(attrs)
+        elif status == "received" and attrs.get("body") is not None:
+            details.setdefault(key, {})["result"] = str(attrs["body"])
+    return details
 
 
 @dataclass
@@ -98,7 +131,9 @@ class CallSignals:
 
 def extract(lines: list[LogLine]) -> CallSignals:
     signals = CallSignals()
-    for line in sorted(lines, key=lambda item: item.ts_ns):
+    ordered = sorted(lines, key=lambda item: item.ts_ns)
+    details = _tool_details(ordered)
+    for line in ordered:
         attrs = line.attributes
         trace_id = line.record.get("traceid")
         if line.record.get("body") == TURN_COMPLETE:
@@ -113,13 +148,17 @@ def extract(lines: list[LogLine]) -> CallSignals:
                 )
             )
         elif (outcome := tool_outcome(line)) is not None:
+            tool = str(attrs["tool_name"])
+            detail = details.get((str(trace_id or ""), tool), {})
             signals.tools.append(
                 ToolCall(
                     ts_ns=line.ts_ns,
                     trace_id=trace_id,
-                    tool=str(attrs["tool_name"]),
+                    tool=tool,
                     ok=outcome,
                     error=(str(attrs["error"]) if attrs.get("error") else None),
+                    arguments=detail.get("arguments"),
+                    result=detail.get("result"),
                 )
             )
     return signals
