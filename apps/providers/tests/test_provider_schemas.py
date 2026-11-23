@@ -1008,6 +1008,25 @@ def test_aws_bedrock_lists_credential_secrets():
     assert schema["fields"]["aws_region"]["input_mode"] == "input"
 
 
+def test_aws_bedrock_llm_schema_and_models():
+    schemas = provider_schemas(Kind.LLM)
+    assert "aws_bedrock" in schemas
+    bedrock = schemas["aws_bedrock"]
+    assert bedrock["provider"] == "aws_bedrock"
+    assert bedrock["name"] == "AWS Bedrock"
+    assert bedrock["provider_type"] == ProviderType.CLOUD.value
+    fields = bedrock["fields"]
+    assert fields["model"]["default"] == "us.amazon.nova-pro-v1:0"
+    examples = fields["model"]["examples"]
+    assert "us.amazon.nova-pro-v1:0" in examples
+    assert "us.amazon.nova-lite-v1:0" in examples
+    assert "us.anthropic.claude-3-5-sonnet-20241022-v2:0" in examples
+    assert "us.anthropic.claude-3-5-haiku-20241022-v1:0" in examples
+    assert "anthropic.claude-3-haiku-20240307-v1:0" in examples
+    assert "us.meta.llama3-3-70b-instruct-v1:0" in examples
+    assert "us.anthropic.claude-sonnet-4-20250514-v1:0" not in examples
+
+
 def test_deepgram_creator_is_registered():
     from apps.providers.cloud.deepgram.config import DeepgramSTTConfig
 
