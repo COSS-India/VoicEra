@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -23,24 +23,17 @@ from app.models.schemas import (
     KnowledgeUploadResponse,
 )
 from app.services import knowledge_service
-from app.storage.minio_client import MinIOStorage
+from app.storage.object_storage import get_object_storage
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 
-def _stream_minio_object(bucket_name: str, object_name: str, content_type: str) -> StreamingResponse:
-    storage = MinIOStorage()
-
-    def iterator() -> Iterator[bytes]:
-        response = storage.client.get_object(bucket_name, object_name)
-        try:
-            for chunk in response.stream(32 * 1024):
-                yield chunk
-        finally:
-            response.close()
-            response.release_conn()
-
-    return StreamingResponse(iterator(), media_type=content_type)
+def _stream_storage_object(bucket_name: str, object_name: str, content_type: str) -> StreamingResponse:
+    storage = get_object_storage()
+    return StreamingResponse(
+        storage.iter_object(bucket_name, object_name),
+        media_type=content_type,
+    )
 
 
 @router.get("", response_model=list[KnowledgeDocumentResponse])
@@ -62,7 +55,7 @@ async def preview_knowledge_document(
     document_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
-    """Stream the original PDF from MinIO so the frontend can render it inline."""
+    """Stream the original PDF from object storage so the frontend can render it inline."""
     org_id = current_user.get("org_id")
     if not org_id:
         raise HTTPException(
@@ -78,11 +71,12 @@ async def preview_knowledge_document(
     if not storage_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview not available for this document")
 
-    storage = MinIOStorage()
-    if not storage.object_exists(settings.MINIO_BUCKET, storage_key):
+    storage = get_object_storage()
+    resolved_key = await storage.alocate(storage_key)
+    if not resolved_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
-    return _stream_minio_object(settings.MINIO_BUCKET, storage_key, "application/pdf")
+    return _stream_storage_object(storage.default_bucket, resolved_key, "application/pdf")
 
 
 @router.post(
@@ -125,7 +119,7 @@ async def upload_knowledge_pdf(
 
     document_id = knowledge_service.create_document_pending(org_id, file.filename)
     try:
-        storage_key = knowledge_service.upload_pdf_to_minio(
+        storage_key = knowledge_service.upload_pdf_to_storage(
             org_id,
             document_id,
             file.filename,

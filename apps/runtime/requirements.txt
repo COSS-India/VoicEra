@@ -9,7 +9,7 @@ loguru>=0.7.0
 pydantic>=2.0.0
 pipecat-ai[deepgram,cartesia,openai,silero,websocket,sarvam]==1.8.1
 svara-voice[pipecat]
-minio>=7.2.0
+boto3>=1.36.0
 grpcio>=1.60.0
 protobuf>=4.25.0
 numpy>=1.26.0

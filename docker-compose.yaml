@@ -76,11 +76,8 @@ services:
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
       PROVIDER_AUTH_ENCRYPTION_KEY: "${PROVIDER_AUTH_ENCRYPTION_KEY:-}"
       FRONTEND_URL: "${FRONTEND_URL:-http://localhost:3000}"
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
-      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin123}"
-      MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
-      MINIO_SECURE: "false"
+      # Object storage (S3): S3_ENDPOINT_URL, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY,
+      # S3_BUCKET, ... come from the root .env via env_file.
       CHROMA_BASE_DIR: /app/app/rag/chroma_data
       KB_EMBEDDING_API_KEY: "${KB_EMBEDDING_API_KEY:-}"
       KB_EMBEDDING_MODEL: "${KB_EMBEDDING_MODEL:-text-embedding-3-small}"
@@ -109,9 +106,14 @@ services:
       - app-network
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  # Optional local S3 for offline development. Not started by default:
+  #   docker compose --profile local-minio up -d
+  # then point .env at it: S3_ENDPOINT_URL=http://minio:9000,
+  # S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY = MINIO_ROOT_USER/MINIO_ROOT_PASSWORD.
   minio:
     image: minio/minio:latest
     container_name: voicera_oss_minio
+    profiles: ["local-minio"]
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
@@ -139,17 +141,18 @@ services:
   minio-init:
     image: minio/mc:latest
     container_name: voicera_oss_minio_init
+    profiles: ["local-minio"]
     depends_on:
       minio:
         condition: service_healthy
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin123}"
-      MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
+      S3_BUCKET: "${S3_BUCKET:-voicera-local-dev}"
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
-      mc mb local/$$MINIO_BUCKET --ignore-existing
+      mc mb local/$$S3_BUCKET --ignore-existing
       "
     networks:
       - app-network
@@ -192,11 +195,8 @@ services:
       SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set to a strong secret}"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
       PROVIDER_AUTH_ENCRYPTION_KEY: "${PROVIDER_AUTH_ENCRYPTION_KEY:-}"
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
-      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin123}"
-      MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
-      MINIO_SECURE: "false"
+      # Object storage (S3): S3_ENDPOINT_URL, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY,
+      # S3_BUCKET, ... come from the root .env via env_file.
       REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
       VOICE_SERVER_BASE_URL: "${VOICE_SERVER_BASE_URL:-http://localhost:7860}"
     logging:
@@ -268,7 +268,6 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       API_BASE_URL: http://api:8000/api/v1
-      MINIO_ENDPOINT: minio:9000
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
       MODEL_SERVER_WS_URL: ws://host.docker.internal:8100/v1/asr/ws
       # OpenAI Realtime transcription (indic_conformer, indic_transcribe).
@@ -282,8 +281,6 @@ services:
     depends_on:
       api:
         condition: service_started
-      minio:
-        condition: service_healthy
     networks:
       - app-network
 

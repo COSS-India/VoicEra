@@ -1,6 +1,6 @@
-"""Buffer Pipecat turn transcripts and upload to MinIO at call end.
+"""Buffer Pipecat turn transcripts and upload to object storage at call end.
 
-Objects are stored at ``voicera-calls/{org_id}/{call_id}/transcript.txt``.
+Objects are stored at ``s3://{S3_BUCKET}/{org_id}/{call_id}/transcript.txt``.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 
 from apps.runtime.services.storage.call_artifacts import save_and_link
-from apps.runtime.services.storage.object_storage import minio_uri
+from apps.runtime.services.storage.object_storage import storage_uri
 
 
 class TranscriptWriter:
@@ -29,7 +29,7 @@ class TranscriptWriter:
 
     @property
     def object_uri(self) -> str:
-        return minio_uri(self._org_id, self._call_id, "transcript.txt")
+        return storage_uri(self._org_id, self._call_id, "transcript.txt")
 
     def append(self, role: str, timestamp: str, content: str) -> None:
         self._buffer += f"[{timestamp}] {role}: {content}\n"

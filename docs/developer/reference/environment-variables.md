@@ -32,11 +32,6 @@ These only affect how Compose wires the stack. Nothing in application code reads
 | `FERRETDB_HOST_PORT` | `27018` | No | Host port published for FerretDB. The container still listens on `27017`. |
 | `API_HOST_PORT` | `8000` | No | Host port published for the API. |
 | `RUNTIME_HOST_PORT` | `7860` | No | Host port published for the runtime. |
-| `MINIO_API_PORT` | `9000` | No | Host port for the MinIO S3 API. |
-| `MINIO_CONSOLE_PORT` | `9001` | No | Host port for the MinIO web console. |
-| `MINIO_ROOT_USER` | `minioadmin` | No | MinIO root account, used by the `minio` and `minio-init` services. |
-| `MINIO_ROOT_PASSWORD` | `minioadmin123` | No | MinIO root password. Change it before exposing MinIO. |
-| `MINIO_BUCKET` | `voicera-calls` | No | Bucket `minio-init` creates for call artifacts and knowledge-base objects. |
 
 ## API
 
@@ -130,17 +125,29 @@ Both REST and the browser test-call WebSocket are same-origin from the browser: 
 
 ## Object storage
 
-MinIO holds call recordings, transcripts, campaign source CSVs, and knowledge-base PDFs.
+An S3-compatible bucket holds call recordings, transcripts, campaign source CSVs (`campaigns/…`), and knowledge-base PDFs. The API, ARQ worker, campaign orchestrator and runtime all use the same variables. Use `voicera-local-dev` for development and testing and a separate bucket in production; only `S3_BUCKET` changes between them. Create or verify a bucket with `python scripts/s3_setup_bucket.py --create`.
 
 | Variable | Default | Required | Purpose |
 |---|---|---|---|
-| `MINIO_ENDPOINT` | `localhost:9000` | No | Host and port of the MinIO S3 API. Compose overrides it to `minio:9000`. |
-| `MINIO_ACCESS_KEY` | `minioadmin` | No | Access key used by the API, the ARQ worker, and the runtime. |
-| `MINIO_SECRET_KEY` | `minioadmin123` | No | Secret key. |
-| `MINIO_SECURE` | `false` | No | Whether to use TLS to reach MinIO. Compose pins it to `false` inside the stack. |
-| `MINIO_BUCKET` | `voicera-calls` | No | Bucket for call artifacts and knowledge-base objects. |
+| `S3_ENDPOINT_URL` | — | Yes (on-prem S3) | S3 API endpoint, e.g. `https://s3.example.com`. Unset means AWS. |
+| `S3_ACCESS_KEY_ID` | — | Yes | Access key. Falls back to `AWS_ACCESS_KEY_ID`. |
+| `S3_SECRET_ACCESS_KEY` | — | Yes | Secret key. Falls back to `AWS_SECRET_ACCESS_KEY`. |
+| `S3_REGION` | `us-east-1` | No | Signing region. Falls back to `AWS_DEFAULT_REGION`. |
+| `S3_BUCKET` | `voicera-local-dev` | No | Bucket for every object the platform stores. |
+| `S3_ADDRESSING_STYLE` | `path` | No | `path` (most on-prem S3), `virtual` or `auto`. |
+| `S3_VERIFY_SSL` | `true` | No | Set `false` only for testing against self-signed endpoints. |
+| `S3_CA_BUNDLE` | — | No | Path to a CA bundle when the endpoint uses a private CA. |
+| `S3_PUBLIC_ENDPOINT_URL` | — | No | Endpoint used to sign presigned URLs given to browsers (campaign CSV download) when `S3_ENDPOINT_URL` is internal-only. |
+| `S3_LEGACY_KEY_PREFIX` | — | No | Prefix under which pre-migration MinIO objects were copied (e.g. `voicera-calls/`). Lets old `minio://` links and KB/CSV keys resolve. |
+| `S3_MAX_POOL_CONNECTIONS` | `32` | No | boto3 HTTP connection pool size per process. |
+| `S3_SSE` | — (off) | No | Server-side encryption requested on every upload: `AES256` or `aws:kms`. Leave empty unless the store supports it, or uploads are rejected. Any other value stops the service with an error. |
+| `S3_SSE_KMS_KEY_ID` | — | No | KMS key id/ARN, used only with `S3_SSE=aws:kms`. Empty uses the store's default KMS key. |
 
-`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` configure the MinIO server; `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` are what the applications authenticate with. `.env.example` ships them as the same pair, so changing only one half locks the applications out.
+Recordings and transcripts are never served to browsers directly: the API streams them through `/api/v1/calls/{call_id}/…`, so only the services need network access to the endpoint.
+
+**Backward compatibility.** If no `S3_*` value is set, each falls back to its old `MINIO_*` counterpart (`MINIO_ENDPOINT` + `MINIO_SECURE`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`), so an existing deployment keeps working until the new variables are added. `S3_*` always wins when both are set.
+
+**Local MinIO (optional).** `docker compose --profile local-minio up -d` starts the `minio` and `minio-init` services (`MINIO_API_PORT`, `MINIO_CONSOLE_PORT`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`). Point `S3_ENDPOINT_URL=http://minio:9000` and the `S3_*` keys at the root credentials to use it instead of infra S3.
 
 ## Knowledge base
 
@@ -196,8 +203,6 @@ Compose applies `env_file` first, then the `environment:` block, and `environmen
 | `MONGODB_HOST` | `localhost` | `mongodb` | The FerretDB service's network alias on `app-network`. |
 | `MONGODB_PORT` | `27018` | `27017` | Containers reach the container port; `27018` is only the host publication. |
 | `API_BASE_URL` | `http://localhost:8000/api/v1` | `http://api:8000/api/v1` | The runtime reaches the API by service name. |
-| `MINIO_ENDPOINT` | `localhost:9000` | `minio:9000` | Same reason. |
-| `MINIO_SECURE` | `false` | `false` | Pinned explicitly on `api` and `arq-worker`. |
 | `REDIS_URL` | `redis://:redissecret@localhost:6379` | `redis://:${REDIS_PASSWORD}@redis:6379` | Rebuilt from `REDIS_PASSWORD` against the service name. |
 | `CHROMA_BASE_DIR` | `app/rag/chroma_data` | `/app/app/rag/chroma_data` | Absolute path matching the volume mount. |
 
