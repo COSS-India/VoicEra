@@ -27,12 +27,10 @@ logger = logging.getLogger("voicera.eventlog")
 ENVELOPE_VERSION = 1
 SOURCE = "api"
 EVENT_LOOP_WARNING = "eventlog emit() called on the event loop thread"
-# Bounds for request-supplied values (a path id, the User-Agent), so a caller
-# cannot write arbitrarily large rows into a log retained for at least a year.
+# Length caps for request-supplied values (path ids, User-Agent).
 MAX_TARGET_ID_LENGTH = 256
 MAX_CONTEXT_VALUE_LENGTH = 512
-# Events per insert_many round trip in emit_many(); small enough that one batch
-# stays well inside EVENTLOG_WRITE_TIMEOUT_MS.
+# Events per insert_many() call in emit_many().
 BATCH_SIZE = 100
 
 Outcome = Literal["success", "failure"]

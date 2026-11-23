@@ -18,20 +18,12 @@ several subsystems are new.
 
 ### Added
 
-- **Access audit log** (`apps/api/app/services/eventlog`, `GET /api/v1/events`) — every
-  view and download of a call recording, provider recording, or transcript is
-  recorded with the user, time, action, call, IP, and user agent, as required
-  by DPDP Rules 2025, Rule 6. Transcripts bundled into the OBD report ZIP are
-  recorded as downloads too. The web app fetches a recording on the first
-  Play, so opening a call records no recording view. The real client IP needs
-  `FORWARDED_ALLOW_IPS` and a reverse proxy that sets `X-Forwarded-For` (see
-  security hardening).
-  Artifact routes take `?mode=view|download`, and
-  downloads get a sanitised `Content-Disposition` filename. Admins can filter
-  and page events, export them as CSV (the export is itself recorded), and see
-  them on the new Audit log page and a per-call Activity tab. Events are kept for
-  at least 365 days (`EVENTLOG_RETENTION_DAYS`) and purged daily by the arq
-  worker. A failed event write never blocks playback or download.
+- **Access audit log** (`apps/api/app/services/eventlog`, `GET /api/v1/events`) —
+  records each view and download of call recordings and transcripts, including
+  those bundled in the OBD report ZIP. Admins can filter and export events from
+  the Audit log page and a per-call Activity tab. Artifact routes accept
+  `?mode=view|download`. Events are retained for at least 365 days
+  (`EVENTLOG_RETENTION_DAYS`).
 - **Maya 2 Native in the TTS slot** (`model-server/tts/maya2-native`, provider
   `maya2_native`) — Maya Research's 12-language, 20-voice streaming TTS on
   OpenAI's `/v1/audio/speech`. Wraps upstream's own OpenAI-compatible server and

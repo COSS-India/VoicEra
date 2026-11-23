@@ -83,7 +83,7 @@ Bearer. Stream the artifact out of MinIO through the API, so clients never need 
 | --- | --- | --- |
 | `mode` | `view` (default), `download` | `download` adds `Content-Disposition: attachment; filename="<call_id>-<artifact>.<ext>"`. `view` streams inline |
 
-Every request is recorded in the [audit log](events) before the file streams, as `call.recording.*`, `call.provider_recording.*`, or `call.transcript.*` with the verb `viewed` or `downloaded` from `mode`. Refused requests (call not found in your organisation, artifact missing, storage unavailable) are recorded with `outcome: failure` and a `data.reason` of `call_not_found`, `artifact_missing`, `invalid_artifact_url`, or `storage_unavailable`. Send `mode=download` whenever the user saves the file, so the record says what happened. Clients should fetch a recording only when the user plays it, not to preload a player: every request is a `viewed` record. The web app fetches on the first Play.
+Every request is recorded in the [audit log](events) before the file streams, as `call.recording.*`, `call.provider_recording.*`, or `call.transcript.*` with the verb `viewed` or `downloaded` from `mode`. Refused requests (call not found in your organisation, artifact missing, storage unavailable) are recorded with `outcome: failure` and a `data.reason` of `call_not_found`, `artifact_missing`, `invalid_artifact_url`, or `storage_unavailable`. Use `mode=download` when the user saves the file. Because each request is recorded as a view, fetch a recording when the user plays it rather than to preload a player. The web app fetches it on the first Play.
 
 ## `GET /calls/{call_id}/metrics` and `PUT /calls/{call_id}/metrics`
 

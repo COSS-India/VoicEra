@@ -683,8 +683,7 @@ async def _obd_report_zip(
 ) -> tuple[Response, list[tuple[str, str]]]:
     """Full CSV in ``csv/``, and one file per call in ``calls/``.
 
-    Also returns ``(call_id, object_key)`` for every transcript bundled, so the
-    caller can record each one in the audit log.
+    Also returns ``(call_id, object_key)`` for each bundled transcript.
     """
     buffer = io.BytesIO()
     seen: set[str] = set()
@@ -734,10 +733,7 @@ def _record_transcript_downloads(
     actor: Actor,
     context: dict[str, str],
 ) -> None:
-    """Record each bundled transcript, as ``GET /calls/{id}/transcript?mode=download`` would.
-
-    Batched: a campaign can bundle thousands of transcripts.
-    """
+    """Record each bundled transcript as a ``call.transcript.downloaded`` event."""
     emit_many(
         CALL_TRANSCRIPT_DOWNLOADED,
         org_id=org_id,
@@ -775,7 +771,6 @@ async def get_obd_report_route(
         if report_format == "csv":
             return _obd_report_csv(campaign_id, rows, logs)
         response, transcripts = await _obd_report_zip(campaign_id, rows, logs)
-        # Recorded once the archive is built and before it is sent, off the event loop.
         await asyncio.to_thread(
             _record_transcript_downloads,
             transcripts,

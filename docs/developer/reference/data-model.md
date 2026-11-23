@@ -156,7 +156,7 @@ Append-only activity log for phone-number import, attach, detach, and remove. Su
 
 ## Events
 
-Append-only audit log of actions taken in an organisation. It currently covers viewing and downloading call recordings and transcripts, and exporting the log itself. Written only by `app/services/eventlog` (`emit()`, or `emit_many()` for one action on many targets, which inserts in unordered batches of 100). Read through [`/api/v1/events`](../../api-reference/events). Nothing updates or deletes events except the retention purge, which removes events older than `EVENTLOG_RETENTION_DAYS` (at least 365).
+Append-only audit log of access to call recordings and transcripts, and of exports of the log itself. Written only by `app/services/eventlog` (`emit()`, or `emit_many()` for one action on many targets, which inserts in unordered batches of 100). Read through [`/api/v1/events`](../../api-reference/events). A daily retention purge removes events older than `EVENTLOG_RETENTION_DAYS` (minimum 365).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -170,7 +170,7 @@ Append-only audit log of actions taken in an organisation. It currently covers v
 | `target` | object or absent | `type`, `id` (up to 256 characters); for artifact access, the call. |
 | `outcome` | string | `success` or `failure`. |
 | `context` | object or absent | `ip`, `user_agent` (each up to 512 characters). |
-| `data` | object or absent | Type-specific, never indexed. Never transcript text, audio, or secrets. |
+| `data` | object or absent | Type-specific and not indexed. Does not contain transcript text, audio, or secrets. |
 
 ## CallLogs
 

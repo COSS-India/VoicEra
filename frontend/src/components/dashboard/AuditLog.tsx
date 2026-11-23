@@ -71,7 +71,7 @@ export function AuditLog() {
   const isAdmin = isOrgAdmin(session);
 
   const [types, setTypes] = useState<AuditEventType[]>([]);
-  /** Bumped whenever filters change, so an in-flight "Load more" for old filters is dropped. */
+  /** Incremented on each filter change to discard stale "Load more" responses. */
   const generation = useRef(0);
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
@@ -116,8 +116,7 @@ export function AuditLog() {
 
   function apply(filters: Filters) {
     generation.current += 1;
-    // Drop the previous results and cursor, so a failed query never shows rows
-    // from other filters, and "Load more" never pairs an old cursor with new filters.
+    // Clear results and cursor from the previous filters.
     setEvents([]);
     setCursor(null);
     setLoading(true);

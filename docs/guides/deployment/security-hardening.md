@@ -117,13 +117,13 @@ For Redis over TLS use a `rediss://` URL; the ARQ settings enable TLS when they 
 
 ## Client IP in the audit log
 
-Audit events record the client IP from the API's point of view. The browser reaches the API through the frontend's `/api/v1` rewrite, so by default every event shows the frontend container's address. Recording the real client address needs two things:
+Audit events record the client IP as seen by the API. The browser reaches the API through the frontend's `/api/v1` rewrite, so by default each event records the frontend container's address. To record the client's address, configure the following:
 
-1. **A reverse proxy in front of the frontend that sets `X-Forwarded-For`.** For example, nginx with `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. The Next.js rewrite passes that header through to the API but does not add one itself, so without such a proxy the client IP cannot be recovered.
+1. **A reverse proxy in front of the frontend that sets `X-Forwarded-For`.** For example, nginx with `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. The Next.js rewrite forwards this header to the API but does not set it.
 2. **`FORWARDED_ALLOW_IPS` on the API, listing the frontend container and that proxy.** uvicorn trusts `X-Forwarded-For` only from these addresses. In Docker Compose, use the Compose network's CIDR (`docker network inspect <project>_app-network`), for example `FORWARDED_ALLOW_IPS=172.18.0.0/16`. That also covers the nginx setup in [Production deployment](production): nginx proxies to the published API port, so its requests reach the container from the network's gateway address.
 
 <Warning>
-Do not set `FORWARDED_ALLOW_IPS=*` while the API port is reachable directly. Anyone who can reach it could then forge the IP recorded in the audit log.
+Do not set `FORWARDED_ALLOW_IPS=*` while the API port is directly reachable. The API would then accept `X-Forwarded-For` from any client, and the recorded IP could not be trusted.
 </Warning>
 
 ## Email enumeration
@@ -151,8 +151,8 @@ Logs go to `json-file`, rotating at 10 MB with three files kept. Before shipping
 You hold call recordings, transcripts, and contact lists. That is regulated data in most jurisdictions.
 
 * Encrypt volumes at rest.
-* Set a retention policy — nothing expires automatically. The audit log (`Events`) is the exception: it is purged daily after `EVENTLOG_RETENTION_DAYS`, never less than 365.
-* Restrict MinIO access; artifacts are served through the authenticated API proxy, so the bucket never needs to be public. Access through the API is recorded in the audit log; direct MinIO access (console, `mc`, leaked keys) is not.
+* Set a retention policy — nothing expires automatically. The audit log (`Events`) is the exception: events older than `EVENTLOG_RETENTION_DAYS` (minimum 365) are purged daily.
+* Restrict MinIO access; artifacts are served through the authenticated API proxy, so the bucket never needs to be public. The audit log records access through the API only; access made directly to MinIO (console or `mc`) is not recorded.
 * Remember `docker compose down -v` destroys all of it irreversibly.
 
 ## Checklist

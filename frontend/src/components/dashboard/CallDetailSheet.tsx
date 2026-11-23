@@ -108,7 +108,6 @@ function WaveformPlayer({
   downloading,
 }: {
   state: AudioState;
-  /** The recording is being fetched after the first Play. */
   loading: boolean;
   onTogglePlay: () => void;
   onSeek: (t: number) => void;
@@ -175,7 +174,6 @@ function WaveformPlayer({
       <span className="shrink-0 font-mono text-[11px] text-white/70">
         {fmtClock(state.current)} / {fmtClock(state.duration)}
       </span>
-      {/* Independent of playback: a download is its own mode=download request. */}
       <button
         type="button"
         onClick={onDownload}
@@ -189,10 +187,8 @@ function WaveformPlayer({
   );
 }
 
-/** One system or provider recording player. The recording is fetched on the
- * first Play, not on open, because every fetch is recorded server-side as a
- * "recording viewed" audit event. Render with a `key` per call and source, so
- * a different recording starts from a fresh, unloaded state. */
+/** One system or provider recording player. Fetches the recording on the first
+ * Play rather than on open, since each fetch is recorded as an audit view. */
 function CallRecordingPlayer({
   callId,
   source,
@@ -227,7 +223,6 @@ function CallRecordingPlayer({
     };
   }, []);
 
-  /** Fetches the whole file once (mode=view); the <audio> autoplays when it mounts. */
   function load() {
     setLoading(true);
     fetchCallRecordingBlob(callId, source.kind)
@@ -279,7 +274,6 @@ function CallRecordingPlayer({
     if (!audio.playing) el.play();
   }
 
-  /** Fetched again with mode=download so the server records the download. */
   function download() {
     onDownloadError("");
     setDownloading(true);
@@ -305,7 +299,7 @@ function CallRecordingPlayer({
         <audio
           ref={audioElRef}
           src={audio.url}
-          // Mounted only after the user pressed Play, so starting playback here honours that click.
+          // Mounted only after the user presses Play.
           autoPlay
           onPlay={() => {
             setAudio((s) => ({ ...s, playing: true }));
@@ -385,15 +379,14 @@ function TranscriptBubble({
 const ACTIVITY_PAGE_SIZE = 200;
 const ACTIVITY_DAYS = 365;
 
-/** Audit events that target this call (admins only, last 365 days).
- * Render with `key={callId}` so a different call starts from a fresh state. */
+/** Audit events for this call over the last 365 days (admins only). */
 function CallActivity({ callId }: { callId: string }) {
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [descriptions, setDescriptions] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  // Fixed once, so later pages reuse the same window and never drift past the API's range limit.
+  // Fixed at mount so every page uses the same time range.
   const [query] = useState(() => {
     const now = Date.now();
     return {
@@ -489,7 +482,6 @@ export function CallDetailSheet({
   const [transcript, setTranscript] = useState<TranscriptLine[] | null>(null);
   const [transcriptError, setTranscriptError] = useState("");
   const [downloadingTranscript, setDownloadingTranscript] = useState(false);
-  // Keyed by call, so an error never outlives the call it belongs to.
   const [downloadError, setDownloadError] = useState<{ callId: string; message: string } | null>(null);
   const reportDownloadError = (message: string) =>
     setDownloadError(message ? { callId: call.call_id, message } : null);
@@ -567,7 +559,6 @@ export function CallDetailSheet({
     [call],
   );
 
-  /** Fetched again with mode=download so the server records the download. */
   function downloadTranscript() {
     reportDownloadError("");
     setDownloadingTranscript(true);

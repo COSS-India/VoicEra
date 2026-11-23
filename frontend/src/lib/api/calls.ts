@@ -91,8 +91,8 @@ export async function getCall(callId: string): Promise<CallLogItem> {
   return apiFetch<CallLogItem>(`/calls/${encodeURIComponent(callId)}`);
 }
 
-/** How the server records an artifact request in the audit log: "view" for
- * in-app playback/display, "download" when the file is saved. */
+/** Audit log action for an artifact request: "view" for in-app playback or
+ * display, "download" when the file is saved. */
 export type ArtifactMode = "view" | "download";
 
 function artifactPath(callId: string, artifact: string, mode: ArtifactMode): string {
@@ -101,8 +101,8 @@ function artifactPath(callId: string, artifact: string, mode: ArtifactMode): str
 
 /** Recording is a bearer-authenticated MinIO proxy — fetch as a blob, since
  * <audio src> can't send auth headers. Callers derive an object URL for playback
- * and decode the same blob for waveform peaks. Playback must fetch the whole file
- * once: range requests would each be recorded as a separate view.
+ * and decode the same blob for waveform peaks. Each request is recorded as a
+ * separate audit event, so fetch the whole file once rather than by range.
  *
  * ``kind`` selects system vs carrier/provider artifact (default: system).
  */

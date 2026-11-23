@@ -28,9 +28,8 @@ REDIS_SETTINGS = RedisSettings(
 
 class WorkerSettings:
     functions = [sync_campaign_source, process_campaign_batch]
-    # Daily at 21:30 UTC (03:00 IST, off-peak). unique=True: one run across workers.
+    # Daily at 21:30 UTC (03:00 IST).
     cron_jobs = [cron(purge_events, hour={21}, minute={30}, unique=True, timeout=3600)]
-    # arq evaluates cron fields in this zone; without it, the worker's local TZ applies.
     timezone = dt_timezone.utc
     redis_settings = REDIS_SETTINGS
     max_jobs = 10

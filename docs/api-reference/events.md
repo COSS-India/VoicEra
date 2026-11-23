@@ -3,7 +3,7 @@ title: Events (audit log)
 description: Read and export the organisation's audit log.
 ---
 
-`apps/api/app/routers/events.py`, prefix `/api/v1/events`. The audit log records activity in an organisation. It currently covers viewing and downloading call recordings and transcripts, and exporting the log itself. Events are written by the API itself. Nothing can update or delete them except the retention purge.
+`apps/api/app/routers/events.py`, prefix `/api/v1/events`. The audit log records access to call recordings and transcripts in an organisation, and exports of the log itself. Events are written by the API and are append-only; the API exposes no route to modify them.
 
 ## Access
 
@@ -11,8 +11,8 @@ Every route needs a Bearer token whose organisation the caller is currently an `
 
 * The role is re-read from `Memberships` on every request, so a token issued before a demotion is refused.
 * The bot service token is always refused, although it carries `role=admin`.
-* Results are always scoped to the token's organisation. No parameter can widen that.
-* `503` means the role could not be verified (database unavailable). Retry.
+* Results are always scoped to the token's organisation.
+* `503` means the role could not be verified because the database was unavailable. Retry the request.
 
 ## `GET /events`
 
@@ -57,7 +57,7 @@ The range from `from` to `to` can be at most 366 days.
 | --- | --- |
 | `actor.type` | `user`, or `service` for the bot token |
 | `actor.role` | The role in the caller's token at the time. It can lag a membership change by up to the token lifetime |
-| `outcome` | `success`: the access was authorised and streaming began. `failure`: refused, with the reason in `data.reason` (`call_not_found`, `artifact_missing`, `invalid_artifact_url`) |
+| `outcome` | `success`: the access was authorised and streaming began. `failure`: refused, with the reason in `data.reason` (`call_not_found`, `artifact_missing`, `invalid_artifact_url`, `storage_unavailable`) |
 | `context` | Client IP and user agent. The IP is only the real client address when `FORWARDED_ALLOW_IPS` is configured. See [Security hardening](../guides/deployment/security-hardening) |
 | `data` | Type-specific. For artifact access, `object_key`. Transcript downloads bundled in an OBD report ZIP also carry `campaign_id` |
 
@@ -74,7 +74,7 @@ The registered event types, as `name` and `description`.
 | `call.transcript.viewed` / `.downloaded` | `GET /calls/{id}/transcript`, and each transcript bundled into `GET /campaign/{id}/obd-report?format=zip` |
 | `events.exported` | `GET /events/export`, with the filters in `data` |
 
-Reading pages of `/events` is not itself recorded. Exporting is.
+Listing events with `GET /events` is not recorded; exports are.
 
 ## `GET /events/export`
 
@@ -87,7 +87,7 @@ The same filters as `GET /events`, streamed as CSV, newest first.
 
 ## Retention
 
-Events are kept for `EVENTLOG_RETENTION_DAYS`, default 365, and the API refuses to start with a lower value (DPDP Rules 2025, Rule 6(1)(e)). The arq worker purges older events daily at 21:30 UTC.
+Events are kept for `EVENTLOG_RETENTION_DAYS`, default 365, and the API refuses to start with a lower value. The arq worker purges older events daily at 21:30 UTC.
 
 ## Related
 

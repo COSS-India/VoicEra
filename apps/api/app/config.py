@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     EVENTLOG_RETENTION_DAYS: int = Field(
         default=365,
         ge=365,
-        description="Days to keep audit events; DPDP Rules 2025, Rule 6(1)(e) requires one year",
+        description="Days to keep audit events (minimum 365)",
     )
     EVENTLOG_WRITE_TIMEOUT_MS: int = Field(
         default=500,
