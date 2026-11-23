@@ -15,7 +15,7 @@ import {
 } from "@/lib/api/events";
 import type { AuditEvent, AuditEventType } from "@/lib/api-types";
 import { isOrgAdmin } from "@/lib/auth-storage";
-import { formatAuditTime, formatUserRole } from "@/lib/format";
+import { formatDateTime, formatUserRole } from "@/lib/format";
 import { downloadBlob } from "@/lib/report";
 
 const PAGE_SIZE = 50;
@@ -43,7 +43,7 @@ const fieldLabel = (key: string) => key.replace(/_/g, " ");
 
 function EventDetails({ event }: { event: AuditEvent }) {
   const rows: [string, string][] = [
-    ["Time (UTC)", event.ts],
+    ["Timestamp (UTC)", event.ts],
     ["Event ID", event.id],
     ["Event type", event.type],
     ["Actor type", event.actor.type],
@@ -265,7 +265,7 @@ export function AuditLog() {
                           <td className="px-3 py-2.5 text-v-muted">
                             {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-v-muted-2">{formatAuditTime(event.ts)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-v-muted-2">{formatDateTime(event.ts, { seconds: true })}</td>
                           <td className="px-3 py-2.5">{event.actor.id}</td>
                           <td className="px-3 py-2.5">{describe(event.type)}</td>
                           <td className="px-3 py-2.5 font-mono text-[12px] text-v-muted-2">

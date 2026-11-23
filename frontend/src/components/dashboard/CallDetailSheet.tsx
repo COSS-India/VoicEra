@@ -17,7 +17,7 @@ import {
   type CallRecordingSource,
 } from "@/lib/call-recordings";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
-import { displayFromNumber, displayToNumber, formatAuditTime, formatDateTime, formatDuration } from "@/lib/format";
+import { displayFromNumber, displayToNumber, formatDateTime, formatDuration } from "@/lib/format";
 import { downloadCallRecording, downloadCallTranscript } from "@/lib/campaign-exports";
 import type { AuditEvent, CallLogItem } from "@/lib/api-types";
 import { isOrgAdmin } from "@/lib/auth-storage";
@@ -434,7 +434,7 @@ function CallActivity({ callId }: { callId: string }) {
               <span className="text-xs text-v-muted">{descriptions[event.type] ?? event.type}</span>
             </span>
             <span className="flex shrink-0 flex-col items-end gap-1">
-              <span className="text-xs text-v-muted">{formatAuditTime(event.ts)}</span>
+              <span className="text-xs text-v-muted">{formatDateTime(event.ts, { seconds: true })}</span>
               {event.outcome === "failure" ? <Badge tone="danger">{event.outcome}</Badge> : null}
             </span>
           </li>
