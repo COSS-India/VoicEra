@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
+from app.eventlog import store as eventlog_store
 from app.routers import campaign as campaign_router
 
 
@@ -120,6 +121,8 @@ def test_obd_report_and_csv(client: TestClient) -> None:
 
 
 def test_obd_report_zip_includes_saved_transcript(client: TestClient) -> None:
+    recorded: list[dict[str, Any]] = []
+
     def lookup(org_id: str, provider_call_sid: str) -> dict[str, str] | None:
         assert org_id == "org-1"
         if provider_call_sid != "40199559":
@@ -146,6 +149,7 @@ def test_obd_report_zip_includes_saved_transcript(client: TestClient) -> None:
             "app.routers.campaign.MinIOStorage.get_object_bytes",
             new=AsyncMock(return_value=b"agent: hello"),
         ),
+        patch.object(eventlog_store, "insert", side_effect=recorded.append),
     ):
         response = client.get("/api/v1/campaign/camp-1/obd-report?format=zip")
 
@@ -164,6 +168,29 @@ def test_obd_report_zip_includes_saved_transcript(client: TestClient) -> None:
         assert "system_call_id: 6dcd41e3-a750-4ba2-9cbd-f912edaccec1" in body
         assert "recording_url: https://cts.example/rec" in body
         assert "agent: hello" in body
+
+    # Every transcript bundled into the ZIP is recorded as a transcript download.
+    [event] = recorded
+    assert event["type"] == "call.transcript.downloaded"
+    assert event["org_id"] == "org-1"
+    assert event["outcome"] == "success"
+    assert event["actor"]["id"] == "admin@example.com"
+    assert event["target"] == {"type": "call", "id": "6dcd41e3-a750-4ba2-9cbd-f912edaccec1"}
+    assert event["data"] == {"object_key": "org-1/call-1/transcript.txt", "campaign_id": "camp-1"}
+
+
+def test_obd_report_zip_records_nothing_without_transcripts(client: TestClient) -> None:
+    recorded: list[dict[str, Any]] = []
+    with (
+        patch("app.routers.campaign.repo.get_campaign_for_org", return_value=_campaign()),
+        patch("app.routers.campaign.load_telephony_client", return_value=_ObdClient()),
+        patch("app.routers.campaign.get_call_log_by_provider_sid", return_value=None),
+        patch.object(eventlog_store, "insert", side_effect=recorded.append),
+    ):
+        response = client.get("/api/v1/campaign/camp-1/obd-report?format=zip")
+
+    assert response.status_code == 200
+    assert recorded == []
 
 
 def test_obd_status(client: TestClient) -> None:

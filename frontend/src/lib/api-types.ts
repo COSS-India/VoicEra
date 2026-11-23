@@ -517,3 +517,28 @@ export interface CallAnalyticsResponse {
   agent_performance: AgentCallCount[];
   model_usage: ModelUsageSummary;
 }
+
+/** One audit log entry (`GET /events`). */
+export interface AuditEvent {
+  id: string;
+  v: number;
+  org_id: string;
+  type: string;
+  ts: string;
+  source: string;
+  actor: { type: "user" | "service" | "system"; id: string; role?: string | null };
+  target?: { type: string; id: string } | null;
+  outcome: "success" | "failure";
+  context: Record<string, string>;
+  data: Record<string, unknown>;
+}
+
+export interface AuditEventListResponse {
+  events: AuditEvent[];
+  next_cursor: string | null;
+}
+
+export interface AuditEventType {
+  name: string;
+  description: string;
+}

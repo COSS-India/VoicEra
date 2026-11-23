@@ -2,14 +2,28 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+import re
+from dataclasses import dataclass
+from functools import partial
+from pathlib import PurePosixPath
+from typing import Any, Iterator, Literal
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user, verify_api_key
 from app.config import settings
+from app.eventlog import Actor, Target, emit, request_context
+from app.eventlog.registry import (
+    CALL_PROVIDER_RECORDING_DOWNLOADED,
+    CALL_PROVIDER_RECORDING_VIEWED,
+    CALL_RECORDING_DOWNLOADED,
+    CALL_RECORDING_VIEWED,
+    CALL_TRANSCRIPT_DOWNLOADED,
+    CALL_TRANSCRIPT_VIEWED,
+    EventType,
+)
 from app.models.schemas import (
     CallAnalyticsResponse,
     CallLogListResponse,
@@ -101,18 +115,33 @@ def _raise_call_metrics_not_found(exc: CallMetricsNotFoundError) -> None:
     ) from exc
 
 
+# Known artifact formats: object suffix -> (content type, download extension).
+# A ``None`` content type keeps the artifact's default.
+_ARTIFACT_FORMATS: dict[str, tuple[str | None, str]] = {
+    ".wav": ("audio/wav", "wav"),
+    ".mp3": ("audio/mpeg", "mp3"),
+    ".txt": ("text/plain; charset=utf-8", "txt"),
+    ".json": (None, "json"),
+}
+
+
+def _artifact_format(object_name: str) -> tuple[str | None, str]:
+    return _ARTIFACT_FORMATS.get(PurePosixPath(object_name).suffix.lower(), (None, "bin"))
+
+
 def _artifact_content_type(object_name: str, default: str) -> str:
-    if object_name.endswith(".wav"):
-        return "audio/wav"
-    if object_name.endswith(".mp3"):
-        return "audio/mpeg"
-    if object_name.endswith(".txt"):
-        return "text/plain; charset=utf-8"
-    return default
+    return _artifact_format(object_name)[0] or default
 
 
-def _stream_minio_object(bucket_name: str, object_name: str, content_type: str):
-    storage = MinIOStorage()
+def _stream_minio_object(
+    bucket_name: str,
+    object_name: str,
+    content_type: str,
+    *,
+    storage: MinIOStorage | None = None,
+    headers: dict[str, str] | None = None,
+) -> StreamingResponse:
+    storage = storage or MinIOStorage()
 
     def iterator() -> Iterator[bytes]:
         response = storage.client.get_object(bucket_name, object_name)
@@ -123,7 +152,7 @@ def _stream_minio_object(bucket_name: str, object_name: str, content_type: str):
             response.close()
             response.release_conn()
 
-    return StreamingResponse(iterator(), media_type=content_type)
+    return StreamingResponse(iterator(), media_type=content_type, headers=headers)
 
 
 @router.post(
@@ -274,118 +303,174 @@ async def patch_call(
     return transform_call_log_urls(doc, api_prefix=settings.API_V1_PREFIX)
 
 
-def _stream_call_artifact(
-    call: dict[str, Any],
-    *,
-    url_field: str,
-    missing_detail: str,
-    invalid_detail: str,
-    default_content_type: str,
-) -> StreamingResponse:
-    artifact_url = call.get(url_field)
+ArtifactMode = Literal["view", "download"]
+
+
+@dataclass(frozen=True)
+class _Artifact:
+    url_field: str
+    file_stem: str
+    file_label: str
+    missing_detail: str
+    invalid_detail: str
+    default_content_type: str
+
+
+ARTIFACTS: dict[str, _Artifact] = {
+    "recording": _Artifact(
+        url_field="recording_url",
+        file_stem="recording",
+        file_label="Recording",
+        missing_detail="Recording not found for this call",
+        invalid_detail="Invalid recording URL on call log",
+        default_content_type="audio/wav",
+    ),
+    "provider_recording": _Artifact(
+        url_field="provider_recording_url",
+        file_stem="provider-recording",
+        file_label="Recording",
+        missing_detail="Provider recording not found for this call",
+        invalid_detail="Invalid provider recording URL on call log",
+        default_content_type="audio/wav",
+    ),
+    "transcript": _Artifact(
+        url_field="transcript_url",
+        file_stem="transcript",
+        file_label="Transcript",
+        missing_detail="Transcript not found for this call",
+        invalid_detail="Invalid transcript URL on call log",
+        default_content_type="text/plain; charset=utf-8",
+    ),
+}
+
+ARTIFACT_EVENTS: dict[tuple[str, ArtifactMode], EventType] = {
+    ("recording", "view"): CALL_RECORDING_VIEWED,
+    ("recording", "download"): CALL_RECORDING_DOWNLOADED,
+    ("provider_recording", "view"): CALL_PROVIDER_RECORDING_VIEWED,
+    ("provider_recording", "download"): CALL_PROVIDER_RECORDING_DOWNLOADED,
+    ("transcript", "view"): CALL_TRANSCRIPT_VIEWED,
+    ("transcript", "download"): CALL_TRANSCRIPT_DOWNLOADED,
+}
+
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_-]")
+
+
+class _ArtifactError(Exception):
+    def __init__(self, reason: str, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.reason = reason
+        self.status_code = status_code
+        self.detail = detail
+
+    def http(self) -> HTTPException:
+        return HTTPException(status_code=self.status_code, detail=self.detail)
+
+
+def _resolve_artifact(
+    storage: MinIOStorage, call: dict[str, Any], artifact: _Artifact
+) -> tuple[str, str]:
+    artifact_url = call.get(artifact.url_field)
     if not artifact_url:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=missing_detail,
+        raise _ArtifactError(
+            "artifact_missing", status.HTTP_404_NOT_FOUND, artifact.missing_detail
         )
 
     parsed = MinIOStorage.parse_minio_url(str(artifact_url))
     if not parsed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=invalid_detail,
+        raise _ArtifactError(
+            "invalid_artifact_url", status.HTTP_400_BAD_REQUEST, artifact.invalid_detail
         )
 
     bucket_name, object_name = parsed
-    storage = MinIOStorage()
     if not storage.object_exists(bucket_name, object_name):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Recording file not found: {object_name}",
+        raise _ArtifactError(
+            "artifact_missing",
+            status.HTTP_404_NOT_FOUND,
+            f"{artifact.file_label} file not found: {object_name}",
         )
+    return bucket_name, object_name
 
-    content_type = _artifact_content_type(object_name, default_content_type)
-    return _stream_minio_object(bucket_name, object_name, content_type)
+
+def _download_disposition(call: dict[str, Any], artifact: _Artifact, object_name: str) -> str:
+    """Attachment filename from the stored call ID and an allow-listed extension."""
+    call_id = _UNSAFE_FILENAME_CHARS.sub("", str(call.get("call_id") or "")) or "call"
+    extension = _artifact_format(object_name)[1]
+    return f'attachment; filename="{call_id}-{artifact.file_stem}.{extension}"'
+
+
+def _serve_artifact(
+    request: Request,
+    current_user: dict[str, Any],
+    call_id: str,
+    artifact_name: str,
+    mode: ArtifactMode,
+) -> StreamingResponse:
+    """Authorise, record the access, then stream one call artifact from MinIO."""
+    org_id = _require_active_org(current_user)
+    artifact = ARTIFACTS[artifact_name]
+    record = partial(
+        emit,
+        ARTIFACT_EVENTS[(artifact_name, mode)],
+        org_id=org_id,
+        actor=Actor.from_user(current_user),
+        target=Target("call", call_id),
+        context=request_context(request),
+    )
+    try:
+        call = get_call_log(org_id, call_id)
+        storage = MinIOStorage()
+        bucket_name, object_name = _resolve_artifact(storage, call, artifact)
+    except CallLogNotFoundError as exc:
+        record(outcome="failure", data={"reason": "call_not_found"})
+        _raise_call_not_found(exc)
+    except _ArtifactError as exc:
+        record(outcome="failure", data={"reason": exc.reason})
+        raise exc.http() from exc
+
+    # Recorded before the first byte, so a client disconnect cannot skip it.
+    record(data={"object_key": object_name})
+    headers = (
+        {"Content-Disposition": _download_disposition(call, artifact, object_name)}
+        if mode == "download"
+        else None
+    )
+    content_type = _artifact_content_type(object_name, artifact.default_content_type)
+    return _stream_minio_object(
+        bucket_name, object_name, content_type, storage=storage, headers=headers
+    )
 
 
 @router.get("/{call_id}/recording")
-async def get_call_recording(
+def get_call_recording(
     call_id: str,
+    request: Request,
+    mode: ArtifactMode = Query("view"),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
     """Stream the system (Pipecat) call recording from MinIO."""
-    org_id = _require_active_org(current_user)
-    try:
-        call = get_call_log(org_id, call_id)
-    except CallLogNotFoundError as exc:
-        _raise_call_not_found(exc)
-
-    return _stream_call_artifact(
-        call,
-        url_field="recording_url",
-        missing_detail="Recording not found for this call",
-        invalid_detail="Invalid recording URL on call log",
-        default_content_type="audio/wav",
-    )
+    return _serve_artifact(request, current_user, call_id, "recording", mode)
 
 
 @router.get("/{call_id}/provider-recording")
-async def get_call_provider_recording(
+def get_call_provider_recording(
     call_id: str,
+    request: Request,
+    mode: ArtifactMode = Query("view"),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
     """Stream the carrier / provider recording from MinIO."""
-    org_id = _require_active_org(current_user)
-    try:
-        call = get_call_log(org_id, call_id)
-    except CallLogNotFoundError as exc:
-        _raise_call_not_found(exc)
-
-    return _stream_call_artifact(
-        call,
-        url_field="provider_recording_url",
-        missing_detail="Provider recording not found for this call",
-        invalid_detail="Invalid provider recording URL on call log",
-        default_content_type="audio/wav",
-    )
+    return _serve_artifact(request, current_user, call_id, "provider_recording", mode)
 
 
 @router.get("/{call_id}/transcript")
-async def get_call_transcript(
+def get_call_transcript(
     call_id: str,
+    request: Request,
+    mode: ArtifactMode = Query("view"),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
     """Stream the call transcript from MinIO."""
-    org_id = _require_active_org(current_user)
-    try:
-        call = get_call_log(org_id, call_id)
-    except CallLogNotFoundError as exc:
-        _raise_call_not_found(exc)
-
-    transcript_url = call.get("transcript_url")
-    if not transcript_url:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Transcript not found for this call",
-        )
-
-    parsed = MinIOStorage.parse_minio_url(str(transcript_url))
-    if not parsed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid transcript URL on call log",
-        )
-
-    bucket_name, object_name = parsed
-    storage = MinIOStorage()
-    if not storage.object_exists(bucket_name, object_name):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Transcript file not found: {object_name}",
-        )
-
-    content_type = _artifact_content_type(object_name, "text/plain; charset=utf-8")
-    return _stream_minio_object(bucket_name, object_name, content_type)
+    return _serve_artifact(request, current_user, call_id, "transcript", mode)
 
 
 @router.get("/{call_id}/metrics", response_model=CallMetricsResponse)

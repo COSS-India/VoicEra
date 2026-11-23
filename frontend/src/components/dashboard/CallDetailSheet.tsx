@@ -4,18 +4,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Activity, ArrowLeft, Download, Pause, Play } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { CallTypeBadge } from "@/components/ui/CallTypeBadge";
 import { Spinner } from "@/components/ui/Spinner";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useAuth } from "@/components/AuthProvider";
 import { fetchCallRecordingBlob, fetchCallTranscriptText, getCallMetrics } from "@/lib/api/calls";
+import { listAuditEvents, listAuditEventTypes } from "@/lib/api/events";
 import {
   availableCallRecordings,
   type CallRecordingSource,
 } from "@/lib/call-recordings";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
-import { displayFromNumber, displayToNumber, formatDateTime, formatDuration } from "@/lib/format";
-import type { CallLogItem } from "@/lib/api-types";
+import { displayFromNumber, displayToNumber, formatAuditTime, formatDateTime, formatDuration } from "@/lib/format";
+import { downloadCallRecording, downloadCallTranscript } from "@/lib/campaign-exports";
+import type { AuditEvent, CallLogItem } from "@/lib/api-types";
+import { isOrgAdmin } from "@/lib/auth-storage";
 
 function fmtClock(t: number): string {
   if (!Number.isFinite(t)) return "0:00";
@@ -98,14 +103,14 @@ function WaveformPlayer({
   state,
   onTogglePlay,
   onSeek,
-  callId,
-  downloadName,
+  onDownload,
+  downloading,
 }: {
   state: AudioState;
   onTogglePlay: () => void;
   onSeek: (t: number) => void;
-  callId: string;
-  downloadName?: string;
+  onDownload: () => void;
+  downloading: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const progress = state.duration > 0 ? state.current / state.duration : 0;
@@ -168,14 +173,15 @@ function WaveformPlayer({
         {fmtClock(state.current)} / {fmtClock(state.duration)}
       </span>
       {state.url ? (
-        <a
-          href={state.url}
-          download={downloadName ?? `${callId}.wav`}
+        <button
+          type="button"
+          onClick={onDownload}
+          disabled={downloading}
           aria-label="Download recording"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25"
+          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25 disabled:cursor-wait"
         >
-          <Download className="size-4" strokeWidth={1.75} />
-        </a>
+          {downloading ? <Spinner /> : <Download className="size-4" strokeWidth={1.75} />}
+        </button>
       ) : null}
     </div>
   );
@@ -186,11 +192,14 @@ function CallRecordingPlayer({
   callId,
   source,
   onPlayback,
+  onDownloadError,
 }: {
   callId: string;
   source: CallRecordingSource;
   onPlayback?: (state: { playing: boolean; current: number }) => void;
+  onDownloadError: (message: string) => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
   const [audio, setAudio] = useState<AudioState>({
     url: null,
     peaks: null,
@@ -252,7 +261,14 @@ function CallRecordingPlayer({
     if (!audio.playing) el.play();
   }
 
-  const suffix = source.kind === "provider" ? "-provider" : "";
+  /** Fetched again with mode=download so the server records the download. */
+  function download() {
+    onDownloadError("");
+    setDownloading(true);
+    downloadCallRecording(callId, source.kind)
+      .catch((err) => onDownloadError(err instanceof Error ? err.message : "Download failed."))
+      .finally(() => setDownloading(false));
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -263,8 +279,8 @@ function CallRecordingPlayer({
         state={audio}
         onTogglePlay={togglePlay}
         onSeek={seekTo}
-        callId={callId}
-        downloadName={`${callId}${suffix}.wav`}
+        onDownload={download}
+        downloading={downloading}
       />
       {audio.url ? (
         <audio
@@ -345,6 +361,95 @@ function TranscriptBubble({
   );
 }
 
+const ACTIVITY_PAGE_SIZE = 200;
+const ACTIVITY_DAYS = 365;
+
+/** Audit events that target this call (admins only, last 365 days).
+ * Render with `key={callId}` so a different call starts from a fresh state. */
+function CallActivity({ callId }: { callId: string }) {
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+  const [descriptions, setDescriptions] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Fixed once, so later pages reuse the same window and never drift past the API's range limit.
+  const [query] = useState(() => {
+    const now = Date.now();
+    return {
+      target_type: "call",
+      target_id: callId,
+      from: new Date(now - ACTIVITY_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      to: new Date(now).toISOString(),
+      limit: ACTIVITY_PAGE_SIZE,
+    };
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([listAuditEvents(query), listAuditEventTypes()])
+      .then(([page, types]) => {
+        if (cancelled) return;
+        setEvents(page.events);
+        setCursor(page.next_cursor);
+        setDescriptions(Object.fromEntries(types.map((t) => [t.name, t.description])));
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load activity for this call.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
+
+  function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    listAuditEvents({ ...query, cursor })
+      .then((page) => {
+        setEvents((prev) => [...(prev ?? []), ...page.events]);
+        setCursor(page.next_cursor);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load more activity."))
+      .finally(() => setLoadingMore(false));
+  }
+
+  if (error) return <p className="py-8 text-center text-sm text-v-muted">{error}</p>;
+  if (events === null) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-8 text-sm text-v-muted">
+        <Spinner light={false} /> Loading activity…
+      </div>
+    );
+  }
+  if (events.length === 0) {
+    return <p className="py-8 text-center text-sm text-v-muted">No activity recorded for this call in the last 365 days.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-2.5">
+        {events.map((event) => (
+          <li key={event.id} className="flex items-start justify-between gap-4 border-b border-v-line pb-2.5">
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-[13px] font-medium text-v-fg">{event.actor.id}</span>
+              <span className="text-xs text-v-muted">{descriptions[event.type] ?? event.type}</span>
+            </span>
+            <span className="flex shrink-0 flex-col items-end gap-1">
+              <span className="text-xs text-v-muted">{formatAuditTime(event.ts)}</span>
+              {event.outcome === "failure" ? <Badge tone="danger">{event.outcome}</Badge> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {cursor ? (
+        <Button type="button" variant="ghost" size="sm" className="self-center" onClick={loadMore} disabled={loadingMore}>
+          {loadingMore ? <Spinner light={false} /> : null}
+          Load more
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function CallDetailSheet({
   call,
   onClose,
@@ -356,10 +461,18 @@ export function CallDetailSheet({
    * from the Telemetry page itself — linking back to where you already are. */
   showTelemetryLink?: boolean;
 }) {
-  const [tab, setTab] = useState<"transcript" | "details">("transcript");
+  const { session } = useAuth();
+  const isAdmin = isOrgAdmin(session);
+  const tabs = isAdmin ? (["transcript", "details", "activity"] as const) : (["transcript", "details"] as const);
+  const [tab, setTab] = useState<(typeof tabs)[number]>("transcript");
   const [transcript, setTranscript] = useState<TranscriptLine[] | null>(null);
   const [transcriptError, setTranscriptError] = useState("");
-  const [transcriptRaw, setTranscriptRaw] = useState("");
+  const [downloadingTranscript, setDownloadingTranscript] = useState(false);
+  // Keyed by call, so an error never outlives the call it belongs to.
+  const [downloadError, setDownloadError] = useState<{ callId: string; message: string } | null>(null);
+  const reportDownloadError = (message: string) =>
+    setDownloadError(message ? { callId: call.call_id, message } : null);
+  const visibleDownloadError = downloadError?.callId === call.call_id ? downloadError.message : "";
   const recordingSources = useMemo(() => availableCallRecordings(call), [call]);
   const [syncPlayback, setSyncPlayback] = useState({ playing: false, current: 0 });
   const [hasLatencyData, setHasLatencyData] = useState(false);
@@ -386,7 +499,6 @@ export function CallDetailSheet({
     fetchCallTranscriptText(call.call_id)
       .then((text) => {
         if (cancelled) return;
-        setTranscriptRaw(text);
         setTranscript(parseTranscript(text));
       })
       .catch((err) => {
@@ -434,14 +546,13 @@ export function CallDetailSheet({
     [call],
   );
 
+  /** Fetched again with mode=download so the server records the download. */
   function downloadTranscript() {
-    const blob = new Blob([transcriptRaw], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${call.call_id}-transcript.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    reportDownloadError("");
+    setDownloadingTranscript(true);
+    downloadCallTranscript(call.call_id)
+      .catch((err) => reportDownloadError(err instanceof Error ? err.message : "Download failed."))
+      .finally(() => setDownloadingTranscript(false));
   }
 
   return (
@@ -498,6 +609,7 @@ export function CallDetailSheet({
                   callId={call.call_id}
                   source={src}
                   onPlayback={setSyncPlayback}
+                  onDownloadError={reportDownloadError}
                 />
               ))}
             </div>
@@ -525,7 +637,7 @@ export function CallDetailSheet({
 
           <div className="flex items-center justify-between border-b border-v-line">
             <div className="flex gap-4">
-              {(["transcript", "details"] as const).map((t) => (
+              {tabs.map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -544,13 +656,19 @@ export function CallDetailSheet({
               <button
                 type="button"
                 onClick={downloadTranscript}
-                className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent"
+                disabled={downloadingTranscript}
+                className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent disabled:cursor-wait disabled:opacity-60"
               >
                 <Download className="size-3.5" strokeWidth={1.75} />
                 Export
               </button>
             ) : null}
           </div>
+          {visibleDownloadError ? (
+            <p role="alert" className="text-xs text-v-danger">
+              {visibleDownloadError}
+            </p>
+          ) : null}
         </div>
 
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
@@ -577,6 +695,8 @@ export function CallDetailSheet({
                 ))}
               </div>
             )
+          ) : tab === "activity" ? (
+            <CallActivity key={call.call_id} callId={call.call_id} />
           ) : (
             <dl className="flex flex-col gap-3">
               {detailRows.map((row) => (

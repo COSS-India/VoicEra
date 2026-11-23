@@ -18,6 +18,7 @@ from app.routers import (
     calls,
     campaign,
     configuration,
+    events,
     knowledge,
     languages,
     members,
@@ -85,6 +86,7 @@ app.include_router(calls.router, prefix=settings.API_V1_PREFIX)
 app.include_router(campaign.router, prefix=settings.API_V1_PREFIX)
 app.include_router(knowledge.router, prefix=settings.API_V1_PREFIX)
 app.include_router(rag.router, prefix=settings.API_V1_PREFIX)
+app.include_router(events.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/")

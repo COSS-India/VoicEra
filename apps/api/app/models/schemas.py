@@ -1166,3 +1166,45 @@ class KnowledgeRetrieveResponse(BaseModel):
     """RAG retrieval response."""
 
     chunks: list[KnowledgeChunkResponse] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Event log (audit)
+# ---------------------------------------------------------------------------
+
+
+class EventActor(BaseModel):
+    type: str
+    id: str
+    role: Optional[str] = None
+
+
+class EventTarget(BaseModel):
+    type: str
+    id: str
+
+
+class EventResponse(BaseModel):
+    id: str
+    v: int
+    org_id: str
+    type: str
+    ts: str = Field(..., description="ISO 8601 UTC timestamp")
+    source: str
+    actor: EventActor
+    target: Optional[EventTarget] = None
+    outcome: Literal["success", "failure"]
+    context: dict[str, str] = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class EventListResponse(BaseModel):
+    events: list[EventResponse]
+    next_cursor: Optional[str] = Field(
+        None, description="Pass as `cursor` to fetch the next page; null on the last page"
+    )
+
+
+class EventTypeResponse(BaseModel):
+    name: str
+    description: str

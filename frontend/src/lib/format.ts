@@ -134,6 +134,23 @@ export function formatDateTime(iso?: string | null): string {
   return `${date}, ${time}`;
 }
 
+/** Audit timestamps: 24-hour time to the second, with the time zone, so same-minute events stay distinct. */
+export function formatAuditTime(iso?: string | null): string {
+  if (!iso) return "–";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "–";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  }).format(d);
+}
+
 export function formatBytes(bytes?: number | null): string {
   if (!bytes && bytes !== 0) return "–";
   if (bytes < 1024) return `${bytes} B`;

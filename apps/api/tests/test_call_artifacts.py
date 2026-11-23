@@ -6,12 +6,12 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from app.auth import get_current_user, verify_api_key
+from app.auth import BOT_SERVICE_EMAIL, get_current_user, verify_api_key
+from app.eventlog import store
 from app.routers import calls
 from app.storage.minio_client import MinIOStorage
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 _CALL_STORE: dict[str, dict[str, Any]] = {}
 
@@ -89,6 +89,14 @@ def _sample_call_doc(**overrides: Any) -> dict[str, Any]:
 @pytest.fixture(autouse=True)
 def clear_store() -> None:
     _CALL_STORE.clear()
+
+
+@pytest.fixture(autouse=True)
+def events() -> list[dict[str, Any]]:
+    """Events emitted during the test, captured instead of written."""
+    captured: list[dict[str, Any]] = []
+    with patch.object(store, "insert", side_effect=captured.append):
+        yield captured
 
 
 @_patch_db("app.services.call_log_service.get_database")
@@ -336,3 +344,235 @@ def test_get_call_by_provider_sid_not_found(_calls_db: MagicMock) -> None:
     client = _make_client()
     response = client.get("/api/v1/calls/by-provider-sid/missing-sid")
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Access audit events
+# ---------------------------------------------------------------------------
+
+_ARTIFACT_URLS = {
+    "recording": ("recording_url", "recording.wav"),
+    "provider-recording": ("provider_recording_url", "provider_recording.wav"),
+    "transcript": ("transcript_url", "transcript.txt"),
+}
+
+
+def _serve(storage_cls: MagicMock, body: bytes = b"DATA") -> MagicMock:
+    storage = storage_cls.return_value
+    storage.object_exists.return_value = True
+    storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
+    response_obj = MagicMock()
+    response_obj.stream.return_value = [body]
+    storage.client.get_object.return_value = response_obj
+    return storage
+
+
+def _store_call_with_all_artifacts(call_id: str = "call-abc-123") -> None:
+    _CALL_STORE[call_id] = _sample_call_doc(
+        call_id=call_id,
+        **{
+            field: f"minio://voicera-calls/org-1/{call_id}/{name}"
+            for field, name in _ARTIFACT_URLS.values()
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "mode", "event_type"),
+    [
+        ("recording", None, "call.recording.viewed"),
+        ("recording", "view", "call.recording.viewed"),
+        ("recording", "download", "call.recording.downloaded"),
+        ("provider-recording", "view", "call.provider_recording.viewed"),
+        ("provider-recording", "download", "call.provider_recording.downloaded"),
+        ("transcript", "view", "call.transcript.viewed"),
+        ("transcript", "download", "call.transcript.downloaded"),
+    ],
+)
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_artifact_access_is_recorded(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+    path: str,
+    mode: str | None,
+    event_type: str,
+    events: list[dict[str, Any]],
+) -> None:
+    _store_call_with_all_artifacts()
+    _serve(storage_cls)
+    query = f"?mode={mode}" if mode else ""
+
+    response = _make_client().get(
+        f"/api/v1/calls/call-abc-123/{path}{query}", headers={"User-Agent": "pytest"}
+    )
+
+    assert response.status_code == 200
+    [event] = events
+    assert event["type"] == event_type
+    assert event["org_id"] == "org-1"
+    assert event["outcome"] == "success"
+    assert event["actor"] == {"type": "user", "id": "admin@example.com", "role": "admin"}
+    assert event["target"] == {"type": "call", "id": "call-abc-123"}
+    assert event["data"] == {"object_key": f"org-1/call-abc-123/{_ARTIFACT_URLS[path][1]}"}
+    assert event["context"]["user_agent"] == "pytest"
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_bot_access_is_recorded_as_service(
+    storage_cls: MagicMock, _calls_db: MagicMock, events: list[dict[str, Any]]
+) -> None:
+    _store_call_with_all_artifacts()
+    _serve(storage_cls)
+    bot = {"email": BOT_SERVICE_EMAIL, "org_id": "org-1", "role": "admin"}
+
+    _make_client(lambda: bot).get("/api/v1/calls/call-abc-123/transcript")
+
+    assert events[0]["actor"]["type"] == "service"
+
+
+def test_invalid_mode_is_rejected(events: list[dict[str, Any]]) -> None:
+    response = _make_client().get("/api/v1/calls/call-abc-123/recording?mode=stream")
+    assert response.status_code == 422
+    assert events == []
+
+
+@pytest.mark.parametrize(
+    ("doc", "exists", "status", "detail", "reason"),
+    [
+        (None, True, 404, None, "call_not_found"),
+        ({}, True, 404, "Recording not found for this call", "artifact_missing"),
+        (
+            {"recording_url": "s3://bucket/key.wav"},
+            True,
+            400,
+            "Invalid recording URL on call log",
+            "invalid_artifact_url",
+        ),
+        (
+            {"recording_url": "minio://voicera-calls/org-1/call-abc-123/recording.wav"},
+            False,
+            404,
+            "Recording file not found: org-1/call-abc-123/recording.wav",
+            "artifact_missing",
+        ),
+    ],
+)
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_artifact_failures_are_recorded(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+    doc: dict[str, Any] | None,
+    exists: bool,
+    status: int,
+    detail: str | None,
+    reason: str,
+    events: list[dict[str, Any]],
+) -> None:
+    if doc is not None:
+        _CALL_STORE["call-abc-123"] = _sample_call_doc(**doc)
+    storage_cls.return_value.object_exists.return_value = exists
+    storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
+
+    response = _make_client().get("/api/v1/calls/call-abc-123/recording?mode=download")
+
+    assert response.status_code == status
+    if detail:
+        assert response.json()["detail"] == detail
+    [event] = events
+    assert event["type"] == "call.recording.downloaded"
+    assert event["outcome"] == "failure"
+    assert event["data"] == {"reason": reason}
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_other_org_call_is_recorded_as_not_found_in_callers_org(
+    storage_cls: MagicMock, _calls_db: MagicMock, events: list[dict[str, Any]]
+) -> None:
+    _store_call_with_all_artifacts()
+
+    response = _make_client(_other_org_admin).get("/api/v1/calls/call-abc-123/transcript")
+
+    assert response.status_code == 404
+    assert events[0]["org_id"] == "org-2"
+    assert events[0]["data"] == {"reason": "call_not_found"}
+    storage_cls.return_value.object_exists.assert_not_called()
+
+
+def test_missing_org_is_rejected_before_any_event(events: list[dict[str, Any]]) -> None:
+    client = _make_client(lambda: {"email": "a@example.com", "org_id": None, "role": "admin"})
+    response = client.get("/api/v1/calls/call-abc-123/recording")
+    assert response.status_code == 400
+    assert events == []
+
+
+@pytest.mark.parametrize(
+    ("path", "object_name", "filename"),
+    [
+        ("recording", "recording.wav", 'call-abc-123-recording.wav"'),
+        ("provider-recording", "provider_recording.mp3", 'call-abc-123-provider-recording.mp3"'),
+        ("transcript", "transcript.txt", 'call-abc-123-transcript.txt"'),
+        ("transcript", "transcript.exe", 'call-abc-123-transcript.bin"'),
+    ],
+)
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_download_sets_content_disposition(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+    path: str,
+    object_name: str,
+    filename: str,
+) -> None:
+    field = _ARTIFACT_URLS[path][0]
+    _CALL_STORE["call-abc-123"] = _sample_call_doc(
+        **{field: f"minio://voicera-calls/org-1/call-abc-123/{object_name}"}
+    )
+    _serve(storage_cls)
+    client = _make_client()
+
+    download = client.get(f"/api/v1/calls/call-abc-123/{path}?mode=download")
+    view = client.get(f"/api/v1/calls/call-abc-123/{path}")
+
+    assert download.headers["content-disposition"] == f'attachment; filename="{filename}'
+    assert "content-disposition" not in view.headers
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_download_filename_is_sanitised_from_stored_call_id(
+    storage_cls: MagicMock, _calls_db: MagicMock
+) -> None:
+    call_id = 'ab"c;\r\nx=..y'
+    _CALL_STORE[call_id] = _sample_call_doc(
+        call_id=call_id,
+        transcript_url="minio://voicera-calls/org-1/c/transcript.txt",
+    )
+    _serve(storage_cls)
+
+    response = _make_client().get(
+        "/api/v1/calls/ab%22c%3B%0D%0Ax%3D..y/transcript?mode=download"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="abcxy-transcript.txt"'
+    )
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_event_log_failure_does_not_break_playback(
+    storage_cls: MagicMock, _calls_db: MagicMock
+) -> None:
+    _store_call_with_all_artifacts()
+    _serve(storage_cls, body=b"RIFFWAVE")
+
+    with patch.object(store, "insert", side_effect=RuntimeError("events down")):
+        response = _make_client().get("/api/v1/calls/call-abc-123/recording")
+
+    assert response.status_code == 200
+    assert response.content == b"RIFFWAVE"

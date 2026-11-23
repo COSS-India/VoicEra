@@ -159,6 +159,34 @@ def _ensure_phone_number_events(db: Database, existing: set[str]) -> None:
     )
 
 
+def _ensure_events(db: Database, existing: set[str]) -> None:
+    if "Events" not in existing:
+        logger.info("Creating Events collection")
+    else:
+        logger.debug("Events already exists; ensuring indexes")
+
+    events = db["Events"]
+    # DocumentDB uses default compound indexes for equality only; ordered indexes
+    # also serve the _id range, so pages do not sort an organisation's history.
+    ordered = {"enableOrderedIndex": True}
+    _ensure_index(events, [("org_id", 1), ("_id", -1)], name="org_id_desc", **ordered)
+    _ensure_index(
+        events, [("org_id", 1), ("type", 1), ("_id", -1)], name="org_type_id", **ordered
+    )
+    _ensure_index(
+        events,
+        [("org_id", 1), ("actor.id", 1), ("_id", -1)],
+        name="org_actor_id",
+        **ordered,
+    )
+    _ensure_index(
+        events,
+        [("org_id", 1), ("target.id", 1), ("_id", -1)],
+        name="org_target_id",
+        **ordered,
+    )
+
+
 def _ensure_knowledge_documents(db: Database, existing: set[str]) -> None:
     if "KnowledgeDocuments" not in existing:
         logger.info("Creating KnowledgeDocuments collection")
@@ -294,12 +322,13 @@ def initialize_database() -> None:
         _ensure_call_metrics(db, existing)
         _ensure_campaigns(db, existing)
         _ensure_queued_runs(db, existing)
+        _ensure_events(db, existing)
 
         logger.info(
             "Database initialization completed "
             "(Organizations, Users, Memberships, ProviderAuth, Agents, "
             "PhoneNumbers, PhoneNumberEvents, KnowledgeDocuments, CallLogs, "
-            "CallMetrics, Campaigns, QueuedRuns)"
+            "CallMetrics, Campaigns, QueuedRuns, Events)"
         )
     except Exception as exc:
         logger.error("Error initializing database: %s", exc)

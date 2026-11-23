@@ -183,7 +183,7 @@ function ExportMenu({
       let lineCount = 0;
       for (const call of withTranscripts) {
         try {
-          const text = await fetchCallTranscriptText(call.call_id);
+          const text = await fetchCallTranscriptText(call.call_id, { mode: "download" });
           for (const line of parseTranscript(text)) {
             rows.push([
               call.call_id,
