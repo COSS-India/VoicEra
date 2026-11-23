@@ -12,6 +12,18 @@ from typing import Any
 from pipecat.services.settings import STTSettings, TTSSettings, is_given
 
 
+def language_code(value: Any) -> str:
+    """Normalize a settings language value to a wire/canonical string.
+
+    Pipecat may store ISO tags as ``Language`` enums. ``str(Language.OR)`` is
+    ``"Language.OR"``; the wire code is on ``.value`` (``"or"``).
+    """
+    if value is None:
+        return ""
+    raw = getattr(value, "value", value)
+    return str(raw).strip()
+
+
 def _stored_or_delta(service: Any, attr: str, delta_value: Any) -> Any:
     settings = getattr(service, "_settings", None)
     stored = getattr(settings, attr, None) if settings is not None else None
@@ -33,7 +45,9 @@ async def update_stt_settings_with_language(
     lang_requested = is_given(delta.language) and delta.language is not None
     changed = await super_update(delta)
     if lang_requested and hasattr(service, "set_language"):
-        await service.set_language(str(_stored_or_delta(service, "language", delta.language)))
+        await service.set_language(
+            language_code(_stored_or_delta(service, "language", delta.language))
+        )
     return changed
 
 
@@ -54,7 +68,9 @@ async def update_tts_settings_with_voice_language(
     model_requested = is_given(delta.model) and delta.model is not None
     changed = await super_update(delta)
     if lang_requested and hasattr(service, "_language"):
-        service._language = str(_stored_or_delta(service, "language", delta.language))
+        service._language = language_code(
+            _stored_or_delta(service, "language", delta.language)
+        )
     if voice_requested and hasattr(service, "_voice"):
         service._voice = str(_stored_or_delta(service, "voice", delta.voice))
     if model_requested and hasattr(service, "_model"):
@@ -66,7 +82,7 @@ def translate_delta_language(delta: STTSettings | TTSSettings, to_wire) -> None:
     """Rewrite a delta's language from VoicEra's canonical id to a vendor code.
 
     Language switching sends the agent config's language as it is stored --
-    the canonical id (``od``, ``bh``) -- but a self-hosted model server expects
+    the canonical id (``or``, ``bhb``) -- but a self-hosted model server expects
     its own code (``or``, ``bhb``). ``to_wire`` is the provider's catalog
     mapping; a value that is already a wire code passes through it unchanged.
     Call this before ``super()._update_settings`` so Pipecat stores and sends
@@ -74,5 +90,4 @@ def translate_delta_language(delta: STTSettings | TTSSettings, to_wire) -> None:
     """
     if not is_given(delta.language) or delta.language is None:
         return
-    value = getattr(delta.language, "value", delta.language)
-    delta.language = to_wire(str(value).strip())
+    delta.language = to_wire(language_code(delta.language))

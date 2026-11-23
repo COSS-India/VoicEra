@@ -179,7 +179,7 @@ class AcmeSTTConfig(...):
 
 `settings_tree()` rekeys settings by **canonical** id for the dump (`settings_by_model_language`). `resolve_settings(tree, model, language)` takes that canonical id.
 
-The inversion keeps the first vendor code that maps to a canonical id. ElevenLabs sends `or` for Odia and `auto` for auto-detect, so `language_codes["scribe_v2_realtime"]["od"] == "or"` and `["multi"] == "auto"` — the storage layer never sees the vendor spelling.
+The inversion keeps the first vendor code that maps to a canonical id. ElevenLabs sends `or` for Odia and `auto` for auto-detect, so `language_codes["scribe_v2_realtime"]["or"] == "or"` and `["multi"] == "auto"` — the storage layer never sees the vendor spelling.
 
 Vendor **defaults may differ on purpose**. Deepgram STT defaults to `multi`, Deepgram TTS to `en`, Bhashini to `hi`. Do not force one default across providers.
 
