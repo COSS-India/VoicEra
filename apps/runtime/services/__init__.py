@@ -1,1 +1,1 @@
-"""Application services for the voice runtime."""
+"""Call artifact storage (S3 object storage + CallLog linking)."""

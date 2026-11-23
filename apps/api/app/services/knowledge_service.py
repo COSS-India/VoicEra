@@ -5,7 +5,6 @@ Knowledge base: org-scoped PDF metadata in Mongo + ingest to Chroma.
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -320,26 +319,27 @@ def _delete_chroma_vectors(org_id: str, document_id: str) -> None:
         raise KnowledgeChromaDeleteError(str(exc)) from exc
 
 
-def _delete_minio_object(storage_key: str | None) -> None:
+def _delete_storage_object(storage_key: str | None) -> None:
     if not storage_key:
         return
     try:
-        from app.storage.minio_client import MinIOStorage
+        from app.storage.object_storage import get_object_storage
 
-        storage = MinIOStorage()
-        storage.client.remove_object(settings.MINIO_BUCKET, storage_key)
+        storage = get_object_storage()
+        resolved_key = storage.locate(storage_key) or storage_key
+        storage.delete(resolved_key)
     except Exception as exc:
         logger.warning("Failed to delete KB object %s: %s", storage_key, exc)
 
 
 def delete_knowledge_document(org_id: str, document_id: str) -> None:
-    """Remove Chroma vectors and MinIO object, then delete the Mongo row."""
+    """Remove Chroma vectors and the stored PDF, then delete the Mongo row."""
     existing = get_document(org_id, document_id)
     if not existing:
         raise KnowledgeDocumentNotFoundError()
 
     _delete_chroma_vectors(org_id, document_id)
-    _delete_minio_object(existing.get("storage_key"))
+    _delete_storage_object(existing.get("storage_key"))
 
     db = get_database()
     deleted = db[COLLECTION_NAME].delete_one(
@@ -349,19 +349,12 @@ def delete_knowledge_document(org_id: str, document_id: str) -> None:
         raise KnowledgeDocumentNotFoundError()
 
 
-def upload_pdf_to_minio(org_id: str, document_id: str, filename: str, data: bytes) -> str:
-    """Store the original PDF in MinIO; return object key."""
-    from app.storage.minio_client import MinIOStorage
+def upload_pdf_to_storage(org_id: str, document_id: str, filename: str, data: bytes) -> str:
+    """Store the original PDF in object storage; return object key."""
+    from app.storage.object_storage import get_object_storage
 
     key = kb_storage_key(org_id, document_id, filename)
-    storage = MinIOStorage()
-    storage.client.put_object(
-        settings.MINIO_BUCKET,
-        key,
-        io.BytesIO(data),
-        length=len(data),
-        content_type="application/pdf",
-    )
+    get_object_storage().put_bytes(key, data, content_type="application/pdf")
     return key
 
 

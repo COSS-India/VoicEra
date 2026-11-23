@@ -1,4 +1,4 @@
-"""Shared provider-recording ingest — resolve CallLog, download, MinIO link.
+"""Shared provider-recording ingest — resolve CallLog, download, object-storage link.
 
 Provider routes parse their own webhook shape into ``ProviderRecordingRef``,
 then call ``ingest_provider_recording``.
