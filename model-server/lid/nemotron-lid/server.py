@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Nemotron LID slot: spoken language ID only (no streaming ASR).
+"""Nemotron LID slot: whole-utterance language ID plus transcription.
 
-  GET  /health     — slot healthcheck (model-server convention)
-  POST /identify   — multipart audio → language_code + confidence
+  GET  /health      — slot healthcheck (model-server convention)
+  POST /transcribe  — multipart audio → language_code, confidence, transcript
 
-VoicEra runtime posts WAV here via the gateway at /v1/lid/identify.
+VoicEra runtime posts the full utterance WAV here via the gateway at
+/v1/lid/transcribe. LID runs over the whole audio, then the same audio is
+decoded in the detected language.
 """
 
 from __future__ import annotations
@@ -28,16 +30,17 @@ if str(_ROOT) not in sys.path:
 
 from nemotron_lid import (  # noqa: E402
     SAMPLE_RATE,
+    StreamingASRSession,
     load_audio_16k_mono,
-    load_encoder,
     load_probe,
+    load_streaming_asr,
     resolve_nemo_checkpoint,
     run_lid,
 )
 
 PROBE_DIR = _ROOT / "probe"
 
-app = FastAPI(title="Nemotron LID", version="1.0.0")
+app = FastAPI(title="Nemotron LID", version="2.0.0")
 _state: dict = {}
 _infer_lock = threading.Lock()
 
@@ -94,13 +97,20 @@ def health():
         "device": _state.get("device"),
         "languages": _state.get("langs", []),
         "lang_codes": _state.get("codes", {}),
-        "mode": "lid_identify",
+        "mode": "lid_transcribe",
         "nemo_path": _state.get("nemo_path"),
     }
 
 
-@app.post("/identify")
-async def identify(
+def _transcribe(pcm: np.ndarray, language_code: str) -> str:
+    session = StreamingASRSession(_state["model"], language=language_code)
+    session.append_pcm(pcm)
+    session.process_available(final=False)
+    return session.flush().text
+
+
+@app.post("/transcribe")
+async def transcribe(
     audio: UploadFile = File(..., description="Audio file"),
     filename: str | None = Form(default=None),
 ):
@@ -127,15 +137,14 @@ async def identify(
             _state["device"],
             use_fp16=False,
         )
+        transcript = _transcribe(pcm, result.lang_code)
     return {
         "detected_language": result.language,
         "language_code": result.lang_code,
         "confidence": result.confidence,
         "probabilities": result.probabilities,
         "duration_sec": result.duration_s,
-        "encoder_ms": round(result.encoder_s * 1000, 2),
-        "lid_ms": round(result.lid_s * 1000, 2),
-        "total_ms": round(result.total_s * 1000, 2),
+        "transcript": transcript,
     }
 
 
@@ -146,8 +155,7 @@ def main() -> int:
         args.device = "cpu"
 
     nemo_path = resolve_nemo_checkpoint(verify_hash=True)
-    # Encoder-only: LID does not need the RNNT decoder / streaming session.
-    model = load_encoder(nemo_path, device=args.device)
+    model = load_streaming_asr(nemo_path, device=args.device)
     clf, langs, codes = load_probe(args.probe_dir)
 
     _state.update(

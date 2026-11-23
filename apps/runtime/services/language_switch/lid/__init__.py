@@ -1,4 +1,4 @@
-"""Parallel Nemotron LID tap for automatic language switching."""
+"""Nemotron ASR + IndicLID judge for automatic language switching."""
 
 from apps.runtime.services.language_switch.lid.client import NemotronLidClient
 from apps.runtime.services.language_switch.lid.config import (
@@ -8,17 +8,17 @@ from apps.runtime.services.language_switch.lid.config import (
     language_switching_mode,
     resolve_lid_config,
 )
-from apps.runtime.services.language_switch.lid.policy import LidPolicy
+from apps.runtime.services.language_switch.lid.indiclid import IndicLidClient
+from apps.runtime.services.language_switch.lid.judge import JudgeDecision, LanguageJudge
 from apps.runtime.services.language_switch.lid.processor import LidTapProcessor
-from apps.runtime.services.language_switch.lid.types import LidDecision, LidResult
 
 __all__ = [
     "LANGUAGE_SWITCHING_MODE_DETERMINISTIC",
     "LANGUAGE_SWITCHING_MODE_LID",
+    "IndicLidClient",
+    "JudgeDecision",
+    "LanguageJudge",
     "LidConfig",
-    "LidDecision",
-    "LidPolicy",
-    "LidResult",
     "LidTapProcessor",
     "NemotronLidClient",
     "language_switching_mode",

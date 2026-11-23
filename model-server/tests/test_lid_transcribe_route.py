@@ -1,4 +1,4 @@
-"""Named POST /v1/lid/identify relays multipart audio to the LID slot."""
+"""Named POST /v1/lid/transcribe relays multipart audio to the LID slot."""
 import sys
 from pathlib import Path
 
@@ -22,17 +22,18 @@ def lid_upstream():
     @app.get("/health")
     def health():
         hits.append("/health")
-        return {"ok": True, "mode": "lid_identify"}
+        return {"ok": True, "mode": "lid_transcribe"}
 
-    @app.post("/identify")
-    async def identify(audio: UploadFile = File(...)):
-        hits.append("/identify")
+    @app.post("/transcribe")
+    async def transcribe(audio: UploadFile = File(...)):
+        hits.append("/transcribe")
         data = await audio.read()
         return {
             "detected_language": "kannada",
             "language_code": "kn",
             "confidence": 0.91,
             "duration_sec": 1.2,
+            "transcript": "namaskara",
             "bytes": len(data),
         }
 
@@ -59,22 +60,23 @@ def test_lid_health_passthrough(lid_upstream):
     assert "/health" in lid_upstream["hits"]
 
 
-def test_lid_identify_named_route(lid_upstream):
+def test_lid_transcribe_named_route(lid_upstream):
     lid_upstream["hits"].clear()
     wav = b"RIFF" + b"\x00" * 40  # minimal payload; upstream only counts bytes
     with _client(lid_upstream["url"]) as c:
         r = c.post(
-            "/v1/lid/identify",
+            "/v1/lid/transcribe",
             files={"audio": ("utterance.wav", wav, "audio/wav")},
         )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["language_code"] == "kn"
     assert body["confidence"] == 0.91
-    assert "/identify" in lid_upstream["hits"]
+    assert body["transcript"] == "namaskara"
+    assert "/transcribe" in lid_upstream["hits"]
 
 
-def test_lid_identify_503_when_slot_empty():
+def test_lid_transcribe_503_when_slot_empty():
     settings = Settings(
         Upstream("stt", "", ""),
         Upstream("tts", "", ""),
@@ -83,7 +85,7 @@ def test_lid_identify_503_when_slot_empty():
     )
     with TestClient(create_app(settings)) as c:
         r = c.post(
-            "/v1/lid/identify",
+            "/v1/lid/transcribe",
             files={"audio": ("u.wav", b"x", "audio/wav")},
         )
     assert r.status_code == 503

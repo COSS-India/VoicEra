@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 Role = Literal["super_admin", "admin", "member"]
 
@@ -205,24 +205,49 @@ LanguageSwitchingMode = Literal["deterministic", "lid"]
 
 
 class LidSettings(BaseModel):
-    """Thresholds for the Nemotron LID tap (used when language_switching_mode is lid)."""
+    """Thresholds for the IndicLID language judge (used when language_switching_mode is lid)."""
 
-    min_confidence: float = Field(
-        default=0.7,
-        ge=0,
-        le=1,
-        description="Minimum LID confidence required to switch languages.",
+    min_words: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum words a transcript needs before it is judged (short text is unreliable).",
     )
-    min_audio_sec: float = Field(
-        default=1.8,
+    min_score: float = Field(
+        default=0.8,
         ge=0,
-        description="Minimum user-speech seconds before running identify.",
+        description="Minimum combined IndicLID evidence the new language needs to win.",
+    )
+    margin: float = Field(
+        default=0.3,
+        ge=0,
+        description="How far the new language must lead the active language's evidence.",
     )
     cooldown_sec: float = Field(
         default=3.0,
         ge=0,
         description="Seconds to wait after a switch before accepting another LID switch.",
     )
+    handoff_messages: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Language code -> message spoken by that language's own TTS as soon as the "
+            "judge switches away from it (hi -> kn plays the 'hi' message in the Hindi "
+            "voice), while the turn is handed to the LLM. Missing/empty = no message."
+        ),
+    )
+
+    @field_validator("handoff_messages")
+    @classmethod
+    def _clean_handoff_messages(cls, value: dict[str, str]) -> dict[str, str]:
+        cleaned: dict[str, str] = {}
+        for language, message in value.items():
+            key = (language or "").strip().lower()
+            text = (message or "").strip()
+            if len(text) > 300:
+                raise ValueError(f"handoff message for '{key}' is over 300 characters")
+            if key and text:
+                cleaned[key] = text
+        return cleaned
 
 
 class AgentBehaviour(BaseModel):
@@ -324,7 +349,7 @@ class AgentBehaviour(BaseModel):
         default="deterministic",
         description=(
             "How mid-call language changes are decided when multiple languages are configured. "
-            "deterministic = LLM switch_language tool; lid = Nemotron audio LID tap."
+            "deterministic = LLM switch_language tool; lid = IndicLID judge over the main and Nemotron transcripts."
         ),
     )
     lid: LidSettings = LidSettings()

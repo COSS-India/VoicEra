@@ -178,7 +178,7 @@ export default function AgentCreationPage() {
           ) : null}
 
           {currentId === "call-details" && !catalogs.loading ? (
-            <CallDetailsStep form={form} onChange={onChange} />
+            <CallDetailsStep form={form} languages={catalogs.languages} onChange={onChange} />
           ) : null}
 
           {currentId === "review" && !catalogs.loading ? (

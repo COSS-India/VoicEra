@@ -1,4 +1,4 @@
-# nemotron-lid: deployment knobs for the LID slot (identify-only).
+# nemotron-lid: deployment knobs for the LID slot (LID + transcribe).
 #
 # The package beside this file is vendored from voice_era_repos/nemotron-lid.
 # Everything that differs for VoicEra lives here so the package is not patched.
@@ -25,6 +25,6 @@ services:
   gateway:
     environment:
       LID_UPSTREAM: ${LID_UPSTREAM:-http://lid:8004}
-      # GET allowlist under /lid/... (POST identify is a named /v1/lid/identify route).
+      # GET allowlist under /lid/... (POST transcribe is a named /v1/lid/transcribe route).
       LID_PASSTHROUGH_GET: ${LID_PASSTHROUGH_GET:-/health}
       LID_PASSTHROUGH_WS: ${LID_PASSTHROUGH_WS:-none}

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from loguru import logger
+from pipecat.adapters.schemas.direct_function import DirectFunctionWrapper
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.aggregators.llm_context import LLMContext, NOT_GIVEN
@@ -20,26 +21,32 @@ from apps.runtime.services.language_switch.switcher import (
 )
 
 
-def _append_tools(context: LLMContext, tools: list[Any]) -> None:
-    existing = context.tools
-    if existing is NOT_GIVEN:
-        context.set_tools(tools)
-        return
+def _tool_schemas(tools: list[Any]) -> list[FunctionSchema]:
+    schemas: list[FunctionSchema] = []
+    for tool in tools:
+        if isinstance(tool, FunctionSchema):
+            schemas.append(tool)
+        else:
+            schemas.append(DirectFunctionWrapper(tool).to_function_schema())
+    return schemas
 
-    if not isinstance(existing, ToolsSchema):
-        context.set_tools(tools)
+
+def _append_tools(context: LLMContext, tools: list[Any]) -> None:
+    incoming = _tool_schemas(tools)
+    existing = context.tools
+    if existing is NOT_GIVEN or not isinstance(existing, ToolsSchema):
+        context.set_tools(ToolsSchema(standard_tools=incoming))
         return
 
     names = {tool.name for tool in existing.standard_tools}
     merged = list(existing.standard_tools)
-    for tool in tools:
-        name = tool.name if isinstance(tool, FunctionSchema) else tool.__name__
-        if name in names:
+    for schema in incoming:
+        if schema.name in names:
             continue
-        merged.append(tool)
-        names.add(name)
+        merged.append(schema)
+        names.add(schema.name)
 
-    context.set_tools(merged)
+    context.set_tools(ToolsSchema(standard_tools=merged))
 
 
 def configure_language_switching(
@@ -65,11 +72,12 @@ def configure_language_switching(
     lang_list = ", ".join(f"{code} - {label(code)}" for code in languages)
     logger.info("Allowed languages: {}", lang_list)
 
-    if isinstance(llm_switcher, ModelLLMSwitcher):
-        llm_switcher.bind_context(context)
-
     async def switch_language(params: FunctionCallParams, language: str) -> None:
-        """Switch STT, TTS, and LLM to another configured language."""
+        """Switch STT, TTS, and LLM to another configured language.
+
+        Args:
+            language: Language id to switch to (e.g. hi, kn).
+        """
         lang = (language or "").strip()
         if lang not in allowed:
             await params.result_callback(
@@ -83,17 +91,26 @@ def configure_language_switching(
             return
 
         frame = LanguageSwitchFrame(language=lang)
-        await params.pipeline_worker.queue_frame(frame, FrameDirection.DOWNSTREAM)
+        await params.llm.push_frame(frame, FrameDirection.DOWNSTREAM)
         logger.info("Queued language switch to {}", lang)
         await params.result_callback({"status": "ok", "language": lang})
 
     switch_language.__doc__ = (
         "Switch the conversation to another configured language. "
         "Call this when the user clearly wants to speak in a different language. "
-        f"Pass the language id exactly — allowed values: {lang_list}."
+        f"Pass the language id exactly — allowed values: {lang_list}.\n\n"
+        "Args:\n"
+        "    language: Language id to switch to."
     )
 
     _append_tools(context, [switch_language])
+
+    if isinstance(llm_switcher, ModelLLMSwitcher):
+        llm_switcher.bind_context(context)
+    register = getattr(llm_switcher, "register_direct_function", None)
+    if callable(register):
+        register(switch_language)
+
     logger.info(
         "Language switching enabled agent_id={} languages={}",
         agent_id,

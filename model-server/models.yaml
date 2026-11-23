@@ -283,8 +283,9 @@ lid:
     sample_rate: 16000
     languages: [bn, gu, hi, kn, ml, mr, pa, ta, te]
     notes: >-
-      Frozen Indic Nemotron encoder + sklearn linear probe. Identify-only
-      (POST /identify); no streaming ASR in this slot. English is not in the
-      probe. Gateway exposes POST /v1/lid/identify and GET /lid/health.
+      Frozen Indic Nemotron encoder + sklearn linear probe, plus Nemotron ASR
+      for the detected language (POST /transcribe, whole utterance). English
+      is not in the probe. Gateway exposes POST /v1/lid/transcribe and
+      GET /lid/health.
       Coexists with the STT slot — set LID_MODEL=nemotron-lid and include lid
       in COMPOSE_PROFILES.

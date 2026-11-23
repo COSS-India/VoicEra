@@ -1,7 +1,7 @@
-# Nemotron 9-language LID (frozen encoder + linear probe).
+# Nemotron 9-language LID (frozen encoder + linear probe) plus Nemotron ASR
+# for the detected language.
 #
-# Matches the validated LID stack (torch cu124 + NeMo 3.0). Identify-only —
-# no streaming ASR decoder path is loaded at runtime.
+# Matches the validated LID stack (torch cu124 + NeMo 3.0).
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PORT=8004

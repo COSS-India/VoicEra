@@ -31,12 +31,16 @@ from apps.runtime.services.knowledge.setup import configure_knowledge_base
 from apps.runtime.services.language_switch.lid import (
     LANGUAGE_SWITCHING_MODE_DETERMINISTIC,
     LANGUAGE_SWITCHING_MODE_LID,
+    IndicLidClient,
+    LanguageJudge,
     LidTapProcessor,
+    NemotronLidClient,
     language_switching_mode,
     resolve_lid_config,
 )
 from apps.runtime.services.language_switch.pool import configured_languages
 from apps.runtime.services.language_switch.tools import configure_language_switching
+from apps.runtime.services.language_switch.turn_gate import LidTurnGate
 from apps.runtime.services.pipecat.call_ending import configure_call_ending
 from apps.runtime.services.pipecat.config import PipelineConfig
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
@@ -154,7 +158,7 @@ def build_pipeline_components(
     multilingual = len(languages) > 1
     switch_mode = language_switching_mode(behaviour)
 
-    # Mutually exclusive: deterministic = LLM tool; lid = audio LID tap.
+    # Mutually exclusive: deterministic = LLM tool; lid = Nemotron + IndicLID judge.
     if multilingual and switch_mode == LANGUAGE_SWITCHING_MODE_DETERMINISTIC:
         configure_language_switching(
             agent,
@@ -172,16 +176,35 @@ def build_pipeline_components(
 
     lid_config = resolve_lid_config(behaviour, multilingual=multilingual)
     lid_tap: LidTapProcessor | None = None
+    lid_gate: LidTurnGate | None = None
     if lid_config is not None:
         lid_tap = LidTapProcessor(
-            config=lid_config,
-            allowed_languages=languages,
-            primary_language=languages[0],
+            client=NemotronLidClient(
+                lid_config.nemotron_url,
+                timeout_s=lid_config.nemotron_timeout_s,
+            ),
             sample_rate=sample_rate,
         )
+        lid_gate = LidTurnGate(
+            judge=LanguageJudge(
+                allowed_languages=languages,
+                active_language=languages[0],
+                min_score=lid_config.min_score,
+                margin=lid_config.margin,
+                cooldown_sec=lid_config.cooldown_sec,
+                min_words=lid_config.min_words,
+            ),
+            client=IndicLidClient(
+                lid_config.indiclid_url,
+                timeout_s=lid_config.indiclid_timeout_s,
+            ),
+            hold_deadline_s=lid_config.hold_deadline_s,
+            handoff_messages=lid_config.handoff_messages,
+        )
         logger.info(
-            "LID tap enabled url={} languages={} primary={}",
-            lid_config.url,
+            "Language judge enabled nemotron={} indiclid={} languages={} primary={}",
+            lid_config.nemotron_url,
+            lid_config.indiclid_url,
             languages,
             languages[0],
         )
@@ -192,12 +215,10 @@ def build_pipeline_components(
     ]
     if lid_tap is not None:
         pipeline_processors.append(lid_tap)
-    pipeline_processors.extend(
-        [
-            stt,
-            user_aggregator,
-        ]
-    )
+    pipeline_processors.append(stt)
+    if lid_gate is not None:
+        pipeline_processors.append(lid_gate)
+    pipeline_processors.append(user_aggregator)
     if kb_context_processor is not None:
         pipeline_processors.append(kb_context_processor)
     # Official order: … → tts → transport.output() → audiobuffer → …

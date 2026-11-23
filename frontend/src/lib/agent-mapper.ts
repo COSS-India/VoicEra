@@ -123,6 +123,7 @@ export function formToAgentCreatePayload(
           min_volume: form.vadIdleMinVolume,
         },
         language_switching_mode: form.languageSwitchingMode,
+        lid: { handoff_messages: handoffMessagesForLangs(form) },
       },
       language: { primary, secondary },
       models,
@@ -135,6 +136,26 @@ export function formToAgentCreatePayload(
       custom_variables: form.customVariables,
     },
   };
+}
+
+/** Non-empty handoff messages for the languages still configured on the agent. */
+function handoffMessagesForLangs(form: AgentForm): Record<string, string> {
+  const messages: Record<string, string> = {};
+  for (const lang of form.langs) {
+    const text = (form.languageHandoffMessages[lang] ?? "").trim();
+    if (text) messages[lang] = text;
+  }
+  return messages;
+}
+
+function handoffMessagesFromBehaviour(lid: unknown): Record<string, string> {
+  const raw = (lid as { handoff_messages?: unknown } | undefined)?.handoff_messages;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const messages: Record<string, string> = {};
+  for (const [lang, text] of Object.entries(raw)) {
+    if (typeof text === "string" && text.trim()) messages[lang] = text;
+  }
+  return messages;
 }
 
 /** Reverse of `formToAgentCreatePayload` — reconstructs the wizard's form shape from a saved agent. */
@@ -240,6 +261,7 @@ export function agentToForm(agent: AgentApiResponse): AgentForm {
     ),
     languageSwitchingMode:
       behaviour.language_switching_mode === "lid" ? "lid" : "deterministic",
+    languageHandoffMessages: handoffMessagesFromBehaviour(behaviour.lid),
   };
 }
 

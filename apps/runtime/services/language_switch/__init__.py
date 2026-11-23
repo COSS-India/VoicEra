@@ -1,6 +1,9 @@
 """Mid-call language switching via ModelServiceSwitcher."""
 
-from apps.runtime.services.language_switch.frames import LanguageSwitchFrame
+from apps.runtime.services.language_switch.frames import (
+    LanguageSwitchFrame,
+    NemotronTranscriptFrame,
+)
 from apps.runtime.services.language_switch.lid import (
     LANGUAGE_SWITCHING_MODE_DETERMINISTIC,
     LANGUAGE_SWITCHING_MODE_LID,
@@ -16,6 +19,7 @@ from apps.runtime.services.language_switch.switcher import (
     ModelServiceSwitcher,
 )
 from apps.runtime.services.language_switch.tools import configure_language_switching
+from apps.runtime.services.language_switch.turn_gate import LidTurnGate
 
 __all__ = [
     "LANGUAGE_SWITCHING_MODE_DETERMINISTIC",
@@ -24,6 +28,8 @@ __all__ = [
     "LanguageSwitchFrame",
     "LidConfig",
     "LidTapProcessor",
+    "LidTurnGate",
+    "NemotronTranscriptFrame",
     "ModelLLMSwitcher",
     "ModelServiceSwitcher",
     "build_language_switchers",

@@ -54,18 +54,21 @@ def test_lid_mode_resolves_config_and_tool_can_stay_unregistered():
     behaviour = {"language_switching_mode": LANGUAGE_SWITCHING_MODE_LID}
     assert language_switching_mode(behaviour) == LANGUAGE_SWITCHING_MODE_LID
 
-    with patch.dict(os.environ, {"NEMOTRON_LID_URL": "http://lid.test"}):
+    env = {"NEMOTRON_LID_URL": "http://lid.test", "INDICLID_URL": "http://indic.test"}
+    with patch.dict(os.environ, env):
         cfg = resolve_lid_config(behaviour, multilingual=True)
         assert cfg is not None
-        assert cfg.url == "http://lid.test"
+        assert cfg.nemotron_url == "http://lid.test"
+        assert cfg.indiclid_url == "http://indic.test"
 
     # Simulating factory: do not call configure_language_switching in lid mode.
     context = LLMContext([])
     assert context.tools is NOT_GIVEN
 
 
-def test_lid_mode_without_url_is_fail_closed():
+def test_lid_mode_without_urls_is_fail_closed():
     behaviour = {"language_switching_mode": LANGUAGE_SWITCHING_MODE_LID}
-    with patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("NEMOTRON_LID_URL", None)
+    with patch.dict(os.environ, {"NEMOTRON_LID_URL": "http://lid.test"}, clear=True):
+        assert resolve_lid_config(behaviour, multilingual=True) is None
+    with patch.dict(os.environ, {"INDICLID_URL": "http://indic.test"}, clear=True):
         assert resolve_lid_config(behaviour, multilingual=True) is None

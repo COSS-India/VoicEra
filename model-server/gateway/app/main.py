@@ -221,10 +221,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def transcriptions(request: Request):
         return await _rest(request, conf(request).stt, "/v1/audio/transcriptions")
 
-    @app.post("/v1/lid/identify")
-    async def lid_identify(request: Request):
-        """Spoken language ID. Named POST route — slot passthrough stays GET-only."""
-        return await _rest(request, conf(request).lid, "/identify")
+    @app.post("/v1/lid/transcribe")
+    async def lid_transcribe(request: Request):
+        """Whole-utterance language ID + transcript. Slot passthrough stays GET-only."""
+        return await _rest(request, conf(request).lid, "/transcribe")
 
     @app.websocket("/v1/asr/ws")
     async def asr_stream(ws: WebSocket):

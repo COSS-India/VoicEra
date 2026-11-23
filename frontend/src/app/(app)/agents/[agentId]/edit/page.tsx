@@ -109,7 +109,7 @@ function EditForm({
 
               {currentId === "delivery" ? <DeliveryStep form={form} catalogs={catalogs} onChange={onChange} /> : null}
 
-              {currentId === "call-details" ? <CallDetailsStep form={form} onChange={onChange} /> : null}
+              {currentId === "call-details" ? <CallDetailsStep form={form} languages={catalogs.languages} onChange={onChange} /> : null}
 
               {currentId === "review" ? (
                 <ReviewStep

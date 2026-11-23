@@ -193,7 +193,9 @@ export const TIPS: Record<string, string> = {
   kb: "When on, the agent quotes from the documents you attach instead of guessing. Use text-based PDFs only — PDFs with images are not supported.",
   langs: "The first language opens the call. Mid-call language changes follow the mode set under Call details.",
   languageSwitchingMode:
-    "Deterministic lets the LLM call switch_language. LID detects language from the caller's audio via the model-server Nemotron LID slot (runtime NEMOTRON_LID_URL → gateway /v1/lid).",
+    "Deterministic: LLM switch_language. LID: the main ASR and Nemotron both transcribe each utterance and IndicLID judges the language from both transcripts (NEMOTRON_LID_URL, INDICLID_URL).",
+  languageHandoff:
+    "Each language can have its own message. It is spoken by that language's voice the moment the agent switches away from it (Hindi to Kannada plays the Hindi message in the Hindi voice), while the reply is being prepared. Leave a language empty for no message.",
   voice: "Preview a voice before committing — it's easy to change later, but callers notice a swap.",
   sttProvider: "Indic-only providers won't appear as options once you pick English as a language.",
   ttsProvider: "This also determines which voices are available.",
@@ -266,6 +268,8 @@ export interface AgentForm {
   vadIdleMinVolume: number;
   /** Mid-call language change strategy when multiple langs are configured. */
   languageSwitchingMode: "deterministic" | "lid";
+  /** Language code -> message spoken by that language's voice when the LID judge switches away from it. */
+  languageHandoffMessages: Record<string, string>;
 }
 
 export const DEFAULT_FORM: AgentForm = {
@@ -305,6 +309,7 @@ export const DEFAULT_FORM: AgentForm = {
   vadIdleStopSecs: 0.4,
   vadIdleMinVolume: 0.5,
   languageSwitchingMode: "deterministic",
+  languageHandoffMessages: {},
 };
 
 export const TPL_CATS = [

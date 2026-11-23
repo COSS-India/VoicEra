@@ -1,4 +1,4 @@
-"""Accumulate user-speech PCM for one utterance and export 16 kHz WAV."""
+"""Accumulate user-speech PCM for one utterance and export WAV / snapshots."""
 
 from __future__ import annotations
 
@@ -34,7 +34,6 @@ class SpeechBuffer:
         if max_sec <= 0 or self._bytes <= 0:
             return
         max_bytes = int(max_sec * 2.0 * self._sample_rate)
-        # Keep even length for int16 frames.
         max_bytes -= max_bytes % 2
         if max_bytes <= 0 or self._bytes <= max_bytes:
             return
@@ -46,7 +45,6 @@ class SpeechBuffer:
                 self._bytes -= len(head)
                 drop -= len(head)
             else:
-                # Trim from the front of the first chunk (even byte count).
                 cut = drop - (drop % 2)
                 if cut <= 0:
                     break
@@ -68,21 +66,20 @@ class SpeechBuffer:
 
     @property
     def duration_sec(self) -> float:
-        # 16-bit mono → 2 bytes per sample
         if self._sample_rate <= 0 or self._bytes <= 0:
             return 0.0
         return self._bytes / (2.0 * self._sample_rate)
 
-    def take_wav_16k(self) -> bytes | None:
-        """Drain the buffer and return a 16 kHz mono WAV, or None if empty."""
+    def pcm_snapshot(self) -> bytes | None:
+        """Return concatenated PCM without draining the buffer."""
         if self._bytes <= 0:
-            self.reset()
             return None
-        pcm = b"".join(self._chunks)
-        source_rate = self._sample_rate
-        self.reset()
-        if source_rate != TARGET_SAMPLE_RATE:
-            pcm, _ = audioop.ratecv(pcm, 2, 1, source_rate, TARGET_SAMPLE_RATE, None)
+        return b"".join(self._chunks)
+
+    def wav_16k_from_pcm(self, pcm: bytes) -> bytes:
+        """Encode ``pcm`` (this buffer's sample rate) as 16 kHz mono WAV."""
+        if self._sample_rate != TARGET_SAMPLE_RATE:
+            pcm, _ = audioop.ratecv(pcm, 2, 1, self._sample_rate, TARGET_SAMPLE_RATE, None)
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(1)
@@ -90,3 +87,11 @@ class SpeechBuffer:
             wf.setframerate(TARGET_SAMPLE_RATE)
             wf.writeframes(pcm)
         return buf.getvalue()
+
+    def take_wav_16k(self) -> bytes | None:
+        """Drain the buffer and return a 16 kHz mono WAV, or None if empty."""
+        pcm = self.pcm_snapshot()
+        self.reset()
+        if not pcm:
+            return None
+        return self.wav_16k_from_pcm(pcm)

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal, cast
 
 from loguru import logger
 from pipecat.frames.frames import (
+    Frame,
+    LLMContextFrame,
     LLMUpdateSettingsFrame,
     ManuallySwitchServiceFrame,
     STTUpdateSettingsFrame,
+    TTSSpeakFrame,
+    TTSStoppedFrame,
     TTSUpdateSettingsFrame,
 )
 from pipecat.pipeline.llm_switcher import LLMSwitcher
@@ -24,6 +29,11 @@ from apps.runtime.services.language_switch.frames import LanguageSwitchFrame
 from apps.runtime.services.language_switch.routes import LanguageRoute
 
 ServiceKind = Literal["stt", "tts", "llm"]
+
+# Longest a language switch waits for a queued handoff message to finish
+# synthesising. Synthesis takes a few hundred ms; this only bounds a service
+# that never reports it.
+HANDOFF_SYNTH_WAIT_S = 3.0
 
 
 class _LanguageRoutingMixin:
@@ -89,7 +99,15 @@ class _LanguageRoutingMixin:
 
 
 class ModelServiceSwitcher(_LanguageRoutingMixin, ServiceSwitcher):
-    """Switch or reconfigure pooled STT/TTS services on language change."""
+    """Switch or reconfigure pooled STT/TTS services on language change.
+
+    A TTS language switch can follow a handoff message (``TTSSpeakFrame`` with
+    ``append_to_context=False``) for the language being left. That message is
+    synthesised by the current voice, and the voice reads its settings when it
+    starts a message. So the switch waits for the message's ``TTSStoppedFrame``
+    before applying the new settings. The LLM is not blocked by this: its text
+    reaches this switcher only after the switch has been handled.
+    """
 
     def __init__(
         self,
@@ -103,13 +121,43 @@ class ModelServiceSwitcher(_LanguageRoutingMixin, ServiceSwitcher):
         self._kind = kind
         self._routes = routes
         self._active_lang = primary_language
+        self._handoff_inflight = False
+        self._handoff_done = asyncio.Event()
 
     async def process_frame(self, frame: Any, direction: FrameDirection) -> None:
         if isinstance(frame, LanguageSwitchFrame):
+            await self._await_handoff_synthesis()
             await self.apply_language(frame.language)
             await self.push_frame(frame, direction)
             return
+        if (
+            self._kind == "tts"
+            and isinstance(frame, TTSSpeakFrame)
+            and not frame.append_to_context
+        ):
+            self._handoff_done.clear()
+            self._handoff_inflight = True
         await super().process_frame(frame, direction)
+
+    async def push_frame(self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM):
+        # Output from the member services. The first stop after a handoff is that handoff's.
+        if self._handoff_inflight and isinstance(frame, TTSStoppedFrame):
+            self._handoff_inflight = False
+            self._handoff_done.set()
+        await super().push_frame(frame, direction)
+
+    async def _await_handoff_synthesis(self) -> None:
+        if not self._handoff_inflight:
+            return
+        try:
+            await asyncio.wait_for(self._handoff_done.wait(), timeout=HANDOFF_SYNTH_WAIT_S)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "{} handoff message not synthesised within {}s; switching anyway",
+                self.name,
+                HANDOFF_SYNTH_WAIT_S,
+            )
+        self._handoff_inflight = False
 
 
 class ModelLLMSwitcher(_LanguageRoutingMixin, LLMSwitcher):
@@ -137,7 +185,15 @@ class ModelLLMSwitcher(_LanguageRoutingMixin, LLMSwitcher):
         self._context = context
         self._sync_registered_tool_handlers(context.tools)
 
+    def _sync_registered_tool_handlers(self, tools: Any) -> None:
+        """Ask each LLM member to sync handlers for the context tool schema."""
+        for llm in self.services:  # type: ignore[attr-defined]
+            sync = getattr(llm, "_sync_registered_tool_handlers", None)
+            if callable(sync):
+                sync(tools)
+
     async def _after_language_applied(self, language: str) -> None:
+        del language
         if self._context is not None:
             self._sync_registered_tool_handlers(self._context.tools)
 
@@ -146,5 +202,6 @@ class ModelLLMSwitcher(_LanguageRoutingMixin, LLMSwitcher):
             await self.apply_language(frame.language)
             await self.push_frame(frame, direction)
             return
-        # LLMSwitcher.process_frame syncs tools on LLMContextFrame to all members.
+        if isinstance(frame, LLMContextFrame):
+            self._sync_registered_tool_handlers(frame.context.tools)
         await super().process_frame(frame, direction)

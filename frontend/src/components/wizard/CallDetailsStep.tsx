@@ -4,10 +4,14 @@ import { Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/Field";
 import { Switch } from "@/components/ui/Switch";
 import { InfoTip } from "@/components/ui/Tooltip";
+import type { LanguagesMap } from "@/lib/catalog-types";
+import { languageLabel } from "@/lib/use-wizard-catalogs";
 import { TIPS, type AgentForm } from "@/lib/wizard-data";
 
 interface CallDetailsStepProps {
   form: AgentForm;
+  /** Language code -> display name, for labelling the per-language fields. */
+  languages: LanguagesMap;
   onChange: <K extends keyof AgentForm>(key: K, value: AgentForm[K]) => void;
 }
 
@@ -84,7 +88,7 @@ function NumberField({
   );
 }
 
-export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
+export function CallDetailsStep({ form, languages, onChange }: CallDetailsStepProps) {
   function updateHold(index: number, value: string) {
     const next = [...form.holdPhrases];
     next[index] = value;
@@ -221,14 +225,49 @@ export function CallDetailsStep({ form, onChange }: CallDetailsStepProps) {
                 onChange={() => onChange("languageSwitchingMode", "lid")}
               />
               <span className="flex flex-col gap-0.5">
-                <span className="text-[13px] font-semibold text-v-fg">LID (audio detection)</span>
+                <span className="text-[13px] font-semibold text-v-fg">LID (transcript judge)</span>
                 <span className="text-[12px] font-light text-v-muted">
-                  Nemotron LID identifies the spoken language from audio and sets the pipeline
-                  directly. Requires NEMOTRON_LID_URL on the runtime; Indic probe languages only.
+                  Each utterance is transcribed by the main ASR and Nemotron; IndicLID scores both
+                  transcripts and the strongest language wins. Hindi, Marathi, Kannada, Tamil and
+                  Telugu only. Requires NEMOTRON_LID_URL and INDICLID_URL.
                 </span>
               </span>
             </label>
           </div>
+          {form.languageSwitchingMode === "lid" ? (
+            <div className="flex flex-col gap-3 border-t border-v-line pt-4">
+              <span className="flex items-center gap-1.5 text-[13px] font-semibold">
+                Language handoff messages
+                <InfoTip text={TIPS.languageHandoff} />
+              </span>
+              <span className="text-[12px] font-light text-v-muted">
+                Optional. Spoken in a language&apos;s own voice as soon as the agent switches
+                away from it, while the reply is prepared.
+              </span>
+              {form.langs.map((lang) => {
+                const label = languageLabel(languages, lang);
+                return (
+                  <label
+                    key={lang}
+                    className="flex flex-col gap-1.5 text-[13px] font-semibold"
+                  >
+                    <span>When leaving {label}</span>
+                    <Input
+                      value={form.languageHandoffMessages[lang] ?? ""}
+                      onChange={(e) =>
+                        onChange("languageHandoffMessages", {
+                          ...form.languageHandoffMessages,
+                          [lang]: e.target.value,
+                        })
+                      }
+                      placeholder={`Said in the ${label} voice, in ${label}`}
+                      maxLength={300}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

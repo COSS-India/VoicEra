@@ -12,3 +12,14 @@ class LanguageSwitchFrame(ControlFrame):
     """Request a switch to another configured agent language."""
 
     language: str
+
+
+@dataclass
+class NemotronTranscriptFrame(ControlFrame):
+    """Nemotron ASR transcript of the utterance that just ended.
+
+    Emitted exactly once per utterance; ``text`` is empty when Nemotron was
+    skipped, failed, or was superseded by new speech.
+    """
+
+    text: str = ""

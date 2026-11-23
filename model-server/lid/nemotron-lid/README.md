@@ -1,8 +1,10 @@
 # nemotron-lid (model-server slot)
 
-Spoken language ID for nine Indic languages: frozen Nemotron encoder + linear
-probe. **Identify only** — VoicEra mid-call switching posts WAV to
-`POST /identify`; there is no streaming ASR in this slot.
+Spoken language ID for nine Indic languages (frozen Nemotron encoder + linear
+probe) plus transcription in the detected language. VoicEra mid-call switching
+posts the whole utterance to `POST /transcribe`: LID runs over the full audio,
+then the same audio is decoded with the Nemotron ASR. The runtime sends that
+transcript, together with the main ASR transcript, to the IndicLID text judge.
 
 | Language | Code |
 |----------|------|
@@ -30,7 +32,7 @@ COMPOSE_PROFILES=stt,tts,lid   # include lid with your other slots
 ```
 
 Health: `GET http://localhost:8100/lid/health`  
-Identify (via gateway): `POST http://localhost:8100/v1/lid/identify` (multipart field `audio`)
+Transcribe (via gateway): `POST http://localhost:8100/v1/lid/transcribe` (multipart field `audio`)
 
 ## Runtime (VoicEra app)
 
