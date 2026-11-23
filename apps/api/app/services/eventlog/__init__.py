@@ -17,8 +17,8 @@ from bson import ObjectId, json_util
 from fastapi import Request
 
 from app.auth import BOT_SERVICE_EMAIL
-from app.eventlog import store
-from app.eventlog.registry import REGISTRY, EventType
+from app.services.eventlog import store
+from app.services.eventlog.registry import REGISTRY, EventType
 
 __all__ = ["Actor", "EventType", "Outcome", "Target", "emit", "request_context"]
 

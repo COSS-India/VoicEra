@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from app.auth import BOT_SERVICE_EMAIL, get_current_user, verify_api_key
-from app.eventlog import store
+from app.services.eventlog import store
 from app.routers import calls
 from app.storage.minio_client import MinIOStorage
 from fastapi import FastAPI

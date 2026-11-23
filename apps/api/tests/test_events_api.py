@@ -12,9 +12,9 @@ from unittest.mock import patch
 import pytest
 from app.auth import BOT_SERVICE_EMAIL, get_current_user
 from app.config import settings
-from app.eventlog import store
-from app.eventlog.registry import REGISTRY
-from app.eventlog.store import EventFilter
+from app.services.eventlog import store
+from app.services.eventlog.registry import REGISTRY
+from app.services.eventlog.store import EventFilter
 from app.routers import events as events_router
 from bson import ObjectId
 from fastapi import FastAPI

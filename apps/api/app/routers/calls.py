@@ -14,8 +14,8 @@ from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user, verify_api_key
 from app.config import settings
-from app.eventlog import Actor, Target, emit, request_context
-from app.eventlog.registry import (
+from app.services.eventlog import Actor, Target, emit, request_context
+from app.services.eventlog.registry import (
     CALL_PROVIDER_RECORDING_DOWNLOADED,
     CALL_PROVIDER_RECORDING_VIEWED,
     CALL_RECORDING_DOWNLOADED,

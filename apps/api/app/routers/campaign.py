@@ -17,8 +17,8 @@ from app.auth import get_current_user, verify_api_key
 from app.constants.campaign import DEFAULT_CAMPAIGN_RETRY_CONFIG
 from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
-from app.eventlog import Actor, Target, emit, request_context
-from app.eventlog.registry import CALL_TRANSCRIPT_DOWNLOADED
+from app.services.eventlog import Actor, Target, emit, request_context
+from app.services.eventlog.registry import CALL_TRANSCRIPT_DOWNLOADED
 from app.models.schemas import (
     CampaignAnalyticsResponse,
     CampaignCallStatusRequest,

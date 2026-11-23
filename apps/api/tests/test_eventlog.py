@@ -1,4 +1,4 @@
-"""Unit tests for app.eventlog: envelope, fallback, registry, settings."""
+"""Unit tests for app.services.eventlog: envelope, fallback, registry, settings."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from app import eventlog
+from app.services import eventlog
 from app.auth import BOT_SERVICE_EMAIL
 from app.config import Settings
-from app.eventlog import Actor, Target, emit, registry, request_context, store
-from app.eventlog.registry import CALL_TRANSCRIPT_VIEWED, REGISTRY, EventType
+from app.services.eventlog import Actor, Target, emit, registry, request_context, store
+from app.services.eventlog.registry import CALL_TRANSCRIPT_VIEWED, REGISTRY, EventType
 from bson import ObjectId
 from pydantic import ValidationError
 from pymongo.errors import NetworkTimeout

@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
-from app.eventlog import store as eventlog_store
+from app.services.eventlog import store as eventlog_store
 from app.routers import campaign as campaign_router
 
 

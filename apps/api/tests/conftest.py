@@ -36,7 +36,7 @@ def eventlog_loop_guard():
     A test that triggers the warning on purpose requests this fixture and resets
     ``seen``.
     """
-    from app.eventlog import EVENT_LOOP_WARNING
+    from app.services.eventlog import EVENT_LOOP_WARNING
 
     detector = _EventLoopEmitDetector(EVENT_LOOP_WARNING)
     logger = logging.getLogger("voicera.eventlog")

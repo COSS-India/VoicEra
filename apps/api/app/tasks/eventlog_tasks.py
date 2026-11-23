@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.config import settings
-from app.eventlog import store
+from app.services.eventlog import store
 
 logger = logging.getLogger(__name__)
 

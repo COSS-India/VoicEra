@@ -17,9 +17,9 @@ from typing import Any
 
 import pytest
 from app.database_init import _ensure_events
-from app.eventlog import Actor, Target, emit, store
-from app.eventlog.registry import CALL_RECORDING_VIEWED, CALL_TRANSCRIPT_VIEWED
-from app.eventlog.store import EventFilter
+from app.services.eventlog import Actor, Target, emit, store
+from app.services.eventlog.registry import CALL_RECORDING_VIEWED, CALL_TRANSCRIPT_VIEWED
+from app.services.eventlog.store import EventFilter
 from bson import ObjectId
 from pymongo import MongoClient
 from pymongo.database import Database

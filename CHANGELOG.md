@@ -18,7 +18,7 @@ several subsystems are new.
 
 ### Added
 
-- **Access audit log** (`apps/api/app/eventlog`, `GET /api/v1/events`) — every
+- **Access audit log** (`apps/api/app/services/eventlog`, `GET /api/v1/events`) — every
   view and download of a call recording, provider recording, or transcript is
   recorded with the user, time, action, call, IP, and user agent, as required
   by DPDP Rules 2025, Rule 6. Transcripts bundled into the OBD report ZIP are

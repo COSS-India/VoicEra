@@ -17,9 +17,9 @@ from pymongo.errors import PyMongoError
 from app.auth import BOT_SERVICE_EMAIL, get_current_user
 from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
-from app.eventlog import Actor, emit, request_context, store
-from app.eventlog.registry import EVENTS_EXPORTED, REGISTRY
-from app.eventlog.store import EventFilter
+from app.services.eventlog import Actor, emit, request_context, store
+from app.services.eventlog.registry import EVENTS_EXPORTED, REGISTRY
+from app.services.eventlog.store import EventFilter
 from app.models.schemas import EventListResponse, EventTypeResponse
 from app.services import member_service
 
