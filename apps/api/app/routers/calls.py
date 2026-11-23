@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from functools import partial
@@ -9,8 +10,10 @@ from pathlib import PurePosixPath
 from typing import Any, Iterator, Literal
 from urllib.parse import unquote
 
+import urllib3
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from minio.error import MinioException
 
 from app.auth import get_current_user, verify_api_key
 from app.config import settings
@@ -67,7 +70,13 @@ from app.services.outbound_call_service import (
 from app.services.web_call_service import WebCallError, register_web_call
 from app.storage.minio_client import MinIOStorage
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/calls", tags=["calls"])
+
+# MinIO failures other than a missing object: S3/server errors and transport
+# errors (connection refused, retries exhausted) from the underlying urllib3.
+_STORAGE_ERRORS: tuple[type[Exception], ...] = (MinioException, urllib3.exceptions.HTTPError)
 
 
 def _require_active_org(current_user: dict[str, Any]) -> str:
@@ -382,7 +391,16 @@ def _resolve_artifact(
         )
 
     bucket_name, object_name = parsed
-    if not storage.object_exists(bucket_name, object_name):
+    try:
+        exists = storage.object_exists(bucket_name, object_name)
+    except _STORAGE_ERRORS as exc:
+        logger.exception("Artifact storage check failed for %s/%s", bucket_name, object_name)
+        raise _ArtifactError(
+            "storage_unavailable",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Call artifact storage is unavailable. Try again shortly.",
+        ) from exc
+    if not exists:
         raise _ArtifactError(
             "artifact_missing",
             status.HTTP_404_NOT_FOUND,

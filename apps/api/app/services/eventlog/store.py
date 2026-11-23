@@ -60,11 +60,25 @@ def insert(event: dict[str, Any]) -> None:
     started = time.perf_counter()
     with pymongo.timeout(settings.EVENTLOG_WRITE_TIMEOUT_MS / 1000):
         _collection().insert_one(event)
+    _log_if_slow(started)
+
+
+def insert_many(events: list[dict[str, Any]]) -> None:
+    """Insert a batch of events unordered in one round trip, bounded by
+    ``EVENTLOG_WRITE_TIMEOUT_MS``."""
+    started = time.perf_counter()
+    with pymongo.timeout(settings.EVENTLOG_WRITE_TIMEOUT_MS / 1000):
+        _collection().insert_many(events, ordered=False)
+    _log_if_slow(started, count=len(events))
+
+
+def _log_if_slow(started: float, *, count: int = 1) -> None:
     elapsed_ms = (time.perf_counter() - started) * 1000
     if elapsed_ms > SLOW_WRITE_MS:
         logger.warning(
-            "eventlog slow write: %.1f ms",
+            "eventlog slow write: %.1f ms (%d events)",
             elapsed_ms,
+            count,
             extra={"eventlog_slow_write_ms": round(elapsed_ms, 1)},
         )
 

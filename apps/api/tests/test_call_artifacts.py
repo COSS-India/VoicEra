@@ -6,12 +6,14 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import urllib3
 from app.auth import BOT_SERVICE_EMAIL, get_current_user, verify_api_key
 from app.services.eventlog import store
 from app.routers import calls
 from app.storage.minio_client import MinIOStorage
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from minio.error import S3Error
 
 _CALL_STORE: dict[str, dict[str, Any]] = {}
 
@@ -485,6 +487,35 @@ def test_artifact_failures_are_recorded(
     assert event["type"] == "call.recording.downloaded"
     assert event["outcome"] == "failure"
     assert event["data"] == {"reason": reason}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        S3Error("AccessDenied", "denied", "/r", "req", "host", None),
+        urllib3.exceptions.MaxRetryError(None, "/r", "connection refused"),
+    ],
+)
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_storage_failure_is_recorded_and_returns_503(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+    error: Exception,
+    events: list[dict[str, Any]],
+) -> None:
+    _store_call_with_all_artifacts()
+    storage_cls.return_value.object_exists.side_effect = error
+    storage_cls.parse_minio_url = MinIOStorage.parse_minio_url
+
+    response = _make_client().get("/api/v1/calls/call-abc-123/transcript")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Call artifact storage is unavailable. Try again shortly."
+    [event] = events
+    assert event["type"] == "call.transcript.viewed"
+    assert event["outcome"] == "failure"
+    assert event["data"] == {"reason": "storage_unavailable"}
 
 
 @_patch_db("app.services.call_log_service.get_database")

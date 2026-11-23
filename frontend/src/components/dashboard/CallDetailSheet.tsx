@@ -101,12 +101,15 @@ interface AudioState {
  * played/unplayed bar contrast. */
 function WaveformPlayer({
   state,
+  loading,
   onTogglePlay,
   onSeek,
   onDownload,
   downloading,
 }: {
   state: AudioState;
+  /** The recording is being fetched after the first Play. */
+  loading: boolean;
   onTogglePlay: () => void;
   onSeek: (t: number) => void;
   onDownload: () => void;
@@ -132,11 +135,11 @@ function WaveformPlayer({
       <button
         type="button"
         onClick={onTogglePlay}
-        disabled={!state.url}
-        aria-label={state.playing ? "Pause" : "Play"}
-        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-transform hover:bg-white/25 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={loading}
+        aria-label={loading ? "Loading recording" : state.playing ? "Pause" : "Play"}
+        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-transform hover:bg-white/25 active:scale-90 disabled:cursor-wait"
       >
-        {!state.url ? <Spinner /> : state.playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+        {loading ? <Spinner /> : state.playing ? <Pause className="size-4" /> : <Play className="size-4" />}
       </button>
 
       <div
@@ -163,7 +166,7 @@ function WaveformPlayer({
         ) : (
           <div className="flex h-full w-full items-center gap-0.5">
             {Array.from({ length: WAVEFORM_BARS }).map((_, i) => (
-              <span key={i} className="h-2/5 w-full animate-pulse rounded-full bg-white/15" />
+              <span key={i} className={`h-2/5 w-full rounded-full bg-white/15 ${loading ? "animate-pulse" : ""}`} />
             ))}
           </div>
         )}
@@ -172,22 +175,24 @@ function WaveformPlayer({
       <span className="shrink-0 font-mono text-[11px] text-white/70">
         {fmtClock(state.current)} / {fmtClock(state.duration)}
       </span>
-      {state.url ? (
-        <button
-          type="button"
-          onClick={onDownload}
-          disabled={downloading}
-          aria-label="Download recording"
-          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25 disabled:cursor-wait"
-        >
-          {downloading ? <Spinner /> : <Download className="size-4" strokeWidth={1.75} />}
-        </button>
-      ) : null}
+      {/* Independent of playback: a download is its own mode=download request. */}
+      <button
+        type="button"
+        onClick={onDownload}
+        disabled={downloading}
+        aria-label="Download recording"
+        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25 disabled:cursor-wait"
+      >
+        {downloading ? <Spinner /> : <Download className="size-4" strokeWidth={1.75} />}
+      </button>
     </div>
   );
 }
 
-/** One system or provider recording player (loads its own artifact). */
+/** One system or provider recording player. The recording is fetched on the
+ * first Play, not on open, because every fetch is recorded server-side as a
+ * "recording viewed" audit event. Render with a `key` per call and source, so
+ * a different recording starts from a fresh, unloaded state. */
 function CallRecordingPlayer({
   callId,
   source,
@@ -200,6 +205,7 @@ function CallRecordingPlayer({
   onDownloadError: (message: string) => void;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [audio, setAudio] = useState<AudioState>({
     url: null,
     peaks: null,
@@ -209,49 +215,61 @@ function CallRecordingPlayer({
     duration: 0,
   });
   const audioElRef = useRef<HTMLAudioElement>(null);
+  const mountedRef = useRef(false);
+  const objectUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    setAudio({
-      url: null,
-      peaks: null,
-      error: "",
-      playing: false,
-      current: 0,
-      duration: 0,
-    });
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    };
+  }, []);
+
+  /** Fetches the whole file once (mode=view); the <audio> autoplays when it mounts. */
+  function load() {
+    setLoading(true);
     fetchCallRecordingBlob(callId, source.kind)
       .then(async (blob) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setAudio((s) => ({ ...s, url: objectUrl, error: "" }));
+        if (!mountedRef.current) return;
+        const url = URL.createObjectURL(blob);
+        objectUrlRef.current = url;
+        setAudio((s) => ({ ...s, url, error: "" }));
         try {
           const peaks = await computePeaks(blob, WAVEFORM_BARS);
-          if (!cancelled) setAudio((s) => ({ ...s, peaks }));
+          if (mountedRef.current) setAudio((s) => ({ ...s, peaks }));
         } catch {
           /* waveform is a bonus */
         }
       })
       .catch((err) => {
-        if (!cancelled) {
+        if (mountedRef.current) {
           setAudio((s) => ({
             ...s,
             error: err instanceof Error ? err.message : "Recording unavailable.",
           }));
         }
+      })
+      .finally(() => {
+        if (mountedRef.current) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [callId, source.kind]);
+  }
 
   function togglePlay() {
+    if (!audio.url) {
+      if (!loading) load();
+      return;
+    }
     const el = audioElRef.current;
     if (!el) return;
-    if (audio.playing) el.pause();
-    else el.play();
+    if (audio.playing) {
+      el.pause();
+      return;
+    }
+    el.play().catch(() => {
+      /* blocked or interrupted; the Play button stays available */
+    });
   }
 
   function seekTo(t: number) {
@@ -277,6 +295,7 @@ function CallRecordingPlayer({
       </span>
       <WaveformPlayer
         state={audio}
+        loading={loading}
         onTogglePlay={togglePlay}
         onSeek={seekTo}
         onDownload={download}
@@ -286,6 +305,8 @@ function CallRecordingPlayer({
         <audio
           ref={audioElRef}
           src={audio.url}
+          // Mounted only after the user pressed Play, so starting playback here honours that click.
+          autoPlay
           onPlay={() => {
             setAudio((s) => ({ ...s, playing: true }));
             onPlayback?.({ playing: true, current: audio.current });
@@ -605,7 +626,7 @@ export function CallDetailSheet({
             <div className="flex flex-col gap-3">
               {recordingSources.map((src) => (
                 <CallRecordingPlayer
-                  key={src.kind}
+                  key={`${call.call_id}:${src.kind}`}
                   callId={call.call_id}
                   source={src}
                   onPlayback={setSyncPlayback}

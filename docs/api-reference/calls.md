@@ -77,13 +77,13 @@ Every field is optional, but an empty body returns `400 No fields to update` —
 
 ## `GET /calls/{call_id}/recording`, `/provider-recording`, and `/transcript`
 
-Bearer. Stream the artifact out of MinIO through the API, so clients never need MinIO credentials. `404` when the call or the object is missing, `400` when the stored URL is not a usable object key.
+Bearer. Stream the artifact out of MinIO through the API, so clients never need MinIO credentials. `404` when the call or the object is missing, `400` when the stored URL is not a usable object key, `503` when MinIO cannot be reached.
 
 | Query | Values | Effect |
 | --- | --- | --- |
 | `mode` | `view` (default), `download` | `download` adds `Content-Disposition: attachment; filename="<call_id>-<artifact>.<ext>"`. `view` streams inline |
 
-Every request is recorded in the [audit log](events) before the file streams, as `call.recording.*`, `call.provider_recording.*`, or `call.transcript.*` with the verb `viewed` or `downloaded` from `mode`. Refused requests (call not found in your organisation, artifact missing) are recorded with `outcome: failure`. Send `mode=download` whenever the user saves the file, so the record says what happened.
+Every request is recorded in the [audit log](events) before the file streams, as `call.recording.*`, `call.provider_recording.*`, or `call.transcript.*` with the verb `viewed` or `downloaded` from `mode`. Refused requests (call not found in your organisation, artifact missing, storage unavailable) are recorded with `outcome: failure` and a `data.reason` of `call_not_found`, `artifact_missing`, `invalid_artifact_url`, or `storage_unavailable`. Send `mode=download` whenever the user saves the file, so the record says what happened. Clients should fetch a recording only when the user plays it, not to preload a player: every request is a `viewed` record. The web app fetches on the first Play.
 
 ## `GET /calls/{call_id}/metrics` and `PUT /calls/{call_id}/metrics`
 

@@ -149,7 +149,7 @@ def test_obd_report_zip_includes_saved_transcript(client: TestClient) -> None:
             "app.routers.campaign.MinIOStorage.get_object_bytes",
             new=AsyncMock(return_value=b"agent: hello"),
         ),
-        patch.object(eventlog_store, "insert", side_effect=recorded.append),
+        patch.object(eventlog_store, "insert_many", side_effect=recorded.extend),
     ):
         response = client.get("/api/v1/campaign/camp-1/obd-report?format=zip")
 
@@ -185,7 +185,7 @@ def test_obd_report_zip_records_nothing_without_transcripts(client: TestClient) 
         patch("app.routers.campaign.repo.get_campaign_for_org", return_value=_campaign()),
         patch("app.routers.campaign.load_telephony_client", return_value=_ObdClient()),
         patch("app.routers.campaign.get_call_log_by_provider_sid", return_value=None),
-        patch.object(eventlog_store, "insert", side_effect=recorded.append),
+        patch.object(eventlog_store, "insert_many", side_effect=recorded.extend),
     ):
         response = client.get("/api/v1/campaign/camp-1/obd-report?format=zip")
 

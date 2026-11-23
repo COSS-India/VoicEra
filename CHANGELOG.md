@@ -22,8 +22,10 @@ several subsystems are new.
   view and download of a call recording, provider recording, or transcript is
   recorded with the user, time, action, call, IP, and user agent, as required
   by DPDP Rules 2025, Rule 6. Transcripts bundled into the OBD report ZIP are
-  recorded as downloads too. The real client IP needs `FORWARDED_ALLOW_IPS` and
-  a reverse proxy that sets `X-Forwarded-For` (see security hardening).
+  recorded as downloads too. The web app fetches a recording on the first
+  Play, so opening a call records no recording view. The real client IP needs
+  `FORWARDED_ALLOW_IPS` and a reverse proxy that sets `X-Forwarded-For` (see
+  security hardening).
   Artifact routes take `?mode=view|download`, and
   downloads get a sanitised `Content-Disposition` filename. Admins can filter
   and page events, export them as CSV (the export is itself recorded), and see

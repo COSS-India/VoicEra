@@ -14,7 +14,15 @@ import pytest
 from app.services import eventlog
 from app.auth import BOT_SERVICE_EMAIL
 from app.config import Settings
-from app.services.eventlog import Actor, Target, emit, registry, request_context, store
+from app.services.eventlog import (
+    Actor,
+    Target,
+    emit,
+    emit_many,
+    registry,
+    request_context,
+    store,
+)
 from app.services.eventlog.registry import CALL_TRANSCRIPT_VIEWED, REGISTRY, EventType
 from bson import ObjectId
 from pydantic import ValidationError
@@ -170,6 +178,50 @@ def test_slow_write_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     [record] = [r for r in caplog.records if r.getMessage().startswith("eventlog slow write")]
     assert record.levelno == logging.WARNING
     assert record.eventlog_slow_write_ms >= 20
+
+
+def _emit_many(count: int) -> None:
+    emit_many(
+        CALL_TRANSCRIPT_VIEWED,
+        org_id="org-1",
+        actor=Actor("user", "jane@example.com", "admin"),
+        context={"ip": "203.0.113.7"},
+        items=((Target("call", f"call-{i}"), {"n": i}) for i in range(count)),
+    )
+
+
+def test_emit_many_writes_unordered_batches() -> None:
+    batches: list[list[dict[str, Any]]] = []
+    with patch.object(store, "insert_many", side_effect=batches.append):
+        _emit_many(eventlog.BATCH_SIZE * 2 + 1)
+
+    assert [len(b) for b in batches] == [eventlog.BATCH_SIZE, eventlog.BATCH_SIZE, 1]
+    events = [event for batch in batches for event in batch]
+    assert [e["target"]["id"] for e in events] == [f"call-{i}" for i in range(len(events))]
+    assert len({e["_id"] for e in events}) == len(events)
+    first = events[0]
+    assert first["type"] == "call.transcript.viewed"
+    assert first["org_id"] == "org-1"
+    assert first["actor"] == {"type": "user", "id": "jane@example.com", "role": "admin"}
+    assert first["context"] == {"ip": "203.0.113.7"}
+    assert first["data"] == {"n": 0}
+
+
+def test_emit_many_with_no_items_writes_nothing() -> None:
+    with patch.object(store, "insert_many") as insert_many:
+        _emit_many(0)
+    insert_many.assert_not_called()
+
+
+def test_emit_many_falls_back_for_whole_batch_on_write_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with patch.object(store, "insert_many", side_effect=NetworkTimeout("timed out")):
+        _emit_many(3)
+
+    lines = _fallback_lines(caplog)
+    assert [line["event"]["target"]["id"] for line in lines] == ["call-0", "call-1", "call-2"]
+    assert all(ObjectId.is_valid(line["event"]["_id"]["$oid"]) for line in lines)
 
 
 def test_registry_names_are_unique_and_well_formed() -> None:

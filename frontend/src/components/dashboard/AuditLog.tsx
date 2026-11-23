@@ -116,6 +116,10 @@ export function AuditLog() {
 
   function apply(filters: Filters) {
     generation.current += 1;
+    // Drop the previous results and cursor, so a failed query never shows rows
+    // from other filters, and "Load more" never pairs an old cursor with new filters.
+    setEvents([]);
+    setCursor(null);
     setLoading(true);
     setLoadingMore(false);
     setError("");

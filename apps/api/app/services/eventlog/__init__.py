@@ -1,6 +1,6 @@
 """Event log: org-scoped, append-only records of who did what.
 
-Producers import only ``emit``, ``Actor``, ``Target``, ``request_context`` and
+Producers import only ``emit``, ``emit_many``, ``Actor``, ``Target``, ``request_context`` and
 registered event types from this package.
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -20,7 +20,7 @@ from app.auth import BOT_SERVICE_EMAIL
 from app.services.eventlog import store
 from app.services.eventlog.registry import REGISTRY, EventType
 
-__all__ = ["Actor", "EventType", "Outcome", "Target", "emit", "request_context"]
+__all__ = ["Actor", "EventType", "Outcome", "Target", "emit", "emit_many", "request_context"]
 
 logger = logging.getLogger("voicera.eventlog")
 
@@ -31,6 +31,9 @@ EVENT_LOOP_WARNING = "eventlog emit() called on the event loop thread"
 # cannot write arbitrarily large rows into a log retained for at least a year.
 MAX_TARGET_ID_LENGTH = 256
 MAX_CONTEXT_VALUE_LENGTH = 512
+# Events per insert_many round trip in emit_many(); small enough that one batch
+# stays well inside EVENTLOG_WRITE_TIMEOUT_MS.
+BATCH_SIZE = 100
 
 Outcome = Literal["success", "failure"]
 _OUTCOMES = frozenset({"success", "failure"})
@@ -98,6 +101,50 @@ def emit(
         store.insert(event)
     except Exception as exc:
         _fallback("write_failed", exc, event)
+
+
+def emit_many(
+    event_type: EventType,
+    *,
+    org_id: str,
+    actor: Actor,
+    items: Iterable[tuple[Target | None, Mapping[str, Any] | None]],
+    outcome: Outcome = "success",
+    context: Mapping[str, str] | None = None,
+) -> None:
+    """Record one action an actor took on many targets, e.g. a bulk export. Never raises.
+
+    Each ``(target, data)`` item becomes one event sharing the other fields.
+    Events are written in unordered batches of ``BATCH_SIZE``, one round trip
+    per batch, each bounded by ``EVENTLOG_WRITE_TIMEOUT_MS``. Events that fail
+    to build or write fall back to stdout one line each, exactly as ``emit()``.
+
+    Blocking: call it from sync code or a worker thread, never on the event loop.
+    """
+    if _on_event_loop():
+        logger.error(EVENT_LOOP_WARNING)
+
+    batch: list[dict[str, Any]] = []
+    for target, data in items:
+        try:
+            batch.append(_build(event_type, org_id, actor, target, outcome, data, context))
+        except Exception as exc:
+            _fallback("build_failed", exc, None)
+            continue
+        if len(batch) == BATCH_SIZE:
+            _write_batch(batch)
+            batch = []
+    if batch:
+        _write_batch(batch)
+
+
+def _write_batch(batch: list[dict[str, Any]]) -> None:
+    try:
+        store.insert_many(batch)
+    except Exception as exc:
+        # Part of the batch may have landed; a replay by ``_id`` is idempotent.
+        for event in batch:
+            _fallback("write_failed", exc, event)
 
 
 def _build(

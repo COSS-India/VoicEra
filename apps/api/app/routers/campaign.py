@@ -17,7 +17,7 @@ from app.auth import get_current_user, verify_api_key
 from app.constants.campaign import DEFAULT_CAMPAIGN_RETRY_CONFIG
 from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
-from app.services.eventlog import Actor, Target, emit, request_context
+from app.services.eventlog import Actor, Target, emit_many, request_context
 from app.services.eventlog.registry import CALL_TRANSCRIPT_DOWNLOADED
 from app.models.schemas import (
     CampaignAnalyticsResponse,
@@ -734,16 +734,20 @@ def _record_transcript_downloads(
     actor: Actor,
     context: dict[str, str],
 ) -> None:
-    """Record each bundled transcript, as ``GET /calls/{id}/transcript?mode=download`` would."""
-    for call_id, object_key in transcripts:
-        emit(
-            CALL_TRANSCRIPT_DOWNLOADED,
-            org_id=org_id,
-            actor=actor,
-            target=Target("call", call_id),
-            context=context,
-            data={"object_key": object_key, "campaign_id": campaign_id},
-        )
+    """Record each bundled transcript, as ``GET /calls/{id}/transcript?mode=download`` would.
+
+    Batched: a campaign can bundle thousands of transcripts.
+    """
+    emit_many(
+        CALL_TRANSCRIPT_DOWNLOADED,
+        org_id=org_id,
+        actor=actor,
+        context=context,
+        items=(
+            (Target("call", call_id), {"object_key": object_key, "campaign_id": campaign_id})
+            for call_id, object_key in transcripts
+        ),
+    )
 
 
 @router.get("/{campaign_id}/obd-report")
