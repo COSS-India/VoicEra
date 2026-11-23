@@ -9,6 +9,8 @@ description: "CSV-driven outbound campaigns: upload, schedule, run, report."
 `max_concurrency`, `schedule_config`, and `circuit_breaker` are accepted as **top-level fields on the request** but are **not** top-level fields on the stored document. The router nests all three inside `orchestrator_metadata` on both create and update, and `CampaignResponse` returns them there. Read `orchestrator_metadata.max_concurrency`, not `max_concurrency`.
 </Note>
 
+The agent must be a `telephony` agent. The campaign uses that agent's provider (`vobiz`, `plivo`, `vi`, or `go2market`). Create may snapshot `telephony_provider` on the document. Providers with `initiate_bulk_calls` (VI) dial a batch in one carrier request; others place one outbound call per queued run.
+
 ## `POST /campaign/upload`
 
 Bearer. `201`. `multipart/form-data` with one `file` field. The path is `/upload`.

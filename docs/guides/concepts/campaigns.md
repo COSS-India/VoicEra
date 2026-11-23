@@ -102,6 +102,17 @@ sequenceDiagram
   O->>W: "enqueue next batch"
 ```
 
+## Telephony providers on a campaign
+
+A campaign is tied to one telephony agent, so it uses that agent's `telephony.provider` (`vobiz`, `plivo`, `vi`, or `go2market`). Create snapshots `telephony_provider` on the campaign document when present; older campaigns fall back to the agent's provider.
+
+`CampaignCallDispatcher` then:
+
+* If the provider client implements `initiate_bulk_calls` (Vodafone Idea today), claims the batch and places **one bulk dial**, then polls status with `get_bulk_status` using `TELEPHONY_BULK_STATUS_POLL_*`.
+* Otherwise places **one outbound call per queued run** through `initiate_outbound_call` (Vobiz, Plivo, Go2Market).
+
+Go2Market and Vobiz/Plivo therefore share the per-call path; only the provider client's OBD or Call API differs. Agent category must still be `telephony` with a linked number.
+
 ## The dispatcher and from-number pooling
 
 `CampaignCallDispatcher.process_batch` in `campaign_call_dispatcher.py` claims work and places calls.
@@ -213,3 +224,5 @@ Because the rows already exist, `start_campaign` detects `parent_campaign_id` an
 * [Calls and call artifacts](calls) — what a dispatched call produces
 * [Data model](../../developer/reference/data-model) — `Campaigns` and `QueuedRuns` in full
 * [Campaign troubleshooting](../troubleshooting/campaigns)
+* [Telephony model](telephony-model) — providers a campaign agent may use
+* [Go To Market](../../developer/services/go2market) — OBD outbound used on the per-call path

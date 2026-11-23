@@ -3,7 +3,7 @@ title: Telephony (apps/telephony)
 description: The telephony package — clients, XML, serializers, and webhooks.
 ---
 
-`apps/telephony` holds provider-agnostic HTTP clients and helpers for Vobiz and Plivo. Like [`apps/providers`](providers) it is a library, not a container: it is copied into both the `api` and `runtime` images. The API uses it to provision applications and phone numbers; the runtime uses it to build answer XML, parse webhooks, and serialize audio frames.
+`apps/telephony` holds provider-agnostic HTTP clients and helpers for Vobiz, Plivo, Vodafone Idea, and Go2Market. Like [`apps/providers`](providers) it is a library, not a container: it is copied into both the `api` and `runtime` images. The API uses it to provision applications and phone numbers; the runtime uses it to build answer XML (where applicable), parse webhooks, and serialize audio frames.
 
 <Note>
 This page covers the package layout and public API. The conceptual model — applications, numbers, inbound versus outbound, what each provider owns — is in [Telephony model](../../guides/concepts/telephony-model).
@@ -14,7 +14,7 @@ Credentials and `base_url` are always injected by the caller. The package never 
 ## Public API
 
 ```python
-from apps.telephony import VobizClient, PlivoClient
+from apps.telephony import VobizClient, PlivoClient, ViClient, Go2MarketClient
 
 vobiz = VobizClient(
     auth_id="...",
@@ -26,6 +26,7 @@ plivo = PlivoClient(
     auth_token="...",
     base_url="https://api.plivo.com/v1",
 )
+# ViClient / Go2MarketClient take OBD credentials from Integrations (see provider docs).
 ```
 
 The catalog follows the same pattern as `apps.providers.schema`:
@@ -61,7 +62,7 @@ python3 apps/telephony/scripts/print_schemas.py
 | Recording | `start_call_recording`, `fetch_recording_metadata`, `download_recording`, `wait_and_download_recording` (+ Plivo `list_recordings_for_call`) |
 | Answer XML | `build_answer_stream_xml(provider, websocket_url, sample_rate=...)` |
 | Frame serializers | `create_frame_serializer(provider, stream_sid=..., call_sid=..., sample_rate=...)` |
-| Schemas | `apps.telephony.providers.vobiz.schemas` / `...plivo.schemas` |
+| Schemas | `apps.telephony.providers.{vobiz,plivo,vi,go2market}.schemas` |
 
 Application and outbound methods return `{status, message, ...}` dicts built by the `ApiResult` dataclass in `base.py`, where `status` is `"success"` or `"fail"`. Recording helpers return ids or bytes, or `None`. `list_recordings_for_call` exists on Plivo only.
 
@@ -103,13 +104,13 @@ The runtime keeps a single `/answer` route and dispatches on the agent's provide
 from apps.telephony import build_answer_stream_xml
 
 xml = build_answer_stream_xml(
-    provider,                 # "vobiz" | "plivo"
+    provider,                 # "vobiz" | "plivo" (VI / Go2Market use stubs / no Stream XML)
     websocket_url,
     sample_rate=16000,
 )
 ```
 
-`sample_rate` defaults to `8000` and selects the `contentType`. The XML format is identical for Vobiz and Plivo today, but each provider owns its own `xml.py` so the two can diverge later. Callers use the parent dispatcher only.
+`sample_rate` defaults to `8000` and selects the `contentType`. The XML format is identical for Vobiz and Plivo today, but each provider owns its own `xml.py` so they can diverge later. VI and Go2Market do not drive live media through this XML — see [Go To Market](go2market) and the [VI exception](../guides/adding-a-telephony-provider#vodafone-idea-vi-exception).
 
 ## Per-provider layout
 
@@ -139,7 +140,7 @@ Serializers require Pipecat, so they live behind a second, lazy discovery pass a
 from apps.telephony.serializers import create_frame_serializer
 
 serializer = create_frame_serializer(
-    "vobiz",                  # or "plivo"
+    "vobiz",                  # or "plivo" | "vi" | "go2market"
     stream_sid=stream_sid,
     call_sid=call_sid,
     sample_rate=8000,
@@ -151,6 +152,8 @@ An unregistered provider raises `ValueError`. Per-provider classes are importabl
 ```python
 from apps.telephony.providers.vobiz.serializers import VobizFrameSerializer
 from apps.telephony.providers.plivo.serializers import PlivoFrameSerializer
+from apps.telephony.providers.vi.serializers import ViFrameSerializer
+from apps.telephony.providers.go2market.serializers import Go2MarketFrameSerializer
 ```
 
 ## Webhooks
@@ -191,6 +194,7 @@ The package deliberately does not do these things. Its callers do.
 ## Related
 
 * [Telephony model](../../guides/concepts/telephony-model) — applications, numbers, and call direction
+* [Go To Market](go2market) — OBD, DID-WebSocket, µ-law streaming
 * [Telephony agents](../clients/telephony) — connecting a number to an agent
 * [Adding a telephony provider](../guides/adding-a-telephony-provider)
 * [Telephony troubleshooting](../../guides/troubleshooting/telephony)

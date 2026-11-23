@@ -132,9 +132,11 @@ apps/telephony/
 ├── readme.md
 ├── scripts/print_schemas.py
 ├── providers/
-│   ├── vobiz/          10 files
-│   └── plivo/          10 files
-└── tests/              6 test modules
+│   ├── vobiz/          Stream XML + Call API
+│   ├── plivo/          Stream XML + Call API
+│   ├── vi/             OBD + /vi/stream media
+│   └── go2market/      OBD + DID-WebSocket + µ-law media
+└── tests/
 ```
 
 The package-root `xml.py`, `calls.py`, and `serializers.py` are dispatch facades. They contain no provider `if`/`elif` chains and must not grow any. See [Adding a telephony provider](adding-a-telephony-provider).

@@ -52,7 +52,7 @@ Answer and hangup URLs are provisioned by the API when the agent is created:
 {VOICE_SERVER_BASE_URL}/answer?agent_id={agent_id}&org_id={org_id}
 ```
 
-The provider — `vobiz` or `plivo` — comes from the agent document. The runtime does not default to a single vendor. On the WebSocket, the first message must be a JSON `start` event; anything else closes the socket with code 1008. The runtime reads `provider_call_sid`, `streamSid`, and the numbers from that event via `parse_stream_start()`, and registers an inbound CallLog if the answer webhook did not already create one.
+The provider — `vobiz`, `plivo`, `vi`, or `go2market` — comes from the agent document. The runtime does not default to a single vendor. On the agent WebSocket, JSON is read until a `start` event (`connected` and other preambles are skipped). The runtime reads `provider_call_sid`, `streamSid`, and the numbers from that event via `parse_stream_start()`, and registers an inbound CallLog if the answer webhook did not already create one. VI also mounts `/vi/stream` for DIY-flow media.
 </Tab>
 
 <Tab title="WebSocket agents">
