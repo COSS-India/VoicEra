@@ -206,6 +206,16 @@ The CSV report is capped at 500 rows in `apps/api/app/routers/campaign.py`. For 
 
 The full route list is in the [REST API reference](../../api-reference/overview), and `/docs` on a running API is always current.
 
+## Deletion and contact data
+
+`DELETE /campaign/{id}` (admin / super_admin) is a hard delete handled by `campaign_deletion.delete_campaign_for_org`:
+
+1. Delete every `QueuedRuns` document for the campaign (parsed phones and context variables).
+2. Delete the `Campaigns` document.
+3. If `source_type` is `csv` and no remaining campaign points at the same `source_id`, remove that object from MinIO.
+
+Redial children reuse the parent's `source_id`, so deleting the parent alone must not purge the CSV while the child still needs it. Orphan uploads that were never attached to a campaign are outside this path. The delete path emits a PII-free audit log (`campaign_deleted` with ids and purge flags only). Call logs are left in place.
+
 ## Redial
 
 `POST /campaign/{id}/redial` creates a **new** campaign targeting only the contacts whose calls did not connect.

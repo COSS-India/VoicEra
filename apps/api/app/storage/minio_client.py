@@ -94,6 +94,21 @@ class MinIOStorage:
                 return False
             raise
 
+    def remove_object(
+        self,
+        object_key: str,
+        *,
+        bucket_name: str | None = None,
+    ) -> None:
+        """Delete one object. Missing keys are ignored (idempotent)."""
+        bucket = bucket_name or self.default_bucket
+        try:
+            self.client.remove_object(bucket, object_key)
+        except S3Error as exc:
+            if exc.code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket"}:
+                return
+            raise
+
     @staticmethod
     def parse_minio_url(url: str) -> tuple[str, str] | None:
         if not url or not url.startswith("minio://"):

@@ -45,6 +45,7 @@ from app.services.call_log_service import (
     transform_call_log_urls,
 )
 from app.services.campaign import campaign_repository as repo
+from app.services.campaign.campaign_deletion import delete_campaign_for_org
 from app.services.campaign.campaign_repository import CampaignNotFoundError, get_org_concurrent_limit
 from app.services.campaign.runner import campaign_runner_service
 from app.services.campaign.source_sync_factory import get_sync_service
@@ -382,15 +383,17 @@ async def delete_campaign(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> SuccessResponse:
-    """Delete a campaign (admin / super_admin only)."""
+    """Delete a campaign and purge its contact CSV when unreferenced (admin only)."""
     _require_delete_role(current_user)
     org_id = _require_org(current_user)
     try:
-        repo.get_campaign_for_org(org_id, campaign_id)
+        delete_campaign_for_org(
+            org_id=org_id,
+            campaign_id=campaign_id,
+            actor=str(current_user.get("email") or ""),
+        )
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    repo.delete_queued_runs_for_campaign(campaign_id)
-    repo.delete_campaign(campaign_id)
     return SuccessResponse(message=f"Campaign deleted: {campaign_id}")
 
 

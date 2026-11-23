@@ -103,7 +103,7 @@ Bearer. One `CampaignResponse`. `404` outside your organisation.
 
 Bearer, and the caller must hold `admin` or `super_admin` in the active organisation — a `member` gets `403`. This is the only role-gated route on this page; every other campaign route is member-accessible. `404` outside your organisation.
 
-Deletes the queued runs first, then the campaign document. This is a **hard delete, not a state change** — there is no `deleted` or `archived` value in `CampaignState`, and the campaign will not appear in `GET /campaign/` afterwards. Call logs already written for calls the campaign placed are not removed.
+Hard-deletes the campaign for DPDP alignment: queued runs (parsed contact rows) are removed, then the campaign document, then the MinIO contact CSV when no other campaign still references that `source_id` (redial children share the parent's key, so the object stays until the last owner is deleted). A structured audit log line records `campaign_id`, `org_id`, actor, `source_id`, and purge flags — never phone numbers or CSV contents. Call logs already written for calls the campaign placed are not removed. There is no `deleted` / `archived` state; the campaign disappears from `GET /campaign/`.
 
 Returns `SuccessResponse`:
 
