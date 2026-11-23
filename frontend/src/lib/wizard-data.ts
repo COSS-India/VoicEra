@@ -70,6 +70,32 @@ export const LLM_PROVIDERS: { id: string; label: string; note: string; models: S
     note: "Not integrated yet.",
     models: [{ value: "anthropic-na", label: "Not available", disabled: true }],
   },
+  {
+    id: "aws_bedrock",
+    label: "AWS Bedrock",
+    note: "Enterprise foundation models from Amazon, Anthropic, and Meta.",
+    models: [
+      { value: "us.amazon.nova-pro-v1:0", label: "us.amazon.nova-pro-v1:0" },
+      { value: "us.amazon.nova-lite-v1:0", label: "us.amazon.nova-lite-v1:0" },
+      { value: "us.amazon.nova-micro-v1:0", label: "us.amazon.nova-micro-v1:0" },
+      {
+        value: "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        label: "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+      },
+      {
+        value: "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+        label: "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+      },
+      {
+        value: "anthropic.claude-3-haiku-20240307-v1:0",
+        label: "anthropic.claude-3-haiku-20240307-v1:0",
+      },
+      {
+        value: "us.meta.llama3-3-70b-instruct-v1:0",
+        label: "us.meta.llama3-3-70b-instruct-v1:0",
+      },
+    ],
+  },
 ];
 
 export const STT_PROVIDERS: {
