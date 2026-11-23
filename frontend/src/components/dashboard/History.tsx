@@ -62,6 +62,7 @@ function statusTone(call: CallLogItem) {
 
 function callsToCsv(rows: CallLogItem[], meta: ReportMeta): string {
   const header = [
+    "call_sid",
     "Call Type",
     "Agent",
     "Campaign",
@@ -72,6 +73,7 @@ function callsToCsv(rows: CallLogItem[], meta: ReportMeta): string {
     "Duration (s)",
   ];
   const dataRows = rows.map((r) => [
+    r.provider_call_sid ?? "",
     r.call_type,
     r.agent_name ?? r.agent_id,
     r.campaign_name ?? r.campaign_id ?? "",
@@ -178,7 +180,17 @@ function ExportMenu({
           return listAllOrgCalls(orgId, filters);
         })());
       const withTranscripts = allCalls.filter((c) => c.transcript_url);
-      const header = ["Call ID", "Agent", "Campaign", "Call Type", "Called On", "Line Timestamp", "Role", "Content"];
+      const header = [
+        "call_sid",
+        "Call ID",
+        "Agent",
+        "Campaign",
+        "Call Type",
+        "Called On",
+        "Line Timestamp",
+        "Role",
+        "Content",
+      ];
       const rows: unknown[][] = [];
       let lineCount = 0;
       for (const call of withTranscripts) {
@@ -186,6 +198,7 @@ function ExportMenu({
           const text = await fetchCallTranscriptText(call.call_id);
           for (const line of parseTranscript(text)) {
             rows.push([
+              call.provider_call_sid ?? "",
               call.call_id,
               call.agent_name ?? call.agent_id,
               call.campaign_name ?? call.campaign_id ?? "",
@@ -885,7 +898,7 @@ function PrintableReport({ calls, meta }: { calls: CallLogItem[]; meta: ReportMe
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr>
-            {["Call Type", "Agent", "Campaign", "To", "From", "Status", "Called On", "Duration"].map((h) => (
+            {["call_sid", "Call Type", "Agent", "Campaign", "To", "From", "Status", "Called On", "Duration"].map((h) => (
               <th key={h} className="border border-v-line px-2 py-1.5 text-left">
                 {h}
               </th>
@@ -895,6 +908,7 @@ function PrintableReport({ calls, meta }: { calls: CallLogItem[]; meta: ReportMe
         <tbody>
           {calls.map((c) => (
             <tr key={c.call_id}>
+              <td className="border border-v-line px-2 py-1.5">{c.provider_call_sid ?? "—"}</td>
               <td className="border border-v-line px-2 py-1.5">{CALL_TYPE_META[c.call_type].label}</td>
               <td className="border border-v-line px-2 py-1.5">{c.agent_name ?? c.agent_id}</td>
               <td className="border border-v-line px-2 py-1.5">{c.campaign_name ?? c.campaign_id ?? "—"}</td>
