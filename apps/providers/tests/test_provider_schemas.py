@@ -35,7 +35,7 @@ def _expected_provider_ids(annotated_union) -> set[str]:
 def test_union_variant_counts_match_registry():
     assert len(_union_variants(STTConfig)) == 16
     assert len(_union_variants(TTSConfig)) == 22
-    assert len(_union_variants(LLMConfig)) == 11
+    assert len(_union_variants(LLMConfig)) == 12
     assert set(STT_CREATORS) == set(_expected_provider_ids(STTConfig))
     assert set(TTS_CREATORS) == set(_expected_provider_ids(TTSConfig))
     assert set(LLM_CREATORS) == set(_expected_provider_ids(LLMConfig))
@@ -506,6 +506,26 @@ def test_kenpath_llm_catalog_language_fields():
     assert send_greeting["type"] == "boolean"
     assert send_greeting["input_mode"] == "options"
     assert send_greeting["examples"] == [False, True]
+
+
+def test_amul_llm_catalog_only_asks_for_the_token():
+    from apps.providers.adapters.amul.catalog import LLM_MODELS
+    from apps.providers.schema import provider_settings
+
+    schema = provider_schemas(Kind.LLM)["amul"]
+    fields = schema["fields"]
+
+    assert schema["provider_type"] == ProviderType.ADAPTER
+    assert schema["name"] == "Amul"
+    assert schema["secrets"] == ["bearer_token"]
+    assert "input_mode" not in fields["bearer_token"]
+    assert list(fields["model"]["examples"]) == list(LLM_MODELS)
+    assert fields["model"]["default"] == LLM_MODELS[0]
+    for hidden in ("user_id", "base_url", "source_lang", "target_lang", "temperature", "max_tokens"):
+        assert hidden not in fields
+
+    settings = provider_settings(Kind.LLM, "amul")
+    assert set(settings["fields"]) == {"model"}
 
 
 def test_configuration_defaults_envelope():
