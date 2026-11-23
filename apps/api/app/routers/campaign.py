@@ -17,7 +17,7 @@ from app.auth import get_current_user, verify_api_key
 from app.constants.campaign import DEFAULT_CAMPAIGN_RETRY_CONFIG
 from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
-from app.services.eventlog import Actor, Target, emit_many, request_context
+from app.services.eventlog import Actor, Resource, Target, emit_many, request_context
 from app.services.eventlog.registry import CALL_TRANSCRIPT_DOWNLOADED
 from app.models.schemas import (
     CampaignAnalyticsResponse,
@@ -730,17 +730,32 @@ def _record_transcript_downloads(
     *,
     org_id: str,
     campaign_id: str,
+    campaign: dict[str, Any],
+    agent_name_fallback: str | None,
     actor: Actor,
     context: dict[str, str],
 ) -> None:
-    """Record each bundled transcript as a ``call.transcript.downloaded`` event."""
+    """Record each bundled transcript as a ``call.transcript.downloaded`` event.
+
+    Every call in a campaign shares its agent, which cannot be changed after the
+    campaign is created, so the agent's name is looked up once. If the agent was
+    deleted, the name saved on the bundled call logs is used.
+    """
+    if not transcripts:
+        return
+    related = [Resource("campaign", campaign_id, campaign.get("name"))]
+    agent_id = campaign.get("agent_id")
+    if agent_id:
+        name = agent_service.agent_name_for_audit(org_id, agent_id, agent_name_fallback)
+        related.append(Resource("agent", str(agent_id), name))
     emit_many(
         CALL_TRANSCRIPT_DOWNLOADED,
         org_id=org_id,
         actor=actor,
+        related=related,
         context=context,
         items=(
-            (Target("call", call_id), {"object_key": object_key, "campaign_id": campaign_id})
+            (Target("call", call_id), {"object_key": object_key})
             for call_id, object_key in transcripts
         ),
     )
@@ -776,6 +791,11 @@ async def get_obd_report_route(
             transcripts,
             org_id=org_id,
             campaign_id=campaign_id,
+            campaign=campaign,
+            agent_name_fallback=next(
+                (log["agent_name"] for log in logs.values() if log and log.get("agent_name")),
+                None,
+            ),
             actor=Actor.from_user(current_user),
             context=request_context(request),
         )

@@ -168,7 +168,9 @@ def _ensure_events(db: Database, existing: set[str]) -> None:
     events = db["Events"]
     # DocumentDB uses default compound indexes for equality only; ordered indexes
     # also serve the _id range, so pages do not sort an organisation's history.
-    ordered = {"enableOrderedIndex": True}
+    # Background builds keep event writes flowing while a new index is built on an
+    # existing collection; a foreground build blocks every other operation.
+    ordered = {"enableOrderedIndex": True, "background": True}
     _ensure_index(events, [("org_id", 1), ("_id", -1)], name="org_id_desc", **ordered)
     _ensure_index(
         events, [("org_id", 1), ("type", 1), ("_id", -1)], name="org_type_id", **ordered
@@ -183,6 +185,14 @@ def _ensure_events(db: Database, existing: set[str]) -> None:
         events,
         [("org_id", 1), ("target.id", 1), ("_id", -1)],
         name="org_target_id",
+        **ordered,
+    )
+    _ensure_index(
+        events,
+        # Multikey: one entry per target/related resource, so any resource type
+        # is filterable without a new field or index.
+        [("org_id", 1), ("resource_keys", 1), ("_id", -1)],
+        name="org_resource_keys",
         **ordered,
     )
 

@@ -18,7 +18,7 @@ from app.auth import BOT_SERVICE_EMAIL, get_current_user
 from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.services.eventlog import Actor, emit, request_context, store
-from app.services.eventlog.registry import EVENTS_EXPORTED, REGISTRY
+from app.services.eventlog.registry import EVENTS_EXPORTED, REGISTRY, RESOURCE_TYPES
 from app.services.eventlog.store import EventFilter
 from app.models.schemas import EventListResponse, EventTypeResponse
 from app.services import member_service
@@ -30,6 +30,8 @@ MAX_RANGE = timedelta(days=366)
 # Event ids are ObjectIds, whose timestamps start at the Unix epoch.
 EARLIEST = datetime(1970, 1, 1, tzinfo=timezone.utc)
 MAX_FILTER_LENGTH = 256
+# ``type:id``: room for the longest resource type plus a full-length id.
+MAX_RESOURCE_FILTER_LENGTH = MAX_FILTER_LENGTH + 64
 CSV_COLUMNS = (
     "id",
     "ts",
@@ -40,6 +42,8 @@ CSV_COLUMNS = (
     "actor_role",
     "target_type",
     "target_id",
+    "target_name",
+    "related",
     "ip",
     "user_agent",
     "data",
@@ -93,6 +97,12 @@ def event_filter(
     actor_id: str | None = Query(None, max_length=MAX_FILTER_LENGTH),
     target_type: str | None = Query(None, max_length=MAX_FILTER_LENGTH),
     target_id: str | None = Query(None, max_length=MAX_FILTER_LENGTH),
+    resource: str | None = Query(
+        None,
+        max_length=MAX_RESOURCE_FILTER_LENGTH,
+        pattern=r"^[a-z][a-z_]*:.+$",
+        description="`type:id`, e.g. `agent:agent_123`. Matches the target or any related resource",
+    ),
     start: datetime | None = Query(
         None, alias="from", description="Inclusive; default 30 days before `to`"
     ),
@@ -126,6 +136,11 @@ def event_filter(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown event type: {unknown[0][:MAX_FILTER_LENGTH]}",
         )
+    if resource and resource.partition(":")[0] not in RESOURCE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown resource type: {resource.partition(':')[0]}",
+        )
     return EventFilter(
         org_id=org_id,
         start=start,
@@ -134,6 +149,7 @@ def event_filter(
         actor_id=actor_id or None,
         target_type=target_type or None,
         target_id=target_id or None,
+        resource=resource or None,
     )
 
 
@@ -142,7 +158,8 @@ def _iso(value: datetime) -> str:
 
 
 def _to_response(doc: dict[str, Any]) -> dict[str, Any]:
-    event = {key: value for key, value in doc.items() if key != "_id"}
+    # ``resource_keys`` is an index helper, not part of the API.
+    event = {key: value for key, value in doc.items() if key not in {"_id", "resource_keys"}}
     event["id"] = str(doc["_id"])
     event["ts"] = _iso(doc["ts"])
     return event
@@ -179,6 +196,16 @@ def _csv_cell(value: Any) -> str:
     return f"'{text}" if text.startswith(_CSV_FORMULA_PREFIXES) else text
 
 
+def _related_cell(related: list[dict[str, Any]] | None) -> str | None:
+    """``type:id (name)`` per related resource, ``; ``-separated."""
+    if not related:
+        return None
+    return "; ".join(
+        f"{r.get('type')}:{r.get('id')}" + (f" ({r['name']})" if r.get("name") else "")
+        for r in related
+    )
+
+
 def _csv_row(doc: dict[str, Any]) -> list[str]:
     actor = doc.get("actor") or {}
     target = doc.get("target") or {}
@@ -194,6 +221,8 @@ def _csv_row(doc: dict[str, Any]) -> list[str]:
         actor.get("role"),
         target.get("type"),
         target.get("id"),
+        target.get("name"),
+        _related_cell(doc.get("related")),
         context.get("ip"),
         context.get("user_agent"),
         json.dumps(data, default=str, separators=(",", ":")) if data else None,
@@ -237,6 +266,7 @@ def export_events(
         "actor_id": flt.actor_id,
         "target_type": flt.target_type,
         "target_id": flt.target_id,
+        "resource": flt.resource,
     }
     emit(
         EVENTS_EXPORTED,

@@ -1,14 +1,21 @@
 """Event log: org-scoped, append-only records of who did what.
 
-Producers import only ``emit``, ``emit_many``, ``Actor``, ``Target``, ``request_context`` and
-registered event types from this package.
+Producers import only ``emit``, ``emit_many``, ``Actor``, ``Resource`` (alias
+``Target``), ``request_context`` and registered event types from this package.
+
+An event is about one ``target`` and optionally some ``related`` resources, e.g.
+a call (target) handled by an agent in a campaign (related). Every resource can
+carry a ``name`` snapshot so the event stays readable after the resource is
+renamed or deleted. ``resource_keys`` holds ``"type:id"`` for the target and each
+related resource, so one index answers "everything about resource X" for any
+resource type without a new field or index per type.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -18,18 +25,31 @@ from fastapi import Request
 
 from app.auth import BOT_SERVICE_EMAIL
 from app.services.eventlog import store
-from app.services.eventlog.registry import REGISTRY, EventType
+from app.services.eventlog.registry import REGISTRY, RESOURCE_TYPES, EventType
 
-__all__ = ["Actor", "EventType", "Outcome", "Target", "emit", "emit_many", "request_context"]
+__all__ = [
+    "Actor",
+    "EventType",
+    "Outcome",
+    "Resource",
+    "Target",
+    "emit",
+    "emit_many",
+    "request_context",
+    "resource_key",
+]
 
 logger = logging.getLogger("voicera.eventlog")
 
 ENVELOPE_VERSION = 1
 SOURCE = "api"
 EVENT_LOOP_WARNING = "eventlog emit() called on the event loop thread"
-# Length caps for request-supplied values (path ids, User-Agent).
+# Length caps for request-supplied values (path ids, names, User-Agent).
 MAX_TARGET_ID_LENGTH = 256
+MAX_RESOURCE_NAME_LENGTH = 256
 MAX_CONTEXT_VALUE_LENGTH = 512
+# Related resources per event; each one adds an index entry to the write.
+MAX_RELATED = 8
 # Events per insert_many() call in emit_many().
 BATCH_SIZE = 100
 
@@ -55,9 +75,21 @@ class Actor:
 
 
 @dataclass(frozen=True)
-class Target:
+class Resource:
+    """Something an event is about. ``name`` is a snapshot at event time."""
+
     type: str
     id: str
+    name: str | None = None
+
+
+# The resource an event acts on.
+Target = Resource
+
+
+def resource_key(resource_type: str, resource_id: str) -> str:
+    """Index key of a resource, as stored in ``resource_keys`` and used to filter."""
+    return f"{resource_type}:{resource_id[:MAX_TARGET_ID_LENGTH]}"
 
 
 def request_context(request: Request) -> dict[str, str]:
@@ -76,7 +108,8 @@ def emit(
     *,
     org_id: str,
     actor: Actor,
-    target: Target | None = None,
+    target: Resource | None = None,
+    related: Sequence[Resource] = (),
     outcome: Outcome = "success",
     data: Mapping[str, Any] | None = None,
     context: Mapping[str, str] | None = None,
@@ -87,7 +120,7 @@ def emit(
     Call it from sync code or a worker thread, never directly on the event loop.
     """
     try:
-        event = _build(event_type, org_id, actor, target, outcome, data, context)
+        event = _build(event_type, org_id, actor, target, related, outcome, data, context)
     except Exception as exc:
         _fallback("build_failed", exc, None)
         return
@@ -106,13 +139,15 @@ def emit_many(
     *,
     org_id: str,
     actor: Actor,
-    items: Iterable[tuple[Target | None, Mapping[str, Any] | None]],
+    items: Iterable[tuple[Resource | None, Mapping[str, Any] | None]],
+    related: Sequence[Resource] = (),
     outcome: Outcome = "success",
     context: Mapping[str, str] | None = None,
 ) -> None:
     """Record one action an actor took on many targets, e.g. a bulk export. Never raises.
 
-    Each ``(target, data)`` item becomes one event sharing the other fields.
+    Each ``(target, data)`` item becomes one event sharing the other fields,
+    including ``related``.
     Events are written in unordered batches of ``BATCH_SIZE``, one round trip
     per batch, each bounded by ``EVENTLOG_WRITE_TIMEOUT_MS``. Events that fail
     to build or write fall back to stdout one line each, exactly as ``emit()``.
@@ -125,7 +160,9 @@ def emit_many(
     batch: list[dict[str, Any]] = []
     for target, data in items:
         try:
-            batch.append(_build(event_type, org_id, actor, target, outcome, data, context))
+            batch.append(
+                _build(event_type, org_id, actor, target, related, outcome, data, context)
+            )
         except Exception as exc:
             _fallback("build_failed", exc, None)
             continue
@@ -145,11 +182,23 @@ def _write_batch(batch: list[dict[str, Any]]) -> None:
             _fallback("write_failed", exc, event)
 
 
+def _resource(resource: Resource) -> dict[str, str]:
+    if resource.type not in RESOURCE_TYPES:
+        raise ValueError(f"unregistered resource type: {resource.type!r}")
+    if not resource.id:
+        raise ValueError(f"{resource.type} resource id is required")
+    doc = {"type": resource.type, "id": str(resource.id)[:MAX_TARGET_ID_LENGTH]}
+    if resource.name:
+        doc["name"] = str(resource.name)[:MAX_RESOURCE_NAME_LENGTH]
+    return doc
+
+
 def _build(
     event_type: EventType,
     org_id: str,
     actor: Actor,
-    target: Target | None,
+    target: Resource | None,
+    related: Sequence[Resource],
     outcome: str,
     data: Mapping[str, Any] | None,
     context: Mapping[str, str] | None,
@@ -160,6 +209,8 @@ def _build(
         raise ValueError("org_id is required")
     if outcome not in _OUTCOMES:
         raise ValueError(f"invalid outcome: {outcome!r}")
+    if len(related) > MAX_RELATED:
+        raise ValueError(f"at most {MAX_RELATED} related resources, got {len(related)}")
 
     now = datetime.now(timezone.utc)
     event: dict[str, Any] = {
@@ -172,8 +223,21 @@ def _build(
         "actor": asdict(actor),
         "outcome": outcome,
     }
+    keys: list[str] = []
     if target is not None:
-        event["target"] = {"type": target.type, "id": target.id[:MAX_TARGET_ID_LENGTH]}
+        event["target"] = _resource(target)
+        keys.append(resource_key(event["target"]["type"], event["target"]["id"]))
+    related_docs = []
+    for resource in related:
+        doc = _resource(resource)
+        key = resource_key(doc["type"], doc["id"])
+        if key not in keys:
+            keys.append(key)
+            related_docs.append(doc)
+    if related_docs:
+        event["related"] = related_docs
+    if keys:
+        event["resource_keys"] = keys
     if context:
         event["context"] = {
             key: str(value)[:MAX_CONTEXT_VALUE_LENGTH] for key, value in context.items()

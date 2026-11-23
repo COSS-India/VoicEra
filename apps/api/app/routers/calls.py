@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from functools import partial
 from pathlib import PurePosixPath
-from typing import Any, Iterator, Literal
+from typing import Any, Iterator, Literal, NoReturn
 from urllib.parse import unquote
 
 import urllib3
@@ -17,7 +17,7 @@ from minio.error import MinioException
 
 from app.auth import get_current_user, verify_api_key
 from app.config import settings
-from app.services.eventlog import Actor, Target, emit, request_context
+from app.services.eventlog import Actor, Resource, Target, emit, request_context
 from app.services.eventlog.registry import (
     CALL_PROVIDER_RECORDING_DOWNLOADED,
     CALL_PROVIDER_RECORDING_VIEWED,
@@ -43,7 +43,7 @@ from app.models.schemas import (
     WebCallRegisterRequest,
     WebCallRegisterResponse,
 )
-from app.services import member_service, org_service
+from app.services import agent_service, member_service, org_service
 from app.services.call_log_service import (
     CallLogListFilters,
     CallLogNotFoundError,
@@ -110,7 +110,24 @@ def _raise_web_call_error(exc: WebCallError) -> None:
     ) from exc
 
 
-def _raise_call_not_found(exc: CallLogNotFoundError) -> None:
+def _call_related(org_id: str, call: dict[str, Any]) -> list[Resource]:
+    """The call's agent and campaign, for its audit events.
+
+    The agent is named as it is now, or as it was on the call if since deleted.
+    ``get_call_log`` already resolved the campaign name.
+    """
+    related: list[Resource] = []
+    agent_id = call.get("agent_id")
+    if agent_id:
+        name = agent_service.agent_name_for_audit(org_id, agent_id, call.get("agent_name"))
+        related.append(Resource("agent", str(agent_id), name))
+    campaign_id = call.get("campaign_id")
+    if campaign_id:
+        related.append(Resource("campaign", str(campaign_id), call.get("campaign_name")))
+    return related
+
+
+def _raise_call_not_found(exc: CallLogNotFoundError) -> NoReturn:
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=str(exc),
@@ -436,11 +453,14 @@ def _serve_artifact(
     )
     try:
         call = get_call_log(org_id, call_id)
-        storage = MinIOStorage()
-        bucket_name, object_name = _resolve_artifact(storage, call, artifact)
     except CallLogNotFoundError as exc:
         record(outcome="failure", data={"reason": "call_not_found"})
         _raise_call_not_found(exc)
+
+    record = partial(record, related=_call_related(org_id, call))
+    try:
+        storage = MinIOStorage()
+        bucket_name, object_name = _resolve_artifact(storage, call, artifact)
     except _ArtifactError as exc:
         record(outcome="failure", data={"reason": exc.reason})
         raise exc.http() from exc

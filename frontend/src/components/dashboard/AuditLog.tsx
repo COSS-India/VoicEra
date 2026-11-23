@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { listAgents } from "@/lib/api-client";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
@@ -13,16 +14,16 @@ import {
   listAuditEventTypes,
   type AuditEventQuery,
 } from "@/lib/api/events";
-import type { AuditEvent, AuditEventType } from "@/lib/api-types";
+import type { AgentApiResponse, AuditEvent, AuditEventType, AuditResource } from "@/lib/api-types";
 import { isOrgAdmin } from "@/lib/auth-storage";
 import { formatDateTime, formatUserRole } from "@/lib/format";
 import { downloadBlob } from "@/lib/report";
 
 const PAGE_SIZE = 50;
 
-type Filters = { type: string; actor: string; target: string; from: string; to: string };
+type Filters = { type: string; actor: string; target: string; agent: string; from: string; to: string };
 
-const EMPTY_FILTERS: Filters = { type: "", actor: "", target: "", from: "", to: "" };
+const EMPTY_FILTERS: Filters = { type: "", actor: "", target: "", agent: "", from: "", to: "" };
 
 const inputClass =
   "h-9 rounded-v-sm border border-v-line bg-v-soft/80 px-3 text-[13px] transition-colors placeholder:text-v-muted focus:border-v-accent focus:bg-white focus:outline-none";
@@ -33,6 +34,7 @@ function toQuery(filters: Filters): AuditEventQuery {
     types: filters.type ? [filters.type] : undefined,
     actor_id: filters.actor,
     target_id: filters.target,
+    resource: filters.agent ? `agent:${filters.agent}` : undefined,
     from: filters.from ? new Date(`${filters.from}T00:00:00`).toISOString() : undefined,
     to: filters.to ? new Date(`${filters.to}T23:59:59`).toISOString() : undefined,
   };
@@ -41,11 +43,43 @@ function toQuery(filters: Filters): AuditEventQuery {
 /** Raw `context`/`data` keys (`user_agent`) read as labels (`user agent`). */
 const fieldLabel = (key: string) => key.replace(/_/g, " ");
 
-function EventDetails({ event }: { event: AuditEvent }) {
+/** Current agent names by id, used when an event recorded no name. */
+type CurrentNames = Map<string, string>;
+
+/** Resource types (`phone_number`) read as labels (`Phone number`). */
+function resourceTypeLabel(type: string): string {
+  const label = fieldLabel(type);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function currentName(resource: AuditResource, names: CurrentNames): string | undefined {
+  return resource.type === "agent" ? names.get(resource.id) : undefined;
+}
+
+/** Name recorded on the event, else the current name, else the id. */
+function resourceName(resource: AuditResource, names: CurrentNames): string {
+  return resource.name ?? currentName(resource, names) ?? resource.id;
+}
+
+function resourceRows(resource: AuditResource, names: CurrentNames): [string, string][] {
+  const label = resourceTypeLabel(resource.type);
+  const rows: [string, string][] = [];
+  const name = resourceName(resource, names);
+  // Without any name, the id is shown once, as "<Type> ID".
+  if (name !== resource.id) rows.push([label, name]);
+  const current = currentName(resource, names);
+  if (resource.name && current && current !== resource.name) rows.push([`${label} (current name)`, current]);
+  rows.push([`${label} ID`, resource.id]);
+  return rows;
+}
+
+function EventDetails({ event, currentNames }: { event: AuditEvent; currentNames: CurrentNames }) {
   const rows: [string, string][] = [
     ["Timestamp (UTC)", event.ts],
     ["Event ID", event.id],
     ["Event type", event.type],
+    ...(event.target ? resourceRows(event.target, currentNames) : []),
+    ...event.related.flatMap((resource) => resourceRows(resource, currentNames)),
     ["Actor type", event.actor.type],
     ["Actor role", event.actor.role ? formatUserRole(event.actor.role) : "–"],
     ...Object.entries(event.context).map(([k, v]): [string, string] => [fieldLabel(k), v]),
@@ -56,8 +90,8 @@ function EventDetails({ event }: { event: AuditEvent }) {
   ];
   return (
     <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5">
-      {rows.map(([label, value]) => (
-        <Fragment key={label}>
+      {rows.map(([label, value], i) => (
+        <Fragment key={`${i}-${label}`}>
           <dt className="font-mono text-[10px] uppercase tracking-[.1em] text-v-muted">{label}</dt>
           <dd className="min-w-0 break-all text-[12.5px] text-v-fg">{value}</dd>
         </Fragment>
@@ -71,6 +105,7 @@ export function AuditLog() {
   const isAdmin = isOrgAdmin(session);
 
   const [types, setTypes] = useState<AuditEventType[]>([]);
+  const [agents, setAgents] = useState<AgentApiResponse[]>([]);
   /** Incremented on each filter change to discard stale "Load more" responses. */
   const generation = useRef(0);
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
@@ -84,6 +119,7 @@ export function AuditLog() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const describe = (name: string) => types.find((t) => t.name === name)?.description ?? name;
+  const currentNames = useMemo(() => new Map(agents.map((a) => [a.agent_id, a.name])), [agents]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -91,6 +127,11 @@ export function AuditLog() {
       .then(setTypes)
       .catch(() => {
         /* Non-fatal: the type filter offers only "All events". */
+      });
+    listAgents()
+      .then(setAgents)
+      .catch(() => {
+        /* Non-fatal: the agent filter is hidden; events still show recorded names. */
       });
   }, [isAdmin]);
 
@@ -189,6 +230,22 @@ export function AuditLog() {
                 </option>
               ))}
             </Select>
+            {agents.length > 0 ? (
+              <Select
+                size="sm"
+                aria-label="Agent"
+                className="!h-9 !py-0 min-w-[10rem] max-w-[14rem]"
+                value={draft.agent}
+                onChange={(e) => setDraft((d) => ({ ...d, agent: e.target.value }))}
+              >
+                <option value="">All agents</option>
+                {agents.map((a) => (
+                  <option key={a.agent_id} value={a.agent_id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
             <input
               type="search"
               placeholder="Actor email"
@@ -252,6 +309,7 @@ export function AuditLog() {
                     <th className="px-3 py-2.5 font-medium">Actor</th>
                     <th className="px-3 py-2.5 font-medium">Event</th>
                     <th className="px-3 py-2.5 font-medium">Target</th>
+                    <th className="px-3 py-2.5 font-medium">Related</th>
                     <th className="px-3 py-2.5 font-medium">Outcome</th>
                   </tr>
                 </thead>
@@ -272,7 +330,17 @@ export function AuditLog() {
                           <td className="px-3 py-2.5">{event.actor.id}</td>
                           <td className="px-3 py-2.5">{describe(event.type)}</td>
                           <td className="px-3 py-2.5 font-mono text-[12px] text-v-muted-2">
-                            {event.target ? `${event.target.type} ${event.target.id}` : "–"}
+                            {event.target ? `${event.target.type} ${resourceName(event.target, currentNames)}` : "–"}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            {event.related.length === 0
+                              ? "–"
+                              : event.related.map((resource) => (
+                                  <div key={`${resource.type}:${resource.id}`} className="whitespace-nowrap">
+                                    <span className="text-v-muted">{resourceTypeLabel(resource.type)}:</span>{" "}
+                                    {resourceName(resource, currentNames)}
+                                  </div>
+                                ))}
                           </td>
                           <td className="px-3 py-2.5">
                             <Badge tone={event.outcome === "success" ? "live" : "danger"}>{event.outcome}</Badge>
@@ -281,8 +349,8 @@ export function AuditLog() {
                         {open ? (
                           <tr className="border-b border-v-line bg-v-soft/30">
                             <td />
-                            <td colSpan={5} className="px-3 py-3">
-                              <EventDetails event={event} />
+                            <td colSpan={6} className="px-3 py-3">
+                              <EventDetails event={event} currentNames={currentNames} />
                             </td>
                           </tr>
                         ) : null}

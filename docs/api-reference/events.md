@@ -23,6 +23,7 @@ One page of events, newest first.
 | `type` | all types | Repeatable. Must be a registered name from `GET /events/types` |
 | `actor_id` | | Actor email. Up to 256 characters |
 | `target_type`, `target_id` | | For example `call` and a call ID. Up to 256 characters each |
+| `resource` | | `type:id` of the target or any related resource, for example `agent:agent_456` or `campaign:camp_1`. `type` is one of `agent`, `call`, `campaign`; others return 400. Up to 256 characters |
 | `from` | 30 days before `to` | ISO 8601, inclusive. Not before 1970-01-01 |
 | `to` | now | ISO 8601, inclusive. Later values are treated as now |
 | `limit` | 50 | 1 to 200 |
@@ -42,6 +43,10 @@ The range from `from` to `to` can be at most 366 days.
       "source": "api",
       "actor": { "type": "user", "id": "jane@example.com", "role": "admin" },
       "target": { "type": "call", "id": "call_abc" },
+      "related": [
+        { "type": "agent", "id": "agent_456", "name": "Support Bot" },
+        { "type": "campaign", "id": "camp_1", "name": "Diwali OBD" }
+      ],
       "outcome": "success",
       "context": { "ip": "203.0.113.7", "user_agent": "Mozilla/5.0 ..." },
       "data": { "object_key": "transcripts/call_abc.txt" }
@@ -57,9 +62,10 @@ The range from `from` to `to` can be at most 366 days.
 | --- | --- |
 | `actor.type` | `user`, or `service` for the bot token |
 | `actor.role` | The role in the caller's token at the time. It can lag a membership change by up to the token lifetime |
+| `target`, `related` | `type`, `id`, and `name` when known. Names are as they were when the event was recorded. For artifact access the target is the call, and `related` holds the call's agent and, for campaign calls, its campaign. `related` is empty when the call was not found |
 | `outcome` | `success`: the access was authorised and streaming began. `failure`: refused, with the reason in `data.reason` (`call_not_found`, `artifact_missing`, `invalid_artifact_url`, `storage_unavailable`) |
 | `context` | Client IP and user agent. The IP is only the real client address when `FORWARDED_ALLOW_IPS` is configured. See [Security hardening](../guides/deployment/security-hardening) |
-| `data` | Type-specific. For artifact access, `object_key`. Transcript downloads bundled in an OBD report ZIP also carry `campaign_id` |
+| `data` | Type-specific. For artifact access, `object_key` |
 
 Errors: `400` for an invalid range, an unknown type, or an invalid cursor. `422` for a `limit` or filter value outside its bounds.
 
@@ -80,7 +86,7 @@ Listing events with `GET /events` is not recorded; exports are.
 
 The same filters as `GET /events`, streamed as CSV, newest first.
 
-* Columns: `id`, `ts`, `type`, `outcome`, `actor_type`, `actor_id`, `actor_role`, `target_type`, `target_id`, `ip`, `user_agent`, `data`.
+* Columns: `id`, `ts`, `type`, `outcome`, `actor_type`, `actor_id`, `actor_role`, `target_type`, `target_id`, `target_name`, `related` (`type:id (name)` entries separated by `; `), `ip`, `user_agent`, `data`.
 * Capped at `EVENTLOG_EXPORT_MAX_ROWS` (default 100,000). When rows were cut, the last line is `# truncated: export is limited to N rows`.
 * Cells starting with `=`, `+`, `-`, `@`, tab, or carriage return are prefixed with `'`, so spreadsheets do not evaluate them.
 * Each export is recorded as `events.exported` before the file streams.

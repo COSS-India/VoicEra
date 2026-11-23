@@ -16,6 +16,7 @@ from app.auth import BOT_SERVICE_EMAIL
 from app.config import Settings
 from app.services.eventlog import (
     Actor,
+    Resource,
     Target,
     emit,
     emit_many,
@@ -49,6 +50,7 @@ def _emit(**overrides: Any) -> None:
         "org_id": "org-1",
         "actor": Actor("user", "jane@example.com", "admin"),
         "target": Target("call", "call-1"),
+        "related": [Resource("agent", "agent-1", "Support Bot")],
         "data": {"object_key": "k"},
         "context": {"ip": "203.0.113.7"},
     }
@@ -72,6 +74,8 @@ def test_emit_builds_envelope(inserted: list[dict[str, Any]]) -> None:
         "source": "api",
         "actor": {"type": "user", "id": "jane@example.com", "role": "admin"},
         "target": {"type": "call", "id": "call-1"},
+        "related": [{"type": "agent", "id": "agent-1", "name": "Support Bot"}],
+        "resource_keys": ["call:call-1", "agent:agent-1"],
         "outcome": "success",
         "context": {"ip": "203.0.113.7"},
         "data": {"object_key": "k"},
@@ -79,8 +83,44 @@ def test_emit_builds_envelope(inserted: list[dict[str, Any]]) -> None:
 
 
 def test_emit_omits_empty_optional_fields(inserted: list[dict[str, Any]]) -> None:
-    _emit(target=None, data=None, context={})
-    assert not {"target", "data", "context"} & inserted[0].keys()
+    _emit(target=None, related=(), data=None, context={})
+    assert not {"target", "related", "resource_keys", "data", "context"} & inserted[0].keys()
+
+
+def test_resource_without_name_omits_it(inserted: list[dict[str, Any]]) -> None:
+    _emit(target=Target("call", "call-1"), related=[Resource("agent", "agent-1")])
+    assert inserted[0]["target"] == {"type": "call", "id": "call-1"}
+    assert inserted[0]["related"] == [{"type": "agent", "id": "agent-1"}]
+
+
+def test_related_duplicates_and_target_are_not_repeated(inserted: list[dict[str, Any]]) -> None:
+    agent = Resource("agent", "agent-1", "Support Bot")
+    _emit(related=[Resource("call", "call-1"), agent, agent])
+    [event] = inserted
+    assert event["related"] == [{"type": "agent", "id": "agent-1", "name": "Support Bot"}]
+    assert event["resource_keys"] == ["call:call-1", "agent:agent-1"]
+
+
+def test_resource_key_matches_stored_keys() -> None:
+    assert eventlog.resource_key("agent", "agent-1") == "agent:agent-1"
+
+
+@pytest.mark.parametrize(
+    "related",
+    [
+        [Resource("Agent", "agent-1")],
+        [Resource("agent:x", "agent-1")],
+        [Resource("phone", "agent-1")],
+        [Resource("agent", "")],
+        [Resource("agent", f"agent-{i}") for i in range(eventlog.MAX_RELATED + 1)],
+    ],
+)
+def test_invalid_related_falls_back_without_writing(
+    related: list[Resource], inserted: list[dict[str, Any]], caplog: pytest.LogCaptureFixture
+) -> None:
+    _emit(related=related)
+    assert inserted == []
+    assert "build_failed" in caplog.text
 
 
 def test_actor_from_user_distinguishes_bot_service() -> None:
@@ -102,10 +142,17 @@ def test_request_context_omits_absent_values() -> None:
 
 
 def test_request_supplied_values_are_bounded(inserted: list[dict[str, Any]]) -> None:
-    _emit(target=Target("call", "x" * 10_000), context={"user_agent": "u" * 10_000})
+    _emit(
+        target=Target("call", "x" * 10_000),
+        related=[Resource("agent", "a" * 10_000, "n" * 10_000)],
+        context={"user_agent": "u" * 10_000},
+    )
 
     [event] = inserted
     assert len(event["target"]["id"]) == eventlog.MAX_TARGET_ID_LENGTH
+    assert len(event["related"][0]["id"]) == eventlog.MAX_TARGET_ID_LENGTH
+    assert len(event["related"][0]["name"]) == eventlog.MAX_RESOURCE_NAME_LENGTH
+    assert event["resource_keys"][1] == "agent:" + "a" * eventlog.MAX_TARGET_ID_LENGTH
     assert len(event["context"]["user_agent"]) == eventlog.MAX_CONTEXT_VALUE_LENGTH
 
 
@@ -185,6 +232,7 @@ def _emit_many(count: int) -> None:
         CALL_TRANSCRIPT_VIEWED,
         org_id="org-1",
         actor=Actor("user", "jane@example.com", "admin"),
+        related=[Resource("agent", "agent-1", "Support Bot")],
         context={"ip": "203.0.113.7"},
         items=((Target("call", f"call-{i}"), {"n": i}) for i in range(count)),
     )
@@ -205,6 +253,8 @@ def test_emit_many_writes_unordered_batches() -> None:
     assert first["actor"] == {"type": "user", "id": "jane@example.com", "role": "admin"}
     assert first["context"] == {"ip": "203.0.113.7"}
     assert first["data"] == {"n": 0}
+    assert all(e["related"] == [{"type": "agent", "id": "agent-1", "name": "Support Bot"}] for e in events)
+    assert events[0]["resource_keys"] == ["call:call-0", "agent:agent-1"]
 
 
 def test_emit_many_with_no_items_writes_nothing() -> None:
@@ -233,6 +283,19 @@ def test_registry_names_are_unique_and_well_formed() -> None:
         assert event_type.description
 
 
+def test_resource_types_are_well_formed() -> None:
+    for resource_type in registry.RESOURCE_TYPES:
+        assert registry.RESOURCE_TYPE_PATTERN.match(resource_type), resource_type
+
+
+def test_unregistered_target_type_falls_back_without_writing(
+    inserted: list[dict[str, Any]], caplog: pytest.LogCaptureFixture
+) -> None:
+    _emit(target=Target("phone", "x"))
+    assert inserted == []
+    assert "unregistered resource type: 'phone'" in caplog.text
+
+
 def test_retention_below_one_year_is_rejected() -> None:
     with pytest.raises(ValidationError):
         Settings(EVENTLOG_RETENTION_DAYS=364)
@@ -240,4 +303,11 @@ def test_retention_below_one_year_is_rejected() -> None:
 
 
 def test_public_api() -> None:
-    assert set(eventlog.__all__) >= {"emit", "Actor", "Target", "request_context"}
+    assert set(eventlog.__all__) >= {"emit", "Actor", "Resource", "Target", "request_context", "resource_key"}
+
+
+def test_non_string_target_id_is_stored_and_keyed(inserted: list[dict[str, Any]]) -> None:
+    _emit(target=Target("call", ObjectId("6743a1c8e4b0f1a2b3c4d5e6")), related=())
+    [event] = inserted
+    assert event["target"]["id"] == "6743a1c8e4b0f1a2b3c4d5e6"
+    assert event["resource_keys"] == ["call:6743a1c8e4b0f1a2b3c4d5e6"]

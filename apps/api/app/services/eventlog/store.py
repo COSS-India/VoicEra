@@ -35,6 +35,8 @@ class EventFilter:
     actor_id: str | None = None
     target_type: str | None = None
     target_id: str | None = None
+    # ``"type:id"`` of the target or any related resource, e.g. ``agent:agent_123``.
+    resource: str | None = None
 
     def match(self) -> dict[str, Any]:
         query: dict[str, Any] = {"org_id": self.org_id}
@@ -48,6 +50,8 @@ class EventFilter:
             query["target.id"] = self.target_id
         if self.target_type:
             query["target.type"] = self.target_type
+        if self.resource:
+            query["resource_keys"] = self.resource
         return query
 
 

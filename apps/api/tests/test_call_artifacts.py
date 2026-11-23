@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import urllib3
+from pymongo.errors import PyMongoError
 from app.auth import BOT_SERVICE_EMAIL, get_current_user, verify_api_key
 from app.services.eventlog import store
 from app.routers import calls
@@ -91,6 +92,17 @@ def _sample_call_doc(**overrides: Any) -> dict[str, Any]:
 @pytest.fixture(autouse=True)
 def clear_store() -> None:
     _CALL_STORE.clear()
+
+
+@pytest.fixture(autouse=True)
+def agent_names() -> dict[str, str]:
+    """Current agent names by id; a missing id is a deleted agent."""
+    names = {"agent-1": "Support Bot"}
+    with patch(
+        "app.routers.calls.agent_service.get_agent_name",
+        side_effect=lambda org_id, agent_id: names.get(agent_id),
+    ):
+        yield names
 
 
 @pytest.fixture(autouse=True)
@@ -416,6 +428,8 @@ def test_artifact_access_is_recorded(
     assert event["outcome"] == "success"
     assert event["actor"] == {"type": "user", "id": "admin@example.com", "role": "admin"}
     assert event["target"] == {"type": "call", "id": "call-abc-123"}
+    assert event["related"] == [{"type": "agent", "id": "agent-1", "name": "Support Bot"}]
+    assert event["resource_keys"] == ["call:call-abc-123", "agent:agent-1"]
     assert event["data"] == {"object_key": f"org-1/call-abc-123/{_ARTIFACT_URLS[path][1]}"}
     assert event["context"]["user_agent"] == "pytest"
 
@@ -487,6 +501,8 @@ def test_artifact_failures_are_recorded(
     assert event["type"] == "call.recording.downloaded"
     assert event["outcome"] == "failure"
     assert event["data"] == {"reason": reason}
+    # The agent is known only once the call itself is found.
+    assert event.get("related") == (None if doc is None else [{"type": "agent", "id": "agent-1", "name": "Support Bot"}])
 
 
 @pytest.mark.parametrize(
@@ -530,6 +546,7 @@ def test_other_org_call_is_recorded_as_not_found_in_callers_org(
     assert response.status_code == 404
     assert events[0]["org_id"] == "org-2"
     assert events[0]["data"] == {"reason": "call_not_found"}
+    assert "related" not in events[0]
     storage_cls.return_value.object_exists.assert_not_called()
 
 
@@ -607,3 +624,65 @@ def test_event_log_failure_does_not_break_playback(
 
     assert response.status_code == 200
     assert response.content == b"RIFFWAVE"
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_deleted_agent_is_named_from_the_call_log(
+    storage_cls: MagicMock,
+    _calls_db: MagicMock,
+    agent_names: dict[str, str],
+    events: list[dict[str, Any]],
+) -> None:
+    _store_call_with_all_artifacts()
+    _CALL_STORE["call-abc-123"]["agent_name"] = "Old Bot"
+    agent_names.clear()
+    _serve(storage_cls)
+
+    _make_client().get("/api/v1/calls/call-abc-123/transcript")
+
+    assert events[0]["related"] == [{"type": "agent", "id": "agent-1", "name": "Old Bot"}]
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_campaign_call_relates_agent_and_campaign(
+    storage_cls: MagicMock, _calls_db: MagicMock, events: list[dict[str, Any]]
+) -> None:
+    _store_call_with_all_artifacts()
+    _CALL_STORE["call-abc-123"]["campaign_id"] = "camp-1"
+    _serve(storage_cls)
+
+    with patch(
+        "app.services.call_log_service._campaign_names_by_id",
+        return_value={"camp-1": "Diwali OBD"},
+    ):
+        _make_client().get("/api/v1/calls/call-abc-123/recording")
+
+    [event] = events
+    assert event["related"] == [
+        {"type": "agent", "id": "agent-1", "name": "Support Bot"},
+        {"type": "campaign", "id": "camp-1", "name": "Diwali OBD"},
+    ]
+    assert event["resource_keys"] == ["call:call-abc-123", "agent:agent-1", "campaign:camp-1"]
+
+
+@_patch_db("app.services.call_log_service.get_database")
+@patch("app.routers.calls.MinIOStorage")
+def test_failed_agent_name_lookup_still_serves_and_records(
+    storage_cls: MagicMock, _calls_db: MagicMock, events: list[dict[str, Any]]
+) -> None:
+    _store_call_with_all_artifacts()
+    _CALL_STORE["call-abc-123"]["agent_name"] = "Old Bot"
+    _serve(storage_cls)
+
+    with patch(
+        "app.routers.calls.agent_service.get_agent_name",
+        side_effect=PyMongoError("agents unavailable"),
+    ):
+        response = _make_client().get("/api/v1/calls/call-abc-123/recording")
+
+    assert response.status_code == 200
+    [event] = events
+    assert event["outcome"] == "success"
+    assert event["related"] == [{"type": "agent", "id": "agent-1", "name": "Old Bot"}]

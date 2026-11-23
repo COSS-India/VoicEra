@@ -1,4 +1,4 @@
-"""Registered event types. ``emit()`` only accepts types declared here."""
+"""Registered event and resource types. ``emit()`` only accepts types declared here."""
 
 from __future__ import annotations
 
@@ -6,6 +6,12 @@ import re
 from dataclasses import dataclass
 
 NAME_PATTERN = re.compile(r"^[a-z][a-z_]*(\.[a-z][a-z_]*)+$")
+# Resource types never contain ``:``, so a ``"type:id"`` resource key splits unambiguously.
+RESOURCE_TYPE_PATTERN = re.compile(r"^[a-z][a-z_]*$")
+
+# Types an event's ``target`` and ``related`` resources may have. One name per kind
+# of thing, so a ``resource`` filter finds every event about it; add new kinds here.
+RESOURCE_TYPES: frozenset[str] = frozenset({"agent", "call", "campaign"})
 
 
 @dataclass(frozen=True)

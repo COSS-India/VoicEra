@@ -144,6 +144,7 @@ def test_list_is_scoped_to_token_org_and_passes_filters(
             ("actor_id", "jane@example.com"),
             ("target_type", "call"),
             ("target_id", "call-1"),
+            ("resource", "agent:agent-1"),
             ("org_id", "org-2"),
             ("from", "2026-11-01T00:00:00Z"),
             ("to", "2026-11-20T00:00:00+05:30"),
@@ -157,6 +158,7 @@ def test_list_is_scoped_to_token_org_and_passes_filters(
     assert flt.org_id == "org-1"
     assert flt.types == ("call.recording.viewed", "call.transcript.viewed")
     assert (flt.actor_id, flt.target_type, flt.target_id) == ("jane@example.com", "call", "call-1")
+    assert flt.resource == "agent:agent-1"
     assert flt.start == datetime(2026, 11, 1, tzinfo=timezone.utc)
     assert flt.end == datetime(2026, 11, 19, 18, 30, tzinfo=timezone.utc)
     assert call["limit"] == 10
@@ -227,6 +229,8 @@ def test_list_serialises_events_and_cursor(
     membership_role: dict[str, str | None], fake_store: FakeStore
 ) -> None:
     fake_store.docs.extend(_event(i) for i in range(3))
+    fake_store.docs[0]["related"] = [{"type": "agent", "id": "agent-1", "name": "Support Bot"}]
+    fake_store.docs[0]["resource_keys"] = ["call:call-0", "agent:agent-1"]
 
     full = _client().get("/api/v1/events", params={"limit": 2}).json()
     last = _client().get(
@@ -236,6 +240,11 @@ def test_list_serialises_events_and_cursor(
     assert [e["id"] for e in full["events"]] == [str(d["_id"]) for d in fake_store.docs[:2]]
     assert full["events"][0]["ts"] == "2026-11-20T09:41:12.381Z"
     assert full["events"][0]["actor"]["id"] == "jane@example.com"
+    assert full["events"][0]["related"] == [{"type": "agent", "id": "agent-1", "name": "Support Bot"}]
+    assert "resource_keys" not in full["events"][0]
+    # A resource without a name (calls) omits the key instead of returning null.
+    assert full["events"][0]["target"] == {"type": "call", "id": "call-0"}
+    assert full["events"][1]["related"] == []
     assert full["next_cursor"] == full["events"][-1]["id"]
     assert fake_store.reads[1]["before"] == ObjectId(full["next_cursor"])
     assert len(last["events"]) == 2  # fake store ignores the cursor
@@ -264,11 +273,21 @@ def test_export_streams_csv_and_records_export(
     fake_store: FakeStore,
     emitted: list[dict[str, Any]],
 ) -> None:
-    fake_store.docs.append(_event(0))
+    fake_store.docs.append(
+        _event(
+            0,
+            target={"type": "call", "id": "call-0", "name": "Call 0"},
+            related=[{"type": "agent", "id": "agent-1", "name": "Support Bot"}, {"type": "campaign", "id": "camp-1"}],
+        )
+    )
 
     response = _client().get(
         "/api/v1/events/export",
-        params=[("type", "call.transcript.viewed"), ("target_id", "call-0")],
+        params=[
+            ("type", "call.transcript.viewed"),
+            ("target_id", "call-0"),
+            ("resource", "agent:agent-1"),
+        ],
         headers={"User-Agent": "pytest"},
     )
 
@@ -287,6 +306,8 @@ def test_export_streams_csv_and_records_export(
         "actor_role": "admin",
         "target_type": "call",
         "target_id": "call-0",
+        "target_name": "Call 0",
+        "related": "agent:agent-1 (Support Bot); campaign:camp-1",
         "ip": "203.0.113.7",
         "user_agent": "",
         "data": '{"object_key":"k"}',
@@ -298,6 +319,7 @@ def test_export_streams_csv_and_records_export(
     assert event["actor"]["id"] == "admin@example.com"
     assert event["context"]["user_agent"] == "pytest"
     assert event["data"]["types"] == ["call.transcript.viewed"]
+    assert event["data"]["resource"] == "agent:agent-1"
     assert event["data"]["target_id"] == "call-0"
     assert "actor_id" not in event["data"]
 
@@ -362,3 +384,29 @@ def test_export_at_cap_has_no_marker(
 
     assert len(rows) == 3
     assert not rows[-1][0].startswith("#")
+
+
+@pytest.mark.parametrize("value", ["agent", ":agent-1", "Agent:agent-1", "agent:"])
+def test_malformed_resource_filter_is_rejected(
+    value: str, membership_role: dict[str, str | None]
+) -> None:
+    assert _client().get("/api/v1/events", params={"resource": value}).status_code == 422
+
+
+def test_unknown_resource_type_is_rejected(membership_role: dict[str, str | None]) -> None:
+    response = _client().get("/api/v1/events", params={"resource": "phone:+911234"})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unknown resource type: phone"
+
+
+def test_resource_filter_accepts_every_storable_key(
+    membership_role: dict[str, str | None], fake_store: FakeStore
+) -> None:
+    from app.services.eventlog import MAX_TARGET_ID_LENGTH, registry, resource_key
+
+    for resource_type in registry.RESOURCE_TYPES:
+        key = resource_key(resource_type, "x" * MAX_TARGET_ID_LENGTH)
+        assert len(key) <= events_router.MAX_RESOURCE_FILTER_LENGTH
+    longest = resource_key("campaign", "x" * MAX_TARGET_ID_LENGTH)
+    response = _client().get("/api/v1/events", params={"resource": longest})
+    assert response.status_code == 200

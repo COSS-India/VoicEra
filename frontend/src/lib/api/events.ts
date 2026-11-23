@@ -7,6 +7,8 @@ export type AuditEventQuery = {
   actor_id?: string;
   target_type?: string;
   target_id?: string;
+  /** `type:id` of the target or any related resource, e.g. `agent:agent_123`. */
+  resource?: string;
   from?: string;
   to?: string;
 };
@@ -14,7 +16,7 @@ export type AuditEventQuery = {
 function buildQuery(params: AuditEventQuery & { limit?: number; cursor?: string }): string {
   const q = new URLSearchParams();
   for (const type of params.types ?? []) q.append("type", type);
-  for (const key of ["actor_id", "target_type", "target_id", "from", "to", "cursor"] as const) {
+  for (const key of ["actor_id", "target_type", "target_id", "resource", "from", "to", "cursor"] as const) {
     const value = params[key]?.trim();
     if (value) q.set(key, value);
   }

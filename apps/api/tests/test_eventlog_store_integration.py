@@ -31,7 +31,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
-EVENT_INDEXES = {"org_id_desc", "org_type_id", "org_actor_id", "org_target_id"}
+EVENT_INDEXES = {"org_id_desc", "org_type_id", "org_actor_id", "org_target_id", "org_resource_keys"}
 
 
 @pytest.fixture(scope="module")
@@ -59,6 +59,8 @@ def _oid_at(when: datetime) -> ObjectId:
 
 
 def _doc(when: datetime, org_id: str = "org-1", **fields: Any) -> dict[str, Any]:
+    target_id = fields.pop("target_id", "call-1")
+    related = fields.pop("related", [])
     return {
         "_id": _oid_at(when),
         "v": 1,
@@ -67,8 +69,10 @@ def _doc(when: datetime, org_id: str = "org-1", **fields: Any) -> dict[str, Any]
         "ts": when,
         "source": "api",
         "actor": {"type": "user", "id": fields.pop("actor_id", "a@example.com")},
-        "target": {"type": "call", "id": fields.pop("target_id", "call-1")},
+        "target": {"type": "call", "id": target_id},
+        "resource_keys": [f"call:{target_id}", *(f"{r['type']}:{r['id']}" for r in related)],
         "outcome": "success",
+        **({"related": related} if related else {}),
         **fields,
     }
 
@@ -163,12 +167,15 @@ def test_to_is_inclusive_of_its_second(events: Any) -> None:
     assert len(_page(_filter(), 50)) == 1
 
 
-def test_filters_use_type_actor_and_target(events: Any) -> None:
+G1 = {"type": "agent", "id": "g1", "name": "Support Bot"}
+
+
+def test_filters_use_type_actor_target_and_resource(events: Any) -> None:
     hour = NOW - timedelta(hours=1)
     events.insert_many(
         [
-            _doc(hour, type="call.recording.viewed", actor_id="a", target_id="t1"),
-            _doc(hour, type="call.transcript.viewed", actor_id="b", target_id="t1"),
+            _doc(hour, type="call.recording.viewed", actor_id="a", target_id="t1", related=[G1]),
+            _doc(hour, type="call.transcript.viewed", actor_id="b", target_id="t1", related=[G1]),
             _doc(hour, type="call.transcript.downloaded", actor_id="a", target_id="t2"),
         ]
     )
@@ -182,6 +189,11 @@ def test_filters_use_type_actor_and_target(events: Any) -> None:
     assert count(target_id="t1", target_type="call") == 2
     assert count(target_id="t1", target_type="agent") == 0
     assert count(actor_id="a", target_id="t2") == 1
+    assert count(resource="agent:g1") == 2
+    assert count(resource="agent:g1", actor_id="b") == 1
+    assert count(resource="agent:g2") == 0
+    # The target is a resource too.
+    assert count(resource="call:t2") == 1
 
 
 def test_target_filter_reads_whole_range_in_one_query(

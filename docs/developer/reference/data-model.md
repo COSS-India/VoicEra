@@ -167,7 +167,9 @@ Append-only audit log of access to call recordings and transcripts, and of expor
 | `ts` | date | UTC, millisecond precision. Display only; queries use `_id`. |
 | `source` | string | `api`. |
 | `actor` | object | `type` (`user` or `service`), `id` (email), `role` (from the token). |
-| `target` | object or absent | `type`, `id` (up to 256 characters); for artifact access, the call. |
+| `target` | object or absent | `type`, `id`, optional `name` (each up to 256 characters); for artifact access, the call. |
+| `related` | array or absent | Up to 8 other resources the event concerns, shaped like `target`; for artifact access, the call's agent and campaign. `name` is a snapshot at event time, so events stay readable after a rename or delete. |
+| `resource_keys` | array or absent | `"type:id"` of the target and each related resource. Index helper for the `resource` filter; not returned by the API. |
 | `outcome` | string | `success` or `failure`. |
 | `context` | object or absent | `ip`, `user_agent` (each up to 512 characters). |
 | `data` | object or absent | Type-specific and not indexed. Does not contain transcript text, audio, or secrets. |
@@ -364,6 +366,7 @@ Created by `initialize_database()` on every API startup. Failures on already-exi
 | Events | `org_type_id` | `org_id`, `type`, `_id` desc (ordered) | No |
 | Events | `org_actor_id` | `org_id`, `actor.id`, `_id` desc (ordered) | No |
 | Events | `org_target_id` | `org_id`, `target.id`, `_id` desc (ordered) | No |
+| Events | `org_resource_keys` | `org_id`, `resource_keys` (multikey), `_id` desc (ordered) | No |
 
 Every organisation-scoped read is served by an `org_id` prefix, which is what keeps tenant isolation cheap rather than a full scan.
 

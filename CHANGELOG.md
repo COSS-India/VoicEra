@@ -21,7 +21,9 @@ several subsystems are new.
 - **Access audit log** (`apps/api/app/services/eventlog`, `GET /api/v1/events`) —
   records each view and download of call recordings and transcripts, including
   those bundled in the OBD report ZIP. Admins can filter and export events from
-  the Audit log page and a per-call Activity tab. Artifact routes accept
+  the Audit log page and a per-call Activity tab. Events name the call's agent
+  and campaign, and can be filtered by any related resource
+  (`?resource=agent:<id>`). Artifact routes accept
   `?mode=view|download`. Events are retained for at least 365 days
   (`EVENTLOG_RETENTION_DAYS`).
 - **Maya 2 Native in the TTS slot** (`model-server/tts/maya2-native`, provider

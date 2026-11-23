@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 Role = Literal["super_admin", "admin", "member"]
 
@@ -1179,9 +1187,20 @@ class EventActor(BaseModel):
     role: Optional[str] = None
 
 
-class EventTarget(BaseModel):
+class EventResource(BaseModel):
     type: str
     id: str
+    name: Optional[str] = Field(
+        None, description="Name when the event was recorded; omitted when the resource has none"
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_missing_name(self, handler: SerializerFunctionWrapHandler):
+        # Calls have no name; omit the key rather than return ``"name": null``.
+        data = handler(self)
+        if data.get("name") is None:
+            data.pop("name", None)
+        return data
 
 
 class EventResponse(BaseModel):
@@ -1192,7 +1211,11 @@ class EventResponse(BaseModel):
     ts: str = Field(..., description="ISO 8601 UTC timestamp")
     source: str
     actor: EventActor
-    target: Optional[EventTarget] = None
+    target: Optional[EventResource] = None
+    related: list[EventResource] = Field(
+        default_factory=list,
+        description="Other resources the event concerns, e.g. the call's agent and campaign",
+    )
     outcome: Literal["success", "failure"]
     context: dict[str, str] = Field(default_factory=dict)
     data: dict[str, Any] = Field(default_factory=dict)
