@@ -17,6 +17,8 @@ export interface CatalogField {
   secret?: boolean;
   input_mode?: string;
   multiline?: boolean;
+  /** Provider catalog label override (e.g. Kenpath LLM toggles). */
+  label?: string;
   /** Optional Integrations label override (e.g. "DNI + Flow pairs"). */
   ui_label?: string;
   /** When set, Integrations renders addable key/value pair rows (e.g. VI DNI+flow). */
@@ -26,7 +28,7 @@ export interface CatalogField {
   /** Present when this field's value came from `capabilities` — the explicit
    * control to render (dropdown/slider/input/both), taking precedence over
    * the `input_mode` heuristic below when set. */
-  input_type?: "dropdown" | "slider" | "input" | "both";
+  input_type?: "dropdown" | "slider" | "input" | "both" | "switch";
   /** Only meaningful when `input_type === "both"` — whether the free-text
    * entry is actually offered alongside the dropdown. */
   allow_custom_input?: boolean;
