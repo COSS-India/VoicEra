@@ -390,36 +390,52 @@ async def test_provider_needs_llm_settings_and_retries_llm_failures(bd_settings,
 
 
 @pytest.mark.asyncio
-async def test_provider_gives_the_model_tool_results_and_keeps_only_real_job_ids(bd_settings, monkeypatch):
+async def test_provider_gives_the_model_tool_arguments_not_results_and_keeps_only_real_job_ids(
+        bd_settings, monkeypatch):
+    """A cut-off job list made the model list jobs nobody offered (box, 2026-11-24): results stay out."""
     _with_llm(monkeypatch)
     s = SAMPLE_SESSION
-    jobs = json.dumps({"message": {"items": [{"item_id": "job-real-1", "item_state": {
-        "role": "Machine Operator", "jobProviderName": "Mycon Engineers", "jobProviderLocation": "Hubli"}}]}})
+    jobs = json.dumps({"message": {"items": [{"item_id": "job-unspoken", "item_state": {
+        "role": "Electrician | Turner", "jobProviderName": "GTC Hubbali"}}]}})
     rows = [
+        _gateway_line(s, "fetch_profile", 0, body="rest_api_request tool=fetch_profile method=GET",
+                      level="DEBUG", status="pending", params={"phone_number": "919900000001"}),
+        _gateway_line(s, "fetch_profile", 0, body="rest_api_execute", level="INFO", status="success"),
         _gateway_line(s, "fetch_jobs", 1, body="rest_api_request tool=fetch_jobs method=POST", level="DEBUG",
                       status="pending", params={"query_text": "Electrical jobs in Hubli"}),
         _gateway_line(s, "fetch_jobs", 2, body="rest_api_response tool=fetch_jobs status=200", level="DEBUG",
                       status="received", status_code=200),
         _gateway_line(s, "fetch_jobs", 3, body="rest_api_execute", level="INFO", status="success"),
+        _gateway_line(s, "apply_job", 4, body="rest_api_request tool=apply_job method=POST", level="DEBUG",
+                      status="pending", params={"job_id": "job-applied-1"}),
+        _gateway_line(s, "apply_job", 5, body="rest_api_execute", level="INFO", status="success"),
     ]
-    # _gateway_line puts every keyword into attributes; the response body is one of them.
-    rows[1] = json.loads(json.dumps(rows[1]))
-    line = json.loads(rows[1]["line"]); line["attributes"]["body"] = jobs; rows[1]["line"] = json.dumps(line)
-    for row in rows:  # one trace per tool call, as AI DPG logs it
-        line = json.loads(row["line"]); line["traceid"] = "trace-jobs"; row["line"] = json.dumps(line)
+    for i, row in enumerate(rows):  # one trace per tool call, as AI DPG logs it
+        line = json.loads(row["line"])
+        line["traceid"] = "trace-profile" if i < 2 else "trace-jobs" if i < 5 else "trace-apply"
+        if i == 3:
+            line["attributes"]["body"] = jobs
+        row["line"] = json.dumps(line)
     job = {"role": "Machine Operator", "company_name": "Mycon Engineers", "company_location": "Hubli",
            "salary_offered": "NA", "qualification_required": "NA"}
-    reply = json.dumps({"jobs_shown": "Yes", "jobs_recommended": [
-        {**job, "job_id": "job-real-1"}, {**job, "role": "Electrician", "job_id": "job-made-up"}]})
+    reply = json.dumps({
+        "jobs_recommended": [{**job, "job_id": "job-unspoken"}, {**job, "job_id": "job-made-up"}],
+        "jobs_applied": [{**job, "job_id": "job-applied-1"}],
+    })
     seen: dict[str, Any] = {}
     async with _client_for(rows, reply, seen=seen) as client:
         result = await bd_provider.BlueDotsCallOutputProvider().compute(
             _call(), {}, client=client, now=datetime(2026, 11, 17, 13, 5, tzinfo=timezone.utc))
     tools = json.loads(seen["user"].split("TOOL CALLS (in order)\n")[1].split("\n\n")[0])
-    assert tools == [{"tool": "fetch_jobs", "status": "success",
-                      "arguments": {"query_text": "Electrical jobs in Hubli"}, "result": jobs}]
-    ids = [j["job_id"] for j in result.output["jobs_recommended"]]
-    assert ids == ["job-real-1", "NA"]
+    assert tools == [
+        {"tool": "fetch_profile", "status": "success"},
+        {"tool": "fetch_jobs", "status": "success"},
+        {"tool": "apply_job", "status": "success", "arguments": {"job_id": "job-applied-1"}},
+    ]
+    # No job list, and none of the caller's details, reach the model.
+    assert "job-unspoken" not in seen["user"] and "919900000001" not in seen["user"]
+    assert [j["job_id"] for j in result.output["jobs_recommended"]] == ["NA", "NA"]
+    assert [j["job_id"] for j in result.output["jobs_applied"]] == ["job-applied-1"]
     assert result.signals["sources"]["jobs_recommended"] == "job_id not in any tool call: reset to NA"
 
 

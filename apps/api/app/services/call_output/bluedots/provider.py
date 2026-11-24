@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -64,10 +63,14 @@ def _tool_for_model(call: Any) -> dict[str, Any]:
     entry: dict[str, Any] = {"tool": call.tool, "status": "success" if call.ok else "failure"}
     if call.error:
         entry["error"] = call.error
-    if call.arguments:
-        entry["arguments"] = call.arguments
-    if call.result:
-        entry["result"] = call.result  # as AI DPG logged it, at most 2,000 characters
+    # Only apply_job's job_id goes to the model: it names the job applied to.
+    # Other arguments carry the caller's phone, name, age and so on, which the
+    # model does not need. Results are not given either: AI DPG cuts them at
+    # 2,000 characters, so a job list usually lacks the jobs actually read out,
+    # and the model then listed the jobs it could see instead (box, 2026-11-24).
+    job_id = (call.arguments or {}).get("job_id") if call.tool == "apply_job" else None
+    if job_id:
+        entry["arguments"] = {"job_id": job_id}
     return entry
 
 
@@ -75,15 +78,17 @@ JOB_LISTS = ("jobs_recommended", "jobs_applied", "jobs_failed_to_apply")
 
 
 def keep_known_job_ids(output: dict[str, Any], signals: CallSignals) -> dict[str, str]:
-    """Reset any job_id no tool call mentions to "NA" (the model must not invent one)."""
-    seen = " ".join(
-        json.dumps(t.arguments or {}, ensure_ascii=False) + " " + (t.result or "") for t in signals.tools
-    )
+    """Reset any job_id that is not an apply_job call's job_id to "NA" (the model must not invent one)."""
+    seen = {
+        str((t.arguments or {}).get("job_id"))
+        for t in signals.tools
+        if t.tool == "apply_job" and (t.arguments or {}).get("job_id")
+    }
     sources: dict[str, str] = {}
     for name in JOB_LISTS:
         for job in output.get(name) or []:
             job_id = str(job.get("job_id") or "NA")
-            if job_id != "NA" and job_id not in seen:
+            if job_id != "NA" and job_id not in seen:  # exact match
                 job["job_id"] = "NA"
                 sources[name] = "job_id not in any tool call: reset to NA"
     return sources
