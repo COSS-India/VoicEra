@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -57,6 +58,35 @@ def call_facts(call: dict[str, Any], signals: CallSignals, turns: list[dict[str,
         bucket = facts.successes if tool_call.ok else facts.failures
         bucket[tool_call.tool] = bucket.get(tool_call.tool, 0) + 1
     return facts
+
+
+def _tool_for_model(call: Any) -> dict[str, Any]:
+    entry: dict[str, Any] = {"tool": call.tool, "status": "success" if call.ok else "failure"}
+    if call.error:
+        entry["error"] = call.error
+    if call.arguments:
+        entry["arguments"] = call.arguments
+    if call.result:
+        entry["result"] = call.result  # as AI DPG logged it, at most 2,000 characters
+    return entry
+
+
+JOB_LISTS = ("jobs_recommended", "jobs_applied", "jobs_failed_to_apply")
+
+
+def keep_known_job_ids(output: dict[str, Any], signals: CallSignals) -> dict[str, str]:
+    """Reset any job_id no tool call mentions to "NA" (the model must not invent one)."""
+    seen = " ".join(
+        json.dumps(t.arguments or {}, ensure_ascii=False) + " " + (t.result or "") for t in signals.tools
+    )
+    sources: dict[str, str] = {}
+    for name in JOB_LISTS:
+        for job in output.get(name) or []:
+            job_id = str(job.get("job_id") or "NA")
+            if job_id != "NA" and job_id not in seen:
+                job["job_id"] = "NA"
+                sources[name] = "job_id not in any tool call: reset to NA"
+    return sources
 
 
 def unanswered_output(call: dict[str, Any]) -> dict[str, Any]:
@@ -122,10 +152,7 @@ class BlueDotsCallOutputProvider:
             raise RuntimeError("CALL_OUTPUT_LLM_BASE_URL / CALL_OUTPUT_LLM_MODEL are not set")
 
         inputs = {"seeker_name": facts.seeker_name, "location": facts.input_location}
-        tool_calls = [
-            {"tool": t.tool, "status": "success" if t.ok else "failure", **({"error": t.error} if t.error else {})}
-            for t in signals.tools
-        ]
+        tool_calls = [_tool_for_model(t) for t in signals.tools]
         try:
             raw = await extractor.extract(
                 client, turns, inputs=inputs, tool_calls=tool_calls, phases=signals.phases
@@ -134,6 +161,7 @@ class BlueDotsCallOutputProvider:
             raise CallOutputNotReady(f"output model failed: {exc}") from exc
 
         output, sources = schema.apply_facts(schema.normalise(raw), facts)
+        sources.update(keep_known_job_ids(output, signals))
         meta["sources"] = sources
         meta["llm_model"] = extractor.model
         return CallOutputResult(output=output, signals=meta)

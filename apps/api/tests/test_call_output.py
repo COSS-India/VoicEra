@@ -390,6 +390,40 @@ async def test_provider_needs_llm_settings_and_retries_llm_failures(bd_settings,
 
 
 @pytest.mark.asyncio
+async def test_provider_gives_the_model_tool_results_and_keeps_only_real_job_ids(bd_settings, monkeypatch):
+    _with_llm(monkeypatch)
+    s = SAMPLE_SESSION
+    jobs = json.dumps({"message": {"items": [{"item_id": "job-real-1", "item_state": {
+        "role": "Machine Operator", "jobProviderName": "Mycon Engineers", "jobProviderLocation": "Hubli"}}]}})
+    rows = [
+        _gateway_line(s, "fetch_jobs", 1, body="rest_api_request tool=fetch_jobs method=POST", level="DEBUG",
+                      status="pending", params={"query_text": "Electrical jobs in Hubli"}),
+        _gateway_line(s, "fetch_jobs", 2, body="rest_api_response tool=fetch_jobs status=200", level="DEBUG",
+                      status="received", status_code=200),
+        _gateway_line(s, "fetch_jobs", 3, body="rest_api_execute", level="INFO", status="success"),
+    ]
+    # _gateway_line puts every keyword into attributes; the response body is one of them.
+    rows[1] = json.loads(json.dumps(rows[1]))
+    line = json.loads(rows[1]["line"]); line["attributes"]["body"] = jobs; rows[1]["line"] = json.dumps(line)
+    for row in rows:  # one trace per tool call, as AI DPG logs it
+        line = json.loads(row["line"]); line["traceid"] = "trace-jobs"; row["line"] = json.dumps(line)
+    job = {"role": "Machine Operator", "company_name": "Mycon Engineers", "company_location": "Hubli",
+           "salary_offered": "NA", "qualification_required": "NA"}
+    reply = json.dumps({"jobs_shown": "Yes", "jobs_recommended": [
+        {**job, "job_id": "job-real-1"}, {**job, "role": "Electrician", "job_id": "job-made-up"}]})
+    seen: dict[str, Any] = {}
+    async with _client_for(rows, reply, seen=seen) as client:
+        result = await bd_provider.BlueDotsCallOutputProvider().compute(
+            _call(), {}, client=client, now=datetime(2026, 11, 17, 13, 5, tzinfo=timezone.utc))
+    tools = json.loads(seen["user"].split("TOOL CALLS (in order)\n")[1].split("\n\n")[0])
+    assert tools == [{"tool": "fetch_jobs", "status": "success",
+                      "arguments": {"query_text": "Electrical jobs in Hubli"}, "result": jobs}]
+    ids = [j["job_id"] for j in result.output["jobs_recommended"]]
+    assert ids == ["job-real-1", "NA"]
+    assert result.signals["sources"]["jobs_recommended"] == "job_id not in any tool call: reset to NA"
+
+
+@pytest.mark.asyncio
 async def test_provider_needs_a_loki_url(bd_settings, monkeypatch):
     monkeypatch.setattr(settings, "BLUEDOTS_LOKI_URL", "")
     async with _client_for([]) as client:
@@ -614,6 +648,14 @@ def test_call_output_schema_and_merge():
     with patch.object(agent_service, "validate_agent_config", side_effect=lambda c, org_id: c):
         merged = agent_service._merge_config(existing, AgentConfigPayload.model_validate(base), org_id="org-1")
     assert merged.call_output.enabled is True and merged.call_output.provider == "bluedots"
+
+
+def test_recompute_of_an_unanswered_call_writes_the_unanswered_output(db):
+    _agent(db)
+    db["CallLogs"].insert_one(_call(call_response="no_answer", call_output_status="failed"))
+    row = svc.recompute("org-1", SAMPLE_CALL_ID, db=db)
+    assert row["call_output_status"] == "skipped"
+    assert row["call_output"] == schema.unanswered_output("Ravi")
 
 
 def test_recompute_and_call_record_routes(db):

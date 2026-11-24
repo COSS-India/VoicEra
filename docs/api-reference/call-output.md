@@ -42,7 +42,7 @@ Bearer. `202` with `{call_id, call_output_status}`. Works it out again now (atte
 Blue Dots' conversation runs in AI DPG's Agent Core, which produces no `call_output`. For each answered call the provider:
 
 1. Reads the call's structured lines from AI DPG's Loki, keyed by `session_id = <caller_phone>:<call_id>`: `orchestrator.stream_turn_complete` (the phase each turn moved to) and `RestApiAdapter.execute` (each tool call's `tool_name`, `status` and `error`).
-2. Runs the spec as the prompt over the VoicEra transcript, the call's input variables (`contact_name`, `location` from `custom_variables`) and those tool calls and phases, as Raya does. The prompt tells the model AI DPG's tool names.
+2. Runs the spec as the prompt over the VoicEra transcript, the call's input variables (`contact_name`, `location` from `custom_variables`) and those tool calls and phases, as Raya does. The prompt tells the model AI DPG's tool names. Each tool call goes with its arguments and result when AI DPG logged them (see below), so `job_id`, company names and salaries come from the job list `fetch_jobs` returned, and an `apply_job` call's `job_id` from its arguments.
 3. Holds the answer to the spec: every field present in the spec's order, enum values checked, counts as integers, job lists as complete objects. Anything off-spec becomes the spec's empty value (`"NA"`, `[]` or `0`). A PIN that is not exactly six digits is `"NA"`, never repaired.
 4. Overrides what the system knows for certain, so the model cannot contradict a tool result:
 
@@ -65,10 +65,10 @@ Blue Dots' conversation runs in AI DPG's Agent Core, which produces no `call_out
 A call where the caller never spoke gets the unanswered output without a model call (`call_answered` `"No"`, `primary_topic` `"No engagement"`, everything else empty). Unanswered calls (`skipped`) get the same output.
 
 <Warning>
-AI DPG logs whether each tool call succeeded, not what it returned. Until it logs tool results, job objects are filled from what was said on the call (`job_id` is `"NA"` unless spoken) and `input_location_had_jobs` is `"NA"`.
+Tool arguments and results exist only while AI DPG logs at DEBUG, and AI DPG cuts each result at 2,000 characters, so a long job list may hold only its first jobs. A job not in any result is filled from what was said (`job_id` `"NA"`). Any `job_id` the model returns that no tool call mentions is reset to `"NA"`. `input_location_had_jobs` stays `"NA"`.
 </Warning>
 
-If no log lines are found yet, the provider retries until `CALL_OUTPUT_LOG_GRACE_SECONDS` (default 180) after the call ended; after that a call with no lines is treated as having no tool calls. A model error or an answer that is not JSON is retried. Without the `CALL_OUTPUT_LLM_*` settings an answered call ends `failed`; set them and use recompute. What was overridden and why, plus the phases and tool calls behind each output, is stored on the call log as `call_output_signals`. Each tool call is counted once, from its final log line. When AI DPG logs at DEBUG, each one also keeps its `arguments` and `result` (AI DPG's response body, cut at 2,000 characters); no field rule reads them, but the [Raya-format webhook](webhooks#raya-compatible-body) puts them in its transcript.
+If no log lines are found yet, the provider retries until `CALL_OUTPUT_LOG_GRACE_SECONDS` (default 180) after the call ended; after that a call with no lines is treated as having no tool calls. A model error or an answer that is not JSON is retried. Without the `CALL_OUTPUT_LLM_*` settings an answered call ends `failed`; set them and use recompute. What was overridden and why, plus the phases and tool calls behind each output, is stored on the call log as `call_output_signals`. Each tool call is counted once, from its final log line. When AI DPG logs at DEBUG, each one also keeps its `arguments` and `result` (AI DPG's response body, cut at 2,000 characters). The model reads them, and the [Raya-format webhook](webhooks#raya-compatible-body) puts them in its transcript. Recompute on a call that was not answered writes the not-answered output, as scheduling does.
 
 ### Deployment
 

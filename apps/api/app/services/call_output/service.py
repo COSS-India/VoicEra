@@ -276,7 +276,8 @@ def recompute(org_id: str, call_id: str, *, db: Any = None) -> dict[str, Any] | 
     if not agent_provider_name(agent):
         return None
     if call.get("call_response") != "answered":
-        update = {"call_output_status": SKIPPED, "call_output": {}, "call_output_at": _now().isoformat()}
+        update = {"call_output_status": SKIPPED, "call_output": unanswered_output(call, agent),
+                  "call_output_at": _now().isoformat()}
     else:
         update = {"call_output_status": PENDING, "call_output_due_at": _now(),
                   "call_output_attempts": 0, "call_output_error": None,
