@@ -129,6 +129,41 @@ def test_transcript_messages_have_raya_shapes():
     assert isinstance(raya_call["function"]["arguments"], str)
 
 
+def test_tool_call_goes_before_the_reply_it_feeds():
+    """Real timings from the box's first Kannada call (2026-11-20, 14:11-14:13 UTC)."""
+    def at(hms: str) -> str:
+        return f"2026-11-20T{hms}+00:00"
+
+    def ns(hms: str) -> int:
+        return int(datetime.fromisoformat(at(hms)).timestamp() * NS)
+
+    turns = [
+        {"speaker": "agent", "text": "greeting", "timestamp": at("14:11:36.085")},
+        {"speaker": "caller", "text": "looking for work", "timestamp": at("14:11:41.286")},
+        {"speaker": "agent", "text": "what kind of work", "timestamp": at("14:11:43.507")},
+        {"speaker": "caller", "text": "I am in Hubli", "timestamp": at("14:12:22.916")},
+        {"speaker": "agent", "text": "here are the jobs", "timestamp": at("14:12:23.811")},
+        {"speaker": "caller", "text": "tell me about the first", "timestamp": at("14:12:53.196")},
+    ]
+    tools = [
+        {"ts_ns": ns("14:11:43.879"), "trace_id": "p", "tool": "fetch_profile", "ok": True},
+        {"ts_ns": ns("14:12:25.515"), "trace_id": "j", "tool": "fetch_jobs", "ok": True},
+    ]
+    flow = [m.get("content") or (m["tool_calls"][0]["function"]["name"] if m.get("tool_calls") else "result")
+            for m in raya_transcript(turns, tool_calls=tools)]
+    assert flow == [
+        "greeting", "looking for work", "fetch_profile", "result", "what kind of work",
+        "I am in Hubli", "fetch_jobs", "result", "here are the jobs", "tell me about the first",
+    ]
+    # Before any caller turn, a tool call follows the last turn before it.
+    early = [{"ts_ns": ns("14:11:37.000"), "trace_id": "e", "tool": "fetch_profile", "ok": True}]
+    assert [m["role"] for m in raya_transcript(turns[:2], tool_calls=early)] == [
+        "assistant", "assistant", "tool", "user"]
+    first = [{"ts_ns": ns("14:11:30.000"), "trace_id": "f", "tool": "fetch_profile", "ok": True}]
+    assert [m["role"] for m in raya_transcript(turns[:1], system_prompt="P", tool_calls=first)] == [
+        "system", "assistant", "tool", "assistant"]
+
+
 def test_transcript_edge_cases():
     assert raya_transcript(None) == []
     assert raya_transcript([], system_prompt="P") == [{"role": "system", "content": "P"}]

@@ -13,7 +13,11 @@ same keys in the same order, the same types, and the same nulls.
 * ``call_transcript`` is an OpenAI-style message list: the agent's system
   prompt, the spoken turns as ``{role, content}``, and each tool call as an
   assistant ``tool_calls`` message followed by a ``tool`` message with the
-  result, in time order. Tool calls come from AI DPG's logs (see
+  result. A tool call goes right after the caller's last turn before it, as
+  in an OpenAI-style log: the caller speaks, the tool runs, the bot replies.
+  (A bot turn is stamped when it starts, often during a hold line, so a tool
+  that finished mid-turn would otherwise land after the reply that used
+  it.) Tool calls come from AI DPG's logs (see
   ``call_output.bluedots.signals``) and keep AI DPG's tool names; a result
   that is a JSON object is written as a Python dict string, as Raya does.
 
@@ -140,27 +144,36 @@ def raya_transcript(
     system_prompt: str | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Raya's message list: system prompt, then turns and tool calls by time."""
-    timeline: list[tuple[int, int, list[dict[str, Any]]]] = []
+    """Raya's message list: system prompt, turns, and each tool call placed
+    right after the caller's last turn before it."""
+    spoken: list[tuple[int, dict[str, Any]]] = []
     last = 0
-    for order, turn in enumerate(turns or []):
-        # A turn without a timestamp stays right after the previous one.
+    for turn in turns or []:
+        # A turn without a timestamp counts as right after the previous one.
         when = _ts_ns(turn.get("timestamp"))
         last = when if when is not None else last
-        message = {
-            "role": "assistant" if turn.get("speaker") == "agent" else "user",
-            "content": turn.get("text") or "",
-        }
-        timeline.append((last, order, [message]))
-    for order, call in enumerate(tool_calls or [], start=len(timeline)):
-        timeline.append((int(call.get("ts_ns") or 0), order, _tool_messages(call)))
-    timeline.sort(key=lambda item: (item[0], item[1]))
+        role = "assistant" if turn.get("speaker") == "agent" else "user"
+        spoken.append((last, {"role": role, "content": turn.get("text") or ""}))
+
+    # Index of the turn each tool call follows: the caller's last turn before
+    # it, or, with no caller turn yet, the last turn of any kind (-1: first).
+    after: dict[int, list[dict[str, Any]]] = {}
+    for call in sorted(tool_calls or [], key=lambda item: int(item.get("ts_ns") or 0)):
+        when = int(call.get("ts_ns") or 0)
+        before = [i for i, (t, _) in enumerate(spoken) if t <= when]
+        callers = [i for i in before if spoken[i][1]["role"] == "user"]
+        anchor = callers[-1] if callers else (before[-1] if before else -1)
+        after.setdefault(anchor, []).append(call)
 
     messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
-    for _, _, chunk in timeline:
-        messages.extend(chunk)
+    for call in after.get(-1, []):
+        messages.extend(_tool_messages(call))
+    for i, (_, message) in enumerate(spoken):
+        messages.append(message)
+        for call in after.get(i, []):
+            messages.extend(_tool_messages(call))
     return messages
 
 
