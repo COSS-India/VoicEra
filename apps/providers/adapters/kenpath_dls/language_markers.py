@@ -16,7 +16,7 @@ _HOLD_TAIL = re.compile(
 # Wire codes from DLS → VoicEra canonical language ids.
 _WIRE_TO_CANONICAL: dict[str, str] = {
     "mr": "mr",
-    "bhb": "bh",
+    "bhb": "bhb",
 }
 
 

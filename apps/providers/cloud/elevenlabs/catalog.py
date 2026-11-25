@@ -14,7 +14,7 @@ _SCRIBE_LANGUAGES = {
     "ml": "ml",
     "mr": "mr",
     "ne": "ne",
-    "or": "od",
+    "or": "or",
     "pa": "pa",
     "sd": "sd",
     "ta": "ta",

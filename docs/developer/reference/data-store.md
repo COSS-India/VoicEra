@@ -81,7 +81,7 @@ Credentials are PostgreSQL users. FerretDB negotiates SCRAM against them, which 
 
 ```bash
 MONGODB_USER=admin
-MONGODB_PASSWORD=admin123
+MONGODB_PASSWORD=<generated on first run>
 MONGODB_AUTH_SOURCE=          # empty for FerretDB
 # MONGODB_AUTH_MECHANISM=SCRAM-SHA-256   # usually omit; let the driver negotiate
 ```
@@ -89,7 +89,7 @@ MONGODB_AUTH_SOURCE=          # empty for FerretDB
 `apps/api/app/config.py` builds the URI and appends `authSource` or `authMechanism` **only when they are non-empty**:
 
 ```text
-mongodb://admin:admin123@mongodb:27017/voicera
+mongodb://admin:<MONGODB_PASSWORD>@mongodb:27017/voicera
 ```
 
 <Note>
@@ -103,7 +103,7 @@ The same values become `POSTGRES_USER` and `POSTGRES_PASSWORD`, so one credentia
 <Tabs>
 <Tab title="mongosh">
 ```bash
-mongosh "mongodb://admin:admin123@localhost:27018/voicera"
+mongosh "mongodb://admin:<MONGODB_PASSWORD>@localhost:27018/voicera"
 ```
 
 ```javascript
@@ -125,7 +125,7 @@ Documents are stored in DocumentDB's internal schema — readable, but not a sub
 Connection string:
 
 ```text
-mongodb://admin:admin123@localhost:27018/voicera
+mongodb://admin:<MONGODB_PASSWORD>@localhost:27018/voicera
 ```
 
 Leave the authentication database blank.

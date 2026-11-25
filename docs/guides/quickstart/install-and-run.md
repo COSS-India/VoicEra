@@ -92,8 +92,8 @@ Open the dashboard at [http://localhost:3000](http://localhost:3000), or drive t
 | OpenAPI console | `http://localhost:8000/docs` |
 | ReDoc | `http://localhost:8000/redoc` |
 | Runtime | `http://localhost:7860` |
-| MinIO console | `http://localhost:9001` — `minioadmin` / `minioadmin123` |
-| FerretDB | `mongodb://admin:admin123@localhost:27018/voicera` |
+| MinIO console | `http://localhost:9001` — `minioadmin` / `MINIO_ROOT_PASSWORD` from `.env` |
+| FerretDB | `mongodb://admin:<MONGODB_PASSWORD>@localhost:27018/voicera` |
 
 ## 5. Create the first user
 

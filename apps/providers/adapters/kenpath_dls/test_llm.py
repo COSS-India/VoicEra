@@ -56,8 +56,8 @@ def service() -> KenpathDlsLLMService:
 
 def test_wire_to_canonical():
     assert wire_to_canonical("mr") == "mr"
-    assert wire_to_canonical("bhb") == "bh"
-    assert wire_to_canonical("BHB") == "bh"
+    assert wire_to_canonical("bhb") == "bhb"
+    assert wire_to_canonical("BHB") == "bhb"
 
 
 def test_extract_and_strip_lang_marker():
@@ -293,7 +293,7 @@ async def test_bhb_marker_maps_to_canonical_bh(
 
     frame, _ = worker.queue_frame.await_args.args
     assert isinstance(frame, LanguageSwitchFrame)
-    assert frame.language == "bh"
+    assert frame.language == "bhb"
 
 
 @pytest.mark.asyncio

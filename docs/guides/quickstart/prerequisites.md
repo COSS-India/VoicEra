@@ -113,7 +113,7 @@ The alternative is self-hosting — see [Model server](../../developer/model-ser
 
 ### Telephony — required for phone calls
 
-A [Vobiz](../concepts/telephony-model) or Plivo account with at least one number. You need the account credentials and a number you can attach.
+A telephony account for [Vobiz, Plivo, Vodafone Idea, or Go2Market](../concepts/telephony-model) with at least one number. You need the account credentials and a number you can attach.
 
 <Note>
 You can skip telephony entirely at first. A `websocket` agent runs the same pipeline from a browser, with no telephony account and no call charges. See [Test and call with your agent](../dashboard/make-a-call).

@@ -146,3 +146,49 @@ def test_validate_rejects_empty_greeting():
     )
     with pytest.raises(AgentConfigValidationError):
         validate_agent_config(config)
+
+
+@pytest.mark.parametrize("legacy_id", ["od", "bh"])
+def test_validate_rejects_legacy_non_bcp47_language_ids(legacy_id: str):
+    config = AgentConfigPayload.model_validate(
+        {
+            "prompts": {"system_prompt": "x", "greeting_message": "Hello"},
+            "language": {"primary": legacy_id, "secondary": []},
+            "models": {legacy_id: _openai_stack(language=legacy_id, voice="alloy")},
+        }
+    )
+    with pytest.raises(AgentConfigValidationError, match="BCP 47"):
+        validate_agent_config(config)
+
+
+def test_validate_accepts_bcp47_odia_and_bhili():
+    config = AgentConfigPayload.model_validate(
+        {
+            "prompts": {"system_prompt": "x", "greeting_message": "Hello"},
+            "language": {"primary": "or", "secondary": ["bhb"]},
+            "models": {
+                "or": _openai_stack(language="or", voice="alloy"),
+                "bhb": _openai_stack(language="bhb", voice="alloy"),
+            },
+        }
+    )
+    validated = validate_agent_config(config)
+    assert validated.language.primary == "or"
+    assert validated.language.secondary == ["bhb"]
+    assert set(validated.models) == {"or", "bhb"}
+
+
+@pytest.mark.parametrize("legacy_id", ["od", "bh"])
+def test_validate_rejects_legacy_nested_model_language(legacy_id: str):
+    """Top-level keys can be BCP 47 while nested stt/tts language is still legacy."""
+    config = AgentConfigPayload.model_validate(
+        {
+            "prompts": {"system_prompt": "x", "greeting_message": "Hello"},
+            "language": {"primary": "or", "secondary": []},
+            "models": {
+                "or": _openai_stack(language=legacy_id, voice="alloy"),
+            },
+        }
+    )
+    with pytest.raises(AgentConfigValidationError, match="BCP 47"):
+        validate_agent_config(config)

@@ -14,7 +14,7 @@ _PULSE_LANGUAGES = {
     "ta": "ta",
     "te": "te",
     "pa": "pa",
-    "or": "od",
+    "or": "or",
 }
 
 STT_CAPABILITIES = {

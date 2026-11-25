@@ -13,7 +13,7 @@ GATEWAY_MODEL_ID = "indic-nemotron"
 STT_MODEL = "indic-nemotron-600m"
 
 # Vendor language code (Nemotron LANGUAGE_PROMPT_MAP) → VoicEra canonical id.
-# Odia is ``or`` on the wire / ``od`` in VoicEra; Bhili is ``bhb`` / ``bh``.
+# Odia is ``or`` on the wire / ``or`` in VoicEra; Bhili is ``bhb`` / ``bhb``.
 _STT_LANGS: dict[str, str] = {
     "hi": "hi",
     "mr": "mr",
@@ -24,7 +24,7 @@ _STT_LANGS: dict[str, str] = {
     "kn": "kn",
     "ml": "ml",
     "pa": "pa",
-    "or": "od",
+    "or": "or",
     "as": "as",
     "ur": "ur",
     "sa": "sa",
@@ -40,7 +40,7 @@ _STT_LANGS: dict[str, str] = {
     "bho": "bho",
     "hne": "hne",
     "bgc": "bgc",
-    "bhb": "bh",
+    "bhb": "bhb",
     "en": "en",
 }
 

@@ -134,6 +134,7 @@
               "docs/developer/services/runtime",
               "docs/developer/services/providers",
               "docs/developer/services/telephony",
+              "docs/developer/services/go2market",
               "docs/developer/services/workers"
             ]
           },

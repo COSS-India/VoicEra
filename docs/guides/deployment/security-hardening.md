@@ -11,14 +11,14 @@ Everything VoicEra stores — call recordings, transcripts, knowledge-base docum
 
 ## Change every default
 
-All of these are public knowledge — they are in `.env.example` and `docker-compose.yaml`.
+`.env.example` ships these passwords blank and the start script generates them on first run. `docker-compose.yaml` refuses to start while any of them is blank. The values below are the old defaults that installs created before that change still use — all public knowledge, and the start script warns if it finds them.
 
 | Variable | Ships as | Protects |
 | --- | --- | --- |
-| `MONGODB_PASSWORD` | `admin123` | The database, **and** the PostgreSQL superuser |
-| `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY` | `minioadmin123` | Recordings and transcripts |
+| `MONGODB_PASSWORD` | formerly `admin123` | The database, **and** the PostgreSQL superuser |
+| `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY` | formerly `minioadmin123` | Recordings and transcripts |
 | `MINIO_ROOT_USER` / `MINIO_ACCESS_KEY` | `minioadmin` | Same |
-| `REDIS_PASSWORD` | `redissecret` | Job queue, campaign events, concurrency slots |
+| `REDIS_PASSWORD` | formerly `redissecret` | Job queue, campaign events, concurrency slots |
 
 <Warning>
 `MONGODB_USER` and `MONGODB_PASSWORD` become the PostgreSQL credentials too. Changing them after the volume exists does **not** update the Postgres user — set them before the first start, or change the password inside Postgres as well.

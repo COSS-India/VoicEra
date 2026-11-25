@@ -1,9 +1,9 @@
 ---
 title: Adding a telephony provider
-description: Add a telephony vendor alongside Vobiz, Plivo, and Vodafone Idea.
+description: Add a telephony vendor alongside Vobiz, Plivo, Vodafone Idea, and Go2Market.
 ---
 
-How to add a phone-network vendor to `apps/telephony`. The package ships three — Vobiz, Plivo, and Vodafone Idea (VI). Vobiz and Plivo are deliberately structured identically. VI is the documented exception: org ProviderAuth with multi DNI/flow pairs, OBD campaign dialing, and direct `/vi/stream` media (no answer XML).
+How to add a phone-network vendor to `apps/telephony`. The package ships four — Vobiz, Plivo, Vodafone Idea (VI), and Go To Market (Go2Market). Vobiz and Plivo are deliberately structured identically (answer Stream XML + Call API). VI and Go2Market are OBD exceptions: org ProviderAuth, carrier campaign dialing, and direct media WebSockets without answer XML. See the [VI exception](#vodafone-idea-vi-exception) and [Go2Market](../services/go2market) for those patterns.
 
 ## Quick reference
 
@@ -25,7 +25,7 @@ apps/telephony/providers/<name>/
 
 **Never touch:** `apps/telephony/xml.py`, `calls.py`, `serializers.py`, `registry.py`, the package's own `__init__.py`, `schema.py`. All dispatch by lookup — no vendor names ever appear there.
 
-**One required edit outside your folder:** `apps/telephony/tests/test_registry.py` — add your provider id to the `frozenset` in `test_registered_providers_include_vobiz_and_plivo` and to the parametrised test lists. Skipping this doesn't break anything at import time, but it's the only thing that catches a half-registered provider (e.g. config registered but no client, or no answer-XML builder).
+**One required edit outside your folder:** `apps/telephony/tests/test_registry.py` — add your provider id to the registered-providers assertion and to the parametrised test lists. Skipping this doesn't break anything at import time, but it's the only thing that catches a half-registered provider (e.g. config registered but no client, or no answer-XML builder).
 
 **Only legitimate exception:** `apps/runtime/requirements.txt`, if your frame serializer needs a Pipecat extra not already installed.
 
@@ -351,3 +351,15 @@ VI does **not** follow the Vobiz/Plivo answer-URL model for live media:
 * Recordings: Pipecat AudioBuffer only — no VI recording webhook.
 
 Agent routing on `/vi/stream` uses DNI/CLI Numbers lookup, or path/`custom_parameters` `agent_id` with org from that lookup (or `org_id` in `custom_parameters`) — no VI process env. Bulk status poll: `TELEPHONY_BULK_STATUS_POLL_*`.
+
+## Go To Market (Go2Market) exception
+
+Go2Market also skips the Vobiz/Plivo answer-URL model for live media. Summary:
+
+* Credentials: org ProviderAuth **OBD profiles** — `serviceno`, `ukey`, `ivrtemplateid` (one or more rows).
+* Outbound: `CreateOBDCampaignPost` with the agent WSS in `msisdnlist.WSS` / `Param1`. No separate campaign id — use `ivrtemplateid` from Integrations.
+* Inbound / attach: DID-WebSocket API (`POST` create, `PUT /{did}` update, `PUT /active`, `GET /ukey/{ukey}` list). Attach passes `telephony.answer_url` as `stream_url`.
+* Media: carrier opens `wss://…/agent/{org_id}/{agent_id}`; first events may be `connected` then `start`. Wire audio is G.711 µ-law @ 8 kHz, 160-byte aligned payloads.
+* Provisioning: stub application; recordings via Pipecat AudioBuffer only.
+
+Full reference: [Go To Market](../services/go2market).

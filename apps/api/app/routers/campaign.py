@@ -48,6 +48,7 @@ from app.services.call_log_service import (
     transform_call_log_urls,
 )
 from app.services.campaign import campaign_repository as repo
+from app.services.campaign.campaign_deletion import delete_campaign_for_org
 from app.services.campaign.campaign_repository import CampaignNotFoundError, get_org_concurrent_limit
 from app.services.campaign.runner import campaign_runner_service
 from app.services.campaign.source_sync_factory import get_sync_service
@@ -278,11 +279,22 @@ async def upload_campaign_csv(
     )
 
 
-@router.post("/create", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/create",
+    response_model=CampaignResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a campaign",
+)
 async def create_campaign(
     body: CreateCampaignRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignResponse:
+    """Create an outbound campaign in the caller's organisation.
+
+    The contact source is validated first. The agent's telephony provider and
+    caller ID are snapshotted onto the campaign so later dialing does not
+    re-resolve them.
+    """
     org_id = _require_org(current_user)
     agent = _validate_telephony_agent(org_id, body.agent_id)
     provider, from_number = _snapshot_telephony_binding(
@@ -338,19 +350,29 @@ async def create_campaign(
     return _to_campaign_response(doc)
 
 
-@router.get("/", response_model=list[CampaignResponse])
+@router.get("/", include_in_schema=False)
+@router.get("", response_model=list[CampaignResponse], summary="List campaigns")
 async def list_campaigns(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> list[CampaignResponse]:
+    """List campaigns belonging to the caller's active organisation."""
     org_id = _require_org(current_user)
     return [_to_campaign_response(c) for c in repo.list_campaigns(org_id)]
 
 
-@router.get("/{campaign_id}", response_model=CampaignResponse)
+@router.get(
+    "/{campaign_id}",
+    response_model=CampaignResponse,
+    summary="Get a campaign",
+)
 async def get_campaign(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignResponse:
+    """Fetch one campaign by id.
+
+    The campaign must belong to the caller's organisation.
+    """
     org_id = _require_org(current_user)
     try:
         doc = repo.get_campaign_for_org(org_id, campaign_id)
@@ -364,23 +386,30 @@ async def delete_campaign(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> SuccessResponse:
-    """Delete a campaign (admin / super_admin only)."""
+    """Delete a campaign and purge its contact CSV when unreferenced (admin only)."""
     _require_delete_role(current_user)
     org_id = _require_org(current_user)
     try:
-        repo.get_campaign_for_org(org_id, campaign_id)
+        delete_campaign_for_org(
+            org_id=org_id,
+            campaign_id=campaign_id,
+            actor=str(current_user.get("email") or ""),
+        )
     except CampaignNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    repo.delete_queued_runs_for_campaign(campaign_id)
-    repo.delete_campaign(campaign_id)
     return SuccessResponse(message=f"Campaign deleted: {campaign_id}")
 
 
-@router.post("/{campaign_id}/start")
+@router.post("/{campaign_id}/start", summary="Start a campaign")
 async def start_campaign(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, str]:
+    """Start a campaign that is in the created state.
+
+    Syncs the contact source and begins placing calls. The campaign must
+    belong to the caller's organisation.
+    """
     org_id = _require_org(current_user)
     try:
         repo.get_campaign_for_org(org_id, campaign_id)
@@ -392,11 +421,12 @@ async def start_campaign(
     return {"status": "started", "campaign_id": campaign_id}
 
 
-@router.post("/{campaign_id}/pause")
+@router.post("/{campaign_id}/pause", summary="Pause a campaign")
 async def pause_campaign(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, str]:
+    """Pause a running campaign so no further calls are placed until it is resumed."""
     org_id = _require_org(current_user)
     try:
         repo.get_campaign_for_org(org_id, campaign_id)
@@ -408,11 +438,12 @@ async def pause_campaign(
     return {"status": "paused", "campaign_id": campaign_id}
 
 
-@router.post("/{campaign_id}/resume")
+@router.post("/{campaign_id}/resume", summary="Resume a campaign")
 async def resume_campaign(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, str]:
+    """Resume a paused campaign and continue placing calls."""
     org_id = _require_org(current_user)
     try:
         repo.get_campaign_for_org(org_id, campaign_id)
@@ -424,12 +455,20 @@ async def resume_campaign(
     return {"status": "resumed", "campaign_id": campaign_id}
 
 
-@router.patch("/{campaign_id}", response_model=CampaignResponse)
+@router.patch(
+    "/{campaign_id}",
+    response_model=CampaignResponse,
+    summary="Update a campaign",
+)
 async def update_campaign(
     campaign_id: str,
     body: UpdateCampaignRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignResponse:
+    """Update a campaign's name, rate limit, concurrency, schedule, circuit breaker, or retries.
+
+    The campaign must belong to the caller's organisation.
+    """
     org_id = _require_org(current_user)
     try:
         doc = repo.get_campaign_for_org(org_id, campaign_id)
@@ -460,7 +499,11 @@ async def update_campaign(
     return _to_campaign_response(doc)
 
 
-@router.get("/{campaign_id}/runs", response_model=CampaignRunsListResponse)
+@router.get(
+    "/{campaign_id}/runs",
+    response_model=CampaignRunsListResponse,
+    summary="List campaign call runs",
+)
 async def get_campaign_runs(
     campaign_id: str,
     limit: int = Query(default=50, ge=1, le=500),
@@ -471,6 +514,11 @@ async def get_campaign_runs(
     created_before: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignRunsListResponse:
+    """List call logs for a campaign.
+
+    Optional status, call response, and created-at filters narrow the page.
+    The campaign must belong to the caller's organisation.
+    """
     org_id = _require_org(current_user)
     try:
         repo.get_campaign_for_org(org_id, campaign_id)
@@ -502,11 +550,16 @@ async def get_campaign_runs(
     )
 
 
-@router.get("/{campaign_id}/progress", response_model=CampaignProgressResponse)
+@router.get(
+    "/{campaign_id}/progress",
+    response_model=CampaignProgressResponse,
+    summary="Get campaign progress",
+)
 async def get_campaign_progress(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignProgressResponse:
+    """Return live progress for a campaign, including how many contacts have been processed."""
     org_id = _require_org(current_user)
     try:
         repo.get_campaign_for_org(org_id, campaign_id)
@@ -518,11 +571,19 @@ async def get_campaign_progress(
     return CampaignProgressResponse(**status_doc)
 
 
-@router.get("/{campaign_id}/analytics", response_model=CampaignAnalyticsResponse)
+@router.get(
+    "/{campaign_id}/analytics",
+    response_model=CampaignAnalyticsResponse,
+    summary="Get campaign analytics",
+)
 async def get_campaign_analytics_route(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignAnalyticsResponse:
+    """Return all-time call analytics and row progress for one campaign.
+
+    The campaign must belong to the caller's organisation.
+    """
     org_id = _require_org(current_user)
     try:
         campaign = repo.get_campaign_for_org(org_id, campaign_id)
@@ -761,13 +822,23 @@ def _record_transcript_downloads(
     )
 
 
-@router.get("/{campaign_id}/obd-report")
+@router.get("/{campaign_id}/obd-report", summary="Download an OBD campaign report")
 async def get_obd_report_route(
     campaign_id: str,
     request: Request,
-    report_format: str = Query(default="json", alias="format"),
+    report_format: str = Query(
+        default="json",
+        alias="format",
+        description="Report representation: json, csv, or zip.",
+    ),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
+    """Return the outbound-dialer report for a campaign.
+
+    JSON returns summary and rows. CSV is a single file. ZIP contains that CSV
+    plus one text file per call. The campaign must belong to the caller's
+    organisation.
+    """
     if report_format not in {"json", "csv", "zip"}:
         raise HTTPException(status_code=400, detail="format must be json, csv, or zip")
     org_id = _require_org(current_user)
@@ -804,11 +875,16 @@ async def get_obd_report_route(
     return ObdReportResponse(summary=summary, rows=rows)
 
 
-@router.get("/{campaign_id}/obd-status", response_model=ObdCampaignStatusResponse)
+@router.get(
+    "/{campaign_id}/obd-status",
+    response_model=ObdCampaignStatusResponse,
+    summary="Get OBD campaign status",
+)
 async def get_obd_status_route(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> ObdCampaignStatusResponse:
+    """Return provider-side dial statuses for an outbound-dialer campaign."""
     org_id = _require_org(current_user)
     try:
         campaign = repo.get_campaign_for_org(org_id, campaign_id)
@@ -825,12 +901,22 @@ async def get_obd_status_route(
     return ObdCampaignStatusResponse(statuses=statuses)
 
 
-@router.post("/{campaign_id}/redial", response_model=CampaignResponse, status_code=201)
+@router.post(
+    "/{campaign_id}/redial",
+    response_model=CampaignResponse,
+    status_code=201,
+    summary="Redial failed campaign contacts",
+)
 async def redial_campaign(
     campaign_id: str,
     body: RedialCampaignRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> CampaignResponse:
+    """Create a child campaign that redials failed contacts from the parent.
+
+    The child inherits the agent, source, rate limit, retry config, and caller
+    ID. Returns 400 when the parent has no failed contacts.
+    """
     org_id = _require_org(current_user)
     try:
         parent = repo.get_campaign_for_org(org_id, campaign_id)
@@ -876,11 +962,15 @@ async def redial_campaign(
     return _to_campaign_response(repo.get_campaign_by_id(child_id) or child)
 
 
-@router.get("/{campaign_id}/source-download-url")
+@router.get(
+    "/{campaign_id}/source-download-url",
+    summary="Get the campaign source download URL",
+)
 async def source_download_url(
     campaign_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, str]:
+    """Return a presigned URL for the campaign's original contact source object."""
     org_id = _require_org(current_user)
     try:
         doc = repo.get_campaign_for_org(org_id, campaign_id)
@@ -891,13 +981,24 @@ async def source_download_url(
     return {"download_url": url}
 
 
-@router.get("/{campaign_id}/report")
+@router.get("/{campaign_id}/report", summary="Download a campaign call report")
 async def campaign_report(
     campaign_id: str,
-    created_after: str | None = Query(default=None),
-    created_before: str | None = Query(default=None),
+    created_after: str | None = Query(
+        default=None,
+        description="ISO-8601 lower bound on created_at (inclusive).",
+    ),
+    created_before: str | None = Query(
+        default=None,
+        description="ISO-8601 upper bound on created_at (inclusive).",
+    ),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
+    """Stream a CSV of call logs for a campaign.
+
+    Optional created_after and created_before bound the rows. The campaign
+    must belong to the caller's organisation.
+    """
     org_id = _require_org(current_user)
     try:
         repo.get_campaign_for_org(org_id, campaign_id)
@@ -980,11 +1081,18 @@ async def campaign_report(
     )
 
 
-@router.post("/internal/call-status")
+@router.post(
+    "/internal/call-status",
+    summary="Record a terminal campaign call status",
+)
 async def internal_call_status(
     body: CampaignCallStatusRequest,
     _: bool = Depends(verify_api_key),
 ) -> dict[str, str]:
+    """Record that a campaign call reached a terminal status.
+
+    Authenticated with X-API-Key. Advances the queued run for that call.
+    """
     from app.services.call_log_service import get_call_log, CallLogNotFoundError
 
     try:

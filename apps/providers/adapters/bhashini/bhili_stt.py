@@ -42,7 +42,7 @@ except ModuleNotFoundError:
     _TRITON_AVAILABLE = False
 
 
-# Triton LANG_ID wire code (canonical Voicera id is ``bh``).
+# Triton LANG_ID wire code (canonical VoicEra id is ``bhb``).
 DEFAULT_LANG = "bhb"
 
 

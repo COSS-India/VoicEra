@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     MONGODB_HOST: str = "localhost"
     MONGODB_PORT: int = 27017
     MONGODB_USER: str = "admin"
-    MONGODB_PASSWORD: str = "admin123"
+    # No default: a publicly known password is worse than a failed login.
+    MONGODB_PASSWORD: str = ""
     MONGODB_DATABASE: str = "voicera"
     # FerretDB uses PostgreSQL users (SCRAM-SHA-256). Leave authSource empty.
     MONGODB_AUTH_SOURCE: str = ""

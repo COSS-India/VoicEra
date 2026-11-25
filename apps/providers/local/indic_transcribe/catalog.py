@@ -40,7 +40,7 @@ STT_MODEL = "indic-transcribe"
 # the vocabulary. Unlike Conformer, the server validates the language and
 # rejects one it does not have with a readable error.
 #
-# Odia is ``or`` on the wire / ``od`` in VoicEra; Bhili is ``bhb`` / ``bh``.
+# Odia is ``or`` on the wire / ``or`` in VoicEra; Bhili is ``bhb`` / ``bhb``.
 # No auto-detect: a wrong language yields confident output in the wrong script.
 _STT_LANGS: dict[str, str] = {
     "as": "as",
@@ -57,7 +57,7 @@ _STT_LANGS: dict[str, str] = {
     "mni": "mni",
     "mr": "mr",
     "ne": "ne",
-    "or": "od",
+    "or": "or",
     "pa": "pa",
     "sa": "sa",
     "sat": "sat",
@@ -66,7 +66,7 @@ _STT_LANGS: dict[str, str] = {
     "te": "te",
     "ur": "ur",
     "bho": "bho",
-    "bhb": "bh",
+    "bhb": "bhb",
     "en": "en",
 }
 
