@@ -143,6 +143,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Validate docker-compose.yaml against the Compose Specification
+      env:
+          # Placeholders only: docker-compose.yaml requires these secrets and .env.example leaves them blank.
+          SECRET_KEY: ci-placeholder
+          MONGODB_PASSWORD: ci-placeholder
+          REDIS_PASSWORD: ci-placeholder
+          MINIO_ROOT_PASSWORD: ci-placeholder
+          MINIO_SECRET_KEY: ci-placeholder
         run: |
           cp .env.example .env
           docker compose -f docker-compose.yaml config --quiet
