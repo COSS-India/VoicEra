@@ -5,7 +5,7 @@
 # rather than cloned. Matching it means the layers are already cached on the
 # GPU box, and more importantly that we build on an environment these models
 # are known to work in.
-FROM nvidia/cuda:13.0.1-runtime-ubuntu24.04
+FROM nvidia/cuda:13.5.0-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PORT=8001
 
