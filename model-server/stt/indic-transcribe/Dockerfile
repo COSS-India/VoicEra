@@ -4,7 +4,7 @@
 # Only the *base* image is needed: every CUDA library torch loads arrives as a pip wheel
 # (nvidia-cublas-13.4, nvidia-cudnn-cu13-9.20, ...), so a -devel base would add ~5 GB for
 # nothing. No nvcc is required — nothing is compiled here.
-FROM nvidia/cuda:13.0.1-base-ubuntu24.04
+FROM nvidia/cuda:13.5.0-base-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
