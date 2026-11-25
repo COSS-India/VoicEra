@@ -9,8 +9,8 @@ language from the text's script, so the shared client sends none. Maya takes a
 language token, and the script cannot supply it: Marathi and Hindi share
 Devanagari, Assamese and Bengali share a script. So this subclass keeps the
 model's language code on ``_language`` and sends it as an OpenAI ``extra_body``
-field. A mid-call language switch arrives as VoicEra's canonical id (``od``) and
-is translated to the wire code (``or``) before Pipecat stores it; the shared
+field. A mid-call language switch arrives as VoicEra's canonical id (``or``) and
+is confirmed as the wire code (``or``) before Pipecat stores it; the shared
 helper then copies it onto ``_language``.
 """
 

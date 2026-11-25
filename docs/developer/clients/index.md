@@ -21,7 +21,7 @@ If you only want to configure agents and read call logs, you need the REST API a
 flowchart LR
   Console(["Your console<br/>or scripts"])
   Browser(["Browser page"])
-  Tel["Telephony provider<br/>Vobiz · Plivo"]
+  Tel["Telephony provider<br/>Vobiz · Plivo · VI · Go2Market"]
 
   API["API<br/>:8000<br/>REST /api/v1"]
   RT["Runtime<br/>:7860<br/>/answer · WS /agent"]

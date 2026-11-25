@@ -315,6 +315,13 @@ def delete_queued_runs_for_campaign(campaign_id: str) -> int:
     return result.deleted_count
 
 
+def count_campaigns_with_source_id(source_id: str) -> int:
+    """How many campaigns still point at this contact-source object key."""
+    if not source_id:
+        return 0
+    return get_database()[CAMPAIGNS].count_documents({"source_id": source_id})
+
+
 def get_redial_candidates(campaign_id: str) -> list[dict[str, Any]]:
     """Queued runs whose linked calls ended without answer."""
     from app.services.call_log_service import list_call_logs_by_campaign

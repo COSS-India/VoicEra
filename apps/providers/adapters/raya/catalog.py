@@ -12,7 +12,7 @@ DEFAULT_TTS_SAMPLE_RATE = 24000
 STT_MODEL = "bakbak"
 
 # Vendor language code → VoicEra canonical id.
-# Odia is ``or`` on the wire / ``od`` in VoicEra.
+# Odia is ``or`` on the wire / ``or`` in VoicEra.
 _STT_LANGS: dict[str, str] = {
     "as": "as",
     "bn": "bn",
@@ -29,7 +29,7 @@ _STT_LANGS: dict[str, str] = {
     "mni": "mni",
     "mr": "mr",
     "ne": "ne",
-    "or": "od",
+    "or": "or",
     "pa": "pa",
     "sa": "sa",
     "sat": "sat",

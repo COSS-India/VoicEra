@@ -23,7 +23,7 @@ _TTS_LANGUAGES = {
     "ml": "ml",
     "mr": "mr",
     "pa": "pa",
-    "or": "od",
+    "or": "or",
     "as": "as",
     "ur": "ur",
     "ne": "ne",

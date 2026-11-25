@@ -9,6 +9,8 @@ description: "CSV-driven outbound campaigns: upload, schedule, run, report."
 `max_concurrency`, `schedule_config`, and `circuit_breaker` are accepted as **top-level fields on the request** but are **not** top-level fields on the stored document. The router nests all three inside `orchestrator_metadata` on both create and update, and `CampaignResponse` returns them there. Read `orchestrator_metadata.max_concurrency`, not `max_concurrency`.
 </Note>
 
+The agent must be a `telephony` agent. The campaign uses that agent's provider (`vobiz`, `plivo`, `vi`, or `go2market`). Create may snapshot `telephony_provider` on the document. Providers with `initiate_bulk_calls` (VI) dial a batch in one carrier request; others place one outbound call per queued run.
+
 ## `POST /campaign/upload`
 
 Bearer. `201`. `multipart/form-data` with one `file` field. The path is `/upload`.
@@ -101,7 +103,7 @@ Bearer. One `CampaignResponse`. `404` outside your organisation.
 
 Bearer, and the caller must hold `admin` or `super_admin` in the active organisation — a `member` gets `403`. This is the only role-gated route on this page; every other campaign route is member-accessible. `404` outside your organisation.
 
-Deletes the queued runs first, then the campaign document. This is a **hard delete, not a state change** — there is no `deleted` or `archived` value in `CampaignState`, and the campaign will not appear in `GET /campaign/` afterwards. Call logs already written for calls the campaign placed are not removed.
+Hard-deletes the campaign for DPDP alignment: queued runs (parsed contact rows) are removed, then the campaign document, then the MinIO contact CSV when no other campaign still references that `source_id` (redial children share the parent's key, so the object stays until the last owner is deleted). A structured audit log line records `campaign_id`, `org_id`, actor, `source_id`, and purge flags — never phone numbers or CSV contents. Call logs already written for calls the campaign placed are not removed. There is no `deleted` / `archived` state; the campaign disappears from `GET /campaign/`.
 
 Returns `SuccessResponse`:
 

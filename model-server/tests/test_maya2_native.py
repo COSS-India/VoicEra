@@ -7,8 +7,9 @@ the quiet kind:
 * a missing `X-Audio-Format`, so the client guesses the width of what arrives;
 * upstream's `wav` default, which puts a RIFF header in front of a PCM stream
   and plays as a click followed by noise;
-* `od` reaching the model as an unknown language, which upstream answers with a
-  400 -- every Odia agent fails, while Hindi keeps working and hides it;
+* legacy `od` reaching the model as an unknown language, which upstream answers
+  with a 400 -- every Odia agent fails, while Hindi keeps working and hides it
+  (the slot aliases `od` → `or`; VoicEra's canonical id is already `or`);
 * OpenAI's `alloy` becoming upstream's `plain`, a random speaker per request,
   which sounds like a different person every sentence and errors nowhere.
 

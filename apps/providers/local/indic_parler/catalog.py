@@ -42,7 +42,7 @@ DEFAULT_TTS_VOICE = "Divya"
 # Chhattisgarhi (``hne``, listed by the card as unofficial). The card also calls
 # Kashmiri and Punjabi unofficial; they are in models.yaml, so they are here.
 #
-# BHILI (``bhb``/``bh``) has no speakers of its own on the card. It is written
+# BHILI (``bhb``) has no speakers of its own on the card. It is written
 # in Devanagari and the model reads the language from the script, so it is
 # offered with the Marathi speakers -- the same choice the Bhashini adapter
 # makes for its Parler Bhili. Expect a Marathi-accented read, not native Bhili.
@@ -66,9 +66,9 @@ _TTS_LANGS: dict[str, tuple[str, tuple[str, ...]]] = {
     "ml": ("ml", ("Anjali", "Harish", "Anju")),
     "mni": ("mni", ("Laishram", "Ranjit")),
     "mr": ("mr", ("Sanjay", "Sunita", "Nikhil", "Radha", "Varun", "Isha")),
-    "bhb": ("bh", ("Sanjay", "Sunita", "Nikhil", "Radha", "Varun", "Isha")),
+    "bhb": ("bhb", ("Sanjay", "Sunita", "Nikhil", "Radha", "Varun", "Isha")),
     "ne": ("ne", ("Amrita",)),
-    "or": ("od", ("Manas", "Debjani")),
+    "or": ("or", ("Manas", "Debjani")),
     "pa": ("pa", ("Divjot", "Gurpreet")),
     "sa": ("sa", ("Aryan",)),
     "ta": ("ta", ("Jaya", "Kavitha")),
