@@ -1,0 +1,39 @@
+name: Mintlify docs check
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "docs.json"
+      - ".mintignore"
+      - ".github/workflows/mintlify-docs-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "docs.json"
+      - ".mintignore"
+      - ".github/workflows/mintlify-docs-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mintlify-docs-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mintlify-docs-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Pinned so a CLI release cannot change results unexpectedly; bump deliberately.
+      - name: Check for broken links
+        run: npx --yes mint@4.3.73 broken-links

@@ -199,9 +199,31 @@ def test_generate_jwt_payload(service: KenpathLLMService, monkeypatch):
     assert captured["algorithm"] == "RS256"
     assert captured["key"] == _TEST_PRIVATE_KEY
     assert captured["payload"]["sub"] == "+91-9000000000"
-    assert captured["payload"]["iss"] == "voice-provider"
+    assert captured["payload"]["iss"] == "voice era"
+    assert captured["payload"]["aud"] == "mh-vistaar-voice"
     assert "iat" in captured["payload"]
     assert "exp" in captured["payload"]
+
+
+def test_participant_phone_disabled_ignores_runtime_phone(
+    service: KenpathLLMService, monkeypatch
+):
+    service._use_participant_phone = False
+    service.set_participant_phone("+919876543210")
+    assert service._participant_phone is None
+
+
+def test_generate_jwt_uses_participant_phone_sub(service: KenpathLLMService, monkeypatch):
+    captured: dict = {}
+
+    def fake_encode(payload, key, algorithm):
+        captured["payload"] = payload
+        return "signed-token"
+
+    monkeypatch.setattr(jwt, "encode", fake_encode)
+    service.set_participant_phone("+919876543210")
+    service._generate_jwt()
+    assert captured["payload"]["sub"] == "+91-9876543210"
 
 
 def test_generate_bharat_vistaar_jwt_payload(monkeypatch):

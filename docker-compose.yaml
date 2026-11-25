@@ -5,6 +5,9 @@
 # The script ensures a root .env with required secrets, then starts this compose
 # file. Running `docker compose up` against a fresh checkout without .env will
 # fail or come up misconfigured (SECRET_KEY / INTERNAL_API_KEY / PROVIDER_AUTH_ENCRYPTION_KEY).
+# MONGODB_PASSWORD, MINIO_ROOT_PASSWORD, MINIO_SECRET_KEY and REDIS_PASSWORD have no
+# fallback either: Compose refuses to start until they are set, rather than
+# running on publicly known passwords.
 #
 # Container names use the voicera_oss_* prefix for a stable, unique identity.
 
@@ -15,7 +18,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: "${MONGODB_USER:-admin}"
-      POSTGRES_PASSWORD: "${MONGODB_PASSWORD:-admin123}"
+      POSTGRES_PASSWORD: "${MONGODB_PASSWORD:?MONGODB_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}"
       POSTGRES_DB: postgres
     logging:
       driver: "json-file"
@@ -40,7 +43,7 @@ services:
     ports:
       - "${FERRETDB_HOST_PORT:-27018}:27017"
     environment:
-      FERRETDB_POSTGRESQL_URL: "postgres://${MONGODB_USER:-admin}:${MONGODB_PASSWORD:-admin123}@postgres:5432/postgres"
+      FERRETDB_POSTGRESQL_URL: "postgres://${MONGODB_USER:-admin}:${MONGODB_PASSWORD:?MONGODB_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}@postgres:5432/postgres"
     logging:
       driver: "json-file"
       options:
@@ -70,7 +73,7 @@ services:
       MONGODB_HOST: mongodb
       MONGODB_PORT: "27017"
       MONGODB_USER: "${MONGODB_USER:-admin}"
-      MONGODB_PASSWORD: "${MONGODB_PASSWORD:-admin123}"
+      MONGODB_PASSWORD: "${MONGODB_PASSWORD:?MONGODB_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}"
       MONGODB_DATABASE: "${MONGODB_DATABASE:-voicera}"
       SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set to a strong secret}"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
@@ -78,13 +81,13 @@ services:
       FRONTEND_URL: "${FRONTEND_URL:-http://localhost:3000}"
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
-      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin123}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set (run scripts/start-application-services.sh to generate it)}"
       MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
       MINIO_SECURE: "false"
       CHROMA_BASE_DIR: /app/app/rag/chroma_data
       KB_EMBEDDING_API_KEY: "${KB_EMBEDDING_API_KEY:-}"
       KB_EMBEDDING_MODEL: "${KB_EMBEDDING_MODEL:-text-embedding-3-small}"
-      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}@redis:6379"
       # Model-server gateway for local provider readiness (configuration authenticated).
       MODEL_SERVER_URL: http://host.docker.internal:8100/v1
       # DEBUG comes from root .env via env_file only — do not interpolate
@@ -119,7 +122,7 @@ services:
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin123}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}"
       MINIO_KMS_SECRET_KEY: "${MINIO_KMS_SECRET_KEY:-}"
     logging:
       driver: "json-file"
@@ -145,7 +148,7 @@ services:
         condition: service_healthy
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin123}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}"
       MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
     entrypoint: >
       /bin/sh -c "
@@ -159,7 +162,7 @@ services:
     image: redis:7
     container_name: voicera_oss_redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:-redissecret}
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}
     logging:
       driver: "json-file"
       options:
@@ -170,7 +173,7 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redissecret}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -188,17 +191,17 @@ services:
       MONGODB_HOST: mongodb
       MONGODB_PORT: "27017"
       MONGODB_USER: "${MONGODB_USER:-admin}"
-      MONGODB_PASSWORD: "${MONGODB_PASSWORD:-admin123}"
+      MONGODB_PASSWORD: "${MONGODB_PASSWORD:?MONGODB_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}"
       MONGODB_DATABASE: "${MONGODB_DATABASE:-voicera}"
       SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set to a strong secret}"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
       PROVIDER_AUTH_ENCRYPTION_KEY: "${PROVIDER_AUTH_ENCRYPTION_KEY:-}"
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
-      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin123}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set (run scripts/start-application-services.sh to generate it)}"
       MINIO_BUCKET: "${MINIO_BUCKET:-voicera-calls}"
       MINIO_SECURE: "false"
-      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}@redis:6379"
       VOICE_SERVER_BASE_URL: "${VOICE_SERVER_BASE_URL:-http://localhost:7860}"
     logging:
       driver: "json-file"
@@ -232,10 +235,10 @@ services:
       MONGODB_HOST: mongodb
       MONGODB_PORT: "27017"
       MONGODB_USER: "${MONGODB_USER:-admin}"
-      MONGODB_PASSWORD: "${MONGODB_PASSWORD:-admin123}"
+      MONGODB_PASSWORD: "${MONGODB_PASSWORD:?MONGODB_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}"
       MONGODB_DATABASE: "${MONGODB_DATABASE:-voicera}"
       SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set to a strong secret}"
-      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (run scripts/start-application-services.sh to generate it)}@redis:6379"
       CAMPAIGN_BATCH_SIZE: "${CAMPAIGN_BATCH_SIZE:-10}"
     logging:
       driver: "json-file"

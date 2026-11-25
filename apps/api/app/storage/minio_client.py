@@ -18,7 +18,7 @@ class MinIOStorage:
         self.client = Minio(
             os.getenv("MINIO_ENDPOINT", "localhost:9000"),
             access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-            secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin123"),
+            secret_key=os.getenv("MINIO_SECRET_KEY", ""),
             secure=os.getenv("MINIO_SECURE", "false").lower() in ("true", "1", "yes"),
         )
         self.default_bucket = os.getenv("MINIO_BUCKET", "voicera-calls")

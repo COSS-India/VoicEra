@@ -68,7 +68,7 @@ def _build_minio_client(http_client: urllib3.PoolManager | None = None) -> Minio
     return Minio(
         _minio_endpoint(),
         access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-        secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin123"),
+        secret_key=os.getenv("MINIO_SECRET_KEY", ""),
         secure=_env_bool("MINIO_SECURE", False),
         http_client=http_client,
     )
