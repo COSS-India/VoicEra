@@ -12,7 +12,7 @@ svara-voice[pipecat]
 minio>=7.2.0
 grpcio>=1.60.0
 protobuf>=4.25.0
-numpy>=1.26.0
+numpy>=2.5.5
 websockets>=12.0
 python-socketio[asyncio_client]>=5.11.0
 tritonclient[grpc]>=2.45.0
