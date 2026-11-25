@@ -13,6 +13,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     UserTurnStoppedMessage,
 )
 
+from apps.runtime.services.privacy.redaction import redact_if_enabled
 from apps.runtime.services.storage.call_artifacts import save_and_link
 from apps.runtime.services.storage.object_storage import minio_uri
 
@@ -32,7 +33,8 @@ class TranscriptWriter:
         return minio_uri(self._org_id, self._call_id, "transcript.txt")
 
     def append(self, role: str, timestamp: str, content: str) -> None:
-        self._buffer += f"[{timestamp}] {role}: {content}\n"
+        # Redact before buffering so raw PII never reaches object storage.
+        self._buffer += f"[{timestamp}] {role}: {redact_if_enabled(content)}\n"
         self._has_content = True
 
     async def flush(self) -> None:
