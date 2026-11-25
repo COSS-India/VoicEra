@@ -31,6 +31,9 @@ ENTITIES: tuple[str, ...] = ("EMAIL", "CARD", "PAN", "PHONE", "AADHAAR", "DOB", 
 # A single space or hyphen. The backreference \1 / \2 in the grouped forms below
 # makes every gap in one identifier use the same separator.
 _SEP = r"[ -]"
+# Kept outside the f-strings below: Python < 3.12 rejects a backslash inside an
+# f-string expression, and the runtime image is python:3.11.
+_DIGIT = r"\d"
 
 
 def _spelled(first: str, rest: int | str) -> str:
@@ -49,7 +52,7 @@ _PATTERNS: dict[str, re.Pattern[str]] = {
         rf"(?<!\d)(?:\d{{13,19}}"
         rf"|\d{{4}}({_SEP})\d{{4}}\1\d{{4}}\1\d{{4}}"
         rf"|\d{{4}}({_SEP})\d{{6}}\2\d{{5}}"
-        rf"|{_spelled(r'\d', '12,18')})(?!\d)"
+        rf"|{_spelled(_DIGIT, '12,18')})(?!\d)"
     ),
     "PAN": re.compile(r"\b[A-Za-z]{5}\d{4}[A-Za-z]\b"),
     # Indian mobile: optional +91 or 0, then ten digits starting 6-9, written
@@ -67,7 +70,7 @@ _PATTERNS: dict[str, re.Pattern[str]] = {
     ),
     # Catch-all for account numbers and other long IDs: nine or more digits,
     # written together or one digit at a time.
-    "NUMBER": re.compile(rf"(?<!\d)(?:\d{{9,}}|{_spelled(r'\d', '8,')})(?!\d)"),
+    "NUMBER": re.compile(rf"(?<!\d)(?:\d{{9,}}|{_spelled(_DIGIT, '8,')})(?!\d)"),
 }
 
 _INDIC_ZEROS = (
