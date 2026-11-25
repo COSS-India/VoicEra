@@ -153,7 +153,7 @@ These Terms are governed by the laws of India, without regard to conflict-of-law
 
 # 17. General Provisions
 
-- Entire agreement: these Terms, together with the Privacy Policy and the Apache License 2.0, form the entire agreement between you and IIIT-Bangalore regarding VoicEra.
+- Entire agreement: these Terms and the Apache License 2.0, form the entire agreement between you and IIIT-Bangalore regarding VoicEra.
 
 - Severability: if any provision is found unenforceable, the remaining provisions remain in effect.
 
