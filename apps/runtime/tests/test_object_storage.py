@@ -81,7 +81,8 @@ def test_upload_passes_sse(
     assert isinstance(client.put_object.call_args.kwargs["sse"], expected)
 
 
-def test_probe_client_is_bounded() -> None:
+def test_probe_client_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MINIO_SECRET_KEY", "test")
     client = storage._minio_probe_client()
     pool = client._http
     assert pool.connection_pool_kw["timeout"].connect_timeout == 5
