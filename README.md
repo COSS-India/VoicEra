@@ -50,6 +50,8 @@ cd VoicEra
 
 `./scripts/start-application-services.sh $(ARGS)` creates the environment, generates required secrets, and starts the stack.
 
+> **Security:** Do not deploy to any internet-facing environment before rotating all secrets in `.env`. On a fresh clone the script generates `SECRET_KEY`, `INTERNAL_API_KEY`, `PROVIDER_AUTH_ENCRYPTION_KEY`, and the MongoDB, MinIO, and Redis passwords automatically — but only for values left blank, so never copy a `.env` from another install. Installs created before these were blanked in `.env.example` must rotate them; see [Environment variables](docs/developer/reference/environment-variables.md).
+
 Once running:
 
 | Service | URL |
