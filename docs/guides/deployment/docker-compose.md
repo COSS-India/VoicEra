@@ -116,7 +116,7 @@ Editing these in `.env` has no effect inside the stack. That is intended.
 `DEBUG` is deliberately **not** interpolated into `environment:`. The compose file explains why: host shells often export `DEBUG=release`, which would override the boolean `False` from `.env`. It reaches containers through `env_file` only — so do not add `DEBUG: "${DEBUG}"`.
 </Note>
 
-Three variables have no default and abort the run if unset: `SECRET_KEY` on `api`, `arq-worker`, and `campaign-orchestrator`.
+These variables have no default and abort the run if unset: `SECRET_KEY` on `api`, `arq-worker`, and `campaign-orchestrator`, and the passwords `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, `MINIO_SECRET_KEY`, and `REDIS_PASSWORD` on every service that uses them.
 
 ## Healthchecks and start order
 

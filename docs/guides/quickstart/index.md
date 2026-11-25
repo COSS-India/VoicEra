@@ -13,16 +13,16 @@ Total time is roughly 20 minutes, most of it Docker pulling images. You need Doc
 
 | Step | Page | What you end with |
 | --- | --- | --- |
-| 1 | [Prerequisites](prerequisites) | A machine that can run the stack, and the accounts you need. |
-| 2 | [Install and run](install-and-run) | Ten containers up, API answering on `:8000`, dashboard on `:3000`. |
-| 3 | [Generated secrets and defaults](secrets-and-defaults) | Knowing what was generated for you and what to change. |
+| 1 | [Prerequisites](/docs/guides/quickstart/prerequisites) | A machine that can run the stack, and the accounts you need. |
+| 2 | [Install and run](/docs/guides/quickstart/install-and-run) | Ten containers up, API answering on `:8000`, dashboard on `:3000`. |
+| 3 | [Generated secrets and defaults](/docs/guides/quickstart/secrets-and-defaults) | Knowing what was generated for you and what to change. |
 
 Once the stack is up, build your first agent and place your first call from the dashboard — no terminal needed:
 
-* [Create your first agent](../dashboard/create-an-agent)
-* [Test and call with your agent](../dashboard/make-a-call)
+* [Create your first agent](/docs/guides/dashboard/create-an-agent)
+* [Test and call with your agent](/docs/guides/dashboard/make-a-call)
 
-Prefer the API? See [Recipes](../../api-reference/recipes).
+Prefer the API? See [Recipes](/docs/api-reference/recipes).
 
 ## Before you start
 
@@ -36,6 +36,6 @@ Run `make application-up`, not a bare `docker compose up`. It generates `SECRET_
 
 Once a call works:
 
-* [Architecture](../concepts/architecture) — what you just started
-* [Running a campaign](../operator/running-a-campaign) — outbound at volume
-* [Security hardening](../deployment/security-hardening) — before anyone else can reach it
+* [Architecture](/docs/guides/concepts/architecture) — what you just started
+* [Running a campaign](/docs/guides/operator/running-a-campaign) — outbound at volume
+* [Security hardening](/docs/guides/deployment/security-hardening) — before anyone else can reach it

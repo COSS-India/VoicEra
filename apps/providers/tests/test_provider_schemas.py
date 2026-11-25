@@ -501,6 +501,13 @@ def test_kenpath_llm_catalog_language_fields():
         assert field["examples"] == list(ALL_KENPATH_LANGUAGES)
         assert field["default"] == "mr"
 
+    send_phone = fields["send_phone_number_to_llm"]
+    assert send_phone["default"] is False
+    assert send_phone["type"] == "boolean"
+    assert send_phone["label"] == "Send phone number to LLM"
+    assert send_phone["input_type"] == "switch"
+    assert send_phone["examples"] == [False, True]
+
     send_greeting = fields["send_greeting_to_llm"]
     assert send_greeting["default"] is False
     assert send_greeting["type"] == "boolean"
