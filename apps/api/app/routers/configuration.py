@@ -69,7 +69,7 @@ def _catalog_http_error(exc: Exception) -> None:
     raise exc
 
 
-@router.get("/stt")
+@router.get("/stt", summary="List speech-to-text providers")
 async def list_stt(
     languages: str | None = Query(
         default=None,
@@ -77,6 +77,11 @@ async def list_stt(
     ),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Return registered STT providers for the caller's organisation.
+
+    Each entry includes whether credentials are stored. The optional languages
+    query is an AND filter on canonical language ids.
+    """
     try:
         listed = list_providers(Kind.STT, languages)
     except Exception as exc:
@@ -87,7 +92,7 @@ async def list_stt(
     )
 
 
-@router.get("/tts")
+@router.get("/tts", summary="List text-to-speech providers")
 async def list_tts(
     languages: str | None = Query(
         default=None,
@@ -95,6 +100,11 @@ async def list_tts(
     ),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Return registered TTS providers for the caller's organisation.
+
+    Each entry includes whether credentials are stored. The optional languages
+    query is an AND filter on canonical language ids.
+    """
     try:
         listed = list_providers(Kind.TTS, languages)
     except Exception as exc:
@@ -105,32 +115,51 @@ async def list_tts(
     )
 
 
-@router.get("/llm")
+@router.get("/llm", summary="List language-model providers")
 async def list_llm(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Return registered LLM providers for the caller's organisation.
+
+    Each entry includes whether credentials are stored.
+    """
     return _with_authenticated_list(
         list_providers(Kind.LLM),
         _configured_ids(current_user.get("org_id")),
     )
 
 
-@router.get("/telephony")
+@router.get("/telephony", summary="List telephony providers")
 async def list_telephony(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Return registered telephony providers for the caller's organisation.
+
+    Each entry includes whether credentials are stored.
+    """
     return _with_authenticated_list(
         list_telephony_providers(),
         _configured_ids(current_user.get("org_id")),
     )
 
 
-@router.get("/stt/setting/{provider}")
+@router.get(
+    "/stt/setting/{provider}",
+    summary="Get speech-to-text provider settings",
+)
 async def stt_settings(
     provider: str,
-    languages: str | None = Query(default=None),
+    languages: str | None = Query(
+        default=None,
+        description="Comma-separated canonical language ids (AND filter).",
+    ),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Return the setting schema and capabilities for one STT provider.
+
+    The optional languages query keeps only models that support every requested
+    language. Unknown providers return 404.
+    """
     try:
         catalog = provider_settings(Kind.STT, provider, languages)
     except Exception as exc:
@@ -141,12 +170,23 @@ async def stt_settings(
     )
 
 
-@router.get("/tts/setting/{provider}")
+@router.get(
+    "/tts/setting/{provider}",
+    summary="Get text-to-speech provider settings",
+)
 async def tts_settings(
     provider: str,
-    languages: str | None = Query(default=None),
+    languages: str | None = Query(
+        default=None,
+        description="Comma-separated canonical language ids (AND filter).",
+    ),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Return the setting schema and capabilities for one TTS provider.
+
+    The optional languages query keeps only models that support every requested
+    language. Unknown providers return 404.
+    """
     try:
         catalog = provider_settings(Kind.TTS, provider, languages)
     except Exception as exc:
@@ -157,11 +197,18 @@ async def tts_settings(
     )
 
 
-@router.get("/llm/setting/{provider}")
+@router.get(
+    "/llm/setting/{provider}",
+    summary="Get language-model provider settings",
+)
 async def llm_settings(
     provider: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Return the setting schema for one LLM provider.
+
+    Unknown providers return 404.
+    """
     try:
         catalog = provider_settings(Kind.LLM, provider)
     except Exception as exc:
@@ -172,11 +219,18 @@ async def llm_settings(
     )
 
 
-@router.get("/telephony/setting/{provider}")
+@router.get(
+    "/telephony/setting/{provider}",
+    summary="Get telephony provider settings",
+)
 async def telephony_settings(
     provider: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Return the setting schema for one telephony provider.
+
+    Unknown providers return 404.
+    """
     try:
         catalog = telephony_provider_settings(provider)
     except Exception as exc:

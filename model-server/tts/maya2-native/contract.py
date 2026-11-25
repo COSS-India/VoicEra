@@ -12,8 +12,9 @@ be tested without a GPU, torch, aiohttp or the maya3 package:
 * **`response_format` defaults to `pcm`**, not upstream's `wav` (and not
   OpenAI's `mp3`). Every caller in this repo pins `pcm`; a caller that forgets
   gets the slot's native stream rather than a RIFF header in its PCM.
-* **`language` accepts VoicEra's canonical ids.** The agent config stores Odia
-  as `od`; the model knows it as `or`. Region tags (`hi-IN`) are trimmed.
+* **`language` accepts VoicEra's canonical ids.** Odia is `or` in agent config
+  and on the model; legacy `od` is still aliased to `or`. Region tags
+  (`hi-IN`) are trimmed.
 * **OpenAI fields the model cannot honour are accepted and reported, not
   refused.** `instructions` (no delivery conditioning in this model) and a
   non-unity `speed` (upstream answers 400) are dropped and named in
@@ -29,7 +30,8 @@ from typing import Any
 #: The model's languages, exactly upstream's `maya3.server.LANGS`.
 LANGS: tuple[str, ...] = ("as", "bn", "en", "gu", "hi", "kn", "ml", "mr", "or", "pa", "ta", "te")
 
-#: VoicEra canonical id -> the model's code, for the one place they differ.
+#: Legacy VoicEra id -> model code. Odia is now canonical ``or`` (same as the
+#: model); ``od`` remains accepted so older clients keep working.
 LANGUAGE_ALIASES: dict[str, str] = {"od": "or"}
 
 #: response_format values upstream can produce, OpenAI's names throughout.

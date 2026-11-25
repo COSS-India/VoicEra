@@ -66,7 +66,7 @@ class ElevenLabsSTTConfig(ElevenLabsAuth, ElevenLabsSTTSettings, BaseSTTConfig):
         default="en",
         description=(
             "Canonical language id. Use 'multi' for automatic language detection. "
-            "Odia is vendor code 'or' (canonical 'od')."
+            "Odia is vendor code 'or' (canonical "or")."
         ),
         json_schema_extra=language_schema_extra(
             languages_map(STT_CAPABILITIES),

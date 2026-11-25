@@ -26,6 +26,7 @@ Ten containers, five Python packages. `apps/api` alone runs as three containers 
 * [**Runtime**](services/runtime) — the answer webhook and the Pipecat pipeline
 * [**Providers**](services/providers) — the registry that makes vendors pluggable
 * [**Telephony**](services/telephony) — carrier clients, answer XML, frame serializers
+* [**Go To Market**](services/go2market) — OBD outbound, DID-WebSocket, µ-law streaming
 * [**Workers and orchestrator**](services/workers) — ARQ jobs and campaign scheduling
 
 ## Model server

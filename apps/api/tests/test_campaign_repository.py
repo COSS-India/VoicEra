@@ -24,7 +24,11 @@ def _clear_stores(monkeypatch: pytest.MonkeyPatch) -> None:
         def find_one(self, query: dict[str, Any]) -> dict[str, Any] | None:
             if "campaign_id" in query:
                 doc = campaigns.get(query["campaign_id"])
-                return dict(doc) if doc else None
+                if not doc:
+                    return None
+                if "org_id" in query and doc.get("org_id") != query["org_id"]:
+                    return None
+                return dict(doc)
             return None
 
         def update_one(self, query: dict[str, Any], update: dict[str, Any]) -> MagicMock:
@@ -41,6 +45,22 @@ def _clear_stores(monkeypatch: pytest.MonkeyPatch) -> None:
                 )
             result.matched_count = 1
             return result
+
+        def delete_one(self, query: dict[str, Any]) -> MagicMock:
+            cid = query.get("campaign_id")
+            result = MagicMock()
+            if cid and cid in campaigns:
+                del campaigns[cid]
+                result.deleted_count = 1
+            else:
+                result.deleted_count = 0
+            return result
+
+        def count_documents(self, query: dict[str, Any]) -> int:
+            source_id = query.get("source_id")
+            if source_id is None:
+                return len(campaigns)
+            return sum(1 for d in campaigns.values() if d.get("source_id") == source_id)
 
         def find(self, query: dict[str, Any]) -> list[dict[str, Any]]:
             return [dict(v) for v in campaigns.values() if v.get("org_id") == query.get("org_id")]
@@ -89,6 +109,19 @@ def _clear_stores(monkeypatch: pytest.MonkeyPatch) -> None:
                     continue
                 total += 1
             return total
+
+        def delete_many(self, query: dict[str, Any]) -> MagicMock:
+            cid = query.get("campaign_id")
+            remove = [
+                qid
+                for qid, doc in self.docs.items()
+                if doc.get("campaign_id") == cid
+            ]
+            for qid in remove:
+                del self.docs[qid]
+            result = MagicMock()
+            result.deleted_count = len(remove)
+            return result
 
     fake_db = {
         "Campaigns": FakeCampaigns(),

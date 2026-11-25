@@ -55,7 +55,7 @@ def test_registered_as_a_local_tts_provider():
     assert set(codes) == {"hi", "bn", "ta", "te", "kn", "ml", "mr", "gu", "as", "ne",
                           "ur", "pa", "en"}
     # Not supported by the model: offering them would be nonsense audio.
-    for absent in ("od", "sa", "brx", "doi", "kok", "ks", "mai", "mni", "sat", "sd"):
+    for absent in ("or", "sa", "brx", "doi", "kok", "ks", "mai", "mni", "sat", "sd"):
         assert absent not in codes
 
     settings = schema[CAPABILITIES_KEY]["higgs-tts-3"]["settings"]

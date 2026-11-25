@@ -9,7 +9,7 @@ DEFAULT_LLM_MODEL = "vistaar-dls (Marathi, Bhili)"
 LLM_MODELS: tuple[str, ...] = (DEFAULT_LLM_MODEL,)
 
 # Canonical language ids for agent stacks (wire Bhili is ``bhb``).
-DLS_LANGUAGES: tuple[str, ...] = ("mr", "bh")
+DLS_LANGUAGES: tuple[str, ...] = ("mr", "bhb")
 
 # Config secret field used to sign JWTs (same Vistaar PEM as Kenpath ``/api/voice/``).
 VISTAAR_AUTH_SECRET = "private_key"

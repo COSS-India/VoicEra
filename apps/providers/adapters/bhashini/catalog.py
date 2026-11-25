@@ -36,7 +36,7 @@ _INDIC_LANGS = {
     "kn": "kn",
     "ml": "ml",
     "pa": "pa",
-    "or": "od",
+    "or": "or",
     "as": "as",
     "ur": "ur",
     "ne": "ne",
@@ -52,11 +52,11 @@ _INDIC_LANGS = {
 }
 
 _EN_LANGS = {"en": "en"}
-# NVCF/Triton wire code ``bhb`` → Voicera canonical ``bh`` (languages.py).
-_BHILI_LANGS = {"bhb": "bh"}
+# NVCF/Triton wire code ``bhb`` → Voicera canonical ``bhb`` (languages.py).
+_BHILI_LANGS = {"bhb": "bhb"}
 
 # NVCF Nemotron Indic ASR (voicera.asr.v1 gRPC). Wire codes match local indic_nemotron.
-# Odia is ``or`` on the wire / ``od`` in VoicEra; Bhili is ``bhb`` / ``bh``.
+# Odia is ``or`` on the wire / ``or`` in VoicEra; Bhili is ``bhb`` / ``bhb``.
 _NEMOTRON_LANGS: dict[str, str] = {
     "hi": "hi",
     "mr": "mr",
@@ -67,7 +67,7 @@ _NEMOTRON_LANGS: dict[str, str] = {
     "kn": "kn",
     "ml": "ml",
     "pa": "pa",
-    "or": "od",
+    "or": "or",
     "as": "as",
     "ur": "ur",
     "sa": "sa",
@@ -83,7 +83,7 @@ _NEMOTRON_LANGS: dict[str, str] = {
     "bho": "bho",
     "hne": "hne",
     "bgc": "bgc",
-    "bhb": "bh",
+    "bhb": "bhb",
     "en": "en",
 }
 
@@ -100,7 +100,7 @@ TTS_SPEAKERS: dict[str, tuple[str, ...]] = {
     "ml": ("Anjali", "Anju", "Harish"),
     "mni": ("Laishram", "Ranjit"),
     "mr": ("Sanjay", "Sunita", "Nikhil", "Radha", "Varun", "Isha"),
-    # NVCF TTS wire ``bhli`` → canonical ``bh``; same speakers as Marathi.
+    # NVCF TTS wire ``bhli`` → canonical ``bhb``; same speakers as Marathi.
     "bhli": ("Sanjay", "Sunita", "Nikhil", "Radha", "Varun", "Isha"),
     "ne": ("Amrita",),
     "or": ("Manas", "Debjani"),
@@ -112,7 +112,7 @@ TTS_SPEAKERS: dict[str, tuple[str, ...]] = {
 
 # TTS-only vendor→canonical remaps (not in Dhruva STT ``_INDIC_LANGS``).
 _TTS_LANG_REMAP = {
-    "bhli": "bh",
+    "bhli": "bhb",
 }
 
 TTS_LANGS: dict[str, str] = {
@@ -167,11 +167,11 @@ ORPHEUS_SPEAKERS: dict[str, tuple[str, ...]] = {
     "en": ("Kavya", "Amit"),
 }
 
-# Vendor language code → VoicEra canonical id (``or`` → ``od``, ``bhb`` → ``bh``).
+# Vendor language code → VoicEra canonical id (``or`` → ``or``, ``bhb`` → ``bhb``).
 ORPHEUS_LANGS: dict[str, str] = {
     "as": "as",
     "bn": "bn",
-    "bhb": "bh",
+    "bhb": "bhb",
     "brx": "brx",
     "doi": "doi",
     "gu": "gu",
@@ -184,7 +184,7 @@ ORPHEUS_LANGS: dict[str, str] = {
     "mni": "mni",
     "mr": "mr",
     "ne": "ne",
-    "or": "od",
+    "or": "or",
     "pa": "pa",
     "sa": "sa",
     "sat": "sat",
