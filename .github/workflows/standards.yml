@@ -143,7 +143,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Validate docker-compose.yaml against the Compose Specification
-      env:
+        env:
           # Placeholders only: docker-compose.yaml requires these secrets and .env.example leaves them blank.
           SECRET_KEY: ci-placeholder
           MONGODB_PASSWORD: ci-placeholder
