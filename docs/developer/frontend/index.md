@@ -6,7 +6,7 @@ description: The Next.js dashboard — the web console for VoicEra.
 The web console for VoicEra. It starts with the rest of the stack and covers agents, numbers, campaigns, knowledge documents, call history, and per-call latency.
 
 <Warning>
-The `frontend` container runs the Next.js **development** server with your checkout bind-mounted. Right for local work, wrong for anything user-facing — see [Production deployment](../../guides/deployment/production).
+The `frontend` container runs the Next.js **development** server with your checkout bind-mounted. Right for local work, wrong for anything user-facing — see [Production deployment](/docs/guides/deployment/production).
 </Warning>
 
 ## Where it sits
@@ -36,11 +36,11 @@ Next.js serves the pages, but the data never flows through it: every REST call a
 
 | Page | Covers |
 | --- | --- |
-| [Overview](overview) | What it is, its stack, and which API surfaces it consumes. |
-| [Running the dashboard](running) | Cloning the branch, installing, and pointing it at your stack. |
-| [Agent creation wizard](agent-wizard) | The guided flow from provider keys to a working agent. |
-| [Dashboard tour](dashboard-tour) | Every route: agents, numbers, campaigns, knowledge base, history, telemetry, members, integrations. |
-| [Browser test calls](test-calls) | Talking to an agent from the browser, and how the audio path works. |
+| [Overview](/docs/developer/frontend/overview) | What it is, its stack, and which API surfaces it consumes. |
+| [Running the dashboard](/docs/developer/frontend/running) | Cloning the branch, installing, and pointing it at your stack. |
+| [Agent creation wizard](/docs/developer/frontend/agent-wizard) | The guided flow from provider keys to a working agent. |
+| [Dashboard tour](/docs/developer/frontend/dashboard-tour) | Every route: agents, numbers, campaigns, knowledge base, history, telemetry, members, integrations. |
+| [Browser test calls](/docs/developer/frontend/test-calls) | Talking to an agent from the browser, and how the audio path works. |
 
 ## Why it is documented at all
 
@@ -48,5 +48,5 @@ Everything the dashboard does goes through the public REST API. It is the most c
 
 ## Related
 
-* [Connecting a client](../clients/index) — the surfaces the dashboard uses
-* [REST API](../../api-reference/overview)
+* [Connecting a client](/docs/developer/clients) — the surfaces the dashboard uses
+* [REST API](/docs/api-reference/overview)
