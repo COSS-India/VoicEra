@@ -3,7 +3,7 @@ title: Code of conduct
 description: The standards expected of everyone participating in the VoicEra project.
 ---
 
-VoicEra follows the code of conduct in [`CODE_OF_CONDUCT.md`](https://github.com/COSS-India/voicera/blob/main/CODE_OF_CONDUCT) at the repository root. This page reproduces it for convenience; the repository file is authoritative.
+VoicEra follows the code of conduct in [`CODE_OF_CONDUCT.md`](https://github.com/COSS-India/voicera/blob/main/CODE_OF_CONDUCT.md) at the repository root. This page reproduces it for convenience; the repository file is authoritative.
 
 ## Our commitment
 
