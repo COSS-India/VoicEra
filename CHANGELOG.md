@@ -26,6 +26,9 @@ several subsystems are new.
   (`?resource=agent:<id>`). Artifact routes accept
   `?mode=view|download`. Events are retained for at least 365 days
   (`EVENTLOG_RETENTION_DAYS`).
+- **Encryption at rest for call recordings and transcripts** — opt-in with
+  `MINIO_ENCRYPTION=sse-s3` and `MINIO_KMS_SECRET_KEY`. The runtime verifies
+  encryption at startup.
 - **Maya 2 Native in the TTS slot** (`model-server/tts/maya2-native`, provider
   `maya2_native`) — Maya Research's 12-language, 20-voice streaming TTS on
   OpenAI's `/v1/audio/speech`. Wraps upstream's own OpenAI-compatible server and
