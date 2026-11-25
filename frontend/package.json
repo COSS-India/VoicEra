@@ -14,7 +14,7 @@
     "@pipecat-ai/client-react": "^1.8.2",
     "@pipecat-ai/websocket-transport": "^1.7.1",
     "d3": "^7.9.0",
-    "framer-motion": "^13.1.1",
+    "framer-motion": "^14.14.0",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^1.35.0",
