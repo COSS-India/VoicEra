@@ -34,6 +34,7 @@ from pipecat.services.stt_service import STTService
 from pipecat.utils.time import time_now_iso8601
 
 from apps.providers.runtime_language import update_stt_settings_with_language
+from apps.runtime.services.privacy.redaction import redact_if_enabled
 
 try:
     import websockets
@@ -376,7 +377,7 @@ class BhashiniSTTService(STTService):
                             "first_transcript_ms",
                             (now - self._speech_started_at) * 1000.0,
                             stage="first_transcript",
-                            details={"text_preview": text[:80]},
+                            details={"text_preview": redact_if_enabled(text)[:80]},
                         )
 
                 is_final = bool(resp.get("isFinal", False))
@@ -393,7 +394,7 @@ class BhashiniSTTService(STTService):
                             "final_transcript_ms",
                             (now - self._speech_started_at) * 1000.0,
                             stage="final_transcript",
-                            details={"text_preview": text[:80]},
+                            details={"text_preview": redact_if_enabled(text)[:80]},
                         )
                         await self._emit_latency_metric(
                             "segment_duration_ms",
@@ -410,9 +411,9 @@ class BhashiniSTTService(STTService):
                             timestamp=time_now_iso8601(),
                         )
                     )
-                    logger.info("Bhashini STT stream | pushed TranscriptionFrame | text='{}'", text)
+                    logger.info("Bhashini STT stream | pushed TranscriptionFrame | text='{}'", redact_if_enabled(text))
                 else:
-                    logger.info("Bhashini STT stream | INTERIM | text='{}'", text)
+                    logger.info("Bhashini STT stream | INTERIM | text='{}'", redact_if_enabled(text))
                     await self.push_frame(
                         InterimTranscriptionFrame(
                             text=text,
@@ -420,7 +421,7 @@ class BhashiniSTTService(STTService):
                             timestamp=time_now_iso8601(),
                         )
                     )
-                    logger.debug("Bhashini STT stream | pushed InterimTranscriptionFrame | text='{}'", text)
+                    logger.debug("Bhashini STT stream | pushed InterimTranscriptionFrame | text='{}'", redact_if_enabled(text))
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -493,7 +494,7 @@ class BhashiniSTTService(STTService):
                     )
                     logger.info(
                         "Bhashini STT stream | pushed TranscriptionFrame (fallback) | text='{}'",
-                        self._latest_transcript_text,
+                        redact_if_enabled(self._latest_transcript_text),
                     )
 
     async def _handle_audio_chunk(self, audio_chunk: bytes, pre_roll_bytes: bytes = b"") -> str:

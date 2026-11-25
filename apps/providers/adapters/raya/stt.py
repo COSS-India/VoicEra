@@ -24,6 +24,7 @@ from pipecat.utils.time import time_now_iso8601
 from pipecat.utils.tracing.service_decorators import traced_stt
 
 from apps.providers.runtime_language import update_stt_settings_with_language
+from apps.runtime.services.privacy.redaction import redact_if_enabled
 
 from .catalog import resolve_stt_ws_url
 
@@ -199,7 +200,7 @@ class RayaSTTService(SegmentedSTTService):
                 return
 
             await self._handle_transcription(text, True, self._language)
-            logger.debug("Raya STT transcription: [{}]", text)
+            logger.debug("Raya STT transcription: [{}]", redact_if_enabled(text))
             yield TranscriptionFrame(
                 text,
                 self._user_id,

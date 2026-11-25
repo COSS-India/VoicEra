@@ -21,6 +21,24 @@ app.include_router(vi_telephony.router)
 app.include_router(plivo_telephony.router)
 
 
+def _configure_logging() -> None:
+    """Default the runtime log level to INFO (loguru's own default is DEBUG).
+
+    At DEBUG, Pipecat logs the assistant's text ("Generating TTS [...]"), which
+    PII redaction does not cover.
+    """
+    import sys
+
+    from loguru import logger
+
+    level = os.getenv("RUNTIME_LOG_LEVEL", "INFO").strip().upper() or "INFO"
+    logger.remove()
+    logger.add(sys.stderr, level=level)
+
+
+_configure_logging()
+
+
 def main() -> None:
     import uvicorn
 

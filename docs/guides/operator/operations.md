@@ -193,6 +193,8 @@ Infrastructure passwords — `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, `REDIS_P
 
 Set `PII_REDACTION_ENABLED=true` in `.env` and restart the `runtime` service. From then on each transcript line is redacted before it is written to MinIO, so the transcript download and the translate endpoint only ever see redacted text.
 
+The same redaction applies to the transcript text the runtime writes to its logs: the per-turn `user:` / `assistant:` lines and the final and interim transcripts logged by the Bhashini (streaming, Socket.IO, Bhili) and Raya STT adapters. Keep `RUNTIME_LOG_LEVEL` at its default, `INFO`. At `DEBUG`, Pipecat logs the assistant's text before speech synthesis (`Generating TTS [...]`), and that line is not redacted.
+
 | Placeholder | What it replaces |
 | --- | --- |
 | `[REDACTED_EMAIL]` | Email addresses |
@@ -203,14 +205,20 @@ Set `PII_REDACTION_ENABLED=true` in `.env` and restart the `runtime` service. Fr
 | `[REDACTED_DOB]` | Dates written as `DD/MM/YYYY` |
 | `[REDACTED_NUMBER]` | Any other run of nine or more digits |
 
+Digits count as one identifier only when they are written together (`9876543210`), one digit at a time (`9 8 7 6 5 4 3 2 1 0`), or in the grouping that identifier is read out in: phone 5-5, Aadhaar 4-4-4, card 4-4-4-4 or 4-6-5. Aadhaar numbers must also pass the Verhoeff check and card numbers the Luhn check. Several numbers spoken in a row, such as prices (`2400 2500 2600`), are left as they are.
+
 To redact only some of these, list them in `PII_REDACTION_ENTITIES`, for example `PHONE,EMAIL`.
 
 Limits to know about:
 
 - Redaction is permanent. The original text is not kept anywhere.
+- The setting applies to the whole deployment, not to individual organisations.
 - Transcripts stored before the setting was turned on are not changed.
-- Numbers spoken as words, names and postal addresses are not detected.
+- Numbers spoken as words (`नौ आठ सात ...`), names and postal addresses are not detected.
+- Identifiers read out in unusual groupings (for example a phone number as 3-3-4) are not detected.
+- Three price-like groups of four digits that happen to pass the Aadhaar check (about 1 in 10) are still redacted as Aadhaar.
 - Call recordings are not redacted.
+- Logs written by anything other than the runtime transcript lines listed above, including `DEBUG`-level Pipecat output, are not redacted.
 
 ## Capacity signals
 
