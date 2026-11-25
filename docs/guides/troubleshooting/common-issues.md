@@ -127,7 +127,7 @@ If it is blank, set it and restart. See [Security hardening](../deployment/secur
 
 | Symptom | Cause |
 | --- | --- |
-| `401 Invalid authentication credentials` | Missing, malformed, or expired token. Tokens last 30 minutes by default — log in again. |
+| `401 Invalid authentication credentials` | Missing, malformed, or expired token. Tokens last 120 minutes by default — log in again. |
 | `403` on a valid token | Your role is too low for that route. Role checks are explicit, so 403 means authenticated but not permitted. See [Multi-tenancy](../../developer/reference/multi-tenancy). |
 | `404` for a resource you know exists | It belongs to a different organisation. Existence is never leaked across tenants — switch with `POST /users/switch-organisation`. |
 | `401 Missing API key` | An internal route needs `X-API-Key: $INTERNAL_API_KEY`. |
