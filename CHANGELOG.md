@@ -18,6 +18,14 @@ several subsystems are new.
 
 ### Added
 
+- **Access audit log** (`apps/api/app/services/eventlog`, `GET /api/v1/events`) —
+  records each view and download of call recordings and transcripts, including
+  those bundled in the OBD report ZIP. Admins can filter and export events from
+  the Audit log page and a per-call Activity tab. Events name the call's agent
+  and campaign, and can be filtered by any related resource
+  (`?resource=agent:<id>`). Artifact routes accept
+  `?mode=view|download`. Events are retained for at least 365 days
+  (`EVENTLOG_RETENTION_DAYS`).
 - **Encryption at rest for call recordings and transcripts** — opt-in with
   `MINIO_ENCRYPTION=sse-s3` and `MINIO_KMS_SECRET_KEY`. The runtime verifies
   encryption at startup.

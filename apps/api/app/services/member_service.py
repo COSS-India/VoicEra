@@ -15,8 +15,12 @@ from app.services import org_service
 logger = logging.getLogger(__name__)
 
 
-def get_membership(email: str, org_id: str) -> dict[str, Any] | None:
-    """Return a membership document or None."""
+def get_membership(email: str, org_id: str, *, strict: bool = False) -> dict[str, Any] | None:
+    """Return a membership document or None.
+
+    With ``strict=True`` database errors propagate instead of reading as "no
+    membership", for callers that must not turn an outage into a 403.
+    """
     try:
         doc = get_database()["Memberships"].find_one({"email": email, "org_id": org_id})
         if not doc:
@@ -24,6 +28,8 @@ def get_membership(email: str, org_id: str) -> dict[str, Any] | None:
         doc.pop("_id", None)
         return doc
     except Exception as exc:
+        if strict:
+            raise
         logger.error("Error fetching membership: %s", exc)
         return None
 

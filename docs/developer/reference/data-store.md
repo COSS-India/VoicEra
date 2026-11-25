@@ -136,7 +136,9 @@ Leave the authentication database blank.
 
 `apps/api/app/database_init.py` runs on every API start. It is idempotent: it creates any missing collection and ensures every index, so a fresh volume becomes a working database with no migration step.
 
-Collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `PhoneNumberEvents`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, `QueuedRuns`.
+Collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `PhoneNumberEvents`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, `QueuedRuns`, `Events`.
+
+`Events` is the org-scoped, append-only audit log. Its four indexes are created with the DocumentDB option `enableOrderedIndex: true` and end in `_id`. Without that option, DocumentDB uses a compound index only for equality on `org_id`, and each audit log page would sort the organisation's full history. Omit the option when running plain MongoDB. The arq worker deletes events older than `EVENTLOG_RETENTION_DAYS` daily.
 
 Fields and indexes are documented in [Data model](data-model).
 

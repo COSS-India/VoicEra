@@ -67,6 +67,10 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `FRONTEND_URL` | `http://localhost:3000` | No | Base URL used to build the password-reset link. |
 | `VOICE_SERVER_BASE_URL` | empty | Yes for telephony | Public base URL of the runtime. Required when creating or updating a telephony agent. |
 | `ENABLE_CAMPAIGN_ORCHESTRATOR` | `True` | No | Lets API startup spawn the orchestrator. Docker runs it as a separate service instead. |
+| `EVENTLOG_RETENTION_DAYS` | `365` | No | Days to keep audit log events. Values below `365` are rejected at startup. |
+| `EVENTLOG_WRITE_TIMEOUT_MS` | `500` | No | Upper bound on one audit event write. A slower or failed write is logged to stdout as an `eventlog_fallback` JSON line and the request continues. |
+| `EVENTLOG_EXPORT_MAX_ROWS` | `100000` | No | Maximum rows in one audit log CSV export. A truncated export ends with a marker row. |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | No | Read by uvicorn, not the app. Comma-separated IPs or CIDRs allowed to set `X-Forwarded-For`. Without it, audit events record the frontend container's address instead of the client's. See [Security hardening](../../guides/deployment/security-hardening#client-ip-in-the-audit-log). |
 
 Rotating `PROVIDER_AUTH_ENCRYPTION_KEY` makes every stored `ProviderAuth` blob undecryptable. Existing provider credentials must be re-entered after a rotation.
 

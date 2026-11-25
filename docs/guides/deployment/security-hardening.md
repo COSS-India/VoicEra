@@ -120,6 +120,17 @@ Telephony providers require HTTPS for webhooks and WSS for audio, so TLS is mand
 
 For Redis over TLS use a `rediss://` URL; the ARQ settings enable TLS when they see that scheme.
 
+## Client IP in the audit log
+
+Audit events record the client IP as seen by the API. The browser reaches the API through the frontend's `/api/v1` rewrite, so by default each event records the frontend container's address. To record the client's address, configure the following:
+
+1. **A reverse proxy in front of the frontend that sets `X-Forwarded-For`.** For example, nginx with `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. The Next.js rewrite forwards this header to the API but does not set it.
+2. **`FORWARDED_ALLOW_IPS` on the API, listing the frontend container and that proxy.** uvicorn trusts `X-Forwarded-For` only from these addresses. In Docker Compose, use the Compose network's CIDR (`docker network inspect <project>_app-network`), for example `FORWARDED_ALLOW_IPS=172.18.0.0/16`. That also covers the nginx setup in [Production deployment](production): nginx proxies to the published API port, so its requests reach the container from the network's gateway address.
+
+<Warning>
+Do not set `FORWARDED_ALLOW_IPS=*` while the API port is directly reachable. The API would then accept `X-Forwarded-For` from any client, and the recorded IP could not be trusted.
+</Warning>
+
 ## Email enumeration
 
 <Warning>
@@ -145,8 +156,8 @@ Logs go to `json-file`, rotating at 10 MB with three files kept. Before shipping
 You hold call recordings, transcripts, and contact lists. That is regulated data in most jurisdictions.
 
 * Encrypt volumes at rest, and enable [object encryption](#encryption-at-rest) for recordings and transcripts.
-* Set a retention policy — nothing expires automatically.
-* Restrict MinIO access; artifacts are served through the authenticated API proxy, so the bucket never needs to be public.
+* Set a retention policy — nothing expires automatically. The audit log (`Events`) is the exception: events older than `EVENTLOG_RETENTION_DAYS` (minimum 365) are purged daily.
+* Restrict MinIO access; artifacts are served through the authenticated API proxy, so the bucket never needs to be public. The audit log records access through the API only; access made directly to MinIO (console or `mc`) is not recorded.
 * Remember `docker compose down -v` destroys all of it irreversibly.
 
 ## Encryption at rest
@@ -188,6 +199,7 @@ The built-in KMS uses one static key with no rotation or audit trail. Deployment
 - [ ] TLS on the API and runtime
 - [ ] FerretDB, MinIO console, and the model gateway not publicly reachable
 - [ ] Rate limiting on `/answer`, `/agent`, and `/users/check`
+- [ ] Reverse proxy sets `X-Forwarded-For`, and `FORWARDED_ALLOW_IPS` lists the frontend and proxy
 - [ ] `DEBUG=False`
 - [ ] Volumes encrypted, retention policy set
 - [ ] Backups tested by restoring

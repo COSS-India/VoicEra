@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -9,13 +10,15 @@ import uuid
 import zipfile
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 
 from app.auth import get_current_user, verify_api_key
 from app.constants.campaign import DEFAULT_CAMPAIGN_RETRY_CONFIG
 from app.config import settings
 from app.database_init import ROLE_ADMIN, ROLE_SUPER_ADMIN
+from app.services.eventlog import Actor, Resource, Target, emit_many, request_context
+from app.services.eventlog.registry import CALL_TRANSCRIPT_DOWNLOADED
 from app.models.schemas import (
     CampaignAnalyticsResponse,
     CampaignCallStatusRequest,
@@ -698,12 +701,13 @@ def _call_filename(call_id: str) -> str:
     return f"calls/{cleaned or 'call'}.txt"
 
 
-async def _transcript_text(log: dict[str, Any] | None) -> str:
+async def _transcript_text(log: dict[str, Any] | None) -> tuple[str, str]:
+    """Saved transcript text and its object key, or ``("", "")`` when unavailable."""
     if not log:
-        return ""
+        return "", ""
     parsed = MinIOStorage.parse_minio_url(str(log.get("transcript_url") or ""))
     if not parsed:
-        return ""
+        return "", ""
     bucket, key = parsed
     try:
         data = await MinIOStorage().get_object_bytes(key, bucket_name=bucket)
@@ -713,8 +717,8 @@ async def _transcript_text(log: dict[str, Any] | None) -> str:
             log.get("call_id"),
             exc_info=True,
         )
-        return ""
-    return data.decode("utf-8", errors="replace").strip()
+        return "", ""
+    return data.decode("utf-8", errors="replace").strip(), key
 
 
 def _call_file(
@@ -737,10 +741,14 @@ async def _obd_report_zip(
     campaign_id: str,
     rows: list[dict[str, Any]],
     logs: dict[str, dict[str, Any]],
-) -> Response:
-    """Full CSV in ``csv/``, and one file per call in ``calls/``."""
+) -> tuple[Response, list[tuple[str, str]]]:
+    """Full CSV in ``csv/``, and one file per call in ``calls/``.
+
+    Also returns ``(call_id, object_key)`` for each bundled transcript.
+    """
     buffer = io.BytesIO()
     seen: set[str] = set()
+    transcripts: list[tuple[str, str]] = []
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
             f"csv/obd-report-{campaign_id}.csv",
@@ -756,27 +764,68 @@ async def _obd_report_zip(
             if name in seen:
                 continue
             seen.add(name)
+            transcript, object_key = await _transcript_text(log)
+            if transcript:
+                transcripts.append((system_id or sid, object_key))
             archive.writestr(
                 name,
                 _call_file(
                     sid,
                     system_id,
                     str(row.get("recording_url") or "").strip(),
-                    await _transcript_text(log),
+                    transcript,
                 ),
             )
-    return Response(
+    response = Response(
         content=buffer.getvalue(),
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="obd-report-{campaign_id}.zip"'
         },
     )
+    return response, transcripts
+
+
+def _record_transcript_downloads(
+    transcripts: list[tuple[str, str]],
+    *,
+    org_id: str,
+    campaign_id: str,
+    campaign: dict[str, Any],
+    agent_name_fallback: str | None,
+    actor: Actor,
+    context: dict[str, str],
+) -> None:
+    """Record each bundled transcript as a ``call.transcript.downloaded`` event.
+
+    Every call in a campaign shares its agent, which cannot be changed after the
+    campaign is created, so the agent's name is looked up once. If the agent was
+    deleted, the name saved on the bundled call logs is used.
+    """
+    if not transcripts:
+        return
+    related = [Resource("campaign", campaign_id, campaign.get("name"))]
+    agent_id = campaign.get("agent_id")
+    if agent_id:
+        name = agent_service.agent_name_for_audit(org_id, agent_id, agent_name_fallback)
+        related.append(Resource("agent", str(agent_id), name))
+    emit_many(
+        CALL_TRANSCRIPT_DOWNLOADED,
+        org_id=org_id,
+        actor=actor,
+        related=related,
+        context=context,
+        items=(
+            (Target("call", call_id), {"object_key": object_key})
+            for call_id, object_key in transcripts
+        ),
+    )
 
 
 @router.get("/{campaign_id}/obd-report", summary="Download an OBD campaign report")
 async def get_obd_report_route(
     campaign_id: str,
+    request: Request,
     report_format: str = Query(
         default="json",
         alias="format",
@@ -807,7 +856,21 @@ async def get_obd_report_route(
         logs = _call_logs_for_rows(org_id, rows)
         if report_format == "csv":
             return _obd_report_csv(campaign_id, rows, logs)
-        return await _obd_report_zip(campaign_id, rows, logs)
+        response, transcripts = await _obd_report_zip(campaign_id, rows, logs)
+        await asyncio.to_thread(
+            _record_transcript_downloads,
+            transcripts,
+            org_id=org_id,
+            campaign_id=campaign_id,
+            campaign=campaign,
+            agent_name_fallback=next(
+                (log["agent_name"] for log in logs.values() if log and log.get("agent_name")),
+                None,
+            ),
+            actor=Actor.from_user(current_user),
+            context=request_context(request),
+        )
+        return response
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     return ObdReportResponse(summary=summary, rows=rows)
 

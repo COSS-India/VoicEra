@@ -103,6 +103,22 @@ class Settings(BaseSettings):
         description="When true, API startup can spawn orchestrator (docker uses separate service)",
     )
 
+    EVENTLOG_RETENTION_DAYS: int = Field(
+        default=365,
+        ge=365,
+        description="Days to keep audit events (minimum 365)",
+    )
+    EVENTLOG_WRITE_TIMEOUT_MS: int = Field(
+        default=500,
+        gt=0,
+        description="Upper bound on one audit event write before falling back to stdout",
+    )
+    EVENTLOG_EXPORT_MAX_ROWS: int = Field(
+        default=100_000,
+        gt=0,
+        description="Maximum rows in one audit log CSV export",
+    )
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def coerce_debug(cls, value: Any) -> bool:

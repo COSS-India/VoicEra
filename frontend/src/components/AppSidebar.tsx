@@ -11,6 +11,7 @@ import {
   Layers,
   PlayCircle,
   Plug,
+  ScrollText,
   TrendingUp,
   User,
   Users,
@@ -18,6 +19,7 @@ import {
 import { NavRail, type NavGroup } from "@/components/ui/NavRail";
 import { ProfileMenu } from "@/components/ui/ProfileMenu";
 import { useAuth } from "@/components/AuthProvider";
+import { isOrgAdmin } from "@/lib/auth-storage";
 import { useWalkthrough } from "@/components/walkthrough";
 
 const iconClass = "size-[17px] shrink-0";
@@ -44,6 +46,7 @@ export function AppSidebar() {
   }
 
   const isRoute = (path: string) => pathname === path;
+  const isAdmin = isOrgAdmin(session);
 
   const groups: NavGroup[] = [
     {
@@ -126,6 +129,17 @@ export function AppSidebar() {
           onClick: () => router.push("/integrations"),
           tourId: "nav-integrations",
         },
+        ...(isAdmin
+          ? [
+              {
+                key: "audit-log",
+                label: "Audit log",
+                icon: <ScrollText className={iconClass} strokeWidth={1.8} />,
+                active: isRoute("/audit-log"),
+                onClick: () => router.push("/audit-log"),
+              },
+            ]
+          : []),
       ],
     },
   ];

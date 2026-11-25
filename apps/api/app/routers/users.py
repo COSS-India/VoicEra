@@ -6,7 +6,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.auth import create_access_token, get_current_user, verify_api_key
+from app.auth import (
+    BOT_SERVICE_EMAIL,
+    create_access_token,
+    get_current_user,
+    verify_api_key,
+)
 from app.database_init import ROLE_ADMIN
 from app.models.schemas import (
     BotTokenRequest,
@@ -23,9 +28,6 @@ from app.models.schemas import (
 from app.services import org_service, user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-# Synthetic subject for service JWTs minted via INTERNAL_API_KEY.
-BOT_SERVICE_EMAIL = "bot@voicera.internal"
 
 
 @router.post("/signup", response_model=UserLoginResponse, status_code=status.HTTP_201_CREATED)

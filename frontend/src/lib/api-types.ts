@@ -517,3 +517,37 @@ export interface CallAnalyticsResponse {
   agent_performance: AgentCallCount[];
   model_usage: ModelUsageSummary;
 }
+
+/** A resource an audit event concerns; `name` is as it was when the event was recorded. */
+export interface AuditResource {
+  type: string;
+  id: string;
+  name?: string | null;
+}
+
+/** One audit log entry (`GET /events`). */
+export interface AuditEvent {
+  id: string;
+  v: number;
+  org_id: string;
+  type: string;
+  ts: string;
+  source: string;
+  actor: { type: "user" | "service" | "system"; id: string; role?: string | null };
+  target?: AuditResource | null;
+  /** Other resources the event concerns, e.g. the call's agent and campaign. */
+  related: AuditResource[];
+  outcome: "success" | "failure";
+  context: Record<string, string>;
+  data: Record<string, unknown>;
+}
+
+export interface AuditEventListResponse {
+  events: AuditEvent[];
+  next_cursor: string | null;
+}
+
+export interface AuditEventType {
+  name: string;
+  description: string;
+}

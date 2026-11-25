@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import timezone as dt_timezone
 from urllib.parse import urlparse
 
-from arq import create_pool
+from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
 
 from app.config import settings
 from app.tasks.campaign_tasks import process_campaign_batch, sync_campaign_source
+from app.tasks.eventlog_tasks import purge_events
 from app.tasks.function_names import FunctionNames
 
 parsed_url = urlparse(settings.REDIS_URL)
@@ -26,6 +28,9 @@ REDIS_SETTINGS = RedisSettings(
 
 class WorkerSettings:
     functions = [sync_campaign_source, process_campaign_batch]
+    # Daily at 21:30 UTC (03:00 IST).
+    cron_jobs = [cron(purge_events, hour={21}, minute={30}, unique=True, timeout=3600)]
+    timezone = dt_timezone.utc
     redis_settings = REDIS_SETTINGS
     max_jobs = 10
 
