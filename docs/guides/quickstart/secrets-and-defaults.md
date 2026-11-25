@@ -59,7 +59,7 @@ Changing database credentials after the volume exists does not update the Postgr
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Token lifetime |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `120` | Token lifetime |
 | `SAMPLE_RATE` | `8000` | Telephony audio |
 | `WEBSOCKET_SAMPLE_RATE` | `16000` | Browser audio |
 | `CAMPAIGN_BATCH_SIZE` | `10` | Calls per campaign batch |
