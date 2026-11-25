@@ -3,7 +3,7 @@ title: License
 description: VoicEra is distributed under the Apache License 2.0.
 ---
 
-VoicEra is open source under the **Apache License 2.0**, Copyright (c) 2026 COSS India. The full license text is reproduced below — you do not need to open any other file or page to read it. It also lives at [`LICENSE`](https://github.com/COSS-India/voicera/blob/main/LICENSE) in the repository root, which is the version that governs in case this copy and that one ever drift.
+VoicEra is open source under the **Apache License 2.0**, Copyright (c) 2026 IIIT-Bangalore. The full license text is reproduced below — you do not need to open any other file or page to read it. It also lives at [`LICENSE`](https://github.com/COSS-India/voicera/blob/main/LICENSE) in the repository root, which is the version that governs in case this copy and that one ever drift.
 
 ## What the Apache License 2.0 permits
 
@@ -30,7 +30,7 @@ Do not describe VoicEra as proprietary or "all rights reserved" anywhere. The re
 If you add a new source file and want to carry the standard header, use this (this is the exact boilerplate from the license's own appendix — no need to look it up elsewhere):
 
 ```
-Copyright 2026 COSS India
+Copyright 2026 IIIT-Bangalore
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -261,7 +261,7 @@ Contributions are accepted under the same Apache 2.0 terms. By opening a pull re
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright 2026 COSS India
+   Copyright 2026 IIIT-Bangalore
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
