@@ -6,18 +6,18 @@
 vllm==0.32.0
 torch==2.13.0
 torchaudio==2.11.0
-transformers==5.16.1
-triton==3.7.1
+transformers==5.23.0
+triton==3.9.0
 
 # Audio: SNAC is the codec Orpheus emits codes for; soundfile (libsndfile) does
 # the mp3/flac/opus encoding for OpenAI response formats.
 snac==1.2.1
 soundfile==0.14.0
-numpy==2.3.5
+numpy==2.5.5
 
 # Service
-fastapi==0.136.3
-uvicorn[standard]==0.51.0   # [standard] adds uvloop + httptools: a measurably faster event loop
-pydantic==2.13.4
+fastapi==0.164.0
+uvicorn[standard]==0.54.0   # [standard] adds uvloop + httptools: a measurably faster event loop
+pydantic==2.14.3
 PyYAML==6.0.3
 websockets==16.1.1
