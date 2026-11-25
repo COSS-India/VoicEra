@@ -6,7 +6,7 @@
 #
 # To add another vLLM model, copy this folder, change MODEL_ID, SERVED_NAME and
 # EXTRA_ARGS, and set LLM_MODEL to the new folder name. Nothing else moves.
-FROM vllm/vllm-openai:v0.27.1
+FROM vllm/vllm-openai:v0.34.0
 
 # SERVED_NAME is what clients must put in the request's "model" field -- vLLM
 # rejects anything else. Pinning it to the catalogue id means the voice server
