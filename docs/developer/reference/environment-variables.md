@@ -59,7 +59,7 @@ Read by `apps/api/app/config.py` (a pydantic `BaseSettings`), plus the ARQ worke
 | `SECRET_KEY` | none | **Yes** | JWT signing key. Compose declares it `${SECRET_KEY:?...}` and refuses to start without it. |
 | `INTERNAL_API_KEY` | empty | Effectively yes | Shared key for `X-API-Key` service routes. When empty, every such route returns `500`. |
 | `PROVIDER_AUTH_ENCRYPTION_KEY` | empty | Effectively yes | Fernet key encrypting `ProviderAuth` credential blobs. |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | No | JWT lifetime. Not present in `.env.example`. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `120` | No | JWT lifetime. Not present in `.env.example`. |
 | `JWT_ALGORITHM` | `HS256` | No | JWT signing algorithm. Not present in `.env.example`. |
 | `MAILTRAP_API_TOKEN` | empty | No | Mailtrap token for password-reset email. Empty disables the mail path. |
 | `MAILTRAP_FROM_EMAIL` | `noreply@voicera.com` | No | Sender address on reset emails. |
