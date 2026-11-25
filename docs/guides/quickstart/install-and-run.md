@@ -131,7 +131,7 @@ An empty line means signup failed — check the error printed above. Otherwise, 
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/users/me
 ```
 
-Tokens expire after 30 minutes by default.
+Tokens expire after 120 minutes by default.
 
 ## Logs
 
