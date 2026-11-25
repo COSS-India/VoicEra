@@ -110,7 +110,7 @@ export async function exportCampaignTranscriptsZip(
   const candidates = allRuns.filter((r) => r.call_id && hasArtifactUrl(r.transcript_url));
   const entries = await collectZipEntries(candidates, async (run) => {
     const callId = String(run.call_id);
-    const text = await fetchCallTranscriptText(callId);
+    const text = await fetchCallTranscriptText(callId, { mode: "download" });
     return { path: `transcripts/${callId}.txt`, data: text };
   });
 
@@ -147,7 +147,7 @@ export async function exportCampaignRecordingsZip(
     callWithRecording += 1;
     for (const kind of kinds) {
       try {
-        const blob = await fetchCallRecordingBlob(callId, kind);
+        const blob = await fetchCallRecordingBlob(callId, kind, { mode: "download" });
         const folder = kind === "provider" ? "provider_recordings" : "recordings";
         entries.push({
           path: `${folder}/${callId}.${audioExtension(blob.type)}`,
@@ -179,7 +179,7 @@ export async function downloadCallRecording(
   callId: string,
   kind: "system" | "provider" = "system",
 ): Promise<void> {
-  const blob = await fetchCallRecordingBlob(callId, kind);
+  const blob = await fetchCallRecordingBlob(callId, kind, { mode: "download" });
   const type = blob.type?.trim() ? blob.type : "audio/wav";
   const suffix = kind === "provider" ? "-provider" : "";
   downloadBlob(
@@ -190,6 +190,6 @@ export async function downloadCallRecording(
 }
 
 export async function downloadCallTranscript(callId: string): Promise<void> {
-  const text = await fetchCallTranscriptText(callId);
+  const text = await fetchCallTranscriptText(callId, { mode: "download" });
   downloadBlob(text, "text/plain;charset=utf-8", `${callId}-transcript.txt`);
 }

@@ -39,7 +39,7 @@ DEFAULT_TTS_VOICE = "Ira"
 
 # Vendor language code -> (VoicEra canonical id, the accent word the model was
 # shown for it). Vendor codes and spellings are taken from the checkpoint's own
-# benchmarks/wer-reported-scores.json, so `or` -> `od` exactly as Orpheus maps
+# benchmarks/wer-reported-scores.json, so `or` -> `or` exactly as Orpheus maps
 # it, and the accent words are the ones used in samples/showcase/manifest.json
 # ("Hindi accent", "Telugu accent", "Indian English accent").
 #
@@ -68,7 +68,7 @@ _TTS_LANGS: dict[str, tuple[str, str]] = {
     "mni": ("mni", "Manipuri"),
     "mr": ("mr", "Marathi"),
     "ne": ("ne", "Nepali"),
-    "or": ("od", "Odia"),
+    "or": ("or", "Odia"),
     "pa": ("pa", "Punjabi"),
     "sa": ("sa", "Sanskrit"),
     "sat": ("sat", "Santali"),

@@ -8,10 +8,12 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pymongo.errors import PyMongoError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
+from app.services.eventlog import store as eventlog_store
 from app.routers import campaign as campaign_router
 
 
@@ -31,6 +33,8 @@ def _campaign() -> dict[str, Any]:
     return {
         "campaign_id": "camp-1",
         "org_id": "org-1",
+        "name": "Diwali OBD",
+        "agent_id": "agent-1",
         "telephony_provider": "vi",
         "from_number": "1600413975",
         "started_at": "2026-10-27T08:00:00+00:00",
@@ -120,6 +124,8 @@ def test_obd_report_and_csv(client: TestClient) -> None:
 
 
 def test_obd_report_zip_includes_saved_transcript(client: TestClient) -> None:
+    recorded: list[dict[str, Any]] = []
+
     def lookup(org_id: str, provider_call_sid: str) -> dict[str, str] | None:
         assert org_id == "org-1"
         if provider_call_sid != "40199559":
@@ -146,6 +152,11 @@ def test_obd_report_zip_includes_saved_transcript(client: TestClient) -> None:
             "app.routers.campaign.MinIOStorage.get_object_bytes",
             new=AsyncMock(return_value=b"agent: hello"),
         ),
+        patch.object(eventlog_store, "insert_many", side_effect=recorded.extend),
+        patch(
+            "app.routers.campaign.agent_service.get_agent_name",
+            return_value="Support Bot",
+        ),
     ):
         response = client.get("/api/v1/campaign/camp-1/obd-report?format=zip")
 
@@ -164,6 +175,33 @@ def test_obd_report_zip_includes_saved_transcript(client: TestClient) -> None:
         assert "system_call_id: 6dcd41e3-a750-4ba2-9cbd-f912edaccec1" in body
         assert "recording_url: https://cts.example/rec" in body
         assert "agent: hello" in body
+
+    # Every transcript bundled into the ZIP is recorded as a transcript download.
+    [event] = recorded
+    assert event["type"] == "call.transcript.downloaded"
+    assert event["org_id"] == "org-1"
+    assert event["outcome"] == "success"
+    assert event["actor"]["id"] == "admin@example.com"
+    assert event["target"] == {"type": "call", "id": "6dcd41e3-a750-4ba2-9cbd-f912edaccec1"}
+    assert event["related"] == [
+        {"type": "campaign", "id": "camp-1", "name": "Diwali OBD"},
+        {"type": "agent", "id": "agent-1", "name": "Support Bot"},
+    ]
+    assert event["data"] == {"object_key": "org-1/call-1/transcript.txt"}
+
+
+def test_obd_report_zip_records_nothing_without_transcripts(client: TestClient) -> None:
+    recorded: list[dict[str, Any]] = []
+    with (
+        patch("app.routers.campaign.repo.get_campaign_for_org", return_value=_campaign()),
+        patch("app.routers.campaign.load_telephony_client", return_value=_ObdClient()),
+        patch("app.routers.campaign.get_call_log_by_provider_sid", return_value=None),
+        patch.object(eventlog_store, "insert_many", side_effect=recorded.extend),
+    ):
+        response = client.get("/api/v1/campaign/camp-1/obd-report?format=zip")
+
+    assert response.status_code == 200
+    assert recorded == []
 
 
 def test_obd_status(client: TestClient) -> None:
@@ -222,3 +260,41 @@ def test_obd_report_409_when_credentials_missing(client: TestClient) -> None:
         response = client.get("/api/v1/campaign/camp-1/obd-report")
     assert response.status_code == 409
     assert response.json()["detail"] == "Pull API credentials are not configured"
+
+
+@pytest.mark.parametrize(
+    "agent_name",
+    [
+        {"return_value": None},  # agent deleted
+        {"side_effect": PyMongoError("agents unavailable")},
+    ],
+)
+def test_obd_report_zip_falls_back_to_call_log_agent_name(
+    client: TestClient, agent_name: dict[str, Any]
+) -> None:
+    """A deleted agent, or a failed name lookup, neither fails the download nor drops events."""
+    recorded: list[dict[str, Any]] = []
+    log = {
+        "call_id": "6dcd41e3-a750-4ba2-9cbd-f912edaccec1",
+        "agent_name": "Old Bot",
+        "transcript_url": "minio://voicera-calls/org-1/call-1/transcript.txt",
+    }
+    with (
+        patch("app.routers.campaign.repo.get_campaign_for_org", return_value=_campaign()),
+        patch("app.routers.campaign.load_telephony_client", return_value=_ObdClient()),
+        patch(
+            "app.routers.campaign.get_call_log_by_provider_sid",
+            side_effect=lambda org_id, sid: log if sid == "40199559" else None,
+        ),
+        patch(
+            "app.routers.campaign.MinIOStorage.get_object_bytes",
+            new=AsyncMock(return_value=b"agent: hello"),
+        ),
+        patch.object(eventlog_store, "insert_many", side_effect=recorded.extend),
+        patch("app.routers.campaign.agent_service.get_agent_name", **agent_name),
+    ):
+        response = client.get("/api/v1/campaign/camp-1/obd-report?format=zip")
+
+    assert response.status_code == 200
+    [event] = recorded
+    assert {"type": "agent", "id": "agent-1", "name": "Old Bot"} in event["related"]

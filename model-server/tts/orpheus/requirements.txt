@@ -3,11 +3,11 @@
 #
 # vllm brings torch, triton and the nvidia CUDA toolkit wheels with it, so the
 # CUDA stack is not listed here — it is pinned in constraints.txt.
-vllm==0.25.1
-torch==2.11.0
+vllm==0.32.0
+torch==2.13.0
 torchaudio==2.11.0
-transformers==5.14.1
-triton==3.6.0
+transformers==5.16.1
+triton==3.7.1
 
 # Audio: SNAC is the codec Orpheus emits codes for; soundfile (libsndfile) does
 # the mp3/flac/opus encoding for OpenAI response formats.

@@ -18,7 +18,7 @@ class MinIOStorage:
         self.client = Minio(
             os.getenv("MINIO_ENDPOINT", "localhost:9000"),
             access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-            secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin123"),
+            secret_key=os.getenv("MINIO_SECRET_KEY", ""),
             secure=os.getenv("MINIO_SECURE", "false").lower() in ("true", "1", "yes"),
         )
         self.default_bucket = os.getenv("MINIO_BUCKET", "voicera-calls")
@@ -92,6 +92,21 @@ class MinIOStorage:
         except S3Error as exc:
             if exc.code == "NoSuchKey":
                 return False
+            raise
+
+    def remove_object(
+        self,
+        object_key: str,
+        *,
+        bucket_name: str | None = None,
+    ) -> None:
+        """Delete one object. Missing keys are ignored (idempotent)."""
+        bucket = bucket_name or self.default_bucket
+        try:
+            self.client.remove_object(bucket, object_key)
+        except S3Error as exc:
+            if exc.code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket"}:
+                return
             raise
 
     @staticmethod

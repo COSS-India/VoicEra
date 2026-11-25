@@ -104,7 +104,7 @@ class KenpathDlsLLMService(KenpathCallEndingMixin, LLMService):
             return
         if wire == "mr":
             logger.info("Kenpath DLS received Marathi language code (<lang:mr>)")
-        elif wire in ("bhb", "bh"):
+        elif wire == "bhb":
             logger.info(
                 "Kenpath DLS received Bhili language code (<lang:{}>)",
                 wire,

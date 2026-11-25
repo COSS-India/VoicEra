@@ -183,7 +183,7 @@ Five modules. `test_provider_schemas.py` tests the registry as a whole rather th
 
 ### apps/telephony
 
-`test_registry.py` asserts the registered set is exactly `{"vobiz", "plivo"}` and that the lazy serializer load works. `test_xml.py` pins the answer XML per sample rate — the string most likely to be silently wrong, because malformed XML produces a call that connects and then goes quiet.
+`test_registry.py` asserts the registered set includes the shipped telephony providers (`vobiz`, `plivo`, `vi`, `go2market`) and that the lazy serializer load works. `test_xml.py` pins the answer XML per sample rate — the string most likely to be silently wrong, because malformed XML produces a call that connects and then goes quiet.
 
 <Note>
 Two tests in `test_serializers.py` currently **fail**: `test_create_frame_serializer_known_providers[plivo]` and `[Plivo]`, with `ValueError: auto_hang_up is enabled but missing required parameters: auth_id, auth_token`.

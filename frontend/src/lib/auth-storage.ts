@@ -12,6 +12,11 @@ export interface AuthSession {
   role: string;
 }
 
+/** Admin or super admin of the active org. The API re-checks the role server-side. */
+export function isOrgAdmin(session: Pick<AuthSession, "role"> | null | undefined): boolean {
+  return session?.role === "admin" || session?.role === "super_admin";
+}
+
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);

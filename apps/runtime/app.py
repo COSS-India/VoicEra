@@ -3,15 +3,28 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from loguru import logger
 
 from apps.runtime.routes import agent, health, plivo_telephony, telephony, vi_telephony
+from apps.runtime.services.storage.object_storage import sse_mode, verify_sse_support
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    logger.info("Object storage SSE mode={}", sse_mode())
+    await verify_sse_support()
+    yield
+
 
 app = FastAPI(
     title="Voicera Runtime",
     description="Telephony answer webhook + Pipecat WebSocket pipeline",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.include_router(health.router)
@@ -19,6 +32,24 @@ app.include_router(telephony.router)
 app.include_router(agent.router)
 app.include_router(vi_telephony.router)
 app.include_router(plivo_telephony.router)
+
+
+def _configure_logging() -> None:
+    """Default the runtime log level to INFO (loguru's own default is DEBUG).
+
+    At DEBUG, Pipecat logs the assistant's text ("Generating TTS [...]"), which
+    PII redaction does not cover.
+    """
+    import sys
+
+    from loguru import logger
+
+    level = os.getenv("RUNTIME_LOG_LEVEL", "INFO").strip().upper() or "INFO"
+    logger.remove()
+    logger.add(sys.stderr, level=level)
+
+
+_configure_logging()
 
 
 def main() -> None:

@@ -71,7 +71,7 @@ class SmallestSTTConfig(SmallestAuth, SmallestSTTSettings, BaseSTTConfig):
     )
     language: str = Field(
         default="en",
-        description="ISO 639-1 language code. Odia is vendor code 'or' (canonical 'od').",
+        description="ISO 639-1 language code. Odia is vendor code 'or' (canonical "or").",
         json_schema_extra=language_schema_extra(
             languages_map(STT_CAPABILITIES),
         ),

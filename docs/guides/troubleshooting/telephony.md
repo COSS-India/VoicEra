@@ -141,9 +141,22 @@ Inbound registration is idempotent — the same SID twice returns the existing r
 `call_response: "answered"` is terminal, and `end_time_utc` is write-once. Later patches to status or response are dropped deliberately, so a late hangup webhook cannot rewrite a completed call. If a call looks "stuck" at answered, this is why.
 </Note>
 
+## Go2Market: WebSocket closes with `Expected start event`
+
+Go2Market sends `connected` before `start`. The current runtime skips `connected` and waits for `start`. If you still see `1008 Expected start event`, the process is likely an older build that treated the first message as must-be-`start` — rebuild/restart the runtime from a branch that includes `recv_media_stream_start`.
+
+## Go2Market: DID active but inbound drops
+
+List DID mappings (`GET …/did-websocket/ukey/{ukey}`). Confirm the active row's `did` matches the 10-digit service number (not a leading-`0` duplicate) and `websocketUrl` is the full `wss://…/agent/{org}/{agent}` path. Deactivate obsolete rows. See [Go To Market](../../developer/services/go2market).
+
+## Go2Market: Outbound accepted but no ring / no WSS
+
+`CreateOBDCampaignPost` returning `{"status":"success","value":"accepted"}` only means the campaign was accepted. Check `ivrtemplateid`, `serviceno`, and that the WSS host is reachable from the carrier. Logs show the exact payload under `Go2Market OBD dial:`.
+
 ## Related
 
 * [Telephony model](../concepts/telephony-model)
+* [Go To Market](../../developer/services/go2market)
 * [Public voice URLs](../deployment/public-voice-urls)
 * [Calls and call artifacts](../concepts/calls)
 * [Voice and audio](voice-and-audio)

@@ -25,6 +25,7 @@ from pipecat.services.stt_service import STTService
 from pipecat.utils.time import time_now_iso8601
 
 from apps.providers.runtime_language import update_stt_settings_with_language
+from apps.runtime.services.privacy.redaction import redact_if_enabled
 from .catalog import DEFAULT_SOCKET_URL, DEFAULT_SOCKETIO_SERVICE_ID
 from .stt import VADProcessor
 
@@ -289,12 +290,12 @@ class BhashiniSocketIOSTTService(STTService):
                         "first_transcript_ms",
                         (now - self._speech_started_at) * 1000.0,
                         stage="first_transcript",
-                        details={"text_preview": text[:80]},
+                        details={"text_preview": redact_if_enabled(text)[:80]},
                     )
 
             is_interim = bool(streaming_status.get("isIntermediateResult"))
             if is_interim:
-                logger.debug("Bhashini Socket.IO interim transcript: {}", text)
+                logger.debug("Bhashini Socket.IO interim transcript: {}", redact_if_enabled(text))
                 await self.push_frame(
                     InterimTranscriptionFrame(
                         text=text,
@@ -303,13 +304,13 @@ class BhashiniSocketIOSTTService(STTService):
                     )
                 )
             else:
-                logger.info("Bhashini Socket.IO final transcript: {}", text)
+                logger.info("Bhashini Socket.IO final transcript: {}", redact_if_enabled(text))
                 if self._speech_started_at is not None:
                     await self._emit_latency_metric(
                         "final_transcript_ms",
                         (now - self._speech_started_at) * 1000.0,
                         stage="final_transcript",
-                        details={"text_preview": text[:80]},
+                        details={"text_preview": redact_if_enabled(text)[:80]},
                     )
                 await self.stop_processing_metrics()
                 await self.push_frame(

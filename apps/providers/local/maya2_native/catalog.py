@@ -84,7 +84,7 @@ TTS_VOICES: tuple[str, ...] = tuple(VOICE_LANGUAGES)
 DEFAULT_TTS_VOICE = "Ahana"
 
 # Vendor language code -> VoicEra canonical id. Odia is ``or`` on the wire /
-# ``od`` in VoicEra. Exactly the model's twelve (upstream maya3.server.LANGS).
+# ``or`` in VoicEra. Exactly the model's twelve (upstream maya3.server.LANGS).
 _TTS_LANGS: dict[str, str] = {
     "as": "as",
     "bn": "bn",
@@ -94,7 +94,7 @@ _TTS_LANGS: dict[str, str] = {
     "kn": "kn",
     "ml": "ml",
     "mr": "mr",
-    "or": "od",
+    "or": "or",
     "pa": "pa",
     "ta": "ta",
     "te": "te",
@@ -142,7 +142,7 @@ TTS_CAPABILITIES: dict[str, dict] = {
 
 
 def resolve_wire_language(canonical: str) -> str:
-    """VoicEra canonical id -> the model's code (``od`` -> ``or``); wire codes pass through."""
+    """VoicEra canonical id -> the model's code (``or`` -> ``or``); wire codes pass through."""
     code = (canonical or "").strip()
     for vendor, canon in _TTS_LANGS.items():
         if code in (canon, vendor):

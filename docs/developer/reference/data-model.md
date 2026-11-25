@@ -9,7 +9,7 @@ Collection names and indexes come from `apps/api/app/database_init.py`. Document
 
 `initialize_database()` runs on every API startup and is idempotent. It creates all collections and their indexes if they are missing and leaves existing data alone. There is no migration system — a schema change is a code change plus whatever backfill you write yourself.
 
-There are twelve collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `PhoneNumberEvents`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, and `QueuedRuns`.
+There are thirteen collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `PhoneNumberEvents`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, `QueuedRuns`, and `Events`.
 
 ## Relationships
 
@@ -21,6 +21,7 @@ erDiagram
   Organizations ||--o{ Agents : "owns"
   Organizations ||--o{ PhoneNumbers : "owns"
   Organizations ||--o{ PhoneNumberEvents : "logs"
+  Organizations ||--o{ Events : "audits"
   Organizations ||--o{ KnowledgeDocuments : "owns"
   Organizations ||--o{ CallLogs : "owns"
   Organizations ||--o{ Campaigns : "owns"
@@ -152,6 +153,26 @@ Append-only activity log for phone-number import, attach, detach, and remove. Su
 | `agent_name` | string or null | Snapshot of the agent name at event time. |
 | `by_email` | string or null | Member who performed the action. |
 | `at` | string | UTC ISO 8601. |
+
+## Events
+
+Append-only audit log of access to call recordings and transcripts, and of exports of the log itself. Written only by `app/services/eventlog` (`emit()`, or `emit_many()` for one action on many targets, which inserts in unordered batches of 100). Read through [`/api/v1/events`](../../api-reference/events). A daily retention purge removes events older than `EVENTLOG_RETENTION_DAYS` (minimum 365).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | ObjectId | Generated at emit time. Its timestamp orders events and is the paging cursor and retention key. |
+| `v` | int | Envelope version, `1`. Fields are only ever added. |
+| `org_id` | string | Owning organisation. |
+| `type` | string | Registered name, for example `call.transcript.downloaded`. |
+| `ts` | date | UTC, millisecond precision. Display only; queries use `_id`. |
+| `source` | string | `api`. |
+| `actor` | object | `type` (`user` or `service`), `id` (email), `role` (from the token). |
+| `target` | object or absent | `type`, `id`, optional `name` (each up to 256 characters); for artifact access, the call. |
+| `related` | array or absent | Up to 8 other resources the event concerns, shaped like `target`; for artifact access, the call's agent and campaign. `name` is a snapshot at event time, so events stay readable after a rename or delete. |
+| `resource_keys` | array or absent | `"type:id"` of the target and each related resource. Index helper for the `resource` filter; not returned by the API. |
+| `outcome` | string | `success` or `failure`. |
+| `context` | object or absent | `ip`, `user_agent` (each up to 512 characters). |
+| `data` | object or absent | Type-specific and not indexed. Does not contain transcript text, audio, or secrets. |
 
 ## CallLogs
 
@@ -341,8 +362,15 @@ Created by `initialize_database()` on every API startup. Failures on already-exi
 | QueuedRuns | `campaign_state_scheduled_index` | `campaign_id`, `state`, `scheduled_for` | No |
 | QueuedRuns | `campaign_source_retry_unique` | `campaign_id`, `source_uuid`, `retry_count` | Yes |
 | QueuedRuns | `call_id_index` | `call_id` (sparse) | No |
+| Events | `org_id_desc` | `org_id`, `_id` desc (ordered) | No |
+| Events | `org_type_id` | `org_id`, `type`, `_id` desc (ordered) | No |
+| Events | `org_actor_id` | `org_id`, `actor.id`, `_id` desc (ordered) | No |
+| Events | `org_target_id` | `org_id`, `target.id`, `_id` desc (ordered) | No |
+| Events | `org_resource_keys` | `org_id`, `resource_keys` (multikey), `_id` desc (ordered) | No |
 
 Every organisation-scoped read is served by an `org_id` prefix, which is what keeps tenant isolation cheap rather than a full scan.
+
+The `Events` indexes are created with the DocumentDB option `enableOrderedIndex: true`. With default settings, DocumentDB uses a plain compound index only for equality on its fields. Ordered indexes also serve the `_id` range each audit-log page reads, so a page does not sort the organisation's whole history.
 
 ## Related
 

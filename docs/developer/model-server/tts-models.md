@@ -170,7 +170,7 @@ The sidecar image is **built, not pulled**. `lmsysorg/sglang-omni:dev` has been 
 | --- | --- | --- |
 | `X-Audio-Format` | absent | on every speech response |
 | default `response_format` | `wav` | `pcm` |
-| `language: "od"` | 400 | Odia |
+| `language: "od"` (legacy) | 400 | Odia as `or` (VoicEra canonical; `od` still aliased) |
 | `voice: "alloy"` or none | `plain`, a random speaker per request | `MAYA_DEFAULT_VOICE` (Ahana) |
 | `instructions`, `speed ≠ 1` | ignored / 400 | ignored, named in `X-Instructions-Ignored` / `X-Speed-Ignored` |
 | `POST/DELETE /v1/voices` | open | 403 unless `MAYA_VOICE_CLONING=true` |

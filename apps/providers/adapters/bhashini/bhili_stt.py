@@ -27,6 +27,7 @@ from pipecat.services.stt_service import STTService
 from pipecat.utils.time import time_now_iso8601
 
 from apps.providers.runtime_language import update_stt_settings_with_language
+from apps.runtime.services.privacy.redaction import redact_if_enabled
 from .catalog import DEFAULT_BHILI_MODEL, DEFAULT_GRPC_URL
 from .stt import VADProcessor
 
@@ -42,7 +43,7 @@ except ModuleNotFoundError:
     _TRITON_AVAILABLE = False
 
 
-# Triton LANG_ID wire code (canonical Voicera id is ``bh``).
+# Triton LANG_ID wire code (canonical VoicEra id is ``bhb``).
 DEFAULT_LANG = "bhb"
 
 
@@ -352,17 +353,17 @@ class BhashiniBhiliSTTService(STTService):
                             "first_transcript_ms",
                             (now - self._speech_started_at) * 1000.0,
                             stage="first_transcript",
-                            details={"text_preview": transcript[:80]},
+                            details={"text_preview": redact_if_enabled(transcript)[:80]},
                         )
 
                 if closed:
-                    logger.info("Bhashini Bhili final transcript: {}", transcript)
+                    logger.info("Bhashini Bhili final transcript: {}", redact_if_enabled(transcript))
                     if self._speech_started_at is not None:
                         await self._emit_latency_metric(
                             "final_transcript_ms",
                             (now - self._speech_started_at) * 1000.0,
                             stage="final_transcript",
-                            details={"text_preview": transcript[:80]},
+                            details={"text_preview": redact_if_enabled(transcript)[:80]},
                         )
                     if self._final_transcript_event:
                         self._final_transcript_event.set()
@@ -375,7 +376,7 @@ class BhashiniBhiliSTTService(STTService):
                         )
                     )
                 else:
-                    logger.debug("Bhashini Bhili interim transcript: {}", transcript)
+                    logger.debug("Bhashini Bhili interim transcript: {}", redact_if_enabled(transcript))
                     await self.push_frame(
                         InterimTranscriptionFrame(
                             text=transcript,

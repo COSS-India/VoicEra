@@ -21,12 +21,13 @@ How VoicEra is put together, and how to change it. If you want to *use* the API 
 
 Ten containers, five Python packages. `apps/api` alone runs as three containers off one image.
 
-* [**Overview**](/docs/developer/services) — containers, ports, start-up order, who talks to whom
-* [**API**](/docs/developer/services/api) — routers, service layer, persistence, lifecycle
-* [**Runtime**](/docs/developer/services/runtime) — the answer webhook and the Pipecat pipeline
-* [**Providers**](/docs/developer/services/providers) — the registry that makes vendors pluggable
-* [**Telephony**](/docs/developer/services/telephony) — carrier clients, answer XML, frame serializers
-* [**Workers and orchestrator**](/docs/developer/services/workers) — ARQ jobs and campaign scheduling
+* [**Overview**](services/index) — containers, ports, start-up order, who talks to whom
+* [**API**](services/api) — routers, service layer, persistence, lifecycle
+* [**Runtime**](services/runtime) — the answer webhook and the Pipecat pipeline
+* [**Providers**](services/providers) — the registry that makes vendors pluggable
+* [**Telephony**](services/telephony) — carrier clients, answer XML, frame serializers
+* [**Go To Market**](services/go2market) — OBD outbound, DID-WebSocket, µ-law streaming
+* [**Workers and orchestrator**](services/workers) — ARQ jobs and campaign scheduling
 
 ## Model server
 

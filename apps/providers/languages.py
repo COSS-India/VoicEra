@@ -1,9 +1,11 @@
 """Canonical language ids used across all providers.
 
 Keys are what we store in the DB and what the user selects in the UI.
-They are stable, provider-agnostic ids.
+They are BCP 47 language tags (plus the project-specific ``multi`` auto-detect
+id). Odia is ``or`` and Bhili is ``bhb`` — not the legacy non-standard ids
+``od`` / ``bh``.
 
-Each vendor folder maps these ids to its own codes in ``catalog.py``
+Each vendor folder maps these ids to its own wire codes in ``catalog.py``
 (``STT_CAPABILITIES`` / ``TTS_CAPABILITIES``).
 """
 
@@ -27,7 +29,7 @@ LANGUAGES: dict[str, str] = {
     "ml": "Malayalam",
     "mr": "Marathi",
     "pa": "Punjabi",
-    "od": "Odia",
+    "or": "Odia",
     "as": "Assamese",
     "ur": "Urdu",
     "ne": "Nepali",
@@ -40,7 +42,7 @@ LANGUAGES: dict[str, str] = {
     "mni": "Manipuri",
     "sat": "Santali",
     "sd": "Sindhi",
-    "bh": "Bhili",
+    "bhb": "Bhili",
     "bho": "Bhojpuri",
     "bgc": "Haryanvi",
     "hne": "Chhattisgarhi",

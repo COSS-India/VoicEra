@@ -81,7 +81,7 @@ Credentials are PostgreSQL users. FerretDB negotiates SCRAM against them, which 
 
 ```bash
 MONGODB_USER=admin
-MONGODB_PASSWORD=admin123
+MONGODB_PASSWORD=<generated on first run>
 MONGODB_AUTH_SOURCE=          # empty for FerretDB
 # MONGODB_AUTH_MECHANISM=SCRAM-SHA-256   # usually omit; let the driver negotiate
 ```
@@ -89,7 +89,7 @@ MONGODB_AUTH_SOURCE=          # empty for FerretDB
 `apps/api/app/config.py` builds the URI and appends `authSource` or `authMechanism` **only when they are non-empty**:
 
 ```text
-mongodb://admin:admin123@mongodb:27017/voicera
+mongodb://admin:<MONGODB_PASSWORD>@mongodb:27017/voicera
 ```
 
 <Note>
@@ -103,7 +103,7 @@ The same values become `POSTGRES_USER` and `POSTGRES_PASSWORD`, so one credentia
 <Tabs>
 <Tab title="mongosh">
 ```bash
-mongosh "mongodb://admin:admin123@localhost:27018/voicera"
+mongosh "mongodb://admin:<MONGODB_PASSWORD>@localhost:27018/voicera"
 ```
 
 ```javascript
@@ -125,7 +125,7 @@ Documents are stored in DocumentDB's internal schema — readable, but not a sub
 Connection string:
 
 ```text
-mongodb://admin:admin123@localhost:27018/voicera
+mongodb://admin:<MONGODB_PASSWORD>@localhost:27018/voicera
 ```
 
 Leave the authentication database blank.
@@ -136,7 +136,9 @@ Leave the authentication database blank.
 
 `apps/api/app/database_init.py` runs on every API start. It is idempotent: it creates any missing collection and ensures every index, so a fresh volume becomes a working database with no migration step.
 
-Collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `PhoneNumberEvents`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, `QueuedRuns`.
+Collections: `Organizations`, `Users`, `Memberships`, `ProviderAuth`, `Agents`, `PhoneNumbers`, `PhoneNumberEvents`, `KnowledgeDocuments`, `CallLogs`, `CallMetrics`, `Campaigns`, `QueuedRuns`, `Events`.
+
+`Events` is the org-scoped, append-only audit log. Its four indexes are created with the DocumentDB option `enableOrderedIndex: true` and end in `_id`. Without that option, DocumentDB uses a compound index only for equality on `org_id`, and each audit log page would sort the organisation's full history. Omit the option when running plain MongoDB. The arq worker deletes events older than `EVENTLOG_RETENTION_DAYS` daily.
 
 Fields and indexes are documented in [Data model](data-model).
 

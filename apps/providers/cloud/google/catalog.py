@@ -44,7 +44,7 @@ _STT_LANGS = {
     "ml-IN": "ml",
     "mr-IN": "mr",
     "ne-NP": "ne",
-    "or-IN": "od",
+    "od-IN": "or",
     "pa-Guru-IN": "pa",
     "sd-IN": "sd",
     "ta-IN": "ta",

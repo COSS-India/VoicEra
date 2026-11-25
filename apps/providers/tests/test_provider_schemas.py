@@ -142,7 +142,7 @@ def test_raya_stt_registered():
     models = model_ids(STT_CAPABILITIES)
     assert models[0] == STT_MODEL
     assert STT_MODEL in schema["fields"]["model"]["examples"]
-    assert resolve_wire_language(STT_MODEL, "od", kind="stt") == "or"
+    assert resolve_wire_language(STT_MODEL, "or", kind="stt") == "or"
     assert resolve_wire_language(STT_MODEL, "hi", kind="stt") == "hi"
     assert "hi" in schema["fields"]["language"]["examples"]
 
@@ -240,10 +240,10 @@ def test_bhashini_stt_registered():
     assert DEFAULT_BHILI_MODEL in schema["fields"]["model"]["examples"]
     assert DEFAULT_NEMOTRON_MODEL in schema["fields"]["model"]["examples"]
 
-    assert STT_CAPABILITIES[DEFAULT_BHILI_MODEL]["languages"] == {"bhb": "bh"}
-    assert resolve_wire_language(DEFAULT_BHILI_MODEL, "bh") == "bhb"
-    assert resolve_wire_language(DEFAULT_NEMOTRON_MODEL, "od") == "or"
-    assert "bh" in schema["fields"]["language"]["examples"]
+    assert STT_CAPABILITIES[DEFAULT_BHILI_MODEL]["languages"] == {"bhb": "bhb"}
+    assert resolve_wire_language(DEFAULT_BHILI_MODEL, "bhb") == "bhb"
+    assert resolve_wire_language(DEFAULT_NEMOTRON_MODEL, "or") == "or"
+    assert "bhb" in schema["fields"]["language"]["examples"]
 
     svc = STT_CREATORS["bhashini"](BhashiniSTTConfig(api_key="test", language="hi"))
     assert isinstance(svc, BhashiniSTTService)
@@ -275,7 +275,7 @@ def test_bhashini_stt_dispatches_socketio_and_bhili():
             BhashiniSTTConfig(
                 api_key="test",
                 model=DEFAULT_BHILI_MODEL,
-                language="bh",
+                language="bhb",
             )
         )
 
@@ -285,7 +285,7 @@ def test_bhashini_stt_dispatches_socketio_and_bhili():
             bhili_auth_token="bhili-tok",
             bhili_function_id="bhili-fn",
             model=DEFAULT_BHILI_MODEL,
-            language="bh",
+            language="bhb",
         )
     )
     assert isinstance(bhili, BhashiniBhiliSTTService)
@@ -303,7 +303,7 @@ def test_bhashini_stt_dispatches_nemotron():
             BhashiniSTTConfig(
                 api_key="test",
                 model=DEFAULT_NEMOTRON_MODEL,
-                language="od",
+                language="or",
             )
         )
 
@@ -313,7 +313,7 @@ def test_bhashini_stt_dispatches_nemotron():
                 api_key="test",
                 nemotron_auth_token="nvcf-tok",
                 model=DEFAULT_NEMOTRON_MODEL,
-                language="od",
+                language="or",
             )
         )
 
@@ -323,7 +323,7 @@ def test_bhashini_stt_dispatches_nemotron():
             nemotron_auth_token="nvcf-tok",
             nemotron_function_id="nvcf-fn",
             model=DEFAULT_NEMOTRON_MODEL,
-            language="od",
+            language="or",
         )
     )
     assert isinstance(nemotron, BhashiniNemotronSTTService)
@@ -411,10 +411,10 @@ def test_bhashini_tts_speakers_are_per_language():
     assert by_lang["hi"]["voice"]["options"] == list(TTS_SPEAKERS["hi"])
     assert by_lang["hi"]["voice"]["input_type"] == "dropdown"
     assert by_lang["ta"]["voice"]["options"] == list(TTS_SPEAKERS["ta"])
-    assert by_lang["od"]["voice"]["options"] == list(TTS_SPEAKERS["or"])
+    assert by_lang["or"]["voice"]["options"] == list(TTS_SPEAKERS["or"])
     assert by_lang["hne"]["voice"]["options"] == list(TTS_SPEAKERS["hne"])
-    assert by_lang["bh"]["voice"]["options"] == list(TTS_SPEAKERS["bhli"])
-    assert by_lang["bh"]["voice"]["options"] == list(TTS_SPEAKERS["mr"])
+    assert by_lang["bhb"]["voice"]["options"] == list(TTS_SPEAKERS["bhli"])
+    assert by_lang["bhb"]["voice"]["options"] == list(TTS_SPEAKERS["mr"])
     assert "ur" not in by_lang
 
     description = by_lang["hi"]["description"]
@@ -439,17 +439,17 @@ def test_bhashini_orpheus_tts_speakers_and_styles():
 
     assert by_lang["hi"]["voice"]["default"] == DEFAULT_ORPHEUS_VOICE
     assert by_lang["hi"]["voice"]["options"] == list(ORPHEUS_SPEAKERS["hi"])
-    assert by_lang["od"]["voice"]["options"] == list(ORPHEUS_SPEAKERS["or"])
+    assert by_lang["or"]["voice"]["options"] == list(ORPHEUS_SPEAKERS["or"])
     assert by_lang["ur"]["voice"]["options"] == list(ORPHEUS_SPEAKERS["ur"])
-    assert by_lang["bh"]["voice"]["options"] == list(ORPHEUS_SPEAKERS["bhb"])
+    assert by_lang["bhb"]["voice"]["options"] == list(ORPHEUS_SPEAKERS["bhb"])
     assert "description" not in by_lang["hi"]
 
     style = by_lang["hi"]["style"]
     assert style["default"] == DEFAULT_ORPHEUS_STYLE
     assert style["options"] == list(ORPHEUS_STYLES)
-    assert resolve_wire_language("orpheus", "od") == "or"
+    assert resolve_wire_language("orpheus", "or") == "or"
     assert resolve_wire_language("orpheus", "hi") == "hi"
-    assert resolve_wire_language("orpheus", "bh") == "bhb"
+    assert resolve_wire_language("orpheus", "bhb") == "bhb"
 
 
 def test_bhashini_tts_bhili_vendor_code():
@@ -458,8 +458,8 @@ def test_bhashini_tts_bhili_vendor_code():
         resolve_wire_language,
     )
 
-    assert TTS_CAPABILITIES["bhashini-indic-parler"]["languages"]["bhli"] == "bh"
-    assert resolve_wire_language("bhashini-indic-parler", "bh") == "bhli"
+    assert TTS_CAPABILITIES["bhashini-indic-parler"]["languages"]["bhli"] == "bhb"
+    assert resolve_wire_language("bhashini-indic-parler", "bhb") == "bhli"
 
 
 def test_bhashini_provider_level_auth_merges_stt_and_tts():
@@ -547,11 +547,11 @@ def test_unsupported_kind_raises():
 
 def test_language_schema_extra_inverts_vendor_codes():
     extra = language_schema_extra(
-        {"scribe_v2_realtime": {"or": "od", "en": "en"}},
+        {"scribe_v2_realtime": {"or": "or", "en": "en"}},
     )
-    assert extra["examples"] == ["en", "od"]
-    assert extra["model_options"]["scribe_v2_realtime"] == ["en", "od"]
-    assert extra["language_codes"]["scribe_v2_realtime"] == {"en": "en", "od": "or"}
+    assert extra["examples"] == ["en", "or"]
+    assert extra["model_options"]["scribe_v2_realtime"] == ["en", "or"]
+    assert extra["language_codes"]["scribe_v2_realtime"] == {"en": "en", "or": "or"}
     assert extra["allow_custom_input"] is True
 
 
@@ -575,7 +575,7 @@ def test_deepgram_stt_language_extras_from_supported_languages():
 
 def test_elevenlabs_stt_odia_vendor_code_in_schema():
     lang = provider_schemas(Kind.STT)["elevenlabs"]["fields"]["language"]
-    assert lang["language_codes"]["scribe_v2_realtime"]["od"] == "or"
+    assert lang["language_codes"]["scribe_v2_realtime"]["or"] == "or"
     assert lang["language_codes"]["scribe_v2_realtime"]["multi"] == "auto"
     assert set(lang["model_options"]) == set(languages_map(ELEVENLABS_STT))
 
@@ -603,11 +603,11 @@ def test_indic_orpheus_tts_registered(monkeypatch):
     assert model_ids(TTS_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
 
     lang = schema["fields"]["language"]
-    assert lang["language_codes"]["orpheus-indic"]["od"] == "or"
-    assert lang["language_codes"]["orpheus-indic"]["bh"] == "bhb"
+    assert lang["language_codes"]["orpheus-indic"]["or"] == "or"
+    assert lang["language_codes"]["orpheus-indic"]["bhb"] == "bhb"
     assert "hi" in lang["examples"]
-    assert "od" in lang["examples"]
-    assert "bh" in lang["examples"]
+    assert "or" in lang["examples"]
+    assert "bhb" in lang["examples"]
 
     hi_settings = schema[CAPABILITIES_KEY]["orpheus-indic"]["settings"]["hi"]
     assert hi_settings["voice"]["default"] == "Amit"
@@ -618,7 +618,7 @@ def test_indic_orpheus_tts_registered(monkeypatch):
     assert "CONV" not in hi_settings["style"]["options"]
     assert "news" in hi_settings["style"]["options"]
 
-    bh_settings = schema[CAPABILITIES_KEY]["orpheus-indic"]["settings"]["bh"]
+    bh_settings = schema[CAPABILITIES_KEY]["orpheus-indic"]["settings"]["bhb"]
     assert "Bhima" in bh_settings["voice"]["options"]
 
     svc = TTS_CREATORS["indic_orpheus"](
@@ -654,8 +654,8 @@ def test_indic_parler_tts_registered(monkeypatch):
     lang = schema["fields"]["language"]
     codes = lang["language_codes"]["indic-parler"]
     assert len(codes) == 25
-    assert codes["od"] == "or"
-    assert codes["bh"] == "bhb"
+    assert codes["or"] == "or"
+    assert codes["bhb"] == "bhb"
     for canonical in ("hi", "en", "hne", "sd", "ur"):
         assert canonical in lang["examples"]
 
@@ -664,7 +664,7 @@ def test_indic_parler_tts_registered(monkeypatch):
     assert settings["hi"]["voice"]["options"] == ["Rohit", "Divya", "Aman", "Rani"]
     assert settings["hi"]["voice"]["input_type"] == "dropdown"
     # Bhili borrows the Marathi roster, as the Bhashini adapter does.
-    assert settings["bh"]["voice"]["options"] == settings["mr"]["voice"]["options"]
+    assert settings["bhb"]["voice"]["options"] == settings["mr"]["voice"]["options"]
     # No named speaker on the model card: free text, empty by default.
     assert settings["ur"]["voice"]["default"] == ""
     assert settings["ur"]["voice"]["options"] == []
@@ -713,7 +713,7 @@ def test_indic_mio_tts_registered(monkeypatch):
     lang = schema["fields"]["language"]
     codes = lang["language_codes"]["indic-mio"]
     assert len(codes) == 23
-    assert codes["od"] == "or"
+    assert codes["or"] == "or"
     assert "en" in lang["examples"]
 
     settings = schema[CAPABILITIES_KEY]["indic-mio"]["settings"]
@@ -764,7 +764,7 @@ def test_maya2_native_tts_registered(monkeypatch):
     lang = schema["fields"]["language"]
     codes = lang["language_codes"]["maya2-native"]
     assert len(codes) == 12
-    assert codes["od"] == "or"
+    assert codes["or"] == "or"
     assert "en" in lang["examples"]
 
     settings = schema[CAPABILITIES_KEY]["maya2-native"]["settings"]
@@ -783,7 +783,7 @@ def test_maya2_native_tts_registered(monkeypatch):
         assert settings[canonical]["voice"]["default"] == "Ahana"
         assert set(settings[canonical]) == {"voice"}
 
-    svc = TTS_CREATORS["maya2_native"](Maya2NativeTTSConfig(language="od", voice="Ahana"))
+    svc = TTS_CREATORS["maya2_native"](Maya2NativeTTSConfig(language="or", voice="Ahana"))
     assert isinstance(svc, Maya2NativeTTSService)
     assert svc._voice == "Ahana"
     assert svc._style is None
@@ -818,16 +818,16 @@ def test_indic_nemotron_stt_registered(monkeypatch):
     assert model_ids(STT_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
 
     lang = schema["fields"]["language"]
-    assert lang["language_codes"]["indic-nemotron-600m"]["od"] == "or"
-    assert lang["language_codes"]["indic-nemotron-600m"]["bh"] == "bhb"
+    assert lang["language_codes"]["indic-nemotron-600m"]["or"] == "or"
+    assert lang["language_codes"]["indic-nemotron-600m"]["bhb"] == "bhb"
     assert "hi" in lang["examples"]
-    assert "od" in lang["examples"]
-    assert "bh" in lang["examples"]
+    assert "or" in lang["examples"]
+    assert "bhb" in lang["examples"]
     assert "bho" in lang["examples"]
     assert "bgc" in lang["examples"]
 
-    assert resolve_wire_language("indic-nemotron-600m", "od") == "or"
-    assert resolve_wire_language("indic-nemotron-600m", "bh") == "bhb"
+    assert resolve_wire_language("indic-nemotron-600m", "or") == "or"
+    assert resolve_wire_language("indic-nemotron-600m", "bhb") == "bhb"
     assert resolve_ws_url() == "ws://host.docker.internal:8100/v1/asr/ws"
 
 
@@ -840,7 +840,7 @@ def test_indic_nemotron_stt_creator(monkeypatch):
         "MODEL_SERVER_WS_URL", "ws://host.docker.internal:8100/v1/asr/ws"
     )
 
-    svc = STT_CREATORS["indic_nemotron"](IndicNemotronSTTConfig(language="od"))
+    svc = STT_CREATORS["indic_nemotron"](IndicNemotronSTTConfig(language="or"))
     assert isinstance(svc, IndicNemotronSTTService)
     assert svc._language == "or"
 
@@ -866,16 +866,16 @@ def test_indic_conformer_stt_registered(monkeypatch):
     assert model_ids(STT_CAPABILITIES)[0] in schema["fields"]["model"]["examples"]
 
     lang = schema["fields"]["language"]
-    assert lang["language_codes"]["indic-conformer"]["od"] == "or"
-    assert lang["language_codes"]["indic-conformer"]["bh"] == "bhb"
+    assert lang["language_codes"]["indic-conformer"]["or"] == "or"
+    assert lang["language_codes"]["indic-conformer"]["bhb"] == "bhb"
     assert "hi" in lang["examples"]
     assert "sd" in lang["examples"]
     # Indic-only checkpoint: no English, and no auto-detect.
     assert "en" not in lang["examples"]
     assert "multi" not in lang["examples"]
 
-    assert resolve_wire_language("indic-conformer", "od") == "or"
-    assert resolve_wire_language("indic-conformer", "bh") == "bhb"
+    assert resolve_wire_language("indic-conformer", "or") == "or"
+    assert resolve_wire_language("indic-conformer", "bhb") == "bhb"
     # Trailing slash stripped: Pipecat appends ?intent=transcription itself.
     assert resolve_realtime_url() == "ws://host.docker.internal:8100/v1/realtime"
 
@@ -889,11 +889,13 @@ def test_indic_conformer_stt_creator(monkeypatch):
         "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
     )
 
-    svc = STT_CREATORS["indic_conformer"](IndicConformerSTTConfig(language="od"))
+    from apps.providers.runtime_language import language_code
+
+    svc = STT_CREATORS["indic_conformer"](IndicConformerSTTConfig(language="or"))
     assert isinstance(svc, IndicConformerSTTService)
     assert svc._base_url == "ws://host.docker.internal:8100/v1/realtime"
     assert svc._wire_language == "or"
-    assert str(svc._settings.language) == "or"
+    assert language_code(svc._settings.language) == "or"
     assert svc._settings.model == "indic-conformer"
     assert svc._server_vad_enabled is False
 
@@ -921,8 +923,8 @@ def test_indic_transcribe_stt_registered(monkeypatch):
     lang = schema["fields"]["language"]
     codes = lang["language_codes"]["indic-transcribe"]
     assert len(codes) == 25
-    assert codes["od"] == "or"
-    assert codes["bh"] == "bhb"
+    assert codes["or"] == "or"
+    assert codes["bhb"] == "bhb"
     for canonical in ("hi", "bho", "en", "sd"):
         assert canonical in lang["examples"]
     # Advertised upstream but absent from the checkpoint's vocabulary.
@@ -930,7 +932,7 @@ def test_indic_transcribe_stt_registered(monkeypatch):
     assert "bgc" not in lang["examples"]
     assert "multi" not in lang["examples"]
 
-    assert resolve_wire_language("indic-transcribe", "od") == "or"
+    assert resolve_wire_language("indic-transcribe", "or") == "or"
     assert resolve_realtime_url() == "ws://host.docker.internal:8100/v1/realtime"
 
 
@@ -943,7 +945,7 @@ def test_indic_transcribe_stt_creator(monkeypatch):
         "MODEL_SERVER_REALTIME_URL", "ws://host.docker.internal:8100/v1/realtime"
     )
 
-    svc = STT_CREATORS["indic_transcribe"](IndicTranscribeSTTConfig(language="bh"))
+    svc = STT_CREATORS["indic_transcribe"](IndicTranscribeSTTConfig(language="bhb"))
     assert isinstance(svc, IndicTranscribeSTTService)
     assert svc._base_url == "ws://host.docker.internal:8100/v1/realtime"
     assert svc._wire_language == "bhb"

@@ -30,7 +30,7 @@ Reading in order works, but is not required. If you only have ten minutes, read 
 
 | Page | What it answers |
 | --- | --- |
-| [Telephony model](/docs/guides/concepts/telephony-model) | One `/answer` webhook serving multiple carriers. |
+| [Telephony model](telephony-model) | One `/answer` webhook serving Vobiz, Plivo, VI, and Go2Market. |
 
 <Note>
 How providers plug in, how credentials are encrypted, how organisations and roles are scoped, why calls get queued or refused under concurrency limits, and why the data store speaks the MongoDB wire protocol — these are implementation details for people extending or operating the system, not product concepts. They live in the Developer tab's [System architecture](/docs/developer/reference/provider-registry) group.

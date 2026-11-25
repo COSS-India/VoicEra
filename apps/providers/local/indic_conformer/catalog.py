@@ -28,7 +28,7 @@ GATEWAY_MODEL_ID = "indic-conformer"
 STT_MODEL = "indic-conformer"
 
 # Vendor language code (models.yaml ``languages``) -> VoicEra canonical id.
-# Odia is ``or`` on the wire / ``od`` in VoicEra; Bhili is ``bhb`` / ``bh``.
+# Odia is ``or`` on the wire / ``or`` in VoicEra; Bhili is ``bhb`` / ``bhb``.
 #
 # BHILI IS CONDITIONAL. It runs on a second checkpoint the server loads only
 # with BHILI_ENABLE=yes. Without it the server fails every Bhili turn with
@@ -48,7 +48,7 @@ _STT_LANGS: dict[str, str] = {
     "mr": "mr",
     "gu": "gu",
     "pa": "pa",
-    "or": "od",
+    "or": "or",
     "as": "as",
     "ur": "ur",
     "ne": "ne",
@@ -61,7 +61,7 @@ _STT_LANGS: dict[str, str] = {
     "mni": "mni",
     "sat": "sat",
     "sd": "sd",
-    "bhb": "bh",
+    "bhb": "bhb",
 }
 
 STT_CAPABILITIES: dict[str, dict] = {

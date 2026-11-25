@@ -79,13 +79,17 @@ Every router below is mounted under `settings.API_V1_PREFIX`, which defaults to 
 | POST | `/api/v1/calls/web` | Bearer | Register a browser websocket session so it gets a CallLog and artifacts. |
 | PATCH | `/api/v1/calls/by-provider-sid/{provider_call_sid}` | Bearer | Patch a call log found by provider call SID. |
 | PATCH | `/api/v1/calls/{call_id}` | Bearer | Patch artifact URLs, end time, status, or disposition. |
-| GET | `/api/v1/calls/{call_id}/recording` | Bearer | Stream the call recording from MinIO. |
-| GET | `/api/v1/calls/{call_id}/transcript` | Bearer | Stream the call transcript from MinIO. |
+| GET | `/api/v1/calls/{call_id}/recording` | Bearer | Stream the call recording from MinIO. `?mode=view\|download`; audited. |
+| GET | `/api/v1/calls/{call_id}/provider-recording` | Bearer | Stream the provider recording from MinIO. `?mode=view\|download`; audited. |
+| GET | `/api/v1/calls/{call_id}/transcript` | Bearer | Stream the call transcript from MinIO. `?mode=view\|download`; audited. |
 | GET | `/api/v1/calls/{call_id}/metrics` | Bearer | Fetch pipeline metrics for one call. |
 | PUT | `/api/v1/calls/{call_id}/metrics` | Bearer | Upsert pipeline metrics (runtime; write-once). |
 | GET | `/api/v1/calls/org/{org_id}` | Bearer | Paginated call logs for an organisation. |
 | GET | `/api/v1/calls/org/{org_id}/analytics` | Bearer | All-time call analytics for an organisation. |
 | GET | `/api/v1/calls/{call_id}` | Bearer | Fetch one call log. |
+| GET | `/api/v1/events` | Bearer (admin) | Audit log page, newest first, with filters and a cursor. |
+| GET | `/api/v1/events/types` | Bearer (admin) | Registered audit event types. |
+| GET | `/api/v1/events/export` | Bearer (admin) | Audit log as streamed CSV, capped; the export is itself recorded. |
 | POST | `/api/v1/campaign/upload` | Bearer | Upload a contact CSV; returns the `source_id` to pass to create. |
 | POST | `/api/v1/campaign/create` | Bearer | Create a campaign against an agent and an uploaded CSV. |
 | GET | `/api/v1/campaign/` | Bearer | List campaigns in the active organisation. |

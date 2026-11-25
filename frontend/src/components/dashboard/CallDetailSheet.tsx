@@ -4,18 +4,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Activity, ArrowLeft, Download, Pause, Play } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { CallTypeBadge } from "@/components/ui/CallTypeBadge";
 import { Spinner } from "@/components/ui/Spinner";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useAuth } from "@/components/AuthProvider";
 import { fetchCallRecordingBlob, fetchCallTranscriptText, getCallMetrics } from "@/lib/api/calls";
+import { listAuditEvents, listAuditEventTypes } from "@/lib/api/events";
 import {
   availableCallRecordings,
   type CallRecordingSource,
 } from "@/lib/call-recordings";
 import { formatClockLabel, parseTranscript, type TranscriptLine } from "@/lib/transcript";
 import { displayFromNumber, displayToNumber, formatDateTime, formatDuration } from "@/lib/format";
-import type { CallLogItem } from "@/lib/api-types";
+import { downloadCallRecording, downloadCallTranscript } from "@/lib/campaign-exports";
+import type { AuditEvent, CallLogItem } from "@/lib/api-types";
+import { isOrgAdmin } from "@/lib/auth-storage";
 
 function fmtClock(t: number): string {
   if (!Number.isFinite(t)) return "0:00";
@@ -96,16 +101,18 @@ interface AudioState {
  * played/unplayed bar contrast. */
 function WaveformPlayer({
   state,
+  loading,
   onTogglePlay,
   onSeek,
-  callId,
-  downloadName,
+  onDownload,
+  downloading,
 }: {
   state: AudioState;
+  loading: boolean;
   onTogglePlay: () => void;
   onSeek: (t: number) => void;
-  callId: string;
-  downloadName?: string;
+  onDownload: () => void;
+  downloading: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const progress = state.duration > 0 ? state.current / state.duration : 0;
@@ -127,11 +134,11 @@ function WaveformPlayer({
       <button
         type="button"
         onClick={onTogglePlay}
-        disabled={!state.url}
-        aria-label={state.playing ? "Pause" : "Play"}
-        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-transform hover:bg-white/25 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={loading}
+        aria-label={loading ? "Loading recording" : state.playing ? "Pause" : "Play"}
+        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-transform hover:bg-white/25 active:scale-90 disabled:cursor-wait"
       >
-        {!state.url ? <Spinner /> : state.playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+        {loading ? <Spinner /> : state.playing ? <Pause className="size-4" /> : <Play className="size-4" />}
       </button>
 
       <div
@@ -158,7 +165,7 @@ function WaveformPlayer({
         ) : (
           <div className="flex h-full w-full items-center gap-0.5">
             {Array.from({ length: WAVEFORM_BARS }).map((_, i) => (
-              <span key={i} className="h-2/5 w-full animate-pulse rounded-full bg-white/15" />
+              <span key={i} className={`h-2/5 w-full rounded-full bg-white/15 ${loading ? "animate-pulse" : ""}`} />
             ))}
           </div>
         )}
@@ -167,30 +174,34 @@ function WaveformPlayer({
       <span className="shrink-0 font-mono text-[11px] text-white/70">
         {fmtClock(state.current)} / {fmtClock(state.duration)}
       </span>
-      {state.url ? (
-        <a
-          href={state.url}
-          download={downloadName ?? `${callId}.wav`}
-          aria-label="Download recording"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25"
-        >
-          <Download className="size-4" strokeWidth={1.75} />
-        </a>
-      ) : null}
+      <button
+        type="button"
+        onClick={onDownload}
+        disabled={downloading}
+        aria-label="Download recording"
+        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25 disabled:cursor-wait"
+      >
+        {downloading ? <Spinner /> : <Download className="size-4" strokeWidth={1.75} />}
+      </button>
     </div>
   );
 }
 
-/** One system or provider recording player (loads its own artifact). */
+/** One system or provider recording player. Fetches the recording on the first
+ * Play rather than on open, since each fetch is recorded as an audit view. */
 function CallRecordingPlayer({
   callId,
   source,
   onPlayback,
+  onDownloadError,
 }: {
   callId: string;
   source: CallRecordingSource;
   onPlayback?: (state: { playing: boolean; current: number }) => void;
+  onDownloadError: (message: string) => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [audio, setAudio] = useState<AudioState>({
     url: null,
     peaks: null,
@@ -200,49 +211,60 @@ function CallRecordingPlayer({
     duration: 0,
   });
   const audioElRef = useRef<HTMLAudioElement>(null);
+  const mountedRef = useRef(false);
+  const objectUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    setAudio({
-      url: null,
-      peaks: null,
-      error: "",
-      playing: false,
-      current: 0,
-      duration: 0,
-    });
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    };
+  }, []);
+
+  function load() {
+    setLoading(true);
     fetchCallRecordingBlob(callId, source.kind)
       .then(async (blob) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setAudio((s) => ({ ...s, url: objectUrl, error: "" }));
+        if (!mountedRef.current) return;
+        const url = URL.createObjectURL(blob);
+        objectUrlRef.current = url;
+        setAudio((s) => ({ ...s, url, error: "" }));
         try {
           const peaks = await computePeaks(blob, WAVEFORM_BARS);
-          if (!cancelled) setAudio((s) => ({ ...s, peaks }));
+          if (mountedRef.current) setAudio((s) => ({ ...s, peaks }));
         } catch {
           /* waveform is a bonus */
         }
       })
       .catch((err) => {
-        if (!cancelled) {
+        if (mountedRef.current) {
           setAudio((s) => ({
             ...s,
             error: err instanceof Error ? err.message : "Recording unavailable.",
           }));
         }
+      })
+      .finally(() => {
+        if (mountedRef.current) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [callId, source.kind]);
+  }
 
   function togglePlay() {
+    if (!audio.url) {
+      if (!loading) load();
+      return;
+    }
     const el = audioElRef.current;
     if (!el) return;
-    if (audio.playing) el.pause();
-    else el.play();
+    if (audio.playing) {
+      el.pause();
+      return;
+    }
+    el.play().catch(() => {
+      /* blocked or interrupted; the Play button stays available */
+    });
   }
 
   function seekTo(t: number) {
@@ -252,7 +274,13 @@ function CallRecordingPlayer({
     if (!audio.playing) el.play();
   }
 
-  const suffix = source.kind === "provider" ? "-provider" : "";
+  function download() {
+    onDownloadError("");
+    setDownloading(true);
+    downloadCallRecording(callId, source.kind)
+      .catch((err) => onDownloadError(err instanceof Error ? err.message : "Download failed."))
+      .finally(() => setDownloading(false));
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -261,15 +289,18 @@ function CallRecordingPlayer({
       </span>
       <WaveformPlayer
         state={audio}
+        loading={loading}
         onTogglePlay={togglePlay}
         onSeek={seekTo}
-        callId={callId}
-        downloadName={`${callId}${suffix}.wav`}
+        onDownload={download}
+        downloading={downloading}
       />
       {audio.url ? (
         <audio
           ref={audioElRef}
           src={audio.url}
+          // Mounted only after the user presses Play.
+          autoPlay
           onPlay={() => {
             setAudio((s) => ({ ...s, playing: true }));
             onPlayback?.({ playing: true, current: audio.current });
@@ -345,6 +376,94 @@ function TranscriptBubble({
   );
 }
 
+const ACTIVITY_PAGE_SIZE = 200;
+const ACTIVITY_DAYS = 365;
+
+/** Audit events for this call over the last 365 days (admins only). */
+function CallActivity({ callId }: { callId: string }) {
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+  const [descriptions, setDescriptions] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Fixed at mount so every page uses the same time range.
+  const [query] = useState(() => {
+    const now = Date.now();
+    return {
+      target_type: "call",
+      target_id: callId,
+      from: new Date(now - ACTIVITY_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      to: new Date(now).toISOString(),
+      limit: ACTIVITY_PAGE_SIZE,
+    };
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([listAuditEvents(query), listAuditEventTypes()])
+      .then(([page, types]) => {
+        if (cancelled) return;
+        setEvents(page.events);
+        setCursor(page.next_cursor);
+        setDescriptions(Object.fromEntries(types.map((t) => [t.name, t.description])));
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load activity for this call.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
+
+  function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    listAuditEvents({ ...query, cursor })
+      .then((page) => {
+        setEvents((prev) => [...(prev ?? []), ...page.events]);
+        setCursor(page.next_cursor);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load more activity."))
+      .finally(() => setLoadingMore(false));
+  }
+
+  if (error) return <p className="py-8 text-center text-sm text-v-muted">{error}</p>;
+  if (events === null) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-8 text-sm text-v-muted">
+        <Spinner light={false} /> Loading activity…
+      </div>
+    );
+  }
+  if (events.length === 0) {
+    return <p className="py-8 text-center text-sm text-v-muted">No activity recorded for this call in the last 365 days.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-2.5">
+        {events.map((event) => (
+          <li key={event.id} className="flex items-start justify-between gap-4 border-b border-v-line pb-2.5">
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-[13px] font-medium text-v-fg">{event.actor.id}</span>
+              <span className="text-xs text-v-muted">{descriptions[event.type] ?? event.type}</span>
+            </span>
+            <span className="flex shrink-0 flex-col items-end gap-1">
+              <span className="text-xs text-v-muted">{formatDateTime(event.ts, { seconds: true })}</span>
+              {event.outcome === "failure" ? <Badge tone="danger">{event.outcome}</Badge> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {cursor ? (
+        <Button type="button" variant="ghost" size="sm" className="self-center" onClick={loadMore} disabled={loadingMore}>
+          {loadingMore ? <Spinner light={false} /> : null}
+          Load more
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function CallDetailSheet({
   call,
   onClose,
@@ -356,10 +475,17 @@ export function CallDetailSheet({
    * from the Telemetry page itself — linking back to where you already are. */
   showTelemetryLink?: boolean;
 }) {
-  const [tab, setTab] = useState<"transcript" | "details">("transcript");
+  const { session } = useAuth();
+  const isAdmin = isOrgAdmin(session);
+  const tabs = isAdmin ? (["transcript", "details", "activity"] as const) : (["transcript", "details"] as const);
+  const [tab, setTab] = useState<(typeof tabs)[number]>("transcript");
   const [transcript, setTranscript] = useState<TranscriptLine[] | null>(null);
   const [transcriptError, setTranscriptError] = useState("");
-  const [transcriptRaw, setTranscriptRaw] = useState("");
+  const [downloadingTranscript, setDownloadingTranscript] = useState(false);
+  const [downloadError, setDownloadError] = useState<{ callId: string; message: string } | null>(null);
+  const reportDownloadError = (message: string) =>
+    setDownloadError(message ? { callId: call.call_id, message } : null);
+  const visibleDownloadError = downloadError?.callId === call.call_id ? downloadError.message : "";
   const recordingSources = useMemo(() => availableCallRecordings(call), [call]);
   const [syncPlayback, setSyncPlayback] = useState({ playing: false, current: 0 });
   const [hasLatencyData, setHasLatencyData] = useState(false);
@@ -386,7 +512,6 @@ export function CallDetailSheet({
     fetchCallTranscriptText(call.call_id)
       .then((text) => {
         if (cancelled) return;
-        setTranscriptRaw(text);
         setTranscript(parseTranscript(text));
       })
       .catch((err) => {
@@ -435,13 +560,11 @@ export function CallDetailSheet({
   );
 
   function downloadTranscript() {
-    const blob = new Blob([transcriptRaw], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${call.call_id}-transcript.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    reportDownloadError("");
+    setDownloadingTranscript(true);
+    downloadCallTranscript(call.call_id)
+      .catch((err) => reportDownloadError(err instanceof Error ? err.message : "Download failed."))
+      .finally(() => setDownloadingTranscript(false));
   }
 
   return (
@@ -494,10 +617,11 @@ export function CallDetailSheet({
             <div className="flex flex-col gap-3">
               {recordingSources.map((src) => (
                 <CallRecordingPlayer
-                  key={src.kind}
+                  key={`${call.call_id}:${src.kind}`}
                   callId={call.call_id}
                   source={src}
                   onPlayback={setSyncPlayback}
+                  onDownloadError={reportDownloadError}
                 />
               ))}
             </div>
@@ -525,7 +649,7 @@ export function CallDetailSheet({
 
           <div className="flex items-center justify-between border-b border-v-line">
             <div className="flex gap-4">
-              {(["transcript", "details"] as const).map((t) => (
+              {tabs.map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -544,13 +668,19 @@ export function CallDetailSheet({
               <button
                 type="button"
                 onClick={downloadTranscript}
-                className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent"
+                disabled={downloadingTranscript}
+                className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-v-muted hover:text-v-accent disabled:cursor-wait disabled:opacity-60"
               >
                 <Download className="size-3.5" strokeWidth={1.75} />
                 Export
               </button>
             ) : null}
           </div>
+          {visibleDownloadError ? (
+            <p role="alert" className="text-xs text-v-danger">
+              {visibleDownloadError}
+            </p>
+          ) : null}
         </div>
 
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
@@ -577,6 +707,8 @@ export function CallDetailSheet({
                 ))}
               </div>
             )
+          ) : tab === "activity" ? (
+            <CallActivity key={call.call_id} callId={call.call_id} />
           ) : (
             <dl className="flex flex-col gap-3">
               {detailRows.map((row) => (
