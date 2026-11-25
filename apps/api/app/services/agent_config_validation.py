@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from apps.providers.base import Kind
+from apps.providers.languages import LANGUAGES
 from apps.providers.schema import (
     UnknownProviderError,
     _auth_field_names,
@@ -52,6 +53,14 @@ def validate_persisted_model_config(kind: Kind, data: dict[str, Any]) -> dict[st
         raise AgentConfigValidationError(
             f"{kind.value}_config.provider is required"
         )
+
+    if "language" in data and data["language"] is not None:
+        lang = str(data["language"]).strip()
+        if lang and lang not in LANGUAGES:
+            raise AgentConfigValidationError(
+                f"{kind.value}_config.language {lang!r} is not a valid BCP 47 "
+                "language id"
+            )
 
     try:
         cls = _config_class(kind, provider)
@@ -148,6 +157,22 @@ def validate_agent_config(
     primary = (config.language.primary or "").strip()
     if not primary:
         raise AgentConfigValidationError("language.primary is required")
+    if primary not in LANGUAGES:
+        raise AgentConfigValidationError(
+            f"language.primary {primary!r} is not a valid BCP 47 language id"
+        )
+
+    secondary: list[str] = []
+    for raw in config.language.secondary or []:
+        sid = str(raw or "").strip()
+        if not sid:
+            continue
+        if sid not in LANGUAGES:
+            raise AgentConfigValidationError(
+                f"language.secondary contains invalid language id {sid!r}"
+            )
+        if sid not in secondary and sid != primary:
+            secondary.append(sid)
 
     for key in config.custom_variables:
         if not isinstance(key, str) or not key.strip():
@@ -172,6 +197,10 @@ def validate_agent_config(
             raise AgentConfigValidationError(
                 "models keys must be non-empty language ids"
             )
+        if cleaned not in LANGUAGES:
+            raise AgentConfigValidationError(
+                f"models key {cleaned!r} is not a valid BCP 47 language id"
+            )
         validated_models[cleaned] = _validate_agent_models(
             stack, label=f"models[{cleaned!r}]"
         )
@@ -189,7 +218,9 @@ def validate_agent_config(
             "prompts": config.prompts.model_copy(
                 update={"greeting_message": greeting}
             ),
-            "language": config.language.model_copy(update={"primary": primary}),
+            "language": config.language.model_copy(
+                update={"primary": primary, "secondary": secondary}
+            ),
             "models": validated_models,
             "knowledge_base": knowledge_base,
         }

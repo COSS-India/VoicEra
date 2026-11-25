@@ -47,10 +47,9 @@ jobs:
     name: BCP 47 language tags
     runs-on: ubuntu-latest
     env:
-      # "false" = report problems as warnings (job stays green).
-      # Set to "true" once the legacy ids "od" and "bh" are migrated to "or" and "bhb"
-      # (they are stored on agents, so the rename needs a data migration).
-      STRICT: "false"
+      # Fail the job when a language id is not a valid BCP 47 tag (or mismatches its label).
+      # Legacy VoicEra ids "od" / "bh" were migrated to "or" / "bhb".
+      STRICT: "true"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

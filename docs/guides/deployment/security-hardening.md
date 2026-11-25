@@ -11,14 +11,14 @@ Everything VoicEra stores — call recordings, transcripts, knowledge-base docum
 
 ## Change every default
 
-All of these are public knowledge — they are in `.env.example` and `docker-compose.yaml`.
+`.env.example` ships these passwords blank and the start script generates them on first run. `docker-compose.yaml` refuses to start while any of them is blank. The values below are the old defaults that installs created before that change still use — all public knowledge, and the start script warns if it finds them.
 
 | Variable | Ships as | Protects |
 | --- | --- | --- |
-| `MONGODB_PASSWORD` | `admin123` | The database, **and** the PostgreSQL superuser |
-| `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY` | `minioadmin123` | Recordings and transcripts |
+| `MONGODB_PASSWORD` | formerly `admin123` | The database, **and** the PostgreSQL superuser |
+| `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY` | formerly `minioadmin123` | Recordings and transcripts |
 | `MINIO_ROOT_USER` / `MINIO_ACCESS_KEY` | `minioadmin` | Same |
-| `REDIS_PASSWORD` | `redissecret` | Job queue, campaign events, concurrency slots |
+| `REDIS_PASSWORD` | formerly `redissecret` | Job queue, campaign events, concurrency slots |
 
 <Warning>
 `MONGODB_USER` and `MONGODB_PASSWORD` become the PostgreSQL credentials too. Changing them after the volume exists does **not** update the Postgres user — set them before the first start, or change the password inside Postgres as well.
@@ -33,9 +33,14 @@ All of these are public knowledge — they are in `.env.example` and `docker-com
 | `SECRET_KEY` | JWT signatures (HS256) | Invalidates all tokens; users log in again |
 | `INTERNAL_API_KEY` | Service-to-service auth | Update API and runtime together |
 | `PROVIDER_AUTH_ENCRYPTION_KEY` | Fernet encryption of stored credentials | **One-way — see below** |
+| `MINIO_KMS_SECRET_KEY` | Recordings and transcripts at rest (optional, not generated) | **One-way — see below** |
 
 <Warning>
 `PROVIDER_AUTH_ENCRYPTION_KEY` cannot be rotated. There is no re-encryption tool: changing or losing it makes every stored provider credential permanently undecryptable, and every organisation must re-enter every key. Back it up alongside the database, and store it with the same protection.
+</Warning>
+
+<Warning>
+`MINIO_KMS_SECRET_KEY` cannot be rotated or removed. MinIO also encrypts its own configuration and IAM data with it, even if `MINIO_ENCRYPTION` was never enabled. If the key is changed or removed, MinIO cannot load its configuration and encrypted recordings and transcripts cannot be read until the original key is restored. If the key is lost, they are unrecoverable. Back it up alongside the database, never with the MinIO volume backup.
 </Warning>
 
 <Warning>
@@ -115,6 +120,17 @@ Telephony providers require HTTPS for webhooks and WSS for audio, so TLS is mand
 
 For Redis over TLS use a `rediss://` URL; the ARQ settings enable TLS when they see that scheme.
 
+## Client IP in the audit log
+
+Audit events record the client IP as seen by the API. The browser reaches the API through the frontend's `/api/v1` rewrite, so by default each event records the frontend container's address. To record the client's address, configure the following:
+
+1. **A reverse proxy in front of the frontend that sets `X-Forwarded-For`.** For example, nginx with `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. The Next.js rewrite forwards this header to the API but does not set it.
+2. **`FORWARDED_ALLOW_IPS` on the API, listing the frontend container and that proxy.** uvicorn trusts `X-Forwarded-For` only from these addresses. In Docker Compose, use the Compose network's CIDR (`docker network inspect <project>_app-network`), for example `FORWARDED_ALLOW_IPS=172.18.0.0/16`. That also covers the nginx setup in [Production deployment](production): nginx proxies to the published API port, so its requests reach the container from the network's gateway address.
+
+<Warning>
+Do not set `FORWARDED_ALLOW_IPS=*` while the API port is directly reachable. The API would then accept `X-Forwarded-For` from any client, and the recorded IP could not be trusted.
+</Warning>
+
 ## Email enumeration
 
 <Warning>
@@ -139,10 +155,35 @@ Logs go to `json-file`, rotating at 10 MB with three files kept. Before shipping
 
 You hold call recordings, transcripts, and contact lists. That is regulated data in most jurisdictions.
 
-* Encrypt volumes at rest.
-* Set a retention policy — nothing expires automatically.
-* Restrict MinIO access; artifacts are served through the authenticated API proxy, so the bucket never needs to be public.
+* Encrypt volumes at rest, and enable [object encryption](#encryption-at-rest) for recordings and transcripts.
+* Set a retention policy — nothing expires automatically. The audit log (`Events`) is the exception: events older than `EVENTLOG_RETENTION_DAYS` (minimum 365) are purged daily.
+* Restrict MinIO access; artifacts are served through the authenticated API proxy, so the bucket never needs to be public. The audit log records access through the API only; access made directly to MinIO (console or `mc`) is not recorded.
 * Remember `docker compose down -v` destroys all of it irreversibly.
+
+## Encryption at rest
+
+Set `MINIO_ENCRYPTION=sse-s3` to have MinIO encrypt new call recordings and transcripts (SSE-S3, AES-256) with its built-in KMS. Reads are unchanged; MinIO decrypts transparently. Existing objects, campaign CSVs, and knowledge-base PDFs are not encrypted.
+
+This protects against theft of disks, volumes, and backups. It does not protect against anyone holding MinIO credentials, or traffic on the wire (use `MINIO_SECURE=true`).
+
+To enable:
+
+1. Generate the key once and back it up (see the warning under [The three generated secrets](#the-three-generated-secrets)):
+
+   ```bash
+   echo "MINIO_KMS_SECRET_KEY=voicera-key:$(openssl rand -base64 32)" >> .env
+   ```
+
+2. Set `MINIO_ENCRYPTION=sse-s3` in `.env`.
+3. Run `docker compose up -d minio runtime`. The runtime logs `Object storage SSE probe passed`.
+
+At startup the runtime writes and deletes a small probe object under `_system/sse-probe/` and refuses to start if it was not encrypted or storage is unreachable. With encryption on, MinIO is therefore a hard startup dependency of the runtime.
+
+Every service that loads `.env` through `env_file` (`api`, the workers, `runtime`, `frontend`) can also see the key. To avoid that, pass it to `docker compose` from your shell or secret manager instead of `.env`.
+
+To disable, set `MINIO_ENCRYPTION=none` and keep `MINIO_KMS_SECRET_KEY` — existing encrypted objects still need it.
+
+The built-in KMS uses one static key with no rotation or audit trail. Deployments that need rotation should use MinIO KES with an external KMS.
 
 ## Checklist
 
@@ -152,11 +193,13 @@ You hold call recordings, transcripts, and contact lists. That is regulated data
 - [ ] `SECRET_KEY` set and non-empty
 - [ ] `INTERNAL_API_KEY` set and non-empty
 - [ ] `PROVIDER_AUTH_ENCRYPTION_KEY` set and backed up
+- [ ] `MINIO_KMS_SECRET_KEY` set, backed up separately from MinIO data, `MINIO_ENCRYPTION=sse-s3`
 - [ ] `SECRET_KEY` identical across API replicas
 - [ ] CORS restricted
 - [ ] TLS on the API and runtime
 - [ ] FerretDB, MinIO console, and the model gateway not publicly reachable
 - [ ] Rate limiting on `/answer`, `/agent`, and `/users/check`
+- [ ] Reverse proxy sets `X-Forwarded-For`, and `FORWARDED_ALLOW_IPS` lists the frontend and proxy
 - [ ] `DEBUG=False`
 - [ ] Volumes encrypted, retention policy set
 - [ ] Backups tested by restoring

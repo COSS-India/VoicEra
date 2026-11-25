@@ -174,8 +174,13 @@ async def initiate_bulk_calls(
     retrycount: Optional[int] = None,
     retryintervalvalue: Optional[int] = None,
     retryintervaltype: Optional[int] = None,
+    existing_campain_key: Optional[str] = None,
+    campaign_ref_id: Any = None,
 ) -> Dict[str, Any]:
-    """Create one OBD campaign and ingest many MSISDNs."""
+    """Create one OBD campaign and ingest every MSISDN in one request.
+
+    ``existing_campain_key`` appends to that campaign instead of creating another.
+    """
 
     def _run() -> dict:
         return _obd_client(client).place_bulk_outbound_calls(
@@ -191,6 +196,8 @@ async def initiate_bulk_calls(
             retrycount=retrycount,
             retryintervalvalue=retryintervalvalue,
             retryintervaltype=retryintervaltype,
+            existing_campain_key=existing_campain_key,
+            campaign_ref_id=campaign_ref_id,
         )
 
     try:

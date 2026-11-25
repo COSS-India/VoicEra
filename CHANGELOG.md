@@ -18,13 +18,25 @@ several subsystems are new.
 
 ### Added
 
+- **Access audit log** (`apps/api/app/services/eventlog`, `GET /api/v1/events`) —
+  records each view and download of call recordings and transcripts, including
+  those bundled in the OBD report ZIP. Admins can filter and export events from
+  the Audit log page and a per-call Activity tab. Events name the call's agent
+  and campaign, and can be filtered by any related resource
+  (`?resource=agent:<id>`). Artifact routes accept
+  `?mode=view|download`. Events are retained for at least 365 days
+  (`EVENTLOG_RETENTION_DAYS`).
+- **Encryption at rest for call recordings and transcripts** — opt-in with
+  `MINIO_ENCRYPTION=sse-s3` and `MINIO_KMS_SECRET_KEY`. The runtime verifies
+  encryption at startup.
 - **Maya 2 Native in the TTS slot** (`model-server/tts/maya2-native`, provider
   `maya2_native`) — Maya Research's 12-language, 20-voice streaming TTS on
   OpenAI's `/v1/audio/speech`. Wraps upstream's own OpenAI-compatible server and
   continuous-batching engine (pinned commit) and adds only the slot contract:
-  `X-Audio-Format`, `pcm` by default, `od` for Odia, OpenAI voice names mapped to
-  a fixed default voice. The provider sends `language` on every request, since
-  the script cannot tell Marathi from Hindi. Not yet run on hardware.
+  `X-Audio-Format`, `pcm` by default, `or` for Odia (legacy `od` still aliased),
+  OpenAI voice names mapped to a fixed default voice. The provider sends
+  `language` on every request, since the script cannot tell Marathi from Hindi.
+  Not yet run on hardware.
 - **Provider registry** (`apps/providers`) — a self-describing catalogue of STT,
   TTS, and LLM vendors. Providers register themselves with decorators; a
   discriminated union in `factory.py` and a readable schema dump in `schema.py`

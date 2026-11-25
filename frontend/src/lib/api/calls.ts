@@ -91,25 +91,34 @@ export async function getCall(callId: string): Promise<CallLogItem> {
   return apiFetch<CallLogItem>(`/calls/${encodeURIComponent(callId)}`);
 }
 
+/** Audit log action for an artifact request: "view" for in-app playback or
+ * display, "download" when the file is saved. */
+export type ArtifactMode = "view" | "download";
+
+function artifactPath(callId: string, artifact: string, mode: ArtifactMode): string {
+  return `/calls/${encodeURIComponent(callId)}/${artifact}?mode=${mode}`;
+}
+
 /** Recording is a bearer-authenticated MinIO proxy — fetch as a blob, since
  * <audio src> can't send auth headers. Callers derive an object URL for playback
- * and decode the same blob for waveform peaks.
+ * and decode the same blob for waveform peaks. Each request is recorded as a
+ * separate audit event, so fetch the whole file once rather than by range.
  *
  * ``kind`` selects system vs carrier/provider artifact (default: system).
  */
 export async function fetchCallRecordingBlob(
   callId: string,
   kind: "system" | "provider" = "system",
+  { mode = "view" }: { mode?: ArtifactMode } = {},
 ): Promise<Blob> {
-  const path =
-    kind === "provider"
-      ? `/calls/${encodeURIComponent(callId)}/provider-recording`
-      : `/calls/${encodeURIComponent(callId)}/recording`;
-  return apiFetchBlob(path);
+  return apiFetchBlob(artifactPath(callId, kind === "provider" ? "provider-recording" : "recording", mode));
 }
 
-export async function fetchCallTranscriptText(callId: string): Promise<string> {
-  const blob = await apiFetchBlob(`/calls/${encodeURIComponent(callId)}/transcript`);
+export async function fetchCallTranscriptText(
+  callId: string,
+  { mode = "view" }: { mode?: ArtifactMode } = {},
+): Promise<string> {
+  const blob = await apiFetchBlob(artifactPath(callId, "transcript", mode));
   return blob.text();
 }
 

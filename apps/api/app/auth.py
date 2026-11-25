@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
+# Synthetic subject for service JWTs minted via INTERNAL_API_KEY.
+BOT_SERVICE_EMAIL = "bot@voicera.internal"
+
 
 def _resolve_secret_key() -> str:
     if settings.SECRET_KEY:

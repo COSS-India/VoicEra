@@ -41,7 +41,7 @@ Selected when `agent_category` is `telephony`. Entered through `run_telephony_bo
 
 The `start` object is parsed by `parse_stream_start()` in `apps/telephony/webhooks.py`. The provider call SID is resolved from `CallUUID`, `call_uuid`, `call_id`, `callId`, `callSid`, `CallSid`, `request_uuid`, or the same keys nested under `start`; the runtime then falls back to `callSid`, `callId`, `call_uuid` on the `start` object directly, and finally to the literal string `unknown`. The stream SID comes from `streamSid`, then `streamId`, then `unknown`.
 
-The serializer is chosen by the provider id on the agent document, through the registry in `apps/telephony/registry.py`. `plivo` uses Pipecat's `PlivoFrameSerializer`; `vobiz` uses a subclass of it that supports 16 kHz L16, because μ-law is 8 kHz only per the Vobiz specification. The wire format after `start` is therefore the provider's own — the runtime does not define it.
+The serializer is chosen by the provider id on the agent document, through the registry in `apps/telephony/registry.py`. `plivo` uses Pipecat's `PlivoFrameSerializer`; `vobiz` uses a subclass of it that supports 16 kHz L16, because μ-law is 8 kHz only per the Vobiz specification; `vi` and `go2market` use their own serializers (Go2Market is fixed µ-law 8 kHz). The wire format after `start` is therefore the provider's own — the runtime does not define it.
 
 If the first message is not a `start` event, the socket closes with `1008` and reason `Expected start event`.
 

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.database import get_database
 from app.models.schemas import (
@@ -211,6 +211,32 @@ def get_agent(org_id: str, agent_id: str) -> dict[str, Any]:
     if not doc:
         raise AgentNotFoundError(agent_id)
     return _to_response(doc)
+
+
+def get_agent_name(org_id: str, agent_id: str | None) -> str | None:
+    """Current name of an agent in ``org_id``, or ``None`` if it no longer exists."""
+    if not agent_id:
+        return None
+    doc = get_database()[COLLECTION].find_one(
+        {"org_id": org_id, "agent_id": agent_id}, {"name": 1}
+    )
+    name = (doc or {}).get("name")
+    return str(name) if name else None
+
+
+def agent_name_for_audit(
+    org_id: str, agent_id: str | None, fallback: str | None = None
+) -> str | None:
+    """Agent name to record on an audit event: the current name, else ``fallback``.
+
+    Best-effort: a failed lookup is logged and falls back, because a display name
+    must never fail the request the event describes or stop it being recorded.
+    """
+    try:
+        return get_agent_name(org_id, agent_id) or fallback
+    except PyMongoError:
+        logger.warning("agent name lookup failed for audit event", exc_info=True)
+        return fallback
 
 
 def list_agents(org_id: str) -> list[dict[str, Any]]:

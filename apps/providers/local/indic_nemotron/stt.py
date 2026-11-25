@@ -311,7 +311,7 @@ class IndicNemotronSTTService(STTService):
     async def _update_settings(self, delta: STTSettings) -> dict[str, Any]:
         """Apply runtime settings; forward language changes to the websocket.
 
-        Language switching sends the canonical id (``od``, ``bh``); the server
+        Language switching sends the canonical id (``or``, ``bhb``); the server
         wants its own code (``or``, ``bhb``), so it is translated first.
         """
         translate_delta_language(delta, lambda lang: resolve_wire_language(STT_MODEL, lang))

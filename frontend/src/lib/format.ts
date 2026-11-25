@@ -115,7 +115,8 @@ export function formatHoursMinutes(seconds?: number | null): string {
   return `${h}h ${m}m`;
 }
 
-export function formatDateTime(iso?: string | null): string {
+/** Local date and 12-hour time. Pass `seconds` where events can share a minute (audit log). */
+export function formatDateTime(iso?: string | null, { seconds = false }: { seconds?: boolean } = {}): string {
   if (!iso) return "–";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "–";
@@ -127,6 +128,7 @@ export function formatDateTime(iso?: string | null): string {
   const time = new Intl.DateTimeFormat("en-GB", {
     hour: "numeric",
     minute: "2-digit",
+    ...(seconds ? { second: "2-digit" as const } : {}),
     hour12: true,
   })
     .format(d)

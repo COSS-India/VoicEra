@@ -61,6 +61,8 @@ _EXTRA_KEYS = (
     "model_options",
     "language_codes",
     "docs_url",
+    "label",
+    "input_type",
 )
 
 

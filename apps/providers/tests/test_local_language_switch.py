@@ -3,7 +3,7 @@
 When two of an agent's languages share a provider and model, the runtime keeps
 one service and sends it a settings delta (see
 apps/runtime/services/language_switch/). That delta carries the agent config's
-language as stored -- VoicEra's canonical id (``od``, ``bh``) -- and the voice
+language as stored -- VoicEra's canonical id (``or``, ``bhb``) -- and the voice
 for the new language. These pin that each local provider applies it: STT
 translates the language to its server's wire code, TTS picks up the new voice.
 """
@@ -21,7 +21,7 @@ from apps.providers.registry import (
     TTS_CREATORS,
     load_providers,
 )
-from apps.providers.runtime_language import translate_delta_language
+from apps.providers.runtime_language import language_code, translate_delta_language
 
 
 def _run(coro):
@@ -37,9 +37,9 @@ def _gateway_env(monkeypatch):
 
 
 def test_translate_delta_language_maps_and_skips_unset():
-    to_wire = {"od": "or", "bh": "bhb"}.get
+    to_wire = {"or": "or", "bhb": "bhb"}.get
 
-    delta = STTSettings(language="od")
+    delta = STTSettings(language="or")
     translate_delta_language(delta, lambda c: to_wire(c, c))
     assert delta.language == "or"
 
@@ -53,7 +53,7 @@ def test_translate_delta_language_maps_and_skips_unset():
 
 
 @pytest.mark.parametrize("provider", ["indic_conformer", "indic_transcribe"])
-@pytest.mark.parametrize(("canonical", "wire"), [("od", "or"), ("bh", "bhb"), ("ta", "ta")])
+@pytest.mark.parametrize(("canonical", "wire"), [("or", "or"), ("bhb", "bhb"), ("ta", "ta")])
 def test_realtime_stt_switches_to_wire_code(provider, canonical, wire):
     from apps.providers.registry import STT_CONFIGS
 
@@ -63,11 +63,11 @@ def test_realtime_stt_switches_to_wire_code(provider, canonical, wire):
     changed = _run(svc._update_settings(STTSettings(language=canonical)))
 
     assert "language" in changed
-    assert str(svc._settings.language) == wire
+    assert language_code(svc._settings.language) == wire
     assert svc._wire_language == wire
 
 
-@pytest.mark.parametrize(("canonical", "wire"), [("od", "or"), ("bh", "bhb"), ("bho", "bho")])
+@pytest.mark.parametrize(("canonical", "wire"), [("or", "or"), ("bhb", "bhb"), ("bho", "bho")])
 def test_nemotron_switches_to_wire_code(canonical, wire):
     from apps.providers.local.indic_nemotron.config import IndicNemotronSTTConfig
 
@@ -76,7 +76,7 @@ def test_nemotron_switches_to_wire_code(canonical, wire):
 
     _run(svc._update_settings(STTSettings(language=canonical)))
 
-    assert svc._language == wire
+    assert language_code(svc._language) == wire
 
 
 @pytest.mark.parametrize(
@@ -100,7 +100,7 @@ def test_local_tts_switches_voice(provider, first, second):
     assert svc._request_params("வணக்கம்")["voice"] == second
 
 
-@pytest.mark.parametrize(("canonical", "wire"), [("od", "or"), ("mr", "mr"), ("as", "as")])
+@pytest.mark.parametrize(("canonical", "wire"), [("or", "or"), ("mr", "mr"), ("as", "as")])
 def test_maya_sends_the_switched_language_as_its_wire_code(canonical, wire):
     """Maya is the one local TTS server that needs the language on the wire --
     Marathi shares Hindi's script, Assamese shares Bengali's -- so a switch must
@@ -110,5 +110,5 @@ def test_maya_sends_the_switched_language_as_its_wire_code(canonical, wire):
 
     _run(svc._update_settings(TTSSettings(voice="Ahana", language=canonical)))
 
-    assert svc._language == wire
+    assert language_code(svc._language) == wire
     assert svc._request_params("x")["extra_body"] == {"language": wire}

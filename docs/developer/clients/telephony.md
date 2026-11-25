@@ -6,7 +6,7 @@ description: How a telephony provider becomes a client of the runtime.
 When a call reaches a `telephony` agent, the provider is the client. It fetches an answer document over HTTP, then opens a WebSocket and streams audio. This page is the wire-level view: what the provider sends, what it gets back, and how to exercise it without a phone.
 
 <Note>
-This page does not explain the provider abstraction — how Vobiz and Plivo are registered, how applications are provisioned, how credentials are resolved. That is [Telephony model](../../guides/concepts/telephony-model). Read it first if you are adding a provider rather than debugging a call.
+This page does not explain the provider abstraction — how Vobiz, Plivo, VI, and Go2Market are registered, how applications are provisioned, how credentials are resolved. That is [Telephony model](../../guides/concepts/telephony-model). Read it first if you are adding a provider rather than debugging a call.
 </Note>
 
 ## The answer webhook
@@ -32,7 +32,7 @@ A backend failure while loading the agent returns `502` with the error text; a r
 
 ## Stream XML
 
-The response is `application/xml`, built by `build_answer_stream_xml()` in `apps/telephony/xml.py`, which dispatches to the provider's own builder. Vobiz and Plivo currently emit the same document:
+The response is `application/xml`, built by `build_answer_stream_xml()` in `apps/telephony/xml.py`, which dispatches to the provider's own builder. Vobiz and Plivo currently emit the same document (VI and Go2Market do not use this path for live media — see [Go To Market](../services/go2market) and the [VI exception](../guides/adding-a-telephony-provider#vodafone-idea-vi-exception)):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -58,7 +58,7 @@ Plivo configures hangup through the application's `hangup_url`, not through `Str
 
 The provider then connects to the URL inside `<Stream>`: `WS /agent/{org_id}/{agent_id}`, optionally with `?call_id=`.
 
-The runtime accepts the socket, loads the agent, sees `agent_category` is `telephony`, and **blocks on the first text message**. That message must be JSON with `"event": "start"`. Anything else closes the socket with code `1008` and reason `Expected start event`.
+The runtime accepts the socket, loads the agent, sees `agent_category` is `telephony`, and reads JSON until a `start` event. Preamble events such as Go2Market's `connected` are skipped by `recv_media_stream_start`. A non-start event that is not a known preamble closes the socket with code `1008` and reason `Expected start event`.
 
 From the `start` object the runtime reads:
 
@@ -81,7 +81,7 @@ Browser sessions use a separate variable, `WEBSOCKET_SAMPLE_RATE`, default `1600
 
 The runtime never guesses the vendor. It reads `telephony.provider` from the agent document and passes that string to both `build_answer_stream_xml()` and `create_frame_serializer()`, each of which looks the provider up in the registry in `apps/telephony/registry.py`. An unregistered provider raises `ValueError`.
 
-This means a single runtime serves Vobiz and Plivo agents side by side on the same port and the same two routes. Nothing is configured per deployment. `GET /api/v1/configuration/telephony` enumerates the registered providers on a running API.
+This means a single runtime serves Vobiz, Plivo, VI, and Go2Market agents side by side on the same port (VI also mounts `/vi/stream`). Nothing is configured per deployment. `GET /api/v1/configuration/telephony` enumerates the registered providers on a running API.
 
 ## Testing without a phone
 

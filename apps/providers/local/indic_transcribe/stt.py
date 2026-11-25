@@ -23,7 +23,7 @@ from loguru import logger
 from pipecat.services.openai.stt import OpenAIRealtimeSTTService
 from pipecat.services.settings import STTSettings
 
-from apps.providers.runtime_language import translate_delta_language
+from apps.providers.runtime_language import language_code, translate_delta_language
 
 from .catalog import STT_MODEL, resolve_wire_language
 
@@ -60,7 +60,7 @@ class IndicTranscribeSTTService(OpenAIRealtimeSTTService):
     async def _update_settings(self, delta: STTSettings) -> dict[str, Any]:
         """Apply a runtime settings change, such as a mid-call language switch.
 
-        The switch carries VoicEra's canonical id (``od``, ``bh``); the server
+        The switch carries VoicEra's canonical id (``or``, ``bhb``); the server
         wants its wire code (``or``, ``bhb``). Translated here, Pipecat's own
         client then stores it and sends the ``session.update``.
         """
@@ -69,6 +69,6 @@ class IndicTranscribeSTTService(OpenAIRealtimeSTTService):
         )
         changed = await super()._update_settings(delta)
         if "language" in changed:
-            self._wire_language = str(self._settings.language)
+            self._wire_language = language_code(self._settings.language)
             logger.info("Indic Transcribe STT language switched to {}", self._wire_language)
         return changed

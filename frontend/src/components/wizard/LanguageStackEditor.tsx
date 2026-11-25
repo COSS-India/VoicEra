@@ -3,6 +3,7 @@
 import { Brain, Mic, Volume2 } from "lucide-react";
 import { Input, Select, Textarea } from "@/components/ui/Field";
 import { SearchSelect } from "@/components/ui/SearchSelect";
+import { Switch } from "@/components/ui/Switch";
 import { InfoTip } from "@/components/ui/Tooltip";
 import type { CatalogField } from "@/lib/catalog-types";
 import { humanizeFieldKey, resolvedModelFields } from "@/lib/catalog-utils";
@@ -133,9 +134,22 @@ function DynamicModelField({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const label = humanizeFieldKey(fieldKey);
+  const label = field.label ?? humanizeFieldKey(fieldKey);
   const hasOptions = Array.isArray(field.examples) && field.examples.length > 0;
   const isNumeric = field.type?.startsWith("number") || field.type?.startsWith("integer");
+
+  if (field.type === "boolean" && field.input_type === "switch") {
+    const checked = value === true || (value === undefined && field.default === true);
+    return (
+      <div className="flex items-center justify-between gap-3 text-[13px] font-medium">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          {label}
+          {field.description ? <InfoTip text={field.description} /> : null}
+        </span>
+        <Switch checked={checked} label={label} onChange={onChange} />
+      </div>
+    );
+  }
 
   let showDropdown: boolean;
   let showCustom: boolean;

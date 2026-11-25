@@ -60,11 +60,11 @@ TTS_SPEAKERS: dict[str, tuple[str, ...]] = {
     "en": ("Kavya", "Amit"),
 }
 
-# Vendor language code → VoicEra canonical id (``or`` → ``od``, ``bhb`` → ``bh``).
+# Vendor language code → VoicEra canonical id (``or`` → ``or``, ``bhb`` → ``bhb``).
 _TTS_LANGS: dict[str, str] = {
     "as": "as",
     "bn": "bn",
-    "bhb": "bh",
+    "bhb": "bhb",
     "brx": "brx",
     "doi": "doi",
     "gu": "gu",
@@ -77,7 +77,7 @@ _TTS_LANGS: dict[str, str] = {
     "mni": "mni",
     "mr": "mr",
     "ne": "ne",
-    "or": "od",
+    "or": "or",
     "pa": "pa",
     "sa": "sa",
     "sat": "sat",

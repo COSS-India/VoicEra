@@ -11,6 +11,7 @@ import { InviteLinkCopy } from "@/components/auth/OrgInviteShare";
 import { useAuth } from "@/components/AuthProvider";
 import { useMembers } from "@/hooks/useMembers";
 import type { MemberListItem } from "@/lib/api-types";
+import { isOrgAdmin } from "@/lib/auth-storage";
 import { formatUserRole } from "@/lib/format";
 
 type RoleFilter = "all" | "super_admin" | "admin" | "member";
@@ -237,7 +238,7 @@ export function Members({ onNotify }: { onNotify: (title: string, note: string) 
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [inviteOpen, setInviteOpen] = useState(false);
 
-  const canInvite = session?.role === "admin" || session?.role === "super_admin";
+  const canInvite = isOrgAdmin(session);
   const canManage = session?.role === "super_admin";
 
   const counts = useMemo(

@@ -1,9 +1,11 @@
 ---
 title: Telephony model
-description: How VoicEra stays provider-agnostic across Vobiz and Plivo.
+description: How VoicEra stays provider-agnostic across Vobiz, Plivo, Vodafone Idea, and Go2Market.
 ---
 
-VoicEra speaks to phone networks through `apps/telephony`, a package with no database access, no environment reading, and no vendor `if` statements outside the vendor directories. This page explains how one answer route serves every provider, and where the two shipped providers actually differ.
+VoicEra speaks to phone networks through `apps/telephony`, a package with no database access, no environment reading, and no vendor `if` statements outside the vendor directories. This page explains how one answer route serves every provider, and where the shipped providers actually differ.
+
+Four providers ship today: **Vobiz**, **Plivo**, **Vodafone Idea (VI)**, and **Go To Market (Go2Market)**. All four are supported. Vobiz and Plivo share the answer-XML + Stream model below. VI and Go2Market dial through carrier OBD APIs and open media WebSockets without that XML handshake — see [Vodafone Idea](../../developer/guides/adding-a-telephony-provider#vodafone-idea-vi-exception) and [Go To Market](../../developer/services/go2market).
 
 <Note>
 Credentials are always injected by the caller. `apps/telephony` never looks up [`ProviderAuth`](../../developer/reference/provider-auth), FerretDB, or environment variables — `apps/api` resolves the organisation's credentials and hands them in.
@@ -16,7 +18,7 @@ Credentials are always injected by the caller. `apps/telephony` never looks up [
 ```mermaid
 sequenceDiagram
   participant C as "Caller (PSTN)"
-  participant P as "Provider<br/>Vobiz · Plivo"
+  participant P as "Provider<br/>Vobiz · Plivo · VI · Go2Market"
   participant RT as "Runtime<br/>:7860"
   participant API as "API<br/>:8000"
 
@@ -83,6 +85,8 @@ Once the provider opens the WebSocket, raw media frames have to be translated in
 | --- | --- | --- |
 | `vobiz` | `VobizFrameSerializer` | `apps/telephony/providers/vobiz/serializers.py` |
 | `plivo` | `PlivoFrameSerializer` | Re-exported from `pipecat.serializers.plivo` |
+| `vi` | `ViFrameSerializer` | `apps/telephony/providers/vi/serializers.py` |
+| `go2market` | `Go2MarketFrameSerializer` | `apps/telephony/providers/go2market/serializers.py` |
 
 Serializers are registered in an optional `serializer_service.py` per provider and loaded **lazily**, by `load_frame_serializers()` rather than `load_providers()`. That separation is deliberate: `apps/api` imports `apps/telephony` for provisioning but has no Pipecat dependency, so serializer modules must never load on the API side.
 
@@ -112,7 +116,7 @@ Recording helpers return ids or bytes, or `None` on failure — they do not use 
 
 ## Provider differences
 
-Everything above is shared. These are the real divergences:
+Vobiz and Plivo share the answer-XML path above. These are their real divergences:
 
 | Concern | Vobiz | Plivo |
 | --- | --- | --- |
@@ -126,7 +130,21 @@ Everything above is shared. These are the real divergences:
 
 The Vobiz `initiate_call` signature still accepts `hangup_url` and `hangup_method` for API symmetry, then discards them — the Vobiz Call payload has no hangup fields. Vobiz reports hangup through the answer webhook instead, which is why the answer URL and hangup URL provisioned for an agent are the same URL.
 
-Both providers use `auth_id` and `auth_token`, both marked `secret: True` in their config classes, so the credential form is identical from the API's point of view.
+Both use `auth_id` and `auth_token`, both marked `secret: True`, so the Integrations form for those two is the same shape.
+
+### OBD providers (VI and Go2Market)
+
+| Concern | Vodafone Idea (`vi`) | Go To Market (`go2market`) |
+| --- | --- | --- |
+| Auth | OBD username/password + `dni_flows` pairs | OBD profiles: `serviceno`, `ukey`, `ivrtemplateid` |
+| Outbound | CPaaS `createCampaign` + ingest | `CreateOBDCampaignPost` with WSS in `msisdnlist` |
+| Bulk campaigns | `initiate_bulk_calls` + status poll | Per-call outbound (no bulk client API) |
+| Inbound media | DIY flow → `wss://…/vi/stream` | DID-WebSocket API → `wss://…/agent/{org}/{agent}` |
+| Answer XML | Stub application; no Stream XML | Stub application; no Stream XML |
+| Wire audio | Provider-specific serializer + pipeline rates | G.711 µ-law 8 kHz, 160-byte aligned chunks |
+| Recordings | Pipecat AudioBuffer only | Pipecat AudioBuffer only |
+
+Full Go2Market integration detail: [Go To Market](../../developer/services/go2market). VI exception notes: [Adding a telephony provider](../../developer/guides/adding-a-telephony-provider#vodafone-idea-vi-exception).
 
 ## Registry dispatch
 
@@ -144,7 +162,7 @@ flowchart TB
   RF["FRAME_SERIALIZER_FACTORIES"]
   RT["TELEPHONY_CONFIGS"]
 
-  V["providers/vobiz/ · providers/plivo/<br/>config · service · serializer_service"]
+  V["providers/vobiz · plivo · vi · go2market<br/>config · service · serializer_service"]
 
   X --> RX
   CC --> RC
@@ -158,7 +176,7 @@ flowchart TB
   RT --> V
 ```
 
-Every one of the four maps is keyed by provider id and holds an entry for each vendor, so `vobiz` and `plivo` both appear in all four. Adding a provider means registering in each.
+Every one of the four maps is keyed by provider id. Registered vendors today include `vobiz`, `plivo`, `vi`, and `go2market`. Adding a provider means registering in each map that vendor uses.
 
 `load_providers()` imports `config` and `service` from every package under `providers/`, using `pkgutil`. `load_frame_serializers()` additionally imports `serializer_service`. A missing submodule is skipped, not an error. Duplicate registrations for the same provider id raise at import time, so two providers cannot silently claim the same name.
 
@@ -182,4 +200,5 @@ Adding a provider means adding a directory. Nothing in `xml.py`, `calls.py`, or 
 * [Voice pipeline](voice-pipeline) — what happens once the WebSocket is open
 * [Provider registry](../../developer/reference/provider-registry) — the same pattern for STT, TTS, and LLM
 * [Telephony (apps/telephony)](../../developer/services/telephony) — the package as a service
+* [Go To Market](../../developer/services/go2market) — OBD, DID-WebSocket, µ-law streaming
 * [Public voice URLs](../deployment/public-voice-urls) — making `/answer` reachable

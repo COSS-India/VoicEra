@@ -75,9 +75,15 @@ Every field is optional, but an empty body returns `400 No fields to update` —
 
 `duration` is derived, never sent. When a patch carries `end_time_utc`, the service computes the duration from `start_time_utc` and clamps it at zero; a patch without `end_time_utc` has any `duration` stripped. The `minio://` URIs you write are rewritten in the response to the two proxy routes below.
 
-## `GET /calls/{call_id}/recording` and `GET /calls/{call_id}/transcript`
+## `GET /calls/{call_id}/recording`, `/provider-recording`, and `/transcript`
 
-Bearer. Stream the artifact out of MinIO through the API, so clients never need MinIO credentials. `404` when the call or the object is missing, `400` when the stored URL is not a usable object key.
+Bearer. Stream the artifact out of MinIO through the API, so clients never need MinIO credentials. `404` when the call or the object is missing, `400` when the stored URL is not a usable object key, `503` when MinIO cannot be reached.
+
+| Query | Values | Effect |
+| --- | --- | --- |
+| `mode` | `view` (default), `download` | `download` adds `Content-Disposition: attachment; filename="<call_id>-<artifact>.<ext>"`. `view` streams inline |
+
+Every request is recorded in the [audit log](events) before the file streams, as `call.recording.*`, `call.provider_recording.*`, or `call.transcript.*` with the verb `viewed` or `downloaded` from `mode`. Refused requests (call not found in your organisation, artifact missing, storage unavailable) are recorded with `outcome: failure` and a `data.reason` of `call_not_found`, `artifact_missing`, `invalid_artifact_url`, or `storage_unavailable`. Use `mode=download` when the user saves the file. Because each request is recorded as a view, fetch a recording when the user plays it rather than to preload a player. The web app fetches it on the first Play.
 
 ## `GET /calls/{call_id}/metrics` and `PUT /calls/{call_id}/metrics`
 

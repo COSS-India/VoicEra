@@ -136,7 +136,7 @@ The XML returned by `/answer` telling a telephony provider which WebSocket URL t
 ## T
 
 **Telephony provider**
-Vobiz or Plivo. Owns the phone numbers and streams call audio. Selected per agent, never global. See [Telephony model](telephony-model).
+Vobiz, Plivo, Vodafone Idea, or Go2Market. Owns the phone numbers and streams call audio. Selected per agent, never global. See [Telephony model](telephony-model).
 
 ## V
 

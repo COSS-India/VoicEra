@@ -108,7 +108,7 @@ MinIO copies out with the `mc` client, using the same image the stack already pu
 docker run --rm --network voicera_app-network \
   -v "$PWD/minio-backup:/backup" \
   minio/mc:latest sh -c \
-  "mc alias set src http://minio:9000 minioadmin minioadmin123 && \
+  "mc alias set src http://minio:9000 minioadmin <MINIO_ROOT_PASSWORD> && \
    mc mirror --overwrite src/voicera-calls /backup"
 ```
 
@@ -151,7 +151,7 @@ MinIO, mirroring back:
 docker run --rm --network voicera_app-network \
   -v "$PWD/minio-backup:/backup" \
   minio/mc:latest sh -c \
-  "mc alias set dst http://minio:9000 minioadmin minioadmin123 && \
+  "mc alias set dst http://minio:9000 minioadmin <MINIO_ROOT_PASSWORD> && \
    mc mirror --overwrite /backup dst/voicera-calls"
 ```
 
@@ -199,7 +199,7 @@ VoicEra exposes no metrics endpoint. Capacity is read from the API, from Docker,
 | Campaign `processed_rows` rate | `GET /api/v1/campaign/{id}/progress` | Flat while `state` is `running` means slots, worker, or schedule window. |
 | Runtime CPU | `docker stats voicera_oss_runtime` | Each live call is one WebSocket and one Pipecat pipeline in **one** container. This saturates first. |
 | API CPU and memory | `docker stats voicera_oss_api` | The API also does RAG ingest in-process, so a large PDF upload shows here. |
-| Redis memory | `docker compose exec redis redis-cli -a redissecret INFO memory` | Queue depth and circuit-breaker windows. Steady growth means jobs are not being consumed. |
+| Redis memory | `docker compose exec redis redis-cli -a <REDIS_PASSWORD> INFO memory` | Queue depth and circuit-breaker windows. Steady growth means jobs are not being consumed. |
 | MinIO disk | `docker system df -v` | Recordings dominate. Nothing prunes them — there is no retention policy in the code. |
 | Postgres volume size | `docker system df -v` | Call logs grow without bound. |
 

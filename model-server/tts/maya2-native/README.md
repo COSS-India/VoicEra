@@ -9,7 +9,7 @@ with **20 named voices**, served on OpenAI's `POST /v1/audio/speech`.
 | Model | ~2.5 B parameters: Qwen3-1.7B-Base backbone (codebook 0) + 555 M depth decoder (codebooks 1–31) |
 | Codec | Kyutai Mimi, 32 codebooks at 12.5 Hz — one 80 ms frame per step |
 | Audio | 24 kHz mono, served as `pcm` (16-bit LE) by default; also `wav`, `mp3`, `opus`, `flac` |
-| Languages | `as bn en gu hi kn ml mr or pa ta te` (`od` accepted for Odia) |
+| Languages | `as bn en gu hi kn ml mr or pa ta te` (legacy `od` still aliased to Odia) |
 | Voices | 20 named voices, no reference audio; see the table below |
 | Engine | upstream's own: continuous batching over seats, CUDA graphs, Triton kernels |
 | Licence | Apache-2.0 (weights and code); Mimi CC-BY-4.0; ECAPA Apache-2.0 |
@@ -39,7 +39,7 @@ upstream's server instead of replacing it, and adds only the slot contract:
 |---|---|---|
 | `X-Audio-Format` | absent (`X-Encoding: pcm_s16le`) | on every speech response |
 | default `response_format` | `wav` | `pcm` (`MAYA_DEFAULT_FORMAT`) |
-| `language: "od"` | 400 | Odia (`or`) |
+| `language: "od"` (legacy) | 400 | Odia (`or`; VoicEra canonical is `or`) |
 | `voice: "alloy"` / none | `plain`, a random speaker per request | `MAYA_DEFAULT_VOICE` |
 | `instructions`, `speed != 1` | ignored / 400 | ignored, reported in `X-Instructions-Ignored` / `X-Speed-Ignored` |
 | `GET /v1/voices` | upstream's shape, includes `plain` | `{"object":"list","data":[{id, languages, gender, age, description}], "default"}` |
@@ -61,9 +61,10 @@ The server can guess the language from the script, but the script does not
 decide it: Marathi is written in Devanagari like Hindi, and Assamese in the
 Bengali script. A guess would read every Marathi sentence as Hindi. So the
 `maya2_native` provider sends the agent's language on every request, as an
-OpenAI `extra_body` field, and the server maps VoicEra's canonical ids (`od`) to
-the model's (`or`). A request without `language` still works — upstream detects
-it from the script — which is what an off-the-shelf OpenAI client gets.
+OpenAI `extra_body` field. VoicEra's canonical Odia id is `or`, matching the
+model; the server still accepts legacy `od` as an alias. A request without
+`language` still works — upstream detects it from the script — which is what an
+off-the-shelf OpenAI client gets.
 
 ## Voices
 

@@ -16,7 +16,7 @@ flowchart TB
   Client(["API consumer<br/>[Person or system]<br/>Configures agents, runs campaigns"])
   Operator(["Operator<br/>[Person]<br/>Uses the dashboard"])
   Caller(["Caller<br/>[Person]<br/>Places or receives a call"])
-  Tel["Telephony providers<br/>[External system]<br/>Vobiz · Plivo"]
+  Tel["Telephony providers<br/>[External system]<br/>Vobiz · Plivo · VI · Go2Market"]
   Cloud["AI providers<br/>[External system]<br/>22 cloud vendors + 2 adapters"]
   Self["Model server<br/>[Optional, self-hosted]<br/>STT · TTS · LLM on your GPUs"]
 
@@ -34,7 +34,7 @@ flowchart TB
 | --- | --- |
 | API consumer | Anything driving VoicEra over REST — your own console, a script, or the [dashboard](../../developer/frontend/overview). |
 | Caller | The person on the phone, inbound or outbound. |
-| Telephony providers | [Vobiz or Plivo](telephony-model). They own the numbers and stream the audio. |
+| Telephony providers | [Vobiz, Plivo, Vodafone Idea, or Go2Market](telephony-model). They own the numbers and stream the audio. |
 | AI providers | 22 cloud vendors plus the Bhashini and Kenpath adapters, reachable through the [provider registry](../../developer/reference/provider-registry). |
 | Model server | Optional [self-hosted models](../../developer/model-server/overview) behind one gateway. |
 
@@ -48,7 +48,7 @@ flowchart LR
   Caller(["Caller"])
 
   FE["Dashboard<br/>Next.js · :3000"]
-  Tel["Telephony<br/>Vobiz · Plivo"]
+  Tel["Telephony<br/>Vobiz · Plivo · VI · Go2Market"]
   API["API<br/>FastAPI · :8000"]
   RT["Runtime<br/>FastAPI + Pipecat · :7860"]
   AI["AI providers<br/>cloud or self-hosted"]
@@ -248,7 +248,7 @@ VoicEra replaces the earlier `voicera_mono_repository`. If you know the old syst
 | `ai4bharat_stt_server`, `ai4bharat_tts_server`, `llm_server` | One [model server](../../developer/model-server/overview), three slots |
 | A `.env` per service | One root `.env`, plus `model-server/.env` |
 | Integrations documents | [`ProviderAuth`](../../developer/reference/provider-auth), Fernet-encrypted |
-| Vobiz only | Vobiz and Plivo, [provider-agnostic](telephony-model) |
+| Vobiz only | Vobiz, Plivo, VI, and Go2Market, [provider-agnostic](telephony-model) |
 | No queue | Redis, ARQ worker, and campaign orchestrator |
 | Hard-coded provider list | Self-describing [provider registry](../../developer/reference/provider-registry) |
 | Dashboard assumed | API-first — the [dashboard](../../developer/frontend/overview) is one client of the REST API, not a privileged surface |

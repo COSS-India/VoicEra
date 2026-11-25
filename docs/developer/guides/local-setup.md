@@ -23,14 +23,24 @@ Clone the repository and copy the environment template:
 cp .env.example .env
 ```
 
-Then generate the three secrets that have no usable default:
+Every secret and password in it ships blank. The quickest way to fill them is to run the start script and answer `n` when it asks to start the stack — it writes the values into `.env` and exits:
 
 ```bash
+./scripts/start-application-services.sh
+```
+
+To fill them by hand instead, generate a separate value for each of `SECRET_KEY`, `INTERNAL_API_KEY`, `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, and `REDIS_PASSWORD`, and a Fernet key for `PROVIDER_AUTH_ENCRYPTION_KEY`. Then set `MINIO_SECRET_KEY` to the same value as `MINIO_ROOT_PASSWORD`, and `REDIS_URL` to `redis://:<REDIS_PASSWORD>@localhost:6379`:
+
+```bash
+# SECRET_KEY, INTERNAL_API_KEY
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+# MONGODB_PASSWORD, MINIO_ROOT_PASSWORD, REDIS_PASSWORD (letters and digits only, as they go into URLs)
+python3 -c "import secrets, string; a = string.ascii_letters + string.digits; print(''.join(secrets.choice(a) for _ in range(32)))"
+# PROVIDER_AUTH_ENCRYPTION_KEY
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Put the first into `SECRET_KEY` and again into `INTERNAL_API_KEY`, and the Fernet key into `PROVIDER_AUTH_ENCRYPTION_KEY`. See [Environment variables](../reference/environment-variables) for what each one does.
+Never reuse one value for two variables. See [Environment variables](../reference/environment-variables) for what each one does.
 
 <Note>
 There is exactly **one** `.env`, at the repository root, plus a separate `model-server/.env` for the optional model stack. There are no per-app env files. `apps/api/app/config.py` resolves the root `.env` four directories up from itself, so running `uvicorn` from inside `apps/api` still picks it up.

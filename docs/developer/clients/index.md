@@ -21,7 +21,7 @@ If you only want to configure agents and read call logs, you need the REST API a
 flowchart LR
   Console(["Your console<br/>or scripts"])
   Browser(["Browser page"])
-  Tel["Telephony provider<br/>Vobiz · Plivo"]
+  Tel["Telephony provider<br/>Vobiz · Plivo · VI · Go2Market"]
 
   API["API<br/>:8000<br/>REST /api/v1"]
   RT["Runtime<br/>:7860<br/>/answer · WS /agent"]
@@ -45,18 +45,18 @@ An agent's `agent_category` decides which media surface applies to it. It is fix
 
 Both categories run the same Pipecat pipeline. The difference is the frame serializer, the sample rate, and how the `CallLog` is created — a telephony call is registered from the provider webhook, a browser session through `POST /api/v1/calls/web`.
 
-* Building a phone agent? Use `telephony` and read [Telephony agents](telephony).
-* Building an in-page voice widget or a demo? Use `websocket` and read [Browser WebSocket agents](browser-websocket).
+* Building a phone agent? Use `telephony` and read [Telephony agents](/docs/developer/clients/telephony).
+* Building an in-page voice widget or a demo? Use `websocket` and read [Browser WebSocket agents](/docs/developer/clients/browser-websocket).
 
 ## The dashboard
 
 The bundled Next.js dashboard is a client like any other: it drives the REST API for configuration and opens the runtime WebSocket for browser test calls.
 
 <Warning>
-The dashboard container runs the Next.js development server. Build it properly before putting it in front of users. See [Dashboard](../frontend/overview).
+The dashboard container runs the Next.js development server. Build it properly before putting it in front of users. See [Dashboard](/docs/developer/frontend/overview).
 </Warning>
 
-It is still the most complete worked example of a VoicEra client, and [Browser WebSocket agents](browser-websocket) quotes its audio implementation.
+It is still the most complete worked example of a VoicEra client, and [Browser WebSocket agents](/docs/developer/clients/browser-websocket) quotes its audio implementation.
 
 ## Building your own console
 
@@ -68,12 +68,12 @@ Everything the dashboard does is available to you:
 4. `POST /api/v1/agents` creates the agent. For `telephony` agents the API provisions the provider application and stores the answer URL on the agent document.
 5. From there, place calls, run campaigns, or open the media WebSocket.
 
-The full route list is in the [Endpoints cheatsheet](../../api-reference/endpoints-cheatsheet); the request and response shapes are in the [REST API reference](../../api-reference/overview). A running API also serves an interactive console at `http://localhost:8000/docs`, generated from the same routers, so it never drifts.
+The full route list is in the [Endpoints cheatsheet](/docs/api-reference/endpoints-cheatsheet); the request and response shapes are in the [REST API reference](/docs/api-reference/overview). A running API also serves an interactive console at `http://localhost:8000/docs`, generated from the same routers, so it never drifts.
 
 ## Related
 
-* [Browser WebSocket agents](browser-websocket)
-* [Telephony agents](telephony)
-* [REST API](../../api-reference/overview)
-* [WebSocket API](../../api-reference/websocket-api)
-* [Agents and agent categories](../../guides/concepts/agents)
+* [Browser WebSocket agents](/docs/developer/clients/browser-websocket)
+* [Telephony agents](/docs/developer/clients/telephony)
+* [REST API](/docs/api-reference/overview)
+* [WebSocket API](/docs/api-reference/websocket-api)
+* [Agents and agent categories](/docs/guides/concepts/agents)

@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 Role = Literal["super_admin", "admin", "member"]
 
@@ -1166,3 +1174,60 @@ class KnowledgeRetrieveResponse(BaseModel):
     """RAG retrieval response."""
 
     chunks: list[KnowledgeChunkResponse] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Event log (audit)
+# ---------------------------------------------------------------------------
+
+
+class EventActor(BaseModel):
+    type: str
+    id: str
+    role: Optional[str] = None
+
+
+class EventResource(BaseModel):
+    type: str
+    id: str
+    name: Optional[str] = Field(
+        None, description="Name when the event was recorded; omitted when the resource has none"
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_missing_name(self, handler: SerializerFunctionWrapHandler):
+        # Calls have no name; omit the key rather than return ``"name": null``.
+        data = handler(self)
+        if data.get("name") is None:
+            data.pop("name", None)
+        return data
+
+
+class EventResponse(BaseModel):
+    id: str
+    v: int
+    org_id: str
+    type: str
+    ts: str = Field(..., description="ISO 8601 UTC timestamp")
+    source: str
+    actor: EventActor
+    target: Optional[EventResource] = None
+    related: list[EventResource] = Field(
+        default_factory=list,
+        description="Other resources the event concerns, e.g. the call's agent and campaign",
+    )
+    outcome: Literal["success", "failure"]
+    context: dict[str, str] = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class EventListResponse(BaseModel):
+    events: list[EventResponse]
+    next_cursor: Optional[str] = Field(
+        None, description="Pass as `cursor` to fetch the next page; null on the last page"
+    )
+
+
+class EventTypeResponse(BaseModel):
+    name: str
+    description: str

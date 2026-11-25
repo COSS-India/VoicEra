@@ -124,6 +124,8 @@ class ViClient:
         retrycount: Optional[int] = None,
         retryintervalvalue: Optional[int] = None,
         retryintervaltype: Optional[int] = None,
+        existing_campain_key: Optional[str] = None,
+        campaign_ref_id: Any = None,
     ) -> Dict[str, Any]:
         """Capability hook for campaign batch dialing (one OBD campaign)."""
         return await application.initiate_bulk_calls(
@@ -140,6 +142,8 @@ class ViClient:
             retrycount=retrycount,
             retryintervalvalue=retryintervalvalue,
             retryintervaltype=retryintervaltype,
+            existing_campain_key=existing_campain_key,
+            campaign_ref_id=campaign_ref_id,
         )
 
     async def get_bulk_status(

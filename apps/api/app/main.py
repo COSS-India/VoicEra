@@ -18,6 +18,7 @@ from app.routers import (
     calls,
     campaign,
     configuration,
+    events,
     knowledge,
     languages,
     members,
@@ -60,6 +61,71 @@ app = FastAPI(
         "Voicera Backend API — auth, organisations, agents, "
         "provider catalogs, and credentials"
     ),
+    contact={
+        "name": "VoicEra",
+        "url": "https://github.com/COSS-India/VoicEra",
+        "email": "noreply@voicera.com",
+    },
+    servers=[
+        {
+            "url": "http://localhost:8000",
+            "description": "Local VoicEra API",
+        }
+    ],
+    openapi_tags=[
+        {
+            "name": "users",
+            "description": "Signup, login, profile, and password reset.",
+        },
+        {
+            "name": "members",
+            "description": "Organisation membership, invites, and role changes.",
+        },
+        {
+            "name": "organisations",
+            "description": "Organisation lifecycle for the active tenant.",
+        },
+        {
+            "name": "languages",
+            "description": "Canonical language ids used by the agent builder.",
+        },
+        {
+            "name": "configuration",
+            "description": "STT, TTS, LLM, and telephony provider catalogs and settings.",
+        },
+        {
+            "name": "auth",
+            "description": "Provider credential schemas and stored organisation secrets.",
+        },
+        {
+            "name": "agents",
+            "description": "Voice agent create, read, update, and delete.",
+        },
+        {
+            "name": "phone-numbers",
+            "description": "Phone-number inventory and attachment to agents.",
+        },
+        {
+            "name": "calls",
+            "description": "Outbound, inbound, and browser calls, plus artifacts and metrics.",
+        },
+        {
+            "name": "campaign",
+            "description": "CSV-driven outbound campaigns, progress, and reports.",
+        },
+        {
+            "name": "knowledge",
+            "description": "Organisation knowledge-base documents.",
+        },
+        {
+            "name": "rag",
+            "description": "Retrieval over an organisation knowledge base.",
+        },
+        {
+            "name": "system",
+            "description": "Service metadata and health checks.",
+        },
+    ],
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -85,9 +151,10 @@ app.include_router(calls.router, prefix=settings.API_V1_PREFIX)
 app.include_router(campaign.router, prefix=settings.API_V1_PREFIX)
 app.include_router(knowledge.router, prefix=settings.API_V1_PREFIX)
 app.include_router(rag.router, prefix=settings.API_V1_PREFIX)
+app.include_router(events.router, prefix=settings.API_V1_PREFIX)
 
 
-@app.get("/")
+@app.get("/", tags=["system"])
 async def root() -> dict[str, str]:
     """Root welcome endpoint."""
     return {
@@ -97,7 +164,7 @@ async def root() -> dict[str, str]:
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     """Liveness/readiness probe including database ping."""
     db_ok = ping_database()

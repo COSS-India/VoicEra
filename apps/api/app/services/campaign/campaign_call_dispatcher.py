@@ -33,6 +33,7 @@ from apps.telephony.phone_format import format_e164_for_call_log
 logger = logging.getLogger(__name__)
 
 CONCURRENT_SLOT_TIMEOUT = 120.0
+# Minimum claim size. A bulk batch still claims every pending run.
 BULK_CLAIM_FLOOR = 500
 STATUS_POLL_SECS = int(os.environ.get("TELEPHONY_BULK_STATUS_POLL_SECS", "30"))
 STATUS_POLL_MAX_ROUNDS = int(
@@ -157,7 +158,11 @@ class CampaignCallDispatcher:
             except AgentTelephonyError:
                 bulk_client = None
             if bulk_client is not None and _client_supports_bulk(bulk_client):
-                claim_limit = max(batch_size, BULK_CLAIM_FLOOR)
+                pending = repo.count_pending_queued_runs(
+                    campaign_id,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+                claim_limit = max(batch_size, pending, BULK_CLAIM_FLOOR)
 
         queued_runs = repo.claim_queued_runs_for_processing(
             campaign_id,
@@ -274,6 +279,15 @@ class CampaignCallDispatcher:
         ):
             if key in obd_config and obd_config[key] is not None:
                 bulk_kwargs[key] = obd_config[key]
+        if provider == "vi":
+            handles = metadata.get("bulk_provider_handles")
+            if isinstance(handles, dict):
+                existing_key = str(handles.get("campain_key") or "").strip()
+                if existing_key:
+                    bulk_kwargs["existing_campain_key"] = existing_key
+                    existing_ref = handles.get("campaign_ref_id")
+                    if existing_ref is not None and str(existing_ref).strip():
+                        bulk_kwargs["campaign_ref_id"] = existing_ref
         try:
             result = await client.initiate_bulk_calls(**bulk_kwargs)
         except Exception as exc:

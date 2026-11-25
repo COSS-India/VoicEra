@@ -46,7 +46,7 @@ DEFAULT_TTS_VOICE = "Aditi"
 # Vendor language code -> VoicEra canonical id. The model card claims "22
 # scheduled Indian languages + English" without enumerating them, so these are
 # the 22 Eighth Schedule languages plus English. Unverified on hardware: see
-# the module docstring. Odia is ``or`` on the wire / ``od`` in VoicEra.
+# the module docstring. Odia is ``or`` on the wire / ``or`` in VoicEra.
 _TTS_LANGS: dict[str, str] = {
     "as": "as",
     "bn": "bn",
@@ -62,7 +62,7 @@ _TTS_LANGS: dict[str, str] = {
     "mni": "mni",
     "mr": "mr",
     "ne": "ne",
-    "or": "od",
+    "or": "or",
     "pa": "pa",
     "sa": "sa",
     "sat": "sat",
