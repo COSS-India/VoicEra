@@ -10,18 +10,18 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@pipecat-ai/client-js": "^1.13.1",
-    "@pipecat-ai/client-react": "^1.8.2",
-    "@pipecat-ai/websocket-transport": "^1.7.1",
-    "d3": "^7.9.0",
+    "@pipecat-ai/client-js": "^1.16.0",
+    "@pipecat-ai/client-react": "^1.11.0",
+    "@pipecat-ai/websocket-transport": "^1.8.2",
+    "d3": "^7.9.2",
     "framer-motion": "^13.1.1",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
-    "lucide-react": "^1.35.0",
-    "next": "16.4.1",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "recharts": "^3.10.1",
+    "lucide-react": "^1.77.0",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "recharts": "^3.11.0",
     "topojson-client": "^3.1.0"
   },
   "devDependencies": {
@@ -32,7 +32,7 @@
     "@types/react-dom": "^19",
     "@types/topojson-client": "^3.1.5",
     "eslint": "^9",
-    "eslint-config-next": "16.4.1",
+    "eslint-config-next": "16.4.6",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
