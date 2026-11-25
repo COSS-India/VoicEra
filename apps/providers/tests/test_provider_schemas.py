@@ -1192,3 +1192,25 @@ def test_provider_level_auth_openai_and_google_merge():
 
     assert provider_level_auth("missing") is None
     assert "openai" in all_provider_level_auth()
+
+
+def test_cartesia_tts_schema():
+    schema = provider_schemas(Kind.TTS)["cartesia"]
+    assert schema["provider"] == "cartesia"
+    assert schema["name"] == "Cartesia"
+    fields = schema["fields"]
+    assert fields["model"]["default"] == "sonic-3.5"
+    assert set(fields["model"]["examples"]) == {"sonic-3.5", "sonic-3"}
+    assert fields["voice"]["default"] == "3faa81ae-d3d8-4ab1-9e44-e50e46d33c30"
+    assert "api_key" in schema["secrets"]
+
+
+def test_cartesia_stt_schema():
+    schema = provider_schemas(Kind.STT)["cartesia"]
+    assert schema["provider"] == "cartesia"
+    assert schema["name"] == "Cartesia"
+    fields = schema["fields"]
+    assert fields["model"]["default"] == "ink-whisper"
+    assert set(fields["model"]["examples"]) == {"ink-whisper", "ink-2"}
+    assert "api_key" in schema["secrets"]
+

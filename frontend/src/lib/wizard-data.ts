@@ -111,6 +111,15 @@ export const STT_PROVIDERS: {
     note: "High accuracy, English-first.",
     models: [{ value: "scribe-v1", label: "scribe-v1" }],
   },
+  {
+    id: "cartesia",
+    label: "Cartesia",
+    note: "Ultra-low latency transcription with Ink Whisper and Ink 2.",
+    models: [
+      { value: "ink-whisper", label: "ink-whisper" },
+      { value: "ink-2", label: "ink-2" },
+    ],
+  },
 ];
 
 export interface VoiceOption {
@@ -165,10 +174,10 @@ export const TTS_PROVIDERS: {
     id: "cartesia",
     label: "Cartesia",
     note: "Lowest latency TTS in this list.",
-    model: "sonic-2",
+    model: "sonic-3.5",
     voices: [
-      { id: "asha", name: "Asha", note: "Fast, crisp — good for short broadcasts." },
-      { id: "vikram", name: "Vikram", note: "Confident, brand-forward tone." },
+      { id: "3faa81ae-d3d8-4ab1-9e44-e50e46d33c30", name: "British Lady (Default)", note: "Clear, crisp — standard Cartesia voice." },
+      { id: "a0e99841-438c-4a64-b679-ae501e7d6091", name: "Barbershop Man", note: "Confident, brand-forward tone." },
     ],
   },
   {
