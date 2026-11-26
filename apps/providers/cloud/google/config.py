@@ -79,7 +79,7 @@ class GoogleTTSSettings(BaseTTSSettings):
 class GoogleLLMConfig(GoogleAIStudioAuth, GoogleLLMSettings, BaseLLMConfig):
     """Google Gemini LLM via Google AI Studio."""
 
-    name: str = "Google"
+    name: str = "Google Gemini"
 
     provider: Literal["google"] = "google"
     model: str = Field(
