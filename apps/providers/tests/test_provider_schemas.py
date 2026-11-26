@@ -1194,3 +1194,30 @@ def test_provider_level_auth_openai_and_google_merge():
 
     assert provider_level_auth("missing") is None
     assert "openai" in all_provider_level_auth()
+
+
+def test_elevenlabs_tts_schema():
+    schema = provider_schemas(Kind.TTS)["elevenlabs"]
+    assert schema["provider"] == "elevenlabs"
+    assert schema["name"] == "ElevenLabs"
+    fields = schema["fields"]
+    assert fields["model"]["default"] == "eleven_flash_v2_5"
+    assert set(fields["model"]["examples"]) == {
+        "eleven_flash_v2_5",
+        "eleven_turbo_v2_5",
+        "eleven_multilingual_v2",
+        "eleven_turbo_v2",
+    }
+    assert fields["voice"]["default"] == "21m00Tcm4TlvDq8ikWAM"
+    assert "api_key" in schema["secrets"]
+
+
+def test_elevenlabs_stt_schema():
+    schema = provider_schemas(Kind.STT)["elevenlabs"]
+    assert schema["provider"] == "elevenlabs"
+    assert schema["name"] == "ElevenLabs"
+    fields = schema["fields"]
+    assert fields["model"]["default"] == "scribe_v2_realtime"
+    assert set(fields["model"]["examples"]) == {"scribe_v2_realtime"}
+    assert "api_key" in schema["secrets"]
+
