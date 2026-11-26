@@ -109,7 +109,7 @@ export const STT_PROVIDERS: {
     id: "elevenlabs",
     label: "ElevenLabs",
     note: "High accuracy, English-first.",
-    models: [{ value: "scribe-v1", label: "scribe-v1" }],
+    models: [{ value: "scribe_v2_realtime", label: "scribe_v2_realtime" }],
   },
 ];
 
@@ -175,10 +175,10 @@ export const TTS_PROVIDERS: {
     id: "elevenlabs",
     label: "ElevenLabs",
     note: "Highest expressiveness, English-first.",
-    model: "eleven-turbo-v2-5",
+    model: "eleven_flash_v2_5",
     voices: [
-      { id: "priya", name: "Priya", note: "Expressive, best for English-heavy lines." },
-      { id: "dev", name: "Dev", note: "Grounded, calm narrator tone." },
+      { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel (Default)", note: "Expressive, best for English-heavy lines." },
+      { id: "pNInz6obpgDQGcFmaJgB", name: "Adam", note: "Grounded, calm narrator tone." },
     ],
   },
 ];
