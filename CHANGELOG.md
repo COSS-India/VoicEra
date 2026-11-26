@@ -26,6 +26,17 @@ several subsystems are new.
   (`?resource=agent:<id>`). Artifact routes accept
   `?mode=view|download`. Events are retained for at least 365 days
   (`EVENTLOG_RETENTION_DAYS`).
+- **PII redaction for transcripts, logs and the test panel**
+  (`apps/runtime/services/privacy`) — opt-in with `PII_REDACTION_ENABLED`.
+  Replaces phone, Aadhaar, PAN, card, email, date of birth, OTP and long
+  account numbers with one generic placeholder, `[REDACTED_TEXT]` (so redacted
+  text does not reveal what kind of detail was removed), before a transcript is
+  stored, in every runtime log line, and in the live transcript the browser
+  test panel receives. Numbers spoken as words are read as digits (English,
+  Hindi and Kannada in full, digits 0–9 in eight more Indian languages), and the
+  stored transcript is redacted with the whole call as context, so a number
+  split over two turns or repeated in part is caught (VE-122, VE-221). Call
+  recordings are not redacted yet (#243).
 - **Encryption at rest for call recordings and transcripts** — opt-in with
   `MINIO_ENCRYPTION=sse-s3` and `MINIO_KMS_SECRET_KEY`. The runtime verifies
   encryption at startup.

@@ -191,34 +191,56 @@ Infrastructure passwords — `MONGODB_PASSWORD`, `MINIO_ROOT_PASSWORD`, `REDIS_P
 
 ## Redacting PII in transcripts
 
-Set `PII_REDACTION_ENABLED=true` in `.env` and restart the `runtime` service. From then on each transcript line is redacted before it is written to MinIO, so the transcript download and the translate endpoint only ever see redacted text.
+Set `PII_REDACTION_ENABLED=true` in `.env`, then recreate the runtime with `docker compose up -d runtime`. `docker compose restart runtime` does not re-read `.env`, so the old setting would stay in effect. Check it took with `docker compose exec runtime printenv PII_REDACTION_ENABLED`.
 
-The same redaction applies to the transcript text the runtime writes to its logs: the per-turn `user:` / `assistant:` lines and the final and interim transcripts logged by the Bhashini (streaming, Socket.IO, Bhili) and Raya STT adapters. Keep `RUNTIME_LOG_LEVEL` at its default, `INFO`. At `DEBUG`, Pipecat logs the assistant's text before speech synthesis (`Generating TTS [...]`), and that line is not redacted.
+Redaction then applies in three places:
 
-| Placeholder | What it replaces |
+| Where | What is redacted |
 | --- | --- |
-| `[REDACTED_EMAIL]` | Email addresses |
-| `[REDACTED_PHONE]` | Indian mobile numbers, with or without `+91` |
-| `[REDACTED_AADHAAR]` | 12-digit Aadhaar-style numbers |
-| `[REDACTED_PAN]` | PAN numbers |
-| `[REDACTED_CARD]` | Payment card numbers (Luhn-checked) |
-| `[REDACTED_DOB]` | Dates written as `DD/MM/YYYY` |
-| `[REDACTED_NUMBER]` | Any other run of nine or more digits |
+| Stored transcript (`transcript.txt` in MinIO) | Every line, when the call ends, using the whole call as context. The History page, transcript download, OBD report and translate endpoint only ever see this redacted text. |
+| Runtime logs | Every line the runtime writes through its logger: its own lines, Pipecat's (including `DEBUG` output such as `Generating TTS [...]`) and the STT adapters'. Digits inside long letter-and-digit tokens such as call IDs, UUIDs and object IDs are left intact so logs stay traceable. Tracebacks stop printing local variable values. Uvicorn's request lines do not pass through it; they carry paths and IDs, not transcript text. |
+| Browser test panel | The live caller and agent text, as each line arrives. The agent's token-by-token text streams (`bot-llm-text`, `bot-tts-text`) are not sent while redaction is on; the panel does not use them. |
 
-Digits count as one identifier only when they are written together (`9876543210`), one digit at a time (`9 8 7 6 5 4 3 2 1 0`), or in the grouping that identifier is read out in: phone 5-5, Aadhaar 4-4-4, card 4-4-4-4 or 4-6-5. Aadhaar numbers must also pass the Verhoeff check and card numbers the Luhn check. Several numbers spoken in a row, such as prices (`2400 2500 2600`), are left as they are.
+Every detected item is replaced with the same placeholder, `[REDACTED_TEXT]`, whatever its type. A per-type label such as `[REDACTED_PHONE]` would tell anyone reading the transcript what kind of detail was there, which helps them guess it from the rest of the conversation. The types below are what is detected; their names are used only to choose types in `PII_REDACTION_ENTITIES`, and never appear in redacted text.
+
+| Type | What is detected |
+| --- | --- |
+| `EMAIL` | Email addresses, typed (`a.b@example.com`) or spoken (`a dot b at example dot com`) |
+| `PHONE` | Indian mobile numbers, with or without `+91` |
+| `AADHAAR` | 12-digit Aadhaar-style numbers (Verhoeff-checked) |
+| `PAN` | PAN numbers, including spelled out (`a b c d e 1 2 3 4 f`) |
+| `CARD` | Payment card numbers (Luhn-checked) |
+| `DOB` | Full dates: `15/12/2021`, `15-12-2021`, `15 12 2021`, `15 December 2021`, `December 15, 2021`, `15 दिसंबर 2021`, `15 ಡಿಸೆಂಬರ್ 2021` |
+| `OTP` | Four to eight digits right after "OTP", or given in reply to the agent asking for one |
+| `NUMBER` | Any other run of nine or more digits, or seven or more read out one digit at a time (landlines, account numbers, partial identifiers) |
+
+**Numbers spoken as words.** Speech recognition writes numbers the way they were said ("nine eight seven six ...", `नौ आठ सात ...`, `ಒಂಬತ್ತು ಎಂಟು ...`). The redaction reads these as digits first. English, Hindi and Kannada are covered in full: digits, teens, tens and compounds (`ninety eight`, `अट्ठानवे`, `ತೊಂಬತ್ತೆಂಟು`), "double"/"triple", and years (`twenty twenty one`, `दो हज़ार इक्कीस`). Marathi, Bengali, Gujarati, Punjabi, Odia, Tamil, Telugu and Malayalam are covered for the digits zero to nine, which is how phone numbers and IDs are normally read out.
+
+**Digit grouping.** Digits count as one identifier only when they are written together (`9876543210`), one digit at a time (`9 8 7 6 5 4 3 2 1 0`), in the grouping that identifier is read out in (phone 5-5, Aadhaar 4-4-4, card 4-4-4-4 or 4-6-5), or, when spoken as words, in pairs (`ninety eight seventy six ...`). Aadhaar numbers must also pass the Verhoeff check and card numbers the Luhn check. Several numbers spoken in a row, such as prices (`2400 2500 2600`, `twenty four hundred, twenty five hundred`), are left as they are.
+
+**Whole-call context (stored transcript only).** Because the transcript is redacted when the call ends, it also catches:
+
+- a number split over turns by the same speaker, for example `nine eight seven six` and then `five four three two one zero`, with up to one turn by the other speaker in between;
+- part of a number given in full elsewhere in the call, such as the agent repeating the last eight digits (five or more digits);
+- an OTP, or a spoken email, given in reply to the agent asking for one.
+
+The logs and the test panel are redacted line by line as the call happens, so they cannot wait for the rest of a split number. Instead they also mask any run of four or more digits read out one at a time or as words.
 
 To redact only some of these, list them in `PII_REDACTION_ENTITIES`, for example `PHONE,EMAIL`.
 
 Limits to know about:
 
-- Redaction is permanent. The original text is not kept anywhere.
+- Redaction is permanent. The original text is not kept anywhere. During a call the text is held in the runtime's memory, as it already is in the LLM context, and dropped once the transcript is written.
 - The setting applies to the whole deployment, not to individual organisations.
 - Transcripts stored before the setting was turned on are not changed.
-- Numbers spoken as words (`नौ आठ सात ...`), names and postal addresses are not detected.
-- Identifiers read out in unusual groupings (for example a phone number as 3-3-4) are not detected.
+- Names and postal addresses are not detected.
+- Romanised Hindi number words (`ek do teen`) are not read as digits, because `do`, `teen` and `char` are also English words. Pair-read numbers in languages other than English, Hindi and Kannada are not either.
+- A spoken email of the form `name at domain dot org` is redacted only with a sign that it is an email: a dot, underscore or digits in the name, "at the rate", a known mail provider (`gmail`, `yahoo`, `outlook`, ...), or the word "email" in the same or the previous turn. Otherwise it could be a website.
+- A six-digit PIN code read out one digit at a time is kept; seven or more digits read that way are redacted. The last four digits of a number on their own are kept.
+- Identifiers read out in unusual groupings of digits (for example a phone number as 3-3-4) are not detected.
 - Three price-like groups of four digits that happen to pass the Aadhaar check (about 1 in 10) are still redacted as Aadhaar.
-- Call recordings are not redacted.
-- Logs written by anything other than the runtime transcript lines listed above, including `DEBUG`-level Pipecat output, are not redacted.
+- Call recordings are not redacted. Recording redaction and a switch to turn recording off are tracked in [issue #243](https://github.com/COSS-India/VoicEra/issues/243).
+- Logs from other services (API, worker, model server) are not redacted.
 
 ## Capacity signals
 

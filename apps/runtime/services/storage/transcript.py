@@ -13,19 +13,28 @@ from pipecat.processors.aggregators.llm_response_universal import (
     UserTurnStoppedMessage,
 )
 
-from apps.runtime.services.privacy.redaction import redact_if_enabled
+from apps.runtime.services.privacy.redaction import (
+    redact_live_if_enabled,
+    redact_turns_if_enabled,
+)
 from apps.runtime.services.storage.call_artifacts import save_and_link
 from apps.runtime.services.storage.object_storage import minio_uri
 
 
 class TranscriptWriter:
-    """Buffer transcript lines in memory and upload once when the call ends."""
+    """Buffer transcript lines in memory and upload once when the call ends.
+
+    Lines are redacted when the transcript is rendered, not as they arrive, so
+    redaction can use the whole call: a phone number split over two turns, or the
+    last eight digits of a number given in full earlier. Raw text stays in this
+    process's memory only, as it already does in the LLM context, and is dropped
+    as soon as the transcript is rendered.
+    """
 
     def __init__(self, *, org_id: str, call_id: str) -> None:
         self._org_id = org_id
         self._call_id = call_id
-        self._buffer = f"call_id={call_id}\n---\n"
-        self._has_content = False
+        self._lines: list[tuple[str, str, str]] = []  # (role, timestamp, content)
         self._flushed = False
 
     @property
@@ -33,21 +42,39 @@ class TranscriptWriter:
         return minio_uri(self._org_id, self._call_id, "transcript.txt")
 
     def append(self, role: str, timestamp: str, content: str) -> None:
-        # Redact before buffering so raw PII never reaches object storage.
-        self._buffer += f"[{timestamp}] {role}: {redact_if_enabled(content)}\n"
-        self._has_content = True
+        self._lines.append((role, timestamp, content))
+
+    def render(self) -> str:
+        """The transcript as it is stored, redacted when PII redaction is enabled."""
+        contents = [content for _, _, content in self._lines]
+        try:
+            contents = redact_turns_if_enabled(
+                [(role, content) for role, _, content in self._lines]
+            )
+        except Exception:  # noqa: BLE001
+            # Never store raw text because the call-level pass failed: fall back to
+            # the stricter per-line redaction.
+            logger.exception("Call-level PII redaction failed call_id={}", self._call_id)
+            contents = [redact_live_if_enabled(content) for content in contents]
+        body = "".join(
+            f"[{timestamp}] {role}: {content}\n"
+            for (role, timestamp, _), content in zip(self._lines, contents)
+        )
+        return f"call_id={self._call_id}\n---\n{body}"
 
     async def flush(self) -> None:
         """Upload the transcript and link it on the CallLog (once per call)."""
-        if self._flushed or not self._has_content:
+        if self._flushed or not self._lines:
             return
 
         self._flushed = True
+        data = self.render().encode("utf-8")
+        self._lines.clear()
         await save_and_link(
             org_id=self._org_id,
             call_id=self._call_id,
             filename="transcript.txt",
-            data=self._buffer.encode("utf-8"),
+            data=data,
             content_type="text/plain",
             url_field="transcript_url",
         )

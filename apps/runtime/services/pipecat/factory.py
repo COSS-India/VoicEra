@@ -35,6 +35,8 @@ from apps.runtime.services.pipecat.vad import (
     VadProfileSwitcher,
     vad_params_from_behaviour,
 )
+from apps.runtime.services.privacy.redaction import is_enabled as pii_redaction_enabled
+from apps.runtime.services.privacy.rtvi import RedactingRTVIProcessor
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
 
@@ -175,6 +177,9 @@ def build_pipeline_components(
         ),
         idle_timeout_secs=None,
         processor_unusable_policy=ProcessorUnusablePolicy.END,
+        # The live transcript the browser test panel shows travels over RTVI.
+        # None keeps Pipecat's default processor.
+        rtvi_processor=RedactingRTVIProcessor() if pii_redaction_enabled() else None,
     )
 
     return PipelineComponents(
