@@ -51,7 +51,7 @@ export function NavRail({
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-v-fg"
           title="VoicEra"
         >
-          <LogoMark size={26} />
+          <LogoMark size={26} className="brightness-0" />
           {expanded ? (
             <span className="truncate text-[17px] font-extrabold tracking-[-.3px] text-v-fg">VoicEra</span>
           ) : null}

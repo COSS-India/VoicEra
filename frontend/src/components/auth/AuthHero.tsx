@@ -74,12 +74,12 @@ export function AuthHero() {
       <span className="pointer-events-none absolute -bottom-[240px] -left-[200px] h-[560px] w-[560px] animate-v-drift-rev rounded-full bg-[radial-gradient(circle,rgba(20,18,26,.62)_0%,rgba(20,18,26,0)_70%)]" />
 
       <div className="relative inline-flex w-fit cursor-pointer items-center gap-3 text-white">
-        <LogoMark size={42} />
+        <LogoMark size={42} className="brightness-0 invert" />
         <span className="text-[23px] font-semibold tracking-tight">VoicEra</span>
       </div>
 
       <div className="relative flex min-h-0 min-w-0 max-w-[34ch] flex-col gap-6 sm:gap-7">
-        <h1 className="m-0 text-[clamp(30px,3.6vw,54px)] font-semibold leading-[1.03] tracking-tight text-balance">
+        <h1 className="m-0 text-[clamp(26px,3vw,44px)] font-semibold leading-[1.03] tracking-tight text-balance">
           A phone call, in any language, is enough.
         </h1>
 
@@ -118,12 +118,25 @@ export function AuthHero() {
         </div>
       </div>
 
-      <div className="relative flex flex-wrap items-center gap-5 text-xs font-light">
-        {["Repository", "Docs", "Privacy", "Terms"].map((l) => (
-          <a key={l} href="#" className="text-white/72 hover:text-white">
-            {l}
-          </a>
-        ))}
+      <div className="relative flex flex-col gap-5">
+        <div className="flex items-center gap-3 text-[15px] font-light text-white/85">
+          <span>An</span>
+          {/* eslint-disable-next-line @next/next/no-img-element -- static public brand asset */}
+          <img
+            src="/ai4i-logo-white.png"
+            alt="AI4Inclusion"
+            className="h-10 w-auto shrink-0"
+            draggable={false}
+          />
+          <span>initiative</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-5 text-xs font-light">
+          {["Repository", "Docs", "Privacy", "Terms"].map((l) => (
+            <a key={l} href="#" className="text-white/72 hover:text-white">
+              {l}
+            </a>
+          ))}
+        </div>
       </div>
     </div>
   );

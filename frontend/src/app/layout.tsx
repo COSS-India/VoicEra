@@ -18,7 +18,12 @@ export const metadata: Metadata = {
   title: "VoicEra",
   description: "VoicEra",
   icons: {
-    icon: "/voicera-logo.png",
+    // Black mark on light browser themes, white mark on dark ones.
+    icon: [
+      { url: "/icon-light.png", type: "image/png", media: "(prefers-color-scheme: light)" },
+      { url: "/icon-dark.png", type: "image/png", media: "(prefers-color-scheme: dark)" },
+    ],
+    shortcut: "/favicon.ico",
   },
 };
 
