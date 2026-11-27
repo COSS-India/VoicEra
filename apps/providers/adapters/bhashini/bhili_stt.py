@@ -448,19 +448,19 @@ class BhashiniBhiliSTTService(STTService):
                         "Bhashini Bhili interim too short to promote safely (words={}, chars={}): {}",
                         word_count,
                         char_count,
-                        self._latest_transcript_text,
+                        redact_if_enabled(self._latest_transcript_text),
                     )
                     return
                 logger.debug(
                     "Bhashini Bhili final transcript timeout; promoting latest interim text: {}",
-                    self._latest_transcript_text,
+                    redact_if_enabled(self._latest_transcript_text),
                 )
                 if self._speech_started_at is not None:
                     await self._emit_latency_metric(
                         "final_transcript_ms",
                         (time.monotonic() - self._speech_started_at) * 1000.0,
                         stage="final_transcript_fallback",
-                        details={"text_preview": self._latest_transcript_text[:80]},
+                        details={"text_preview": redact_if_enabled(self._latest_transcript_text)[:80]},
                     )
                 await self.stop_processing_metrics()
                 await self.push_frame(

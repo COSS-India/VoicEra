@@ -37,16 +37,21 @@ app.include_router(plivo_telephony.router)
 def _configure_logging() -> None:
     """Default the runtime log level to INFO (loguru's own default is DEBUG).
 
-    At DEBUG, Pipecat logs the assistant's text ("Generating TTS [...]"), which
-    PII redaction does not cover.
+    With ``PII_REDACTION_ENABLED``, every log line from the runtime process,
+    including Pipecat's own and the STT adapters', passes through PII redaction,
+    and tracebacks no longer print local variable values (which can hold
+    transcript text).
     """
     import sys
 
     from loguru import logger
 
+    from apps.runtime.services.privacy.redaction import is_enabled, log_patcher
+
     level = os.getenv("RUNTIME_LOG_LEVEL", "INFO").strip().upper() or "INFO"
     logger.remove()
-    logger.add(sys.stderr, level=level)
+    logger.add(sys.stderr, level=level, diagnose=not is_enabled())
+    logger.configure(patcher=log_patcher)
 
 
 _configure_logging()

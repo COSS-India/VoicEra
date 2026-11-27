@@ -10,7 +10,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     UserTurnStoppedMessage,
 )
 
-from apps.runtime.services.privacy.redaction import redact_if_enabled
+from apps.runtime.services.privacy.redaction import redact_live_if_enabled
 
 
 def register_turn_logging_handlers(
@@ -19,11 +19,14 @@ def register_turn_logging_handlers(
     *,
     session_label: str,
 ) -> None:
+    # Logged as each turn ends, before the rest of the call is known, so partial
+    # numbers ("nine eight seven six") are masked too. The runtime's log patcher
+    # applies the same redaction to every other log line.
     @user_aggregator.event_handler("on_user_turn_stopped")
     async def on_user_turn_stopped(
         aggregator: Any, strategy: Any, message: UserTurnStoppedMessage
     ) -> None:
-        logger.info("[{}] user: {}", message.timestamp, redact_if_enabled(message.content))
+        logger.info("[{}] user: {}", message.timestamp, redact_live_if_enabled(message.content))
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(
@@ -33,5 +36,5 @@ def register_turn_logging_handlers(
             logger.info("Assistant interrupted {}", session_label)
         if message.content:
             logger.info(
-                "[{}] assistant: {}", message.timestamp, redact_if_enabled(message.content)
+                "[{}] assistant: {}", message.timestamp, redact_live_if_enabled(message.content)
             )
