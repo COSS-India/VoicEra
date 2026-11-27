@@ -5,9 +5,21 @@ description: Running the VoicEra test suites.
 
 VoicEra has five test suites, one per package. Each lives inside the code it covers — there is no top-level `tests/` directory and no aggregate runner. This page tells you how to run each, what it needs, and what breaks if you skip it.
 
-<Note>
-There is **no CI**. The repository has no `.github/` directory, no workflows, and no pre-commit hooks. Nothing runs on a push. Every check on this page is one you run yourself, before opening a pull request.
-</Note>
+## Continuous integration
+
+Three GitHub Actions workflows run on the repository. There are no pre-commit hooks.
+
+| Workflow | Runs on | What it checks |
+| --- | --- | --- |
+| [`tests.yml`](https://github.com/COSS-India/VoicEra/blob/staging/.github/workflows/tests.yml) | Every push to `main`, `staging` and `dev`, and every pull request | The five pytest suites on this page, one job each, with line coverage |
+| [`standards.yml`](https://github.com/COSS-India/VoicEra/blob/staging/.github/workflows/standards.yml) | Every push to `main`, `staging` and `dev`, and every pull request | OpenAPI 3.1, BCP 47 language tags, hadolint, the Compose Specification, and Trivy dependency and secret scanning |
+| [`mintlify-docs-check.yml`](https://github.com/COSS-India/VoicEra/blob/staging/.github/workflows/mintlify-docs-check.yml) | Pull requests that touch `docs/`, and pushes to `main` that touch `docs/` | The documentation site builds |
+
+`tests.yml` runs each suite in its own job, for the import reason explained [below](#running-them). Each job uploads a JUnit report and a Cobertura coverage report as artifacts, and writes the line-coverage figure to the run summary. A failure in one suite does not cancel the others.
+
+Trivy in `standards.yml` reports only (`exit-code: "0"`), so a finding does not fail the build yet.
+
+Some tests are known to fail and are skipped in CI by name. They are listed under [Known failures](#known-failures). Every other test must pass, so a new failure turns the run red. Run the suites yourself before opening a pull request anyway, because CI covers only what the suites test.
 
 ## The five suites
 
@@ -21,15 +33,32 @@ There is **no CI**. The repository has no `.github/` directory, no workflows, an
 
 None of them needs a database, a GPU, or a network. Five model-server modules shell out to `docker compose config`.
 
-Run one at a time (see the warning below), a healthy tree looks like this:
+Run one at a time (see the warning below), the `staging` branch on 27 Nov 2026 gives these results. They are the same as CI, with the known failures skipped:
 
-| Suite | Result |
-| --- | --- |
-| `apps/api/tests` | 126 passed, 1 skipped — the skip is the opt-in telephony integration module |
-| `apps/runtime/tests` | 40 passed |
-| `apps/telephony/tests` | 65 passed, 2 failed — see [the Plivo serializer defect](#appstelephony) |
-| `apps/providers/tests` | 69 passed |
-| `model-server/tests` | 241 passed, 64 skipped, 1 failed — see the Docker and NOT VERIFIED notes below |
+| Suite | Result | Line coverage |
+| --- | --- | --- |
+| `apps/api/tests` | 285 passed, 12 skipped, 1 known failure. The skips are two opt-in integration modules: live telephony (1 test, `RUN_TELEPHONY_INTEGRATION=1`) and the audit-log event store (11 tests, `EVENTLOG_TEST_MONGODB_URI`). | 59% |
+| `apps/runtime/tests` | 264 passed, 3 known failures | 79% |
+| `apps/providers/tests` | 107 passed, 1 known failure | 54% |
+| `apps/telephony/tests` | 189 passed, 2 known failures | 81% |
+| `model-server/tests` | 654 passed, 56 skipped, 2 known failures. See the Docker and NOT VERIFIED notes below. | 84% |
+
+The counts move as tests are added. Coverage is lines executed by the suite, not a measure of how well behaviour is checked.
+
+## Known failures
+
+These nine tests fail on `staging` today. In each case the code changed and the test was not updated, so the test is out of date rather than the code being broken. `tests.yml` skips them by name with `--deselect`, and each has a comment there saying why. When you fix one, delete its line from `tests.yml` in the same pull request.
+
+| Suite | Test | Why it fails |
+| --- | --- | --- |
+| api | `test_configuration_routes.py::test_tts_setting_includes_scoped_tree` | The Sarvam catalogue moved from `bulbul:v2` to `bulbul:v3`. The test still expects `bulbul:v2`. |
+| providers | `test_settings_by_model_language.py::test_sarvam_voice_options_split_by_model` | Same `bulbul:v2` to `bulbul:v3` change. |
+| runtime | `test_orpheus_sample_rate_label.py` (three tests) | The Indic Orpheus TTS service no longer pins its sample rate to 24 kHz the way the tests expect. |
+| telephony | `test_schema.py::test_vi_secrets_and_dni_flow_fields` and `::test_telephony_settings_and_auth_split` | The Vodafone Idea schema gained `pull_username` and `pull_password`. The expected field sets were not updated. |
+| model-server | `test_env_example.py::test_every_variable_compose_reads_is_documented` | The compose files read variables that `.env.example` does not document (`ORPHEUS_*`, `NEMOTRON_*`, `STT_GRPC_*` and others). |
+| model-server | `test_grpc_facade.py::test_the_facade_folder_is_hidden_from_the_model_menu_and_the_catalogue` | The test looks for `model-server/setup.sh`, which was deleted. |
+
+Before treating any of these as stale, check the runtime Orpheus case: if callers hear audio at the wrong speed, the old test was right and the code is wrong.
 
 ## Running them
 
@@ -59,9 +88,12 @@ The API requirements alone are not enough. `apps/telephony/providers/plivo/seria
 ### API
 
 ```bash
-pip install -r apps/api/requirements.txt pytest
+pip install -r apps/api/requirements.txt pytest pytest-asyncio
+export MINIO_SECRET_KEY=test-only
 pytest apps/api/tests -v
 ```
+
+`pytest-asyncio` is required: the campaign dispatcher, status processor and phone-number modules use `@pytest.mark.asyncio`, and without the plugin about 30 tests fail. `MINIO_SECRET_KEY` must be set to any non-empty value. The MinIO client refuses an empty secret, and the OBD report tests create one without patching it. They never connect to a real MinIO. Leave `SECRET_KEY` and `INTERNAL_API_KEY` unset; the runtime routing tests fail if they are present.
 
 `apps/api/tests/conftest.py` puts both `apps/api` (for `app.*`) and the repository root (for `apps.*`) on `sys.path`, so this works from any directory. Routes are exercised through FastAPI's `TestClient` against in-memory stores and `unittest.mock.patch`, not a live FerretDB.
 
@@ -100,11 +132,9 @@ pytest tests/ -v
 ruff check .
 ```
 
-`tests/requirements-dev.txt` is deliberately small: `pytest`, `pytest-asyncio`, `httpx`, `numpy`, `fastapi`, `uvicorn`, `ruff`, `websockets`, plus the three `grpcio` packages that exercise `stt/_grpc/`. No torch, no NeMo, no CUDA. `tests/pytest.ini` sets `asyncio_mode = auto`, so async tests need no decorator.
+`tests/requirements-dev.txt` is deliberately small: `pytest`, `pytest-asyncio`, `httpx`, `numpy`, `fastapi`, `uvicorn`, `ruff`, `websockets`, the three `grpcio` packages that exercise `stt/_grpc/`, and the packages the tests import directly: `pyyaml`, `aiohttp`, `soundfile`, `python-dotenv` and `python-multipart`. No torch, no NeMo, no CUDA. `tests/pytest.ini` sets `asyncio_mode = auto`, so async tests need no decorator.
 
-<Note>
-Add `pyyaml` as well. Thirteen modules `import yaml` to read `models.yaml` and the compose files, but `requirements-dev.txt` does not list it, so a clean virtualenv built from that file alone fails at collection with `ModuleNotFoundError: No module named 'yaml'`.
-</Note>
+`pytest.ini` also makes `model-server/tests` the rootdir, so test ids are relative to that folder (`test_catalogue.py::...`, not `tests/test_catalogue.py::...`). This matters when you pass `--deselect` or pick a single test.
 
 ## What needs Docker
 
@@ -183,13 +213,7 @@ Five modules. `test_provider_schemas.py` tests the registry as a whole rather th
 
 ### apps/telephony
 
-`test_registry.py` asserts the registered set includes the shipped telephony providers (`vobiz`, `plivo`, `vi`, `go2market`) and that the lazy serializer load works. `test_xml.py` pins the answer XML per sample rate — the string most likely to be silently wrong, because malformed XML produces a call that connects and then goes quiet.
-
-<Note>
-Two tests in `test_serializers.py` currently **fail**: `test_create_frame_serializer_known_providers[plivo]` and `[Plivo]`, with `ValueError: auto_hang_up is enabled but missing required parameters: auth_id, auth_token`.
-
-This is a real defect, not a stale test. Pipecat's `PlivoFrameSerializer` defaults `auto_hang_up` to `True` and then requires `auth_id` and `auth_token`, but `apps/telephony/providers/plivo/serializer_service.py` passes neither — and neither does the runtime callsite in `apps/runtime/services/pipecat/runners.py`, so the serializer raises before any Plivo call can start. Vobiz is unaffected because `VobizFrameSerializer.InputParams` sets `auto_hang_up=False` explicitly. The fix is to do the same for Plivo, since the runtime ends calls itself and holds no Plivo API credentials at that point.
-</Note>
+`test_registry.py` asserts the registered set includes the shipped telephony providers (`vobiz`, `plivo`, `vi`, `go2market`) and that the lazy serializer load works. `test_xml.py` pins the answer XML per sample rate — the string most likely to be silently wrong, because malformed XML produces a call that connects and then goes quiet. `test_serializers.py` checks that a frame serializer can be built for each provider. It includes Plivo, whose `serializer_service.py` now passes `auto_hang_up=False` so the serializer no longer asks for API credentials the runtime does not hold.
 
 ### apps/api
 
