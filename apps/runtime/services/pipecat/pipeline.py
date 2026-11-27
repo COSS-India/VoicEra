@@ -111,5 +111,6 @@ async def run_pipeline(
         sample_rate=sample_rate,
         transcript_writer=components.transcript_writer,
         metrics_writer=components.metrics_writer,
+        call_recording=components.call_recording,
     )
     await run_with_lifecycle(components.worker, ctx)

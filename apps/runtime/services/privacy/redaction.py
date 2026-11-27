@@ -47,14 +47,18 @@ from __future__ import annotations
 
 import os
 import re
+import traceback
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from apps.runtime.services.privacy.number_words import (
+    CURRENCY_WORDS,
+    UNIT_WORDS,
     WORD_CHAR,
     Normalised,
     Run,
+    fold,
     normalise,
 )
 
@@ -146,9 +150,14 @@ _OTP_KEYWORD = (
     r"|ओटीपी|ओ\s?टी\s?पी|ಒಟಿಪಿ|ಓಟಿಪಿ|ಒ\s?ಟಿ\s?ಪಿ|ఓటీపీ|ஓடிபி)"
 )
 _EMAIL_KEYWORD = r"(?:\be-?mail\b|\bmail\s*id\b|ईमेल|इमेल|ई-मेल|ಇಮೇಲ್|ಈಮೇಲ್|ఈమెయిల్|மின்னஞ்சல்)"
+_PHONE_KEYWORD = (
+    r"(?:\b(?:phone|mobile|number|contact|whats\s?app|call\s+(?:me|on))\b"
+    r"|नंबर|नम्बर|मोबाइल|फोन|फ़ोन|व्हाट्सएप|ನಂಬರ್|ಸಂಖ್ಯೆ|ಮೊಬೈಲ್|ಫೋನ್)"
+)
 _HINTS: dict[str, re.Pattern[str]] = {
     "OTP": re.compile(_OTP_KEYWORD, re.IGNORECASE),
     "EMAIL": re.compile(_EMAIL_KEYWORD, re.IGNORECASE),
+    "PHONE": re.compile(_PHONE_KEYWORD, re.IGNORECASE),
 }
 
 _EMAIL_TYPED = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
@@ -225,6 +234,11 @@ _PROTECTED_TOKEN = re.compile(r"(?<![\w-])(?=[\w-]*[A-Za-z])(?=[\w-]*\d)[\w-]{12
 # Digit runs, for the cross-turn rules: one digit at a time, or written together.
 _TYPED_RUN = re.compile(r"(?<!\d)(?:\d(?=[ -]\d(?!\d))(?:[ -]\d(?!\d))+|\d{2,})(?!\d)")
 _PHONE_DIGITS = re.compile(r"(?:91|0)?[6-9]\d{9}")
+# Digits typed in groups ("987 654 3210", "98 76 54 32 10"), one gap between groups.
+_GROUPED_RUN = re.compile(r"(?<![\d,.])\d{2,5}(?:[ -]\d{2,5})+(?![\d,.])")
+# How a ten-digit mobile is usually written; any other grouping needs a phone hint.
+_PHONE_GROUPINGS = frozenset({(5, 5), (3, 3, 4), (4, 3, 3), (2, 2, 2, 2, 2)})
+_WORD = re.compile(r"[^\W\d_]+|[\u20b9%]")
 _IDENTIFIERS = ("PHONE", "AADHAAR", "CARD", "NUMBER")
 
 _INDIC_ZEROS = (
@@ -373,6 +387,42 @@ def _pairable(run: Run) -> bool:
     return run.years <= 1
 
 
+def _is_amount(text: str, start: int, end: int) -> bool:
+    """A price or quantity: a unit right after it, or a currency word right before."""
+    after = _WORD.match(text, len(text) - len(text[end:].lstrip()))
+    if after is not None and (after.group() == "%" or fold(after.group()) in UNIT_WORDS):
+        return True
+    before = text[:start].rstrip()
+    if before.endswith("\u20b9"):
+        return True
+    words = _WORD.findall(before[-12:])
+    return bool(words) and fold(words[-1]) in CURRENCY_WORDS and before.endswith(words[-1])
+
+
+def _grouped_phones(norm: Normalised, hints: set[str], word_spans: list[tuple[int, int]]):
+    """Mobile numbers typed in groups: usual groupings always, any other with a phone hint."""
+    for match in _GROUPED_RUN.finditer(norm.text):
+        if any(match.start() < we and ws < match.end() for ws, we in word_spans):
+            continue
+        groups = [(m.start() + match.start(), m.group()) for m in re.finditer(r"\d+", match.group())]
+        for i in range(len(groups)):
+            found = False
+            for j in range(len(groups), i, -1):
+                window = groups[i:j]
+                digits = "".join(group for _, group in window)
+                if len(digits) > 12 or not _PHONE_DIGITS.fullmatch(digits):
+                    continue
+                lengths = tuple(len(group) for _, group in window)
+                if len(digits) > 10 and window[0][1] in ("91", "0"):
+                    lengths = lengths[1:]
+                if lengths in _PHONE_GROUPINGS or "PHONE" in hints:
+                    yield window[0][0], window[-1][0] + len(window[-1][1])
+                    found = True
+                    break
+            if found:
+                break
+
+
 def _typed_runs(norm: Normalised) -> list[tuple[int, int, str]]:
     """Digit runs written as digits, in rewritten-text coordinates."""
     word_spans = [(run.norm_start, run.norm_end) for run in norm.runs]
@@ -411,6 +461,7 @@ def _find(text: str, wanted: Sequence[str], *, mode: Mode, hints: set[str]) -> _
         take(start, end, entity, re.sub(r"\D", "", norm.text[norm_start:norm_end]))
 
     typed_runs = _typed_runs(norm)
+    word_spans = [(run.norm_start, run.norm_end) for run in norm.runs]
 
     for entity in ENTITIES:
         if entity not in wanted:
@@ -424,8 +475,14 @@ def _find(text: str, wanted: Sequence[str], *, mode: Mode, hints: set[str]) -> _
                     continue
                 if pattern is _EMAIL_WORDS and not _email_words_ok(match, hints):
                     continue
+                if entity == "NUMBER" and _is_amount(norm.text, *match.span()):
+                    continue
                 group = "pii" if "pii" in pattern.groupindex else 0
                 take_norm(*match.span(group), entity)
+
+        if entity == "PHONE":
+            for norm_start, norm_end in _grouped_phones(norm, hints, word_spans):
+                take_norm(norm_start, norm_end, entity)
 
         # Spoken numbers read in pairs ("ninety eight seventy six ...").
         for run in norm.runs:
@@ -445,15 +502,29 @@ def _find(text: str, wanted: Sequence[str], *, mode: Mode, hints: set[str]) -> _
                 if 4 <= len(run.digits) <= 8:
                     take(run.start, run.end, entity, run.digits)
 
+        # Read out one digit at a time; pairs and years ("twenty twenty five") are not.
         if entity == "NUMBER" and strict:
             for match in _STRICT_NUMBER.finditer(norm.text):
-                take_norm(*match.span(), entity)
+                if not _is_amount(norm.text, *match.span()):
+                    take_norm(*match.span(), entity)
             for run in norm.runs:
-                if len(run.digits) >= 4:
+                if run.digit_by_digit and len(run.digits) >= 4:
                     take(run.start, run.end, entity, run.digits)
 
     runs = [_DigitRun(run.start, run.end, run.digits, True) for run in norm.runs]
+    # With a phone hint, "76 54 32 10" is one part of a number, not four.
+    grouped = []
+    if "PHONE" in hints:
+        grouped = [
+            m.span() for m in _GROUPED_RUN.finditer(norm.text)
+            if not any(m.start() < we and ws < m.end() for ws, we in word_spans)
+        ]
+    for norm_start, norm_end in grouped:
+        start, end = norm.span(norm_start, norm_end)
+        runs.append(_DigitRun(start, end, re.sub(r"\D", "", norm.text[norm_start:norm_end]), True))
     for norm_start, norm_end, digits in typed_runs:
+        if any(gs <= norm_start and norm_end <= ge for gs, ge in grouped):
+            continue
         start, end = norm.span(norm_start, norm_end)
         runs.append(_DigitRun(start, end, digits, len(digits) < norm_end - norm_start))
     runs.sort(key=lambda run: run.start)
@@ -646,27 +717,63 @@ def _redact_fragments_of_known(turns: list[_Turn], wanted: Sequence[str]) -> Non
                     break
 
 
+def _analyse_turns(turns: Sequence[tuple[str, str]], wanted: Sequence[str]) -> list[_Turn]:
+    all_hints: list[set[str]] = []
+    for index, (role, text) in enumerate(turns):
+        previous = turns[index - 1] if index else None
+        context = previous[1] if previous is not None and previous[0] != role else ""
+        all_hints.append(_hints(text, context))
+    analysed: list[_Turn] = []
+    for index, (role, text) in enumerate(turns):
+        hints = set(all_hints[index])
+        # "my number is 98" / "76 54 32 10": the hint carries to the rest of the number.
+        for back in (1, 2):
+            if index >= back and turns[index - back][0] == role and "PHONE" in all_hints[index - back]:
+                hints.add("PHONE")
+        analysed.append(_Turn(role, text, _find(text or "", wanted, mode="stored", hints=hints)))
+    _join_split_numbers(analysed, wanted)
+    _redact_fragments_of_known(analysed, wanted)
+    return analysed
+
+
 def redact_turns(turns: Sequence[tuple[str, str]], entities: Sequence[str] | None = None) -> list[str]:
     """Redact every turn of one call, using the rest of the call as context.
 
     ``turns`` is ``(role, text)`` in call order. Returns the redacted texts.
     """
-    wanted = _wanted(entities)
-    analysed: list[_Turn] = []
-    for index, (role, text) in enumerate(turns):
-        previous = turns[index - 1] if index else None
-        context = previous[1] if previous is not None and previous[0] != role else ""
-        hints = _hints(text, context)
-        analysed.append(_Turn(role, text, _find(text or "", wanted, mode="stored", hints=hints)))
-    _join_split_numbers(analysed, wanted)
-    _redact_fragments_of_known(analysed, wanted)
-    return [_apply(turn.text, turn.found.spans) if turn.text else turn.text for turn in analysed]
+    return [text for text, _ in redact_turns_with_spans(turns, entities)]
+
+
+def redact_turns_with_spans(
+    turns: Sequence[tuple[str, str]], entities: Sequence[str] | None = None
+) -> list[tuple[str, list[tuple[int, int]]]]:
+    """Like ``redact_turns``, plus where in each original text the redactions are.
+
+    Each turn gives ``(redacted_text, [(start, end), ...])``; the spans index the
+    original text. The call recording uses them to mute the same parts of the audio.
+    """
+    analysed = _analyse_turns(turns, _wanted(entities))
+    return [
+        (
+            _apply(turn.text, turn.found.spans) if turn.text else turn.text,
+            [(span.start, span.end) for span in turn.found.spans],
+        )
+        for turn in analysed
+    ]
 
 
 def redact_turns_if_enabled(turns: Sequence[tuple[str, str]]) -> list[str]:
     if not is_enabled():
         return [text for _, text in turns]
     return redact_turns(turns, enabled_entities())
+
+
+def find_spans(text: str, entities: Sequence[str] | None = None, *, mode: Mode = "stored") -> list[tuple[int, int]]:
+    """Where in ``text`` something would be redacted, as ``(start, end)`` offsets."""
+    if not text:
+        return []
+    found = _find(text, _wanted(entities), mode=mode, hints=_hints(text))
+    return [(span.start, span.end) for span in found.spans]
 
 
 # --------------------------------------------------------------------------- #
@@ -683,9 +790,21 @@ def log_patcher(record: dict[str, Any]) -> None:
     if not is_enabled():
         return
     message = record.get("message")
-    if not message:
+    exception = record.get("exception")
+    if not message and not exception:
         return
     try:
-        record["message"] = redact_text(message, enabled_entities(), mode="log")
+        if message:
+            record["message"] = redact_text(message, enabled_entities(), mode="log")
+        if exception:
+            # A traceback repeats the failing value ("invalid number 9876543210"), and
+            # loguru's own formatting adds local variables. Log it redacted, without
+            # locals, as part of the message instead.
+            kind, value, trace = exception
+            formatted = "".join(traceback.format_exception(kind, value, trace)).rstrip()
+            redacted = redact_text(formatted, enabled_entities(), mode="log")
+            record["message"] = f"{record['message']}\n{redacted}" if record["message"] else redacted
+            record["exception"] = None
     except Exception:  # noqa: BLE001 - never let redaction break logging
         record["message"] = "[REDACTION_FAILED]"
+        record["exception"] = None

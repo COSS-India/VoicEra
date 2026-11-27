@@ -20,6 +20,13 @@ Covered:
   the digits zero to nine, the way phone numbers and IDs are usually read out.
 - English ordinals ("fifteenth"), so dates like "fifteenth December" resolve.
 
+Quantities are left alone: spoken numbers right before a quantity word
+("hundred", "सौ", "लाख", "ನೂರು") or a unit ("rupees", "किलो", "ರೂಪಾಯಿ"), or right
+after a currency word, are not rewritten, so prices never look like identifiers.
+
+Digits written with commas are read the way they are meant: "9,876,543,210" and
+"98,76,54,321" as one number, "9, 8, 7, 6" as digits read out one at a time.
+
 Romanised Hindi ("ek do teen") is not covered: "do", "teen" and "char" are
 common English words.
 """
@@ -30,6 +37,7 @@ import bisect
 import re
 import unicodedata
 from dataclasses import dataclass
+from itertools import pairwise
 
 # --------------------------------------------------------------------------- #
 # Lexicon
@@ -37,6 +45,7 @@ from dataclasses import dataclass
 
 _UNIT, _TEEN, _TENS, _PAIR = "unit", "teen", "tens", "pair"
 _MULT, _OH, _ORDINAL, _THOUSAND, _AND = "mult", "oh", "ordinal", "thousand", "and"
+_SCALE = "scale"
 
 _NUKTAS = dict.fromkeys(map(ord, "\u093c\u09bc\u0a3c\u0abc\u0b3c\u0cbc"))
 _JOINERS = dict.fromkeys(map(ord, "\u200c\u200d"))
@@ -99,6 +108,28 @@ for _value, _word in enumerate(
 _add(_ORDINAL, 30, "thirtieth")
 _add(_THOUSAND, 1000, "thousand", "हज़ार", "हजार", "ಸಾವಿರ", "ಸಾವಿರದ")
 _add(_AND, 0, "and", "और", "ಮತ್ತು")
+_add(
+    _SCALE, 100, "hundred", "hundreds", "lakh", "lakhs", "lac", "crore", "crores", "dozen",
+    "सौ", "लाख", "करोड़", "शंभर", "ನೂರು", "ಲಕ್ಷ", "ಕೋಟಿ",
+)
+
+# Words after a number that make it a quantity, never an identifier.
+UNIT_WORDS = frozenset(
+    fold(word)
+    for word in (
+        "rupees", "rupee", "rs", "inr", "paise", "kilo", "kilos", "kg", "kgs", "gram", "grams",
+        "quintal", "quintals", "ton", "tons", "tonne", "tonnes", "litre", "litres", "liter",
+        "liters", "acre", "acres", "hectare", "hectares", "bag", "bags", "percent", "km",
+        "metre", "metres", "meter", "meters", "days", "months", "years", "minutes", "hours",
+        "रुपये", "रुपए", "रुपया", "रुपयों", "रु", "पैसे", "किलो", "ग्राम", "क्विंटल", "टन",
+        "लीटर", "एकड़", "एकर", "हेक्टेयर", "बोरी", "प्रतिशत", "दिन", "महीने", "साल",
+        "ರೂಪಾಯಿ", "ರೂ", "ಕೆಜಿ", "ಕಿಲೋ", "ಕ್ವಿಂಟಾಲ್", "ಎಕರೆ", "ಲೀಟರ್", "ದಿನ", "ವರ್ಷ",
+    )
+)
+# Words before a number that make it an amount.
+CURRENCY_WORDS = frozenset(fold(word) for word in ("rs", "rupees", "inr", "रु", "रुपये", "ರೂ"))
+_COMMA_NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3}")
+_COMMA_GAP = re.compile(r"\s*,\s*|\s+")
 
 # Hindi, 0-99. Common spelling variants are listed; nukta and chandrabindu
 # differences are already handled by fold().
@@ -417,20 +448,26 @@ def _is_number(token: _Token) -> bool:
     return token.kind in (_UNIT, _TEEN, _TENS, _PAIR, _MULT, "digits")
 
 
-def _split_runs(text: str, tokens: list[_Token]) -> list[list[_Token]]:
-    """Group number tokens that follow each other with only separators between."""
-    runs: list[list[_Token]] = []
+def _split_runs(text: str, tokens: list[_Token]) -> list[tuple[list[_Token], int]]:
+    """Group number tokens that follow each other with only separators between.
+
+    Returns each run with the index of the token after it.
+    """
+    runs: list[tuple[list[_Token], int]] = []
     current: list[_Token] = []
+    position = 0
 
     def close() -> None:
         # A run never ends on a connective ("... five oh", "two thousand and").
         while current and current[-1].kind in (_OH, _AND):
             current.pop()
-        if current and any(token.kind != "digits" for token in current):
-            runs.append(list(current))
+        if current:
+            runs.append((list(current), tokens.index(current[-1], position) + 1))
         current.clear()
 
     for index, token in enumerate(tokens):
+        if not current:
+            position = index
         joinable = bool(current) and _joinable(text, current[-1], token)
         nxt = tokens[index + 1] if index + 1 < len(tokens) else None
         if _is_number(token):
@@ -456,6 +493,45 @@ def _split_runs(text: str, tokens: list[_Token]) -> list[list[_Token]]:
     return runs
 
 
+def _is_quantity(text: str, tokens: list[_Token], run: list[_Token], after: int) -> bool:
+    """A spoken amount: before a quantity word or unit, or after a currency word."""
+    nxt = tokens[after] if after < len(tokens) else None
+    if (
+        nxt is not None
+        and _joinable(text, run[-1], nxt)
+        and (nxt.kind in (_SCALE, _THOUSAND) or fold(nxt.text) in UNIT_WORDS)
+    ):
+        return True
+    if text[run[-1].end :].lstrip().startswith("%"):
+        return True
+    before = text[: run[0].start].rstrip()
+    if before.endswith("\u20b9"):
+        return True
+    previous = [token for token in tokens if token.end <= run[0].start]
+    if previous and fold(previous[-1].text) in CURRENCY_WORDS and _joinable(text, previous[-1], run[0]):
+        return True
+    # "two thousand four hundred": the year reading would be wrong.
+    return any(token.kind == _THOUSAND for token in run) and nxt is not None and nxt.kind == _SCALE
+
+
+def _typed_groups(text: str, run: list[_Token]) -> list[Group] | None:
+    """Digits written with commas: one number ("9,876,543,210"), or pieces said one by one."""
+    if len(run) < 2:
+        return None
+    span = text[run[0].start : run[-1].end]
+    if _COMMA_NUMBER.fullmatch(span):
+        return [Group("".join(token.text for token in run), run[0].start, run[-1].end)]
+    gaps = [text[a.end : b.start] for a, b in pairwise(run)]
+    # "9, 8, 7, 6" or "98, 76, 54, 32, 10": each piece said on its own.
+    if (
+        all(len(token.text) <= 5 for token in run)
+        and any("," in gap for gap in gaps)
+        and all(_COMMA_GAP.fullmatch(gap) for gap in gaps)
+    ):
+        return [Group(token.text, token.start, token.end) for token in run]
+    return None
+
+
 def normalise(text: str) -> Normalised:
     """Rewrite number words in ``text`` as digits (digits from one word per group)."""
     tokens = _tokens(text)
@@ -473,19 +549,27 @@ def normalise(text: str) -> Normalised:
         pieces.append(piece)
         norm_length += len(piece)
 
-    replacements: list[tuple[int, int, list[Group] | str]] = []
-    for run_tokens in _split_runs(text, tokens):
+    replacements: list[tuple[int, int, list[Group] | str, bool]] = []
+    for run_tokens, after in _split_runs(text, tokens):
+        first, last = run_tokens[0], run_tokens[-1]
+        if all(token.kind == "digits" for token in run_tokens):
+            groups = _typed_groups(text, run_tokens)
+            if groups:
+                replacements.append((first.start, last.end, groups, False))
+            continue
+        if _is_quantity(text, tokens, run_tokens, after):
+            continue
         groups = _parse_run(run_tokens)
         if groups:
-            replacements.append((groups[0].start, groups[-1].end, groups))
+            replacements.append((groups[0].start, groups[-1].end, groups, True))
     # Ordinals outside runs become "15th" so dates like "15th December" resolve.
-    taken = [(start, end) for start, end, _ in replacements]
+    taken = [(start, end) for start, end, _, _ in replacements]
     for token in tokens:
         if token.kind == _ORDINAL and not any(s <= token.start < e for s, e in taken):
-            replacements.append((token.start, token.end, f"{token.value}th"))
+            replacements.append((token.start, token.end, f"{token.value}th", False))
     replacements.sort(key=lambda item: item[0])
 
-    for start, end, replacement in replacements:
+    for start, end, replacement, is_word_run in replacements:
         emit(text[position:start], position, start, verbatim=True)
         if isinstance(replacement, str):
             emit(replacement, start, end, verbatim=False)
@@ -498,7 +582,8 @@ def normalise(text: str) -> Normalised:
                     emit(" ", gap_start, gap_end, verbatim=False)
                 emit(group.digits, group.start, group.end, verbatim=False)
                 previous_end = group.end
-            runs.append(Run(tuple(replacement), start, end, norm_start, norm_length))
+            if is_word_run:
+                runs.append(Run(tuple(replacement), start, end, norm_start, norm_length))
         position = end
     emit(text[position:], position, len(text), verbatim=True)
     if not segments:

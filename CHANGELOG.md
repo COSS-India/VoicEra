@@ -35,8 +35,20 @@ several subsystems are new.
   test panel receives. Numbers spoken as words are read as digits (English,
   Hindi and Kannada in full, digits 0–9 in eight more Indian languages), and the
   stored transcript is redacted with the whole call as context, so a number
-  split over two turns or repeated in part is caught (VE-122, VE-221). Call
-  recordings are not redacted yet (#243).
+  split over two turns or repeated in part is caught (VE-122, VE-221).
+- **Call recording switch and PII muting in recordings** (#243) —
+  `CALL_RECORDING_ENABLED=false` turns call recording off: no system recording
+  and no carrier recording. With `PII_REDACTION_ENABLED=true`, every caller
+  utterance and agent sentence that had something redacted in the transcript
+  is replaced with a quiet tone in the stored recording before it is uploaded,
+  and carrier recordings are not started or stored.
+- **PII redaction follow-ups** (PR #270 review) — phone numbers typed with
+  commas or in 3-3-4, 4-3-3 and pair groupings are redacted, and any other
+  grouping when a phone or number is mentioned, including a number split over
+  two turns. Prices and quantities (`two thousand four hundred rupees`,
+  `दो हज़ार चार सौ रुपये`, `पांच छह सात आठ नौ दस किलो`) and years
+  (`twenty twenty five`) are no longer partly redacted. Exception tracebacks in
+  the runtime logs are redacted too.
 - **Encryption at rest for call recordings and transcripts** — opt-in with
   `MINIO_ENCRYPTION=sse-s3` and `MINIO_KMS_SECRET_KEY`. The runtime verifies
   encryption at startup.

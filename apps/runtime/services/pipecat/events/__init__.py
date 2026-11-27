@@ -55,7 +55,7 @@ def register_all_handlers(
         components.assistant_aggregator,
         session_label=session_label,
     )
-    register_recording_handlers(
+    components.call_recording = register_recording_handlers(
         components.audiobuffer,
         org_id=org_id,
         call_id=call_id,

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from loguru import logger
 
 from apps.runtime.services.backend import BackendError, backend_client
+from apps.runtime.services.privacy.audio import provider_recording_allowed
 from apps.runtime.services.storage.call_artifacts import save_and_link
 from apps.telephony.provider_recording import (
     ProviderRecordingRef,
@@ -24,7 +25,18 @@ async def ingest_provider_recording(
     audio: bytes | None = None,
     provider_label: str = "Telephony",
 ) -> Response:
-    """Store provider recording bytes (or download ``ref.recording_url``) on CallLog."""
+    """Store provider recording bytes (or download ``ref.recording_url``) on CallLog.
+
+    Skipped, with a 200 so the carrier does not retry, when call recording is off
+    or PII redaction is on (see ``privacy.audio``).
+    """
+    if not provider_recording_allowed():
+        logger.info(
+            "{} recording not stored (recording off or PII redaction on) sid={}",
+            provider_label,
+            str(ref.provider_call_sid or "").strip(),
+        )
+        return JSONResponse({"stored": False, "reason": "recording disabled"}, status_code=200)
     provider_call_sid = str(ref.provider_call_sid or "").strip()
     if not provider_call_sid:
         return PlainTextResponse("provider_call_sid is required", status_code=400)

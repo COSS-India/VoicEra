@@ -35,8 +35,10 @@ from apps.runtime.services.pipecat.vad import (
     VadProfileSwitcher,
     vad_params_from_behaviour,
 )
+from apps.runtime.services.privacy.audio import recording_enabled
 from apps.runtime.services.privacy.redaction import is_enabled as pii_redaction_enabled
 from apps.runtime.services.privacy.rtvi import RedactingRTVIProcessor
+from apps.runtime.services.storage.recording import CallRecording, TimedAudioBufferProcessor
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
 
@@ -52,6 +54,7 @@ class PipelineComponents:
     context: LLMContext
     transcript_writer: TranscriptWriter | None = None
     metrics_writer: CallMetricsWriter | None = None
+    call_recording: CallRecording | None = None
 
 
 def build_pipeline_components(
@@ -82,10 +85,12 @@ def build_pipeline_components(
 
     # Stock Pipecat 1.8 recording: after transport.output(), at pipeline rate.
     # AudioBufferProcessor resamples inbound frames; WAV uses on_audio_data rate.
-    audiobuffer = AudioBufferProcessor(
+    # The timed subclass also notes agent sentence timings, so PII can be
+    # muted in the stored recording. CALL_RECORDING_ENABLED=false: no buffering.
+    audiobuffer = TimedAudioBufferProcessor(
         num_channels=1,
         enable_turn_audio=False,
-        auto_start_recording=True,
+        auto_start_recording=recording_enabled(),
         sample_rate=sample_rate,
     )
 

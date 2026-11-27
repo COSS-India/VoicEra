@@ -17,6 +17,7 @@ from apps.runtime.services.agent_routing import (
     telephony_provider,
 )
 from apps.runtime.services.backend import BackendError, backend_client
+from apps.runtime.services.privacy.audio import provider_recording_allowed
 from apps.telephony import (
     build_answer_stream_xml,
     decode_webhook_body,
@@ -35,7 +36,17 @@ async def _start_provider_recording(
     provider: str,
     provider_call_sid: str,
 ) -> None:
-    """Start a carrier recording when the loaded client exposes the hook."""
+    """Start a carrier recording when the loaded client exposes the hook.
+
+    Not started when call recording is off or PII redaction is on: a carrier
+    recording cannot be muted reliably, and the carrier keeps its own copy.
+    """
+    if not provider_recording_allowed():
+        logger.info(
+            "Carrier recording not started (recording off or PII redaction on) provider={}",
+            provider,
+        )
+        return
     try:
         auth = await backend_client.get_provider_auth(provider, org_id)
         config = build_config(

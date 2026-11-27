@@ -12,6 +12,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from apps.runtime.services.backend import backend_client
 from apps.runtime.services.pipecat.metrics.writer import CallMetricsWriter
+from apps.runtime.services.storage.recording import CallRecording
 from apps.runtime.services.storage.transcript import TranscriptWriter
 
 
@@ -25,6 +26,7 @@ class SessionContext:
     sample_rate: int
     transcript_writer: TranscriptWriter | None = None
     metrics_writer: CallMetricsWriter | None = None
+    call_recording: CallRecording | None = None
 
 
 async def finalize_call(org_id: str, call_id: str) -> None:
@@ -65,3 +67,8 @@ async def run_with_lifecycle(worker: PipelineWorker, ctx: SessionContext) -> Non
             await ctx.metrics_writer.flush()
         if ctx.finalize_call and ctx.call_id:
             await finalize_call(ctx.org_id, ctx.call_id)
+        # Last, so waiting for the audio never delays the call's status. After
+        # the transcript, because muting uses what its redaction found.
+        if ctx.call_recording:
+            turns = ctx.transcript_writer.turn_timings if ctx.transcript_writer else []
+            await ctx.call_recording.flush(turns)
