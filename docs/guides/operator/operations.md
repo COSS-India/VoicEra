@@ -198,7 +198,7 @@ Redaction then applies in three places:
 | Where | What is redacted |
 | --- | --- |
 | Stored transcript (`transcript.txt` in MinIO) | Every line, when the call ends, using the whole call as context. The History page, transcript download, OBD report and translate endpoint only ever see this redacted text. |
-| Runtime logs | Every line the runtime writes through its logger: its own lines, Pipecat's (including `DEBUG` output such as `Generating TTS [...]`) and the STT adapters'. Digits inside long letter-and-digit tokens such as call IDs, UUIDs and object IDs are left intact so logs stay traceable. Tracebacks stop printing local variable values. Uvicorn's request lines do not pass through it; they carry paths and IDs, not transcript text. |
+| Runtime logs | Every line the runtime writes through its logger: its own lines, Pipecat's (including `DEBUG` output such as `Generating TTS [...]`) and the STT adapters'. Digits inside long letter-and-digit tokens such as call IDs, UUIDs and object IDs are left intact so logs stay traceable. Tracebacks are redacted too (the error text often repeats the failing value) and are written without local variable values. Uvicorn's request lines do not pass through it; they carry paths and IDs, not transcript text. |
 | Browser test panel | The live caller and agent text, as each line arrives. The agent's token-by-token text streams (`bot-llm-text`, `bot-tts-text`) are not sent while redaction is on; the panel does not use them. |
 
 Every detected item is replaced with the same placeholder, `[REDACTED_TEXT]`, whatever its type. A per-type label such as `[REDACTED_PHONE]` would tell anyone reading the transcript what kind of detail was there, which helps them guess it from the rest of the conversation. The types below are what is detected; their names are used only to choose types in `PII_REDACTION_ENTITIES`, and never appear in redacted text.
@@ -216,15 +216,17 @@ Every detected item is replaced with the same placeholder, `[REDACTED_TEXT]`, wh
 
 **Numbers spoken as words.** Speech recognition writes numbers the way they were said ("nine eight seven six ...", `नौ आठ सात ...`, `ಒಂಬತ್ತು ಎಂಟು ...`). The redaction reads these as digits first. English, Hindi and Kannada are covered in full: digits, teens, tens and compounds (`ninety eight`, `अट्ठानवे`, `ತೊಂಬತ್ತೆಂಟು`), "double"/"triple", and years (`twenty twenty one`, `दो हज़ार इक्कीस`). Marathi, Bengali, Gujarati, Punjabi, Odia, Tamil, Telugu and Malayalam are covered for the digits zero to nine, which is how phone numbers and IDs are normally read out.
 
-**Digit grouping.** Digits count as one identifier only when they are written together (`9876543210`), one digit at a time (`9 8 7 6 5 4 3 2 1 0`), in the grouping that identifier is read out in (phone 5-5, Aadhaar 4-4-4, card 4-4-4-4 or 4-6-5), or, when spoken as words, in pairs (`ninety eight seventy six ...`). Aadhaar numbers must also pass the Verhoeff check and card numbers the Luhn check. Several numbers spoken in a row, such as prices (`2400 2500 2600`, `twenty four hundred, twenty five hundred`), are left as they are.
+**Digit grouping.** Digits count as one identifier only when they are written together (`9876543210`, `9,876,543,210`), one digit at a time (`9 8 7 6 5 4 3 2 1 0`, `9, 8, 7, 6, ...`), in a grouping that identifier is read out in (phone 5-5, 3-3-4, 4-3-3 or in pairs; Aadhaar 4-4-4; card 4-4-4-4 or 4-6-5), or, when spoken as words, in pairs (`ninety eight seventy six ...`). A phone number in any other grouping (`9876 54 3210`) is redacted when the turn, or the speaker's previous turn, mentions a phone or number (`number`, `mobile`, `phone`, `नंबर`, `ಮೊಬೈಲ್`, ...). Aadhaar numbers must also pass the Verhoeff check and card numbers the Luhn check. Several numbers spoken in a row, such as prices (`2400 2500 2600`, `twenty four hundred, twenty five hundred`), are left as they are.
+
+**Prices and quantities.** Numbers spoken with a quantity word or unit are amounts, not identifiers, and are not read as digits: `two thousand four hundred rupees`, `दो हज़ार चार सौ रुपये`, `पांच छह सात आठ नौ दस किलो`, `ಎರಡು ಸಾವಿರ ನಾಲ್ಕು ನೂರು ರೂಪಾಯಿ`. The same goes for numbers after `Rs` or `₹`, and for a long digit run followed by a unit (`123456789 rupees`). Words treated as quantities include hundred, lakh, crore, सौ, लाख, करोड़, ನೂರು, ಲಕ್ಷ, ಕೋಟಿ, and units such as rupees, kilo, quintal, acre, litre, percent, days and years in English, Hindi and Kannada.
 
 **Whole-call context (stored transcript only).** Because the transcript is redacted when the call ends, it also catches:
 
-- a number split over turns by the same speaker, for example `nine eight seven six` and then `five four three two one zero`, with up to one turn by the other speaker in between;
+- a number split over turns by the same speaker, for example `nine eight seven six` and then `five four three two one zero`, with up to one turn by the other speaker in between. A part typed in groups (`98`, then `76 54 32 10`) is joined when the call mentions a phone or number there;
 - part of a number given in full elsewhere in the call, such as the agent repeating the last eight digits (five or more digits);
 - an OTP, or a spoken email, given in reply to the agent asking for one.
 
-The logs and the test panel are redacted line by line as the call happens, so they cannot wait for the rest of a split number. Instead they also mask any run of four or more digits read out one at a time or as words.
+The logs and the test panel are redacted line by line as the call happens, so they cannot wait for the rest of a split number. Instead they also mask any run of four or more digits read out one digit at a time, typed or as words (`nine eight seven six`, `1, 2, 3, 4`). Numbers said in pairs or as years (`twenty twenty five`) are not masked by this rule.
 
 To redact only some of these, list them in `PII_REDACTION_ENTITIES`, for example `PHONE,EMAIL`.
 
@@ -237,10 +239,39 @@ Limits to know about:
 - Romanised Hindi number words (`ek do teen`) are not read as digits, because `do`, `teen` and `char` are also English words. Pair-read numbers in languages other than English, Hindi and Kannada are not either.
 - A spoken email of the form `name at domain dot org` is redacted only with a sign that it is an email: a dot, underscore or digits in the name, "at the rate", a known mail provider (`gmail`, `yahoo`, `outlook`, ...), or the word "email" in the same or the previous turn. Otherwise it could be a website.
 - A six-digit PIN code read out one digit at a time is kept; seven or more digits read that way are redacted. The last four digits of a number on their own are kept.
-- Identifiers read out in unusual groupings of digits (for example a phone number as 3-3-4) are not detected.
+- A phone number in an unusual grouping of digits (`9876 54 3210`) is detected only with a phone or number word nearby. Other identifiers in unusual groupings are not detected.
+- A number said right before a unit is kept even if it is an identifier (`nine eight seven six rupees`).
 - Three price-like groups of four digits that happen to pass the Aadhaar check (about 1 in 10) are still redacted as Aadhaar.
-- Call recordings are not redacted. Recording redaction and a switch to turn recording off are tracked in [issue #243](https://github.com/COSS-India/VoicEra/issues/243).
+- Call recordings are covered separately: see [Call recordings](#call-recordings).
 - Logs from other services (API, worker, model server) are not redacted.
+
+## Call recordings
+
+Each call can have two recordings:
+
+- **The system recording** (`recording.wav` in MinIO), made by the runtime itself, with the caller and the agent mixed into one track.
+- **The carrier recording**, made by the telephony provider (Plivo, Vi, Vobiz, Go2Market) and downloaded into MinIO after the call. The carrier also keeps its own copy on its side.
+
+Two settings in `.env` decide what is recorded. As with PII redaction, recreate the runtime after a change with `docker compose up -d runtime`; `restart` does not re-read `.env`.
+
+| `CALL_RECORDING_ENABLED` | `PII_REDACTION_ENABLED` | System recording | Carrier recording |
+| --- | --- | --- | --- |
+| `true` (default) | `false` | Stored as recorded | Started and stored |
+| `true` | `true` | Stored with PII muted | Not started, not stored |
+| `false` | either | Not made | Not started, not stored |
+
+**How muting works.** When the call ends, the transcript is redacted first. Every caller utterance and every agent sentence that had something redacted is then replaced with a quiet 1 kHz tone in the recording, on that speaker's side only, with a short margin either side. The tone is the same whatever was removed, like `[REDACTED_TEXT]` in the transcript. Caller utterances with four or more digits read out are muted too, even where the transcript keeps them. Only the muted recording is uploaded: the unmuted audio stays in the runtime's memory and is dropped. If muting fails for any reason, the recording is not stored at all rather than stored unmuted. The recording keeps its full length, so the transcript's timestamps still line up with it.
+
+**Why carrier recordings are not stored with redaction on.** A carrier recording starts on the carrier's clock and uses its own audio processing, so the muting cannot be lined up with it reliably, and the carrier keeps its own copy anyway. Carrier recording webhooks are acknowledged with `200` and not downloaded.
+
+Limits to know about:
+
+- Muting follows the text redaction. Whatever it does not detect (names, postal addresses), or what the speech recognition misheard, is not muted either.
+- The unit is a whole caller utterance or a whole agent sentence. The speech engines give no word timings, so single words cannot be muted.
+- An agent sentence that was cut off by an interruption is muted if anything in that agent turn was redacted.
+- Recordings stored before the setting was turned on are not changed.
+- A carrier can still record a call if recording is configured in your own carrier account or dashboard. Turn it off there too, and delete copies the carrier already holds. That is outside VoicEra.
+- Links to recordings in carrier reports (for example Vi's call report) point to the carrier's copy.
 
 ## Capacity signals
 

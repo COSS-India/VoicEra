@@ -5,6 +5,7 @@ Objects are stored at ``voicera-calls/{org_id}/{call_id}/transcript.txt``.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from loguru import logger
@@ -13,9 +14,12 @@ from pipecat.processors.aggregators.llm_response_universal import (
     UserTurnStoppedMessage,
 )
 
+from apps.runtime.services.privacy.audio import TurnTiming, timings_for_turns
 from apps.runtime.services.privacy.redaction import (
+    enabled_entities,
+    is_enabled,
     redact_live_if_enabled,
-    redact_turns_if_enabled,
+    redact_turns_with_spans,
 )
 from apps.runtime.services.storage.call_artifacts import save_and_link
 from apps.runtime.services.storage.object_storage import minio_uri
@@ -29,36 +33,51 @@ class TranscriptWriter:
     last eight digits of a number given in full earlier. Raw text stays in this
     process's memory only, as it already does in the LLM context, and is dropped
     as soon as the transcript is rendered.
+
+    After ``flush``, ``turn_timings`` says when each turn happened and what was
+    redacted in it, so the call recording can mute the same parts.
     """
 
     def __init__(self, *, org_id: str, call_id: str) -> None:
         self._org_id = org_id
         self._call_id = call_id
-        self._lines: list[tuple[str, str, str]] = []  # (role, timestamp, content)
+        # (role, turn start timestamp, content, turn end in epoch seconds)
+        self._lines: list[tuple[str, str, str, float]] = []
         self._flushed = False
+        self.turn_timings: list[TurnTiming] = []
 
     @property
     def object_uri(self) -> str:
         return minio_uri(self._org_id, self._call_id, "transcript.txt")
 
     def append(self, role: str, timestamp: str, content: str) -> None:
-        self._lines.append((role, timestamp, content))
+        self._lines.append((role, timestamp, content, time.time()))
 
     def render(self) -> str:
         """The transcript as it is stored, redacted when PII redaction is enabled."""
-        contents = [content for _, _, content in self._lines]
-        try:
-            contents = redact_turns_if_enabled(
-                [(role, content) for role, _, content in self._lines]
-            )
-        except Exception:  # noqa: BLE001
-            # Never store raw text because the call-level pass failed: fall back to
-            # the stricter per-line redaction.
-            logger.exception("Call-level PII redaction failed call_id={}", self._call_id)
-            contents = [redact_live_if_enabled(content) for content in contents]
+        contents = [content for _, _, content, _ in self._lines]
+        self.turn_timings = []
+        if is_enabled():
+            try:
+                redacted = redact_turns_with_spans(
+                    [(role, content) for role, _, content, _ in self._lines], enabled_entities()
+                )
+                contents = [text for text, _ in redacted]
+                self.turn_timings = timings_for_turns(
+                    [(role, ts, end, content) for role, ts, content, end in self._lines], redacted
+                )
+            except Exception:  # noqa: BLE001
+                # Never store raw text because the call-level pass failed: fall back
+                # to the stricter per-line redaction, and mute every turn.
+                logger.exception("Call-level PII redaction failed call_id={}", self._call_id)
+                contents = [redact_live_if_enabled(content) for content in contents]
+                self.turn_timings = [
+                    TurnTiming(role, None, end, content, ((0, len(content)),))
+                    for role, _, content, end in self._lines
+                ]
         body = "".join(
             f"[{timestamp}] {role}: {content}\n"
-            for (role, timestamp, _), content in zip(self._lines, contents)
+            for (role, timestamp, _, _), content in zip(self._lines, contents)
         )
         return f"call_id={self._call_id}\n---\n{body}"
 

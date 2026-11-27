@@ -8,11 +8,12 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from loguru import logger
 
 from apps.runtime.routes.provider_recording import ingest_provider_recording
 from apps.runtime.services.backend import BackendError, backend_client
+from apps.runtime.services.privacy.audio import provider_recording_allowed
 from apps.telephony.provider_recording import ProviderRecordingRef
 from apps.telephony.providers.plivo.recording import (
     download_ready_recording,
@@ -73,6 +74,11 @@ async def plivo_recording_webhook(request: Request) -> Response:
             sorted(str(key) for key in payload),
         )
         return PlainTextResponse("call_uuid is required", status_code=400)
+
+    # Don't even download it when it would not be stored (see privacy.audio).
+    if not provider_recording_allowed():
+        logger.info("Plivo recording not stored (recording off or PII redaction on)")
+        return JSONResponse({"stored": False, "reason": "recording disabled"}, status_code=200)
 
     client = await _load_plivo_client(parsed.call_uuid)
     if client is None:

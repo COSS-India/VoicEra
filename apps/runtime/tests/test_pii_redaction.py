@@ -641,3 +641,133 @@ async def test_redacting_rtvi_processor_pushes_redacted_frames(enabled: None) ->
     )
     frame = processor.push_frame.await_args.args[0]
     assert frame.message["data"]["text"] == "my number is [REDACTED_TEXT]"
+
+
+# --------------------------------------------------------------------------- #
+# PR #270 review follow-ups: typed groupings, quantities, tracebacks, joins
+# --------------------------------------------------------------------------- #
+
+_ALL_MODES = ("stored", "live", "log")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "9,876,543,210",
+        "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
+        "98, 76, 54, 32, 10",
+        "987 654 3210",
+        "987-654-3210",
+        "9876 543 210",
+        "98 76 54 32 10",
+        "91 98 76 54 32 10",
+    ],
+)
+@pytest.mark.parametrize("mode", _ALL_MODES)
+def test_typed_phone_groupings_are_redacted_in_every_mode(text: str, mode: str) -> None:
+    assert redact_text(f"call me on {text} please", mode=mode) == "call me on [REDACTED_TEXT] please"
+
+
+@pytest.mark.parametrize("mode", _ALL_MODES)
+def test_unusual_grouping_needs_a_phone_hint(mode: str) -> None:
+    assert redact_text("my number is 9876 54 3210", mode=mode) == "my number is [REDACTED_TEXT]"
+    assert redact_text("my mobile 98,76,54,3210", mode=mode) == "my mobile [REDACTED_TEXT]"
+    assert redact_text("lot 9876 54 3210", mode=mode) == "lot 9876 54 3210"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "two thousand four hundred rupees",
+        "दो हज़ार चार सौ रुपये",
+        "पांच छह सात आठ नौ दस किलो",
+        "ಎರಡು ಸಾವಿರ ನಾಲ್ಕು ನೂರು ರೂಪಾಯಿ",
+        "five six seven eight quintal",
+        "Rs nine eight seven six",
+        "₹ 123456789",
+        "123456789 rupees",
+        "rate 1200, 1500, 1800 rupees",
+        "5,000 rupees",
+        "1,50,000",
+        "twenty twenty five season",
+        "the price is two thousand four hundred",
+    ],
+)
+@pytest.mark.parametrize("mode", _ALL_MODES)
+def test_prices_quantities_and_years_are_kept(text: str, mode: str) -> None:
+    assert redact_text(text, mode=mode) == text
+
+
+def test_spoken_and_typed_digits_one_by_one_agree() -> None:
+    for text in ("one, two, three, four", "1, 2, 3, 4", "nine eight seven six"):
+        assert redact_text(text) == text
+        assert redact_text(text, mode="live") == "[REDACTED_TEXT]"
+
+
+def test_quantity_words_do_not_become_digits() -> None:
+    assert normalise("two thousand four hundred rupees").text == "two thousand four hundred rupees"
+    assert normalise("दो हज़ार चार सौ रुपये").text == "दो हज़ार चार सौ रुपये"
+    assert normalise("nine eight seven six").text == "9 8 7 6"
+
+
+def test_live_strict_rule_only_for_digits_read_one_by_one() -> None:
+    assert redact_text("ninety eight seventy six", mode="live") == "ninety eight seventy six"
+    assert redact_text("the twenty twenty five season", mode="live") == "the twenty twenty five season"
+    assert redact_text("code nine eight seven six", mode="live") == "code [REDACTED_TEXT]"
+
+
+def test_log_patcher_redacts_exception_text(enabled: None) -> None:
+    from loguru import logger
+
+    lines: list[str] = []
+    sink = logger.add(lines.append, format="{message}\n{exception}", diagnose=True, backtrace=True)
+    logger.configure(patcher=log_patcher)
+
+    def check(phone: str) -> None:
+        raise ValueError(f"invalid number {phone}")
+
+    try:
+        try:
+            check("9876543210")
+        except ValueError:
+            logger.exception("lookup failed for 9876543210")
+    finally:
+        logger.remove(sink)
+        logger.configure(patcher=lambda record: None)
+
+    joined = "".join(lines)
+    assert "9876543210" not in joined
+    assert "ValueError: invalid number [REDACTED_TEXT]" in joined
+    assert "lookup failed for [REDACTED_TEXT]" in joined
+
+
+def test_log_patcher_never_keeps_an_unredacted_exception(enabled: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.runtime.services.privacy import redaction
+
+    def broken(*args: object, **kwargs: object) -> str:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(redaction, "redact_text", broken)
+    try:
+        raise ValueError("9876543210")
+    except ValueError as exc:
+        record = {"message": "x", "exception": (type(exc), exc, exc.__traceback__)}
+    log_patcher(record)
+    assert record == {"message": "[REDACTION_FAILED]", "exception": None}
+
+
+def test_number_typed_in_groups_is_joined_across_turns() -> None:
+    assert redact_turns([("user", "mera number 98"), ("user", "76 54 32 10")]) == [
+        "mera number [REDACTED_TEXT]",
+        "[REDACTED_TEXT]",
+    ]
+    assert redact_turns(
+        [("assistant", "What is your phone number?"), ("user", "98765"), ("user", "432 10")]
+    ) == ["What is your phone number?", "[REDACTED_TEXT]", "[REDACTED_TEXT]"]
+
+
+def test_grouped_typed_numbers_need_a_phone_hint_to_join() -> None:
+    turns = [("user", "price 98"), ("user", "76 54 32 10")]
+    assert redact_turns(turns) == ["price 98", "76 54 32 10"]
+    # Single typed numbers join without a hint, as before.
+    assert redact_turns([("user", "98765"), ("user", "43210")]) == ["[REDACTED_TEXT]", "[REDACTED_TEXT]"]
